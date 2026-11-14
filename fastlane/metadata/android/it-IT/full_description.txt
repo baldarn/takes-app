@@ -1,0 +1,24 @@
+Takes è una videocamera e un editor video in una sola app, pensata per come si girano davvero i video: una ripresa alla volta.
+
+REGISTRA A RIPRESE
+• Registra, metti in pausa, riprendi e ferma. Ogni pausa chiude una ripresa, e puoi tornare sullo stesso progetto più tardi, anche dopo aver chiuso l'app.
+• Passa dalla camera frontale a quella posteriore mentre registri.
+• Zoom predefiniti, pizzico per zoomare e transizioni di zoom fluide e temporizzate. Ogni camera ricorda il proprio zoom.
+• Livello del microfono in tempo reale durante la registrazione.
+
+MONTA SULLA TIMELINE
+• Timeline scorrevole con miniature e forme d'onda dell'audio.
+• Dividi sul cursore, rifila con le maniglie, elimina e riordina le clip.
+• Annulla e ripristina che restano anche dopo aver chiuso l'app.
+• Le registrazioni originali non vengono mai modificate.
+
+ESPORTA E CONDIVIDI
+• Esporta il montaggio come filmato H.264/AAC.
+• Guardalo, condividilo o salvalo nella galleria.
+
+I TUOI VIDEO RESTANO TUOI
+• Nessun account, nessuna pubblicità, nessun tracciamento.
+• L'app non ha accesso a internet: registrazioni e progetti restano sul tuo dispositivo.
+• I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
+
+Takes è un port Android non ufficiale e open source di YouRec di Salvatore Sanfilippo (antirez). È una prima versione: altri strumenti di montaggio sono in arrivo.

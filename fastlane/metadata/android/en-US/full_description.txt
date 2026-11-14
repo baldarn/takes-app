@@ -1,0 +1,24 @@
+Takes is a camera and a video editor in one app, built around the way videos are actually made: one take at a time.
+
+RECORD IN TAKES
+• Record, pause, resume and stop. Every pause closes a take, and you can come back to the same project later, even after closing the app.
+• Switch between front and rear camera while recording.
+• Zoom presets, pinch to zoom, and smooth timed zoom transitions. Each camera remembers its own zoom.
+• Live microphone level while you record.
+
+EDIT ON A TIMELINE
+• Scrolling thumbnail timeline with audio waveforms.
+• Split at the playhead, trim with handles, delete and reorder clips.
+• Undo and redo that survive closing the app.
+• Your original recordings are never modified.
+
+EXPORT AND SHARE
+• Export your edit as an H.264/AAC movie.
+• Play it, share it, or save it to your gallery.
+
+YOUR VIDEOS STAY YOURS
+• No account, no ads, no tracking.
+• The app has no internet access: recordings and projects stay on your device.
+• Deleted projects go to Recently Deleted, where you can restore them.
+
+Takes is an unofficial, open source Android port of YouRec by Salvatore Sanfilippo (antirez). It is an early release: more editing tools are on the way.
