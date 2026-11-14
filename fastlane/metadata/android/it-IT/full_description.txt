@@ -9,11 +9,13 @@ REGISTRA A RIPRESE
 MONTA SULLA TIMELINE
 • Timeline scorrevole con miniature e forme d'onda dell'audio.
 • Dividi sul cursore, rifila con le maniglie, elimina e riordina le clip.
+• Titoli che seguono le immagini, dissolvenze al nero e dissolvenze incrociate tra le clip.
+• Importa nel progetto i video già presenti sul telefono.
 • Annulla e ripristina che restano anche dopo aver chiuso l'app.
 • Le registrazioni originali non vengono mai modificate.
 
 ESPORTA E CONDIVIDI
-• Esporta il montaggio come filmato H.264/AAC.
+• Esporta il montaggio scegliendo dimensione, H.264 o H.265 e fotogrammi al secondo.
 • Guardalo, condividilo o salvalo nella galleria.
 
 I TUOI VIDEO RESTANO TUOI

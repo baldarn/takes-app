@@ -9,11 +9,13 @@ RECORD IN TAKES
 EDIT ON A TIMELINE
 • Scrolling thumbnail timeline with audio waveforms.
 • Split at the playhead, trim with handles, delete and reorder clips.
+• Titles that follow the footage, plus fades and cross dissolves between clips.
+• Import videos from your device into a project.
 • Undo and redo that survive closing the app.
 • Your original recordings are never modified.
 
 EXPORT AND SHARE
-• Export your edit as an H.264/AAC movie.
+• Export your edit as a movie, choosing size, H.264 or H.265 and frame rate.
 • Play it, share it, or save it to your gallery.
 
 YOUR VIDEOS STAY YOURS
