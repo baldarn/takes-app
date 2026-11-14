@@ -16,7 +16,7 @@ Needs JDK 17 and the Android SDK (API 36).
 - `core/` — pure Kotlin, no Android. `Project` (sources, capture ledger, undo/redo
   snapshots), `ProjectDisk` (atomic manifest, content-addressed `History/`, revisions,
   Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
-  `TimelineEditing` (split, delete, move, trim), `WaveformBuilder` (audio peaks).
+  `TimelineEditing` (split, delete, move, trim, transitions, titles), `WaveformBuilder` (audio peaks).
 - `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
   take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
   Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
@@ -33,6 +33,8 @@ Needs JDK 17 and the Android SDK (API 36).
 - Basic editor: preview of the edit, scrolling thumbnail timeline under a fixed
   playhead with audio waveforms, split at the playhead, trim handles on the current
   clip, delete and reorder clips, persistent undo/redo.
+- Fade-through-black transitions between neighboring clips (picture and sound) and
+  titles attached to their footage, identical in preview and export.
 - Export of the edit to a new H.264/AAC movie in the project's `Exports` folder, then
   play, share or save to the gallery. Sources are never modified.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
@@ -40,7 +42,8 @@ Needs JDK 17 and the Android SDK (API 36).
 
 ## Not ported yet
 
-Multiple tracks, transitions, titles, LUTs, subtitles, speed,
+Multiple tracks, overlapping transitions (dissolve, wipe and the others), title fonts,
+colors and motion, LUTs, subtitles, speed,
 crop, export settings, video effects, audio restoration models, stabilization, dual camera, follow face,
 HDR/Log capture, microphone selection, manual focus, bookmarks, project ZIP/OTIO.
 The project file format is this port's own and is not interchangeable with iOS.

@@ -18,6 +18,13 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import app.takes.core.WaveformBuilder
 import kotlin.math.sqrt
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import app.takes.core.TextOverlay
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -100,6 +107,7 @@ private val Muted = Color(0xFFA0A4AB)
 private val TileSize = 56.dp
 private val WaveHeight = 30.dp
 private val WaveColor = Color(0xFF7DB7FF)
+private val TitleColor = Color(0xFFFFD54A)
 
 private fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
@@ -261,6 +269,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         scroll.dispatchRawDelta((moved * pixelsPerSecond).toFloat()) // no one-frame jump before the scroll catches up
     }
 
+    // What the playhead shows on top of the picture: titles and the fade of a transition.
+    val canvas by produceState<Pair<Int, Int>?>(null, clips.firstOrNull()?.sourceID) {
+        value = clips.firstOrNull()?.let { files[it.sourceID] }?.let { withContext(Dispatchers.IO) { displaySize(it) } }
+    }
+    val current = location?.let { clips[it.index] }
+    val sourceTime = if (location != null && current != null) current.start + location.offset else 0.0
+    val titles = current?.let { TimelineEditing.textsAt(it, sourceTime) }.orEmpty()
+    val level = location?.let { TimelineEditing.level(clips, it.index, it.offset) } ?: 1.0
+    SideEffect { editor.player.volume = level.toFloat() }
+    var editingTitle by remember { mutableStateOf(false) }
+    var editingTransition by remember { mutableStateOf(false) }
+
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -269,10 +289,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Button(onClick = { editor.pause(); exporter.start(project) }, enabled = clips.isNotEmpty()) { Text("Export") }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
-            AndroidView(
-                { PlayerView(it).apply { useController = false; player = editor.player } },
-                Modifier.fillMaxSize(),
-            )
+            // The export canvas: the first clip's shape. Other clips fit inside it.
+            Box(canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()) {
+                AndroidView(
+                    { PlayerView(it).apply { useController = false; player = editor.player } },
+                    Modifier.fillMaxSize(),
+                )
+                Canvas(Modifier.fillMaxSize()) {
+                    drawIntoCanvas { target -> titles.forEach { TitleRenderer.draw(target.nativeCanvas, size.width, size.height, it) } }
+                }
+                if (level < 1) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1 - level).toFloat())))
+            }
             if (clips.isEmpty()) Text("The timeline is empty. Undo to bring clips back.", color = Muted)
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
@@ -298,11 +325,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             beginTrim = { leading -> location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
         )
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), Arrangement.SpaceEvenly) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp), Arrangement.SpaceEvenly) {
             TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) },
                 enabled = TimelineEditing.split(edit, playhead) != null) { Text("Split") }
-            TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } },
-                enabled = location != null) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
+            TextButton(onClick = { editor.pause(); editingTitle = true }, enabled = location != null) { Text(if (titles.isEmpty()) "Title" else "Edit title") }
+            TextButton(onClick = { editor.pause(); editingTransition = true },
+                enabled = location != null && location.index < clips.lastIndex) { Text("Transition") }
             for ((label, step) in listOf("◀ Move" to -1, "Move ▶" to 1)) {
                 val target = location?.let { it.index + step }
                 TextButton(
@@ -313,7 +341,25 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     enabled = target != null && target in clips.indices,
                 ) { Text(label) }
             }
+            TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } },
+                enabled = location != null) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
         }
+    }
+
+    if (editingTitle && location != null && current != null) {
+        TitleDialog(
+            existing = titles.firstOrNull(), clip = current, sourceTime = sourceTime, sourceDuration = durations[current.sourceID] ?: current.end,
+            save = { commit(TimelineEditing.setText(edit, location.index, it), playhead); editingTitle = false },
+            remove = { commit(TimelineEditing.removeText(edit, location.index, it), playhead); editingTitle = false },
+            dismiss = { editingTitle = false },
+        )
+    }
+    if (editingTransition && location != null) {
+        TransitionDialog(
+            current = TimelineEditing.transition(clips, location.index)?.duration,
+            choose = { commit(TimelineEditing.setTransition(edit, location.index, it), playhead); editingTransition = false },
+            dismiss = { editingTransition = false },
+        )
     }
 
     ExportDialogs(exporter, context) { store.error = it }
@@ -382,7 +428,7 @@ private fun Timeline(
         ) {
             var offset = 0f
             clips.forEachIndexed { index, clip ->
-                key(clip.id) { ClipStrip(clip, files.getValue(clip.sourceID), index == current, offset, pixelsPerSecond, viewport, scroll) }
+                key(clip.id) { ClipStrip(clip, files.getValue(clip.sourceID), index == current, TimelineEditing.transition(clips, index) != null, offset, pixelsPerSecond, viewport, scroll) }
                 offset += (clip.duration * pixelsPerSecond).toFloat()
             }
         }
@@ -396,7 +442,7 @@ private fun Timeline(
 
 @Composable
 private fun ClipStrip(
-    clip: TimelineClip, file: File, current: Boolean, offset: Float,
+    clip: TimelineClip, file: File, current: Boolean, joined: Boolean, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState,
 ) {
     val density = LocalDensity.current
@@ -440,12 +486,104 @@ private fun ClipStrip(
                 }
             }
         }
+        // Titles as labelled bars over the footage they cover.
+        for (title in clip.texts.orEmpty()) {
+            val from = maxOf(title.start, clip.start)
+            val to = minOf(title.end, clip.end)
+            if (to <= from) continue
+            Text(
+                title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
+                modifier = Modifier.offset { IntOffset(((from - clip.start) * pixelsPerSecond).roundToInt(), 0) }
+                    .width(with(density) { ((to - from) * pixelsPerSecond).toFloat().toDp() })
+                    .background(TitleColor, RoundedCornerShape(3.dp)).padding(horizontal = 3.dp),
+            )
+        }
+        // A transition into the next clip.
+        if (joined) {
+            Text("Fade", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp).background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
+        }
         if (current) {
             val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(TileSize + WaveHeight).background(Color.White, RoundedCornerShape(3.dp))
             Box(grip.align(Alignment.CenterStart))
             Box(grip.align(Alignment.CenterEnd))
         }
     }
+}
+
+@Composable
+private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected: T, choose: (T) -> Unit) {
+    Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
+        options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
+    }
+}
+
+/** Adds a title at the playhead, or edits the one showing there. */
+@Composable
+private fun TitleDialog(
+    existing: TextOverlay?, clip: TimelineClip, sourceTime: Double, sourceDuration: Double,
+    save: (TextOverlay) -> Unit, remove: (String) -> Unit, dismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf(existing?.text ?: "") }
+    var y by remember { mutableDoubleStateOf(existing?.y ?: 0.5) }
+    var size by remember { mutableDoubleStateOf(existing?.size ?: 0.065) }
+    // Seconds on screen; 0 keeps the current range, a negative value means the whole clip.
+    var length by remember { mutableDoubleStateOf(if (existing == null) 3.0 else 0.0) }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(if (existing == null) "Add title" else "Edit title") },
+        text = {
+            Column {
+                OutlinedTextField(text, { text = it.take(500) }, label = { Text("Text") }, maxLines = 4)
+                Choices("Position", listOf("Top" to 0.15, "Center" to 0.5, "Bottom" to 0.85), y) { y = it }
+                Choices("Size", listOf("Small" to 0.045, "Medium" to 0.065, "Large" to 0.1), size) { size = it }
+                Choices("On screen", (if (existing == null) emptyList() else listOf("As is" to 0.0)) +
+                    listOf("2 s" to 2.0, "3 s" to 3.0, "5 s" to 5.0, "Whole clip" to -1.0), length) { length = it }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = text.isNotBlank(),
+                onClick = {
+                    val start = existing?.start ?: sourceTime
+                    val (from, to) = when {
+                        length < 0 -> clip.start to clip.end
+                        length == 0.0 && existing != null -> existing.start to existing.end
+                        else -> start to minOf(start + length, maxOf(sourceDuration, clip.end))
+                    }
+                    // Too close to the end of the recording: show it over the last half second.
+                    val begin = if (to - from < 0.1) maxOf(0.0, to - 0.5) else from
+                    save((existing ?: TextOverlay()).copy(text = text.trim(), start = begin, end = to, y = y, size = size))
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (existing != null) TextButton(onClick = { remove(existing.id) }) { Text("Remove", color = RecordRed) }
+                TextButton(onClick = dismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun TransitionDialog(current: Double?, choose: (Double?) -> Unit, dismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Transition to the next clip") },
+        text = {
+            Column {
+                Text("Fade through black. Picture and sound fade out, then in.", color = Muted, fontSize = 13.sp)
+                for ((label, seconds) in listOf<Pair<String, Double?>>("None" to null, "0.3 s" to 0.3, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0)) {
+                    TextButton(onClick = { choose(seconds) }) {
+                        Text((if (seconds == current) "● " else "○ ") + label, fontSize = 16.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -459,7 +597,7 @@ private fun ExportDialogs(exporter: Exporter, context: Context, report: (String)
         )
     }
     exporter.result?.let { file ->
-        val uri = remember(file) { FileProvider.getUriForFile(context, "app.takes.files", file) }
+        val uri = remember(file) { FileProvider.getUriForFile(context, "${context.packageName}.files", file) }
         fun open(intent: Intent) = try {
             context.startActivity(intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
         } catch (_: Exception) {

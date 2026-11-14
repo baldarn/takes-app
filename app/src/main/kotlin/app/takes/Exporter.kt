@@ -13,7 +13,12 @@ import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.GainProcessor
+import androidx.media3.effect.OverlayEffect
+import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
@@ -50,7 +55,7 @@ fun clippedItem(clip: TimelineClip, file: File): MediaItem = MediaItem.Builder()
     ).build()
 
 /** Upright picture size with even dimensions, or null when the file has no readable video. */
-private fun displaySize(file: File): Pair<Int, Int>? {
+fun displaySize(file: File): Pair<Int, Int>? {
     val retriever = MediaMetadataRetriever()
     return try {
         retriever.setDataSource(file.path)
@@ -100,9 +105,19 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val output = File(folder, name)
             val writing = File(folder, ".$name")
             val fit = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
-            val items = clips.map { clip ->
+            val items = clips.mapIndexed { index, clip ->
+                val fadeIn = TimelineEditing.fadeLength(clips, index - 1)
+                val fadeOut = TimelineEditing.fadeLength(clips, index)
+                val fades = fadeIn > 0 || fadeOut > 0
+                val begins = TimelineEditing.clipStart(clips, index)
+                val picture = buildList<Effect> {
+                    add(fit)
+                    if (!clip.texts.isNullOrEmpty()) add(OverlayEffect(listOf(TitleOverlay(clip, begins, canvas.first, canvas.second))))
+                    if (fades) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut)) // after the titles, so they fade too
+                }
+                val sound = if (fades) listOf<AudioProcessor>(GainProcessor(FadeGain(clip.duration, fadeIn, fadeOut))) else emptyList()
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
-                    .setEffects(Effects(emptyList(), listOf(fit)))
+                    .setEffects(Effects(sound, picture))
                     .build()
             }
             // Silence is generated for takes recorded without a microphone.

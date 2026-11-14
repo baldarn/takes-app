@@ -91,6 +91,92 @@ class TimelineEditingTest {
     }
 }
 
+class TransitionAndTitleTest {
+    private val a = TimelineClip(sourceID = "A", start = 0.0, end = 4.0)
+    private val b = TimelineClip(sourceID = "B", start = 1.0, end = 3.0)
+    private val c = TimelineClip(sourceID = "C", start = 0.0, end = 0.4)
+    private val state = EditState(listOf(a, b, c))
+
+    @Test fun transitionBelongsToItsNeighbors() {
+        val joined = TimelineEditing.setTransition(state, 0, 1.0)!!
+        assertEquals(b.id, joined.clips[0].transition!!.nextClipID)
+        assertEquals(1.0, TimelineEditing.transition(joined.clips, 0)!!.duration, 0.0)
+        assertNull(TimelineEditing.setTransition(joined, 0, 1.0))
+        assertNull(TimelineEditing.setTransition(state, 2, 1.0)) // nothing after the last clip
+        assertNull(TimelineEditing.setTransition(state, 0, 0.0))
+        assertNull(TimelineEditing.setTransition(state, 0, null))
+        // Changing the duration keeps the transition's identity.
+        val longer = TimelineEditing.setTransition(joined, 0, 2.0)!!
+        assertEquals(joined.clips[0].transition!!.id, longer.clips[0].transition!!.id)
+        assertNull(TimelineEditing.setTransition(joined, 0, null)!!.clips[0].transition)
+        // Moving or deleting a neighbor removes the join instead of passing it on.
+        assertNull(TimelineEditing.move(joined, 1, 2)!!.clips[0].transition)
+        assertNull(TimelineEditing.delete(joined, 1)!!.clips[0].transition)
+        assertEquals(joined.clips[0].transition, TimelineEditing.delete(joined, 2)!!.clips[0].transition)
+        // Splitting the first clip hands the join to the piece that touches the next clip.
+        val split = TimelineEditing.split(joined, 2.0)!!
+        assertNull(split.clips[0].transition)
+        assertEquals(b.id, TimelineEditing.transition(split.clips, 1)!!.nextClipID)
+    }
+
+    @Test fun fadesMeetAtBlackAndNeverOverlap() {
+        val joined = TimelineEditing.setTransition(TimelineEditing.setTransition(state, 0, 1.0)!!, 1, 1.0)!!.clips
+        assertEquals(0.5, TimelineEditing.fadeLength(joined, 0), 0.0)
+        assertEquals(0.2, TimelineEditing.fadeLength(joined, 1), 1e-12) // limited by the 0.4 s clip
+        assertEquals(0.0, TimelineEditing.fadeLength(joined, 2), 0.0)
+        assertEquals(1.0, TimelineEditing.level(joined, 0, 0.0), 0.0)   // no fade at the very start
+        assertEquals(1.0, TimelineEditing.level(joined, 0, 3.5), 0.0)
+        assertEquals(0.5, TimelineEditing.level(joined, 0, 3.75), 1e-12)
+        assertEquals(0.0, TimelineEditing.level(joined, 0, 4.0), 0.0)
+        assertEquals(0.0, TimelineEditing.level(joined, 1, 0.0), 0.0)
+        assertEquals(0.5, TimelineEditing.level(joined, 1, 0.25), 1e-12)
+        assertEquals(1.0, TimelineEditing.level(joined, 1, 1.0), 0.0)
+        assertEquals(0.0, TimelineEditing.level(joined, 1, 2.0), 1e-12)
+        assertEquals(0.5, TimelineEditing.level(joined, 2, 0.1), 1e-12)
+        assertEquals(1.0, TimelineEditing.level(joined, 2, 0.4), 0.0)   // the movie does not end on a fade
+        assertEquals(1.0, TimelineEditing.level(joined, 9, 0.0), 0.0)
+    }
+
+    @Test fun titlesFollowTheirFootage() {
+        val title = TextOverlay(text = "Coast", start = 1.5, end = 2.5)
+        val titled = TimelineEditing.setText(state, 1, title)!!
+        assertEquals(listOf(title), TimelineEditing.textsAt(titled.clips[1], 1.5))
+        assertEquals(emptyList<TextOverlay>(), TimelineEditing.textsAt(titled.clips[1], 2.5))
+        assertNull(TimelineEditing.setText(titled, 1, title))
+        assertNull(TimelineEditing.setText(state, 1, title.copy(end = 1.0)))
+        assertNull(TimelineEditing.setText(state, 1, title.copy(text = "x".repeat(501))))
+        val edited = TimelineEditing.setText(titled, 1, title.copy(text = "Sicilian coast"))!!
+        assertEquals(listOf("Sicilian coast"), edited.clips[1].texts!!.map { it.text })
+        assertEquals(titled.clips[1].texts, TimelineEditing.move(titled, 1, 0)!!.clips[0].texts)
+        // A split leaves the title on every piece that shows part of it.
+        val through = TimelineEditing.split(titled, 4.0 + 1.0)!! // source time 2.0, inside the title
+        assertEquals(listOf(title), through.clips[1].texts)
+        assertEquals(listOf(title), through.clips[2].texts)
+        val after = TimelineEditing.split(titled, 4.0 + 1.8)!!   // source time 2.8, after the title
+        assertEquals(listOf(title), after.clips[1].texts)
+        assertNull(after.clips[2].texts)
+        assertNull(TimelineEditing.removeText(titled, 1, "missing"))
+        assertNull(TimelineEditing.removeText(titled, 1, title.id)!!.clips[1].texts)
+    }
+
+    @Test fun projectsWithTitlesNeedTheNewSchemaAndStayValid() {
+        val take = SourceMedia(filename = "a.mp4", duration = 4.0)
+        var project = Project("Trip").addRecording(take).addRecording(SourceMedia(filename = "b.mp4", duration = 2.0))
+        assertEquals(1, project.schemaVersion)
+        val plain = project.snapshots[0].data().decodeToString()
+        assertEquals("{\"state\":{\"clips\":[]},\"captureCursor\":0}", plain) // unchanged bytes for old history
+        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 0.5)!!)
+        assertEquals(2, project.schemaVersion)
+        project = project.commit(TimelineEditing.setText(project.edit, 0, TextOverlay(text = "Hi", start = 0.0, end = 4.0))!!)
+        project.validate()
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
+        val late = TimelineEditing.setText(project.edit, 0, TextOverlay(start = 3.0, end = 9.0))!!
+        org.junit.Assert.assertThrows(ProjectException::class.java) { project.commit(late).validate() }
+    }
+}
+
 class WaveformTest {
     @Test fun onePeakPerSliceAcrossChannels() {
         val builder = WaveformBuilder(sampleRate = 100, channels = 2, peaksPerSecond = 10)

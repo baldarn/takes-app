@@ -55,7 +55,7 @@ private val Muted = Color(0xFFA0A4AB)
 private fun dateLabel(time: Long) = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(time))
 
 private fun play(context: Context, file: File, report: (String) -> Unit) {
-    val uri = FileProvider.getUriForFile(context, "app.takes.files", file)
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
     val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     try {
         context.startActivity(intent)

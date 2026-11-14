@@ -1,5 +1,6 @@
 package app.takes.core
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -49,14 +50,57 @@ data class SourceMedia(
     val originalName: String? = null,
 )
 
+/**
+ * A join belongs to these exact neighbors: it only applies while the clip
+ * after it is [nextClipID]. Moving or deleting a clip never passes a
+ * transition on to unrelated footage.
+ */
+@Serializable
+data class ClipTransition(
+    val id: String = newID(),
+    val nextClipID: String,
+    val style: Style = Style.FadeBlack,
+    val duration: Double = 0.5,
+) {
+    @Serializable
+    enum class Style { @SerialName("fadeBlack") FadeBlack }
+
+    val valid: Boolean get() = duration.isFinite() && duration > 0 && duration <= MAXIMUM_DURATION
+
+    companion object {
+        const val MAXIMUM_DURATION = 10.0
+    }
+}
+
+/** A title over the picture. Times are source seconds, so it follows its footage through trims and moves. */
+@Serializable
+data class TextOverlay(
+    val id: String = newID(),
+    val text: String = "Your text",
+    val start: Double = 0.0,
+    val end: Double = 3.0,
+    val x: Double = 0.5,
+    val y: Double = 0.5,
+    // Font size relative to the shorter canvas dimension; consistent on rotation.
+    val size: Double = 0.065,
+) {
+    val valid: Boolean
+        get() = start.isFinite() && end.isFinite() && start >= 0 && end > start && text.length <= 500 &&
+            x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 && size.isFinite() && size in 0.02..0.3
+}
+
 @Serializable
 data class TimelineClip(
     val id: String = newID(),
     val sourceID: String,
     val start: Double,
     val end: Double,
+    /** The join to the clip after this one. */
+    val transition: ClipTransition? = null,
+    val texts: List<TextOverlay>? = null,
 ) {
     val duration: Double get() = end - start
+    val usesSchema2: Boolean get() = transition != null || !texts.isNullOrEmpty()
 }
 
 /**
@@ -124,6 +168,8 @@ data class Project(
         if (state.clips == edit.clips) return this
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
         return copy(
+            // Older readers must not silently drop transitions and titles.
+            schemaVersion = if (state.clips.any { it.usesSchema2 }) maxOf(schemaVersion, 2) else schemaVersion,
             snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips), cursor),
             historyCursor = historyCursor + 1,
             updatedAt = now,
@@ -167,6 +213,10 @@ data class Project(
                 val source = byID[clip.sourceID] ?: invalid()
                 if (!clip.start.isFinite() || !clip.end.isFinite() || clip.start < 0 ||
                     clip.end <= clip.start || clip.end > source.duration + 0.001) invalid()
+                if (clip.transition?.valid == false) invalid()
+                val texts = clip.texts.orEmpty()
+                if (texts.map { it.id }.toSet().size != texts.size) invalid()
+                if (texts.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
             }
         }
     }
@@ -182,7 +232,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 1
+        const val LATEST_READABLE_SCHEMA = 2
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
         private val RESERVED_NAMES = setOf("project.json", "history", "recovery", "cache", "exports")
