@@ -41,6 +41,7 @@ Needs JDK 17 and the Android SDK (API 36).
   play, share or save to the gallery. Sources are never modified.
 - Import of videos from the device through the system picker, into a new or an
   existing project. HDR footage is tone-mapped on export.
+- Credits and licenses screen with the bundled license texts.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
   the previous revision; finished takes missing from a manifest are indexed at launch.
 

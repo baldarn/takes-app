@@ -74,6 +74,7 @@ private fun play(context: Context, file: File, report: (String) -> Unit) {
 fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Project, Int) -> Unit) {
     var renaming by remember { mutableStateOf<Project?>(null) }
     var erasing by remember { mutableStateOf<Project?>(null) }
+    var showingCredits by remember { mutableStateOf(false) }
     // The project that picked videos go to; empty for a new project.
     var importInto by rememberSaveable { mutableStateOf("") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { videos ->
@@ -120,8 +121,10 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
                 }
             }
         }
+        item { TextButton(onClick = { showingCredits = true }) { Text("Credits and licenses", color = Muted) } }
     }
 
+    if (showingCredits) CreditsScreen(report = { store.error = it }) { showingCredits = false }
     store.importing?.let { step ->
         AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text("Importing") }, text = { Text(step) })
     }
