@@ -1,0 +1,45 @@
+# Takes — Android port of YouRec (work in progress)
+
+A Kotlin rewrite of [YouRec](https://github.com/antirez/YouRecApp), antirez's iPhone
+camera and video editor. "Takes" is a placeholder name: the YouRec name and icon are
+reserved by its author.
+
+## Build
+
+Needs JDK 17 and the Android SDK (API 36).
+
+    ./gradlew :core:test            # project model, storage and zoom curve
+    ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+
+## Layout
+
+- `core/` — pure Kotlin, no Android. `Project` (sources, capture ledger, undo/redo
+  snapshots), `ProjectDisk` (atomic manifest, content-addressed `History/`, revisions,
+  Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
+  `TimelineEditing` (split, delete, move).
+- `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
+  take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
+  Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
+
+## Ported so far
+
+- Projects as the durable unit: record, pause, resume, stop, and continue the same
+  project later, including after the app restarts. Each pause or stop finalizes one
+  immutable segment file.
+- Camera switching while recording, kept inside the same segment with a `camera` event.
+- Per-camera zoom memory, zoom presets, timed zoom transitions (tap: saved time,
+  double tap: one second), pinch to zoom.
+- Recordings stay outside editor undo/redo, as in the original model.
+- Basic editor: preview of the edit, scrolling thumbnail timeline under a fixed
+  playhead, split at the playhead, delete and reorder clips, persistent undo/redo.
+- Export of the edit to a new H.264/AAC movie in the project's `Exports` folder, then
+  play, share or save to the gallery. Sources are never modified.
+- Recently Deleted with restore and permanent deletion; damaged manifests fall back to
+  the previous revision; finished takes missing from a manifest are indexed at launch.
+
+## Not ported yet
+
+Trim handles, waveforms, multiple tracks, transitions, titles, LUTs, subtitles, speed,
+crop, export settings, video effects, audio restoration models, stabilization, dual camera, follow face,
+HDR/Log capture, microphone selection, manual focus, bookmarks, project ZIP/OTIO.
+The project file format is this port's own and is not interchangeable with iOS.
