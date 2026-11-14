@@ -477,6 +477,53 @@ class AudioItemTest {
     }
 }
 
+class RemoveIntervalsTest {
+    private val a = TimelineClip(sourceID = "A", start = 1.0, end = 11.0)
+    private val b = TimelineClip(sourceID = "B", start = 0.0, end = 2.0)
+
+    @Test fun pausesBecomeCutsAndTheGapsClose() {
+        val state = EditState(listOf(a, b))
+        val cut = TimelineEditing.removeIntervals(state, 0, listOf(SourceInterval(3.0, 4.5), SourceInterval(7.0, 8.0)))!!
+        assertEquals(listOf(1.0 to 3.0, 4.5 to 7.0, 8.0 to 11.0, 0.0 to 2.0), cut.clips.map { it.start to it.end })
+        assertEquals(state.duration - 2.5, cut.duration, 1e-12)
+        assertEquals(a.id, cut.clips[0].id)
+        assertEquals(4, cut.clips.map { it.id }.toSet().size)
+        // Cuts outside the clip, or leaving it whole, change nothing.
+        assertNull(TimelineEditing.removeIntervals(state, 0, listOf(SourceInterval(0.0, 0.5), SourceInterval(20.0, 30.0))))
+        assertNull(TimelineEditing.removeIntervals(state, 0, emptyList()))
+        assertNull(TimelineEditing.removeIntervals(state, 0, listOf(SourceInterval(0.0, 99.0)))) // would remove everything
+        assertNull(TimelineEditing.removeIntervals(state, 7, listOf(SourceInterval(3.0, 4.0))))
+    }
+
+    @Test fun leadingAndTrailingSilenceAndSliversGo() {
+        val state = EditState(listOf(a))
+        // Silence at both ends, and a 0.05 s sliver between two pauses that cannot stand alone.
+        val cut = TimelineEditing.removeIntervals(state, 0, listOf(SourceInterval(0.0, 2.0), SourceInterval(5.0, 6.0), SourceInterval(6.05, 7.0), SourceInterval(10.0, 12.0)))!!
+        assertEquals(listOf(2.0 to 5.0, 7.0 to 10.0), cut.clips.map { it.start to it.end })
+    }
+
+    @Test fun everythingAttachedToTheClipStaysWithItsFootage() {
+        var state = EditState(listOf(a, b))
+        state = TimelineEditing.setTransition(state, 0, 1.0, ClipTransition.Style.FadeBlack)!!
+        state = TimelineEditing.setText(state, 0, TextOverlay(text = "T", start = 2.0, end = 5.0))!!
+        state = TimelineEditing.toggleBookmark(state, 0, 9.0)!!
+        state = TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = -3.0, fadeIn = 1.0, fadeOut = 1.0, denoise = 1.0))!!
+        val cut = TimelineEditing.removeIntervals(state, 0, listOf(SourceInterval(3.0, 4.0), SourceInterval(6.0, 8.0)))!!.clips
+        assertEquals(4, cut.size)
+        assertNull(cut[0].transition); assertNull(cut[1].transition)
+        assertEquals(b.id, TimelineEditing.transition(cut, 2)!!.nextClipID) // the join to the next clip moves to the last piece
+        assertEquals(listOf(1, 1, 0), cut.take(3).map { it.texts.orEmpty().size })  // the title spans the first cut
+        assertEquals(listOf(0, 0, 1), cut.take(3).map { it.bookmarks.orEmpty().size })
+        assertEquals(ClipAudio(volumeDB = -3.0, fadeIn = 1.0, denoise = 1.0), cut[0].audio)
+        assertEquals(ClipAudio(volumeDB = -3.0, denoise = 1.0), cut[1].audio)
+        assertEquals(ClipAudio(volumeDB = -3.0, fadeOut = 1.0, denoise = 1.0), cut[2].audio)
+        val project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 11.0)).addRecording(SourceMedia(filename = "b.mp4", duration = 2.0))
+        val edit = project.edit
+        val removed = TimelineEditing.removeIntervals(edit, 0, listOf(SourceInterval(3.0, 4.0)))!!
+        project.commit(removed).validate()
+    }
+}
+
 class WaveformTest {
     @Test fun onePeakPerSliceAcrossChannels() {
         val builder = WaveformBuilder(sampleRate = 100, channels = 2, peaksPerSecond = 10)

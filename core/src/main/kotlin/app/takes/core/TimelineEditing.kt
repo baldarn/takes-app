@@ -106,6 +106,32 @@ object TimelineEditing {
         return state.copy(clips = state.clips.toMutableList().also { it[index] = next })
     }
 
+    /**
+     * Removes stretches of source time from the clip at [index], such as
+     * detected pauses, leaving the pieces in between as separate clips with
+     * the gaps closed. Pieces too short to stand alone are dropped with the
+     * cut. Null when nothing would change or nothing would be left.
+     */
+    fun removeIntervals(state: EditState, index: Int, cuts: List<SourceInterval>): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        val kept = PauseDetector.keptIntervals(clip, cuts).filter { it.duration >= MINIMUM_CLIP }
+        if (kept.isEmpty() || (kept.size == 1 && kept[0].start == clip.start && kept[0].end == clip.end)) return null
+        val pieces = kept.mapIndexed { position, part ->
+            val first = position == 0
+            val last = position == kept.lastIndex
+            TimelineClip(
+                // The first piece stays the clip the previous one joins; the last carries the join to the next.
+                id = if (first) clip.id else newID(),
+                sourceID = clip.sourceID, start = part.start, end = part.end,
+                transition = if (last) clip.transition else null,
+                texts = clip.texts?.filter { it.start < part.end && it.end > part.start }?.ifEmpty { null },
+                bookmarks = clip.bookmarks?.filter { it.time >= part.start && it.time < part.end }?.ifEmpty { null },
+                audio = clip.audio?.copy(fadeIn = if (first) clip.audio.fadeIn else 0.0, fadeOut = if (last) clip.audio.fadeOut else 0.0).normalized(),
+            )
+        }
+        return state.copy(clips = state.clips.take(index) + pieces + state.clips.drop(index + 1))
+    }
+
     // MARK: Transitions
 
     private fun withoutBrokenJoins(clips: List<TimelineClip>): List<TimelineClip> = clips.mapIndexed { index, clip ->
