@@ -20,6 +20,8 @@ data class CropSettings(
     val y: Double = 0.5,
     val zoom: Double = 1.0,
     val rotation: Double = 0.0,
+    /** A move between two framings. While set, it decides what is shown; see [at]. */
+    val motion: EffectAnimation? = null,
 ) {
     private val radians: Double get() = rotation * Math.PI / 180
 
@@ -81,10 +83,11 @@ data class CropSettings(
             abs(area.height - source.height) < maxOf(2.0, source.height * 0.0025)
     }
 
-    /** The ranges a saved project may hold. */
+    /** The ranges a saved project may hold, for the crop and for both ends of its motion. */
     val valid: Boolean
         get() = x.isFinite() && y.isFinite() && zoom.isFinite() && rotation.isFinite() &&
-            rotation in -180.0..180.0 && x in 0.0..1.0 && y in 0.0..1.0 && zoom in MINIMUM_ZOOM..MAXIMUM_ZOOM
+            rotation in -180.0..180.0 && x in 0.0..1.0 && y in 0.0..1.0 && zoom in MINIMUM_ZOOM..MAXIMUM_ZOOM &&
+            (motion?.valid(pose) { CropSettings.accepts(it) } ?: true)
 
     companion object {
         const val MINIMUM_ZOOM = 1.0
