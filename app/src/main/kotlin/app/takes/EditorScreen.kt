@@ -39,7 +39,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -397,24 +399,30 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             beginTrim = { leading -> location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
         )
+        // Six tools have to fit a phone's width; the row still scrolls on a narrower screen.
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp), Arrangement.SpaceEvenly) {
-            TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) },
-                enabled = TimelineEditing.split(edit, playhead) != null) { Text("Split") }
-            TextButton(onClick = { editor.pause(); editingTitle = true }, enabled = location != null) { Text(if (titles.isEmpty()) "Title" else "Edit title") }
-            TextButton(onClick = { editor.pause(); editingTransition = true },
-                enabled = location != null && location.index < clips.lastIndex) { Text("Transition") }
-            for ((label, step) in listOf("◀ Move" to -1, "Move ▶" to 1)) {
+            val tight = PaddingValues(horizontal = 8.dp)
+            val compact = Modifier.defaultMinSize(minWidth = 48.dp)
+            TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
+                enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text("Split") }
+            TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) {
+                Text(if (titles.isEmpty()) "Title" else "Edit title")
+            }
+            TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
+                enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text("Transition") }
+            for ((label, step) in listOf("◀" to -1, "▶" to 1)) {
                 val target = location?.let { it.index + step }
                 TextButton(
                     onClick = {
                         val next = TimelineEditing.move(edit, location!!.index, target!!)
                         commit(next, next?.let { TimelineEditing.clipStart(it.clips, target) + location.offset } ?: playhead)
                     },
-                    enabled = target != null && target in clips.indices,
+                    compact.semantics { contentDescription = if (step < 0) "Move clip earlier" else "Move clip later" },
+                    enabled = target != null && target in clips.indices, contentPadding = tight,
                 ) { Text(label) }
             }
-            TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } },
-                enabled = location != null) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
+            TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
+                enabled = location != null, contentPadding = tight) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
         }
     }
 
@@ -586,7 +594,9 @@ private fun ClipStrip(
                 title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
                 modifier = Modifier.offset { IntOffset(((from - clip.start) * pixelsPerSecond).roundToInt(), 0) }
                     .width(with(density) { ((to - from) * pixelsPerSecond).toFloat().toDp() })
-                    .background(TitleColor, RoundedCornerShape(3.dp)).padding(horizontal = 3.dp),
+                    .background(TitleColor, RoundedCornerShape(3.dp))
+                    // Clear of the trim grip when the title starts with the clip.
+                    .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
         }
         // The part of this clip that dissolves in over the previous one.
