@@ -35,7 +35,12 @@ import androidx.media3.transformer.Transformer
 import app.takes.core.Project
 import app.takes.core.TimelineClip
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,8 +86,7 @@ fun displaySize(file: File): Pair<Int, Int>? {
  */
 class Exporter(private val context: Context, private val store: ProjectStore) {
     private val scope = MainScope()
-    private var transformer: Transformer? = null
-    private var partial: File? = null
+    private var job: Job? = null
 
     var progress by mutableStateOf<Float?>(null); private set
     var result by mutableStateOf<File?>(null)
@@ -92,10 +96,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val clips = project.edit.clips
         if (clips.isEmpty()) { store.error = "Add a recording before exporting."; return }
         progress = 0f
-        scope.launch {
+        job = scope.launch {
             val files = project.sources.associate { it.id to store.file(project, it) }
             val canvas = withContext(Dispatchers.IO) { files[clips.first().sourceID]?.let(::displaySize) }
-            if (progress == null) return@launch // cancelled while reading
             if (canvas == null || clips.any { files[it.sourceID]?.isFile != true }) {
                 store.error = "A source file is missing or unreadable. The project has been preserved."
                 progress = null
@@ -116,8 +119,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 val begins = TimelineEditing.clipStart(clips, index)
                 val picture = buildList<Effect> {
                     add(fit)
-                    if (!clip.texts.isNullOrEmpty()) add(OverlayEffect(listOf(TitleOverlay(clip, begins, canvas.first, canvas.second))))
-                    if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut)) // after the titles, so they fade too
+                    if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut))
                 }
                 val sound = if (soundIn > 0 || soundOut > 0) listOf<AudioProcessor>(GainProcessor(FadeGain(clip.duration, soundIn, soundOut))) else emptyList()
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
@@ -125,9 +127,17 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     .build()
             }
             val chains = TimelineEditing.chains(clips)
-            val composition = if (chains.size == 1) {
+            // Titles are drawn once, over the finished picture.
+            val titles = if (clips.any { !it.texts.isNullOrEmpty() }) {
+                Effects(emptyList(), listOf<Effect>(OverlayEffect(listOf(TitleOverlay(clips, canvas.first, canvas.second)))))
+            } else Effects.EMPTY
+            // An overlay in the same composition corrupts the blend of two
+            // sequences, so a movie with both dissolves and titles is rendered
+            // in two passes: the blend first, then the titles over it.
+            val blended = File(folder, ".$name.blend").takeIf { chains.size > 1 && titles != Effects.EMPTY }
+            val first = if (chains.size == 1) {
                 // Silence is generated for takes recorded without a microphone.
-                Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items)).build()
+                Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items)).setEffects(titles).build()
             } else {
                 // Dissolves: chains alternate between two sequences that overlap in
                 // time. The first is drawn on top with the opacity of its share.
@@ -148,42 +158,56 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     .setVideoCompositorSettings(DissolveCompositor(clips, Size(canvas.first, canvas.second)))
                     .build()
             }
-            val running = Transformer.Builder(context)
-                .setVideoMimeType(MimeTypes.VIDEO_H264)
-                .setAudioMimeType(MimeTypes.AUDIO_AAC)
-                .addListener(object : Transformer.Listener {
-                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        if (writing.renameTo(output)) result = output
-                        else store.error = "The exported movie could not be saved."
-                        finish()
-                    }
-
-                    override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
-                        writing.delete()
-                        store.error = "Export failed: ${exportException.message ?: exportException.errorCodeName}"
-                        finish()
-                    }
-                }).build()
-            transformer = running
-            partial = writing
-            running.start(composition, writing.path)
-            val holder = ProgressHolder()
-            while (transformer === running) {
-                if (running.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) progress = holder.progress / 100f
-                delay(200)
+            try {
+                if (blended == null) render(first, writing, 0f, 1f) else {
+                    render(first, blended, 0f, 0.5f)
+                    val whole = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(blended))).build()
+                    render(Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(listOf(whole))).setEffects(titles).build(), writing, 0.5f, 1f)
+                }
+                if (writing.renameTo(output)) result = output else store.error = "The exported movie could not be saved."
+            } catch (problem: ExportException) {
+                store.error = "Export failed: ${problem.message ?: problem.errorCodeName}"
+            } finally {
+                blended?.delete()
+                writing.delete()
+                progress = null
             }
         }
     }
 
-    fun cancel() {
-        transformer?.cancel()
-        partial?.delete()
-        finish()
+    /** Runs one export to [file], reporting progress between [from] and [to]. Cancelling the coroutine cancels the export. */
+    private suspend fun render(composition: Composition, file: File, from: Float, to: Float) = coroutineScope {
+        var running: Transformer? = null
+        val watching = launch {
+            val holder = ProgressHolder()
+            while (true) {
+                if (running?.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) progress = from + (to - from) * holder.progress / 100f
+                delay(200)
+            }
+        }
+        try {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                val transformer = Transformer.Builder(context)
+                    .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) = continuation.resume(Unit)
+
+                        override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) =
+                            continuation.resumeWithException(exportException)
+                    }).build()
+                running = transformer
+                continuation.invokeOnCancellation { transformer.cancel() }
+                transformer.start(composition, file.path)
+            }
+            progress = to
+        } finally {
+            watching.cancel()
+        }
     }
 
-    private fun finish() {
-        transformer = null
-        partial = null
+    fun cancel() {
+        job?.cancel()
         progress = null
     }
 

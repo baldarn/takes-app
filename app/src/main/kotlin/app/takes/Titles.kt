@@ -55,22 +55,25 @@ object TitleRenderer {
 }
 
 /**
- * Export overlay for one clip: a frame-sized bitmap holding the titles visible
- * at each moment. Video effects receive the time of the whole sequence, so
- * [timelineStart] is where this clip begins in it.
+ * Export overlay for the whole movie: a frame-sized bitmap holding the titles
+ * visible at each moment. It is applied once, after the clips are blended, so
+ * a title dissolves and fades with the clip it belongs to.
  */
-class TitleOverlay(private val clip: TimelineClip, private val timelineStart: Double, private val width: Int, private val height: Int) : BitmapOverlay() {
+class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int, private val height: Int) : BitmapOverlay() {
     private val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-    private var shown: List<TextOverlay> = emptyList()
+    private var shown: List<Pair<TextOverlay, Int>> = emptyList()
     private var bitmap = empty
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
-        val visible = TimelineEditing.textsAt(clip, clip.start + presentationTimeUs / 1e6 - timelineStart)
+        val time = presentationTimeUs / 1e6
+        val level = TimelineEditing.locate(clips, time)?.let { TimelineEditing.level(clips, it.index, it.offset) } ?: 1.0
+        // Opacity in steps, so a steady title is drawn once.
+        val visible = TimelineEditing.titlesAt(clips, time).map { (title, share) -> title to (share * level * 64).toInt() }.filter { it.second > 0 }
         if (visible != shown) {
             shown = visible
             bitmap = if (visible.isEmpty()) empty else Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame ->
                 val canvas = Canvas(frame)
-                visible.forEach { TitleRenderer.draw(canvas, width.toFloat(), height.toFloat(), it) }
+                visible.forEach { (title, steps) -> TitleRenderer.draw(canvas, width.toFloat(), height.toFloat(), title, steps / 64f) }
             }
         }
         return bitmap

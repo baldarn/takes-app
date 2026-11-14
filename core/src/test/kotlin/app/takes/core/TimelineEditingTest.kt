@@ -237,6 +237,17 @@ class DissolveTest {
         assertEquals(state.duration, split.duration, 1e-12)
     }
 
+    @Test fun titlesOfBothClipsShowThroughADissolve() {
+        val early = TextOverlay(text = "A", start = 0.0, end = 4.0)
+        val late = TextOverlay(text = "B", start = 1.0, end = 1.5)
+        val titled = TimelineEditing.setText(TimelineEditing.setText(state, 0, early)!!, 1, late)!!.clips
+        assertEquals(listOf(early to 1.0), TimelineEditing.titlesAt(titled, 2.0))
+        assertEquals(listOf(early to 0.75, late to 0.25), TimelineEditing.titlesAt(titled, 3.25))
+        assertEquals(listOf(early to 0.25), TimelineEditing.titlesAt(titled, 3.75)) // B has ended, A is still leaving
+        assertEquals(emptyList<Pair<TextOverlay, Double>>(), TimelineEditing.titlesAt(titled, 4.5))
+        assertEquals(emptyList<Pair<TextOverlay, Double>>(), TimelineEditing.titlesAt(emptyList(), 0.0))
+    }
+
     @Test fun changingStyleKeepsTheJoin() {
         val faded = TimelineEditing.setTransition(state, 0, 1.0, ClipTransition.Style.FadeBlack)!!
         assertEquals(clips[0].transition!!.id, faded.clips[0].transition!!.id)

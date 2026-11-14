@@ -339,11 +339,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val weight = location?.let { TimelineEditing.weight(clips, it.index, it.offset) } ?: 1.0
     val front = location?.let { at -> TimelineEditing.chains(clips).indexOfFirst { at.index in it.first..it.last } % 2 } ?: 0
     val weights = List(2) { deck -> if (deck == front) weight else 1 - weight }
-    // Titles of the clip that is dissolving out stay with its picture.
-    val leavingTitles = if (location != null && weight < 1) clips.getOrNull(location.index - 1)?.let { leaving ->
-        TimelineEditing.textsAt(leaving, leaving.end - TimelineEditing.overlap(clips, location.index - 1) + location.offset)
-    }.orEmpty() else emptyList()
-    SideEffect { editor.decks.forEachIndexed { deck, player -> player.volume = (weights[deck] * level).toFloat() } }
+    val shownTitles = TimelineEditing.titlesAt(clips, playhead)
     var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
 
@@ -366,8 +362,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
                 Canvas(Modifier.fillMaxSize()) {
                     drawIntoCanvas { target ->
-                        titles.forEach { TitleRenderer.draw(target.nativeCanvas, size.width, size.height, it, weight.toFloat()) }
-                        leavingTitles.forEach { TitleRenderer.draw(target.nativeCanvas, size.width, size.height, it, (1 - weight).toFloat()) }
+                        shownTitles.forEach { (title, share) -> TitleRenderer.draw(target.nativeCanvas, size.width, size.height, title, share.toFloat()) }
                     }
                 }
                 if (level < 1) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1 - level).toFloat())))

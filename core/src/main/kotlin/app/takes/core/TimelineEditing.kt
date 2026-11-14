@@ -167,6 +167,20 @@ object TimelineEditing {
     fun textsAt(clip: TimelineClip, sourceTime: Double): List<TextOverlay> =
         clip.texts.orEmpty().filter { sourceTime >= it.start && sourceTime < it.end }
 
+    /**
+     * Every title showing at timeline second [time], with its opacity. During
+     * a dissolve the titles of both clips show, each with its clip's share.
+     */
+    fun titlesAt(clips: List<TimelineClip>, time: Double): List<Pair<TextOverlay, Double>> {
+        val (index, offset) = locate(clips, time) ?: return emptyList()
+        val clip = clips[index]
+        val share = weight(clips, index, offset)
+        val entering = textsAt(clip, clip.start + offset).map { it to share }
+        if (share >= 1 || index == 0) return entering
+        val leaving = clips[index - 1]
+        return textsAt(leaving, leaving.end - overlap(clips, index - 1) + offset).map { it to 1 - share } + entering
+    }
+
     /** Adds the title to the clip, or replaces the one with the same id. */
     fun setText(state: EditState, index: Int, text: TextOverlay): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
