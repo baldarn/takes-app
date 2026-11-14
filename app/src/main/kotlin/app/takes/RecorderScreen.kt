@@ -161,6 +161,10 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
                 color = if (capture.level > 0.95f) RecordRed else Color.White, trackColor = Scrim,
             )
         }
+        capture.microphone?.takeIf { recording && capture.audioWarning == null }?.let {
+            Text(it, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
+        }
         capture.audioWarning?.let {
             Text(it, color = Color.White, fontSize = 13.sp,
                 modifier = Modifier.padding(top = 8.dp).background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))

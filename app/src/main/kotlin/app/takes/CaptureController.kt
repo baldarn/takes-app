@@ -4,6 +4,9 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.media.AudioRecordingConfiguration
 import android.os.SystemClock
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -92,6 +95,8 @@ class CaptureController(private val context: Context, private val store: Project
     var audioWarning by mutableStateOf<String?>(null); private set
     var landscape by mutableStateOf(false); private set
     var message by mutableStateOf<String?>(null)
+    /** The microphone the system is recording from, while a take is running. */
+    var microphone by mutableStateOf<String?>(null); private set
     /** Bookmarks placed in the current take. */
     var marks by mutableStateOf(0); private set
 
@@ -110,6 +115,25 @@ class CaptureController(private val context: Context, private val store: Project
         }
     }
 
+    // The system picks the input; show which one it is, so a wrong microphone is noticed.
+    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private val routes = object : AudioManager.AudioRecordingCallback() {
+        override fun onRecordingConfigChanged(configurations: List<AudioRecordingConfiguration>) {
+            microphone = configurations.firstNotNullOfOrNull { it.audioDevice }?.let(::describe)
+        }
+    }
+
+    private fun describe(device: AudioDeviceInfo): String {
+        val name = device.productName?.toString()?.takeIf { it.isNotBlank() }
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BUILTIN_MIC, AudioDeviceInfo.TYPE_TELEPHONY -> "Phone microphone"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Wired headset"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> "Bluetooth" + (name?.let { ": $it" } ?: "")
+            AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB" + (name?.let { ": $it" } ?: "")
+            else -> name ?: "External microphone"
+        }
+    }
+
     suspend fun attach(owner: LifecycleOwner, surface: Preview.SurfaceProvider) {
         this.owner = owner
         val provider = ProcessCameraProvider.awaitInstance(context)
@@ -119,6 +143,7 @@ class CaptureController(private val context: Context, private val store: Project
         cameras = describe(provider.availableCameraInfos)
         if (cameras.isEmpty()) { message = "No camera is available."; return }
         orientation.enable()
+        audioManager.registerAudioRecordingCallback(routes, null)
         val remembered = prefs.getString("camera", null)
         bind(cameras.firstOrNull { it.id == remembered }
             ?: cameras.firstOrNull { it.info.lensFacing == CameraSelector.LENS_FACING_BACK }
@@ -129,6 +154,8 @@ class CaptureController(private val context: Context, private val store: Project
         finishTake()
         zoomRamp?.cancel()
         orientation.disable()
+        audioManager.unregisterAudioRecordingCallback(routes)
+        microphone = null
         provider?.unbindAll()
         camera = null
         owner = null
