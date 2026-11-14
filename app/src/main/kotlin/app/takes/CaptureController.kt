@@ -14,6 +14,8 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.lifecycle.awaitInstance
 import androidx.camera.video.AudioStats
@@ -62,7 +64,10 @@ class CaptureController(private val context: Context, private val store: Project
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
     private val scope = MainScope()
-    private val preview = Preview.Builder().build()
+    // Same shape as the recorded movie, so the preview shows the real frame.
+    private val preview = Preview.Builder()
+        .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
+        .build()
     private val recorder = Recorder.Builder()
         .setQualitySelector(QualitySelector.from(Quality.FHD, FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD)))
         .build()

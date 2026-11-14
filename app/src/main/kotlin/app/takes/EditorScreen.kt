@@ -77,6 +77,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -258,6 +259,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) editor.pause() }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer); editor.release() }
+    }
+    // Watching the movie or waiting for an export must not let the screen turn off.
+    val view = LocalView.current
+    val busy = editor.playing || exporter.progress != null
+    DisposableEffect(busy) {
+        view.keepScreenOn = busy
+        onDispose { view.keepScreenOn = false }
     }
     LaunchedEffect(clips) {
         playhead = playhead.coerceIn(0.0, duration)
@@ -453,7 +461,8 @@ private fun Timeline(
         current?.takeIf { it in clips.indices }?.let { index ->
             val left = half + (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat() + shift - scroll.value
             val right = left + (clips[index].duration * pixelsPerSecond).toFloat()
-            val (outside, inside) = with(density) { 10.dp.toPx() to 22.dp.toPx() }
+            // Just the visible grip and a little around it; the rest of the clip scrolls.
+            val (outside, inside) = with(density) { 6.dp.toPx() to 14.dp.toPx() }
             val leading = x in (left - outside)..(left + inside)
             val trailing = x in (right - inside)..(right + outside)
             when {
@@ -471,6 +480,8 @@ private fun Timeline(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 onTouched() // scrubbing pauses playback; it stays paused after release
+                // Above and below the clips the timeline only scrolls.
+                if (abs(down.position.y - size.height / 2f) > (TileSize + WaveHeight).toPx() / 2) return@awaitEachGesture
                 val leading = handle(down.position.x, size.width / 2f) ?: return@awaitEachGesture
                 down.consume()
                 onBeginTrim(leading)
