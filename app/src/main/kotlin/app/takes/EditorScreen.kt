@@ -97,6 +97,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import app.takes.core.EditState
+import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
@@ -350,6 +351,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val front = location?.let { at -> TimelineEditing.chains(clips).indexOfFirst { at.index in it.first..it.last } % 2 } ?: 0
     val weights = List(2) { deck -> if (deck == front) weight else 1 - weight }
     val shownTitles = TimelineEditing.titlesAt(clips, playhead)
+    var choosingExport by remember { mutableStateOf(false) }
     var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
 
@@ -358,7 +360,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo) { Text("Undo") }
             TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo) { Text("Redo") }
-            Button(onClick = { editor.pause(); exporter.start(project) }, enabled = clips.isNotEmpty()) { Text("Export") }
+            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty()) { Text("Export") }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
@@ -426,6 +428,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
+    if (choosingExport) {
+        ExportSettingsDialog(
+            project.exportSettings, canvas,
+            start = { settings ->
+                choosingExport = false
+                store.setExportSettings(project.id, settings)
+                exporter.start(project.copy(exportSettings = settings))
+            },
+            dismiss = { choosingExport = false },
+        )
+    }
     if (editingTitle && location != null && current != null) {
         TitleDialog(
             existing = titles.firstOrNull(), clip = current, sourceTime = sourceTime, sourceDuration = durations[current.sourceID] ?: current.end,
@@ -671,6 +684,35 @@ private fun TitleDialog(
                 TextButton(onClick = dismiss) { Text("Cancel") }
             }
         },
+    )
+}
+
+/** The choices are remembered in the project. [canvas] is the shape of the first clip. */
+@Composable
+private fun ExportSettingsDialog(saved: ExportSettings, canvas: Pair<Int, Int>?, start: (ExportSettings) -> Unit, dismiss: () -> Unit) {
+    var settings by remember { mutableStateOf(saved) }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Export movie") },
+        text = {
+            Column {
+                Choices("Size", listOf(
+                    "Original" to ExportSettings.Resolution.Project, "720p" to ExportSettings.Resolution.HD,
+                    "1080p" to ExportSettings.Resolution.FullHD, "4K" to ExportSettings.Resolution.UltraHD,
+                ), settings.resolution) { settings = settings.copy(resolution = it) }
+                canvas?.let { settings.resolution.size(it.first, it.second) }?.let { (width, height) ->
+                    Text("$width × $height pixels", color = Muted, fontSize = 13.sp)
+                }
+                // Only the limits the exporter can really honor.
+                Choices("Frames per second", listOf("Up to 30" to 30, "Up to 60" to 60), settings.frameRate) { settings = settings.copy(frameRate = it) }
+                Text("Footage with more frames is reduced. Frames are never added.", color = Muted, fontSize = 13.sp)
+                Choices("Format", listOf("H.264" to ExportSettings.Codec.H264, "H.265 (smaller file)" to ExportSettings.Codec.HEVC), settings.codec) {
+                    settings = settings.copy(codec = it)
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { start(settings) }) { Text("Export") } },
+        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
     )
 }
 

@@ -130,6 +130,39 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int) {
     fun data(): ByteArray = documentJson.encodeToString(serializer(), this).toByteArray()
 }
 
+/** How a project is rendered to a movie. Saved with the project, outside undo. */
+@Serializable
+data class ExportSettings(
+    val codec: Codec = Codec.H264,
+    val resolution: Resolution = Resolution.Project,
+    val frameRate: Int = 30,
+) {
+    @Serializable
+    enum class Codec { @SerialName("H.264") H264, @SerialName("H.265") HEVC }
+
+    @Serializable
+    enum class Resolution(val long: Int, val short: Int) {
+        @SerialName("Project size") Project(0, 0),
+        @SerialName("720p") HD(1280, 720),
+        @SerialName("1080p") FullHD(1920, 1080),
+        @SerialName("4K") UltraHD(3840, 2160);
+
+        /** The canvas scaled to fit this format in either orientation, with even dimensions. */
+        fun size(width: Int, height: Int): Pair<Int, Int> {
+            if (this == Project || width <= 0 || height <= 0) return width to height
+            val scale = minOf(long.toDouble() / maxOf(width, height), short.toDouble() / minOf(width, height))
+            fun even(dimension: Int) = maxOf(2, Math.round(dimension * scale / 2).toInt() * 2)
+            return even(width) to even(height)
+        }
+    }
+
+    val valid: Boolean get() = frameRate in FRAME_RATES
+
+    companion object {
+        val FRAME_RATES = listOf(24, 25, 30, 50, 60)
+    }
+}
+
 @Serializable
 private data class Manifest(
     val schemaVersion: Int,
@@ -141,6 +174,7 @@ private data class Manifest(
     val historyCursor: Int,
     val captureLedger: List<TimelineClip> = emptyList(),
     val snapshotFiles: List<String>,
+    val exportSettings: ExportSettings = ExportSettings(),
 )
 
 data class Project(
@@ -153,6 +187,7 @@ data class Project(
     val snapshots: List<EditSnapshot> = listOf(EditSnapshot(EditState(), 0)),
     val captureLedger: List<TimelineClip> = emptyList(),
     val historyCursor: Int = 0,
+    val exportSettings: ExportSettings = ExportSettings(),
 ) {
     private fun materialized(snapshot: EditSnapshot): EditState =
         EditState(snapshot.state.clips + captureLedger.drop(snapshot.captureCursor), captureLedger.size)
@@ -198,6 +233,7 @@ data class Project(
     fun validate() {
         if (schemaVersion !in 1..LATEST_READABLE_SCHEMA) invalid()
         if (snapshots.isEmpty() || historyCursor !in snapshots.indices) invalid()
+        if (!exportSettings.valid) invalid()
         if (snapshots.any { it.captureCursor !in 0..captureLedger.size }) invalid()
         val byID = sources.associateBy { it.id }
         if (byID.size != sources.size) invalid()
@@ -233,7 +269,7 @@ data class Project(
             val data = snapshot.data()
             (sha256(data) + ".json").also { write(it, data) }
         }
-        val manifest = Manifest(schemaVersion, id, title, createdAt, updatedAt, sources, historyCursor, captureLedger, names)
+        val manifest = Manifest(schemaVersion, id, title, createdAt, updatedAt, sources, historyCursor, captureLedger, names, exportSettings)
         return documentJson.encodeToString(Manifest.serializer(), manifest).toByteArray()
     }
 
@@ -268,6 +304,7 @@ data class Project(
                 title = manifest.title, schemaVersion = manifest.schemaVersion, id = manifest.id,
                 createdAt = manifest.createdAt, updatedAt = manifest.updatedAt, sources = manifest.sources,
                 snapshots = snapshots, captureLedger = manifest.captureLedger, historyCursor = manifest.historyCursor,
+                exportSettings = manifest.exportSettings,
             ).also { it.validate() }
         }
     }

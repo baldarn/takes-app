@@ -36,7 +36,8 @@ Needs JDK 17 and the Android SDK (API 36).
 - Cross dissolves, where the next clip overlaps the end of the previous one, and
   fade-through-black transitions between neighboring clips (picture and sound), and
   titles attached to their footage, identical in preview and export.
-- Export of the edit to a new H.264/AAC movie in the project's `Exports` folder, then
+- Export of the edit to a new movie in the project's `Exports` folder, with a choice
+  of size (original, 720p, 1080p, 4K), H.264 or H.265, and a 30 or 60 fps ceiling, then
   play, share or save to the gallery. Sources are never modified.
 - Import of videos from the device through the system picker, into a new or an
   existing project. HDR footage is tone-mapped on export.
@@ -47,6 +48,6 @@ Needs JDK 17 and the Android SDK (API 36).
 
 Multiple tracks, the other transitions (wipe, split screen and so on), title fonts,
 colors and motion, LUTs, subtitles, speed,
-crop, export settings, video effects, audio restoration models, stabilization, dual camera, follow face,
+crop, video effects, audio restoration models, stabilization, dual camera, follow face,
 HDR/Log capture, microphone selection, manual focus, bookmarks, project ZIP/OTIO.
 The project file format is this port's own and is not interchangeable with iOS.

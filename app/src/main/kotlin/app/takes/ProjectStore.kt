@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.takes.core.EditState
+import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.ProjectDisk
 import app.takes.core.SourceMedia
@@ -144,6 +145,8 @@ class ProjectStore(context: Context) {
     }
 
     fun commit(projectID: String, state: EditState) = change(projectID) { it.commit(state) }
+
+    fun setExportSettings(projectID: String, settings: ExportSettings) = change(projectID) { it.copy(exportSettings = settings) }
 
     fun undo(projectID: String) = change(projectID) { it.undo() }
 

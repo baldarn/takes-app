@@ -1,5 +1,6 @@
 package app.takes.core
 
+import app.takes.core.ExportSettings.Resolution
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -81,6 +82,31 @@ class ProjectTest {
         val project = Project("x").addRecording(a)
         rejected(project.commit(EditState(listOf(project.edit.clips[0].copy(end = 5.0)), 1)))
         rejected(project.copy(captureLedger = listOf(TimelineClip(sourceID = "missing", start = 0.0, end = 1.0))))
+    }
+
+    @Test fun exportSizeFitsTheFormatInEitherOrientation() {
+        assertEquals(1080 to 1920, Resolution.Project.size(1080, 1920))
+        assertEquals(720 to 1280, Resolution.HD.size(1080, 1920))
+        assertEquals(1280 to 720, Resolution.HD.size(1920, 1080))
+        assertEquals(2160 to 3840, Resolution.UltraHD.size(1080, 1920))
+        assertEquals(1440 to 1080, Resolution.FullHD.size(640, 480))   // 4:3 is limited by its short side
+        assertEquals(1920 to 800, Resolution.FullHD.size(2400, 1000))  // wide is limited by its long side
+        assertEquals(720 to 720, Resolution.HD.size(999, 999))
+        assertEquals(0 to 0, Resolution.HD.size(0, 0))
+        assertTrue(listOf(Resolution.HD, Resolution.FullHD, Resolution.UltraHD).all { format -> format.size(1081, 1923).let { it.first % 2 == 0 && it.second % 2 == 0 } })
+    }
+
+    @Test fun exportSettingsAreSavedWithTheProject() {
+        val settings = ExportSettings(ExportSettings.Codec.HEVC, ExportSettings.Resolution.HD, 24)
+        val project = Project("Trip").addRecording(take("a", 2.0)).copy(exportSettings = settings)
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertTrue(manifest.decodeToString().contains("\"codec\":\"H.265\""))
+        assertEquals(settings, Project.readManifest(manifest) { files.getValue(it) }.exportSettings)
+        // Projects saved before export settings existed open with the defaults.
+        val old = manifest.decodeToString().replace(Regex(",\"exportSettings\":\\{[^}]*\\}"), "").toByteArray()
+        assertEquals(ExportSettings(), Project.readManifest(old) { files.getValue(it) }.exportSettings)
+        assertThrows(ProjectException::class.java) { project.copy(exportSettings = settings.copy(frameRate = 31)).validate() }
     }
 
     @Test fun recoveredEventsStayInsideTheTake() {

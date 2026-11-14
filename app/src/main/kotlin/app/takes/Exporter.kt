@@ -19,7 +19,9 @@ import androidx.media3.common.util.Size
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.GainProcessor
+import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.OverlayEffect
+import app.takes.core.ExportSettings
 import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -85,7 +87,7 @@ fun displaySize(file: File): Pair<Int, Int>? {
  * other clips are scaled to fit inside it.
  */
 class Exporter(private val context: Context, private val store: ProjectStore) {
-    // The movie is always SDR H.264, so HDR footage from a phone camera is tone-mapped.
+    // The movie is always SDR, so HDR footage from a phone camera is tone-mapped.
     private val sdr = Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL
 
     private val scope = MainScope()
@@ -101,7 +103,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         progress = 0f
         job = scope.launch {
             val files = project.sources.associate { it.id to store.file(project, it) }
+            val settings = project.exportSettings
+            // The first clip gives the picture its shape; the settings give it its size.
             val canvas = withContext(Dispatchers.IO) { files[clips.first().sourceID]?.let(::displaySize) }
+                ?.let { settings.resolution.size(it.first, it.second) }
             if (canvas == null || clips.any { files[it.sourceID]?.isFile != true }) {
                 store.error = "A source file is missing or unreadable. The project has been preserved."
                 progress = null
@@ -121,6 +126,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 val soundOut = maxOf(fadeOut, TimelineEditing.overlap(clips, index))
                 val begins = TimelineEditing.clipStart(clips, index)
                 val picture = buildList<Effect> {
+                    // A ceiling for high frame rate footage; frames are never invented. Media3 only
+                    // drops when the source is well above the target, such as 60 to 30.
+                    if (settings.frameRate <= 30) add(FrameDropEffect.createDefaultFrameDropEffect(settings.frameRate.toFloat()))
                     add(fit)
                     if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut))
                 }
@@ -162,11 +170,12 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     .setHdrMode(sdr)
                     .build()
             }
+            val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
             try {
-                if (blended == null) render(first, writing, 0f, 1f) else {
-                    render(first, blended, 0f, 0.5f)
+                if (blended == null) render(first, writing, codec, 0f, 1f) else {
+                    render(first, blended, codec, 0f, 0.5f)
                     val whole = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(blended))).build()
-                    render(Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(listOf(whole))).setEffects(titles).build(), writing, 0.5f, 1f)
+                    render(Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(listOf(whole))).setEffects(titles).build(), writing, codec, 0.5f, 1f)
                 }
                 if (writing.renameTo(output)) result = output else store.error = "The exported movie could not be saved."
             } catch (problem: ExportException) {
@@ -180,7 +189,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     }
 
     /** Runs one export to [file], reporting progress between [from] and [to]. Cancelling the coroutine cancels the export. */
-    private suspend fun render(composition: Composition, file: File, from: Float, to: Float) = coroutineScope {
+    private suspend fun render(composition: Composition, file: File, codec: String, from: Float, to: Float) = coroutineScope {
         var running: Transformer? = null
         val watching = launch {
             val holder = ProgressHolder()
@@ -192,7 +201,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         try {
             suspendCancellableCoroutine<Unit> { continuation ->
                 val transformer = Transformer.Builder(context)
-                    .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    .setVideoMimeType(codec)
                     .setAudioMimeType(MimeTypes.AUDIO_AAC)
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) = continuation.resume(Unit)
