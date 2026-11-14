@@ -12,6 +12,9 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.OverlaySettings
+import androidx.media3.common.VideoCompositorSettings
+import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.audio.GainProcessor
 import androidx.media3.effect.BitmapOverlay
@@ -22,7 +25,7 @@ import app.takes.core.TimelineEditing
 
 /** Draws a title the same way in the editor preview and in the exported movie. */
 object TitleRenderer {
-    fun draw(canvas: Canvas, width: Float, height: Float, title: TextOverlay) {
+    fun draw(canvas: Canvas, width: Float, height: Float, title: TextOverlay, opacity: Float = 1f) {
         if (title.text.isBlank() || width < 1 || height < 1) return
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = (title.size * minOf(width, height)).toFloat()
@@ -39,10 +42,13 @@ object TitleRenderer {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = paint.textSize * 0.12f
         paint.strokeJoin = Paint.Join.ROUND
+        val alpha = (opacity.coerceIn(0f, 1f) * 255).toInt()
         paint.color = Color.BLACK
+        paint.alpha = alpha
         layout.draw(canvas)
         paint.style = Paint.Style.FILL
         paint.color = Color.WHITE
+        paint.alpha = alpha
         layout.draw(canvas)
         canvas.restore()
     }
@@ -91,5 +97,29 @@ class FadeGain(private val duration: Double, private val fadeIn: Double, private
         var next = maxOf(samplePosition + 1, ((duration - fadeOut) * sampleRate).toLong())
         while (getGainFactorAtSamplePosition(next, sampleRate) == 1f) next++
         return next
+    }
+}
+
+/**
+ * Blends the two sequences of an export with dissolves. The first sequence is
+ * drawn on top, so its opacity is the share of the clip it is showing; the
+ * second stays opaque underneath.
+ */
+class DissolveCompositor(private val clips: List<TimelineClip>, private val canvas: Size) : VideoCompositorSettings {
+    private val top = TimelineEditing.chains(clips).filterIndexed { index, _ -> index % 2 == 0 }
+
+    override fun getOutputSize(inputSizes: List<Size>): Size = canvas
+
+    override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
+        val opacity = if (inputId == 0) topShare(presentationTimeUs / 1e6).toFloat() else 1f
+        return object : OverlaySettings {
+            override fun getAlphaScale(): Float = opacity
+        }
+    }
+
+    private fun topShare(time: Double): Double {
+        val chain = top.firstOrNull { time >= it.start && time < it.end } ?: return 0.0
+        val clip = (chain.first..chain.last).lastOrNull { TimelineEditing.clipStart(clips, it) <= time } ?: chain.first
+        return TimelineEditing.weight(clips, clip, time - TimelineEditing.clipStart(clips, clip))
     }
 }

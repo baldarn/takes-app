@@ -63,7 +63,13 @@ data class ClipTransition(
     val duration: Double = 0.5,
 ) {
     @Serializable
-    enum class Style { @SerialName("fadeBlack") FadeBlack }
+    enum class Style {
+        /** Both clips fade through black; nothing overlaps. */
+        @SerialName("fadeBlack") FadeBlack,
+
+        /** The next clip starts under the end of this one and they blend. The timeline gets shorter. */
+        @SerialName("dissolve") Dissolve,
+    }
 
     val valid: Boolean get() = duration.isFinite() && duration > 0 && duration <= MAXIMUM_DURATION
 
@@ -112,7 +118,7 @@ data class EditState(
     val clips: List<TimelineClip> = emptyList(),
     val captureBase: Int? = null,
 ) {
-    val duration: Double get() = clips.sumOf { it.duration }
+    val duration: Double get() = TimelineEditing.duration(clips)
 }
 
 /**

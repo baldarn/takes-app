@@ -13,7 +13,9 @@ import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.media3.common.C
 import androidx.media3.common.Effect
+import androidx.media3.common.util.Size
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.GainProcessor
@@ -108,20 +110,44 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val items = clips.mapIndexed { index, clip ->
                 val fadeIn = TimelineEditing.fadeLength(clips, index - 1)
                 val fadeOut = TimelineEditing.fadeLength(clips, index)
-                val fades = fadeIn > 0 || fadeOut > 0
+                // A join is a fade or a dissolve, never both, and sound follows either one.
+                val soundIn = maxOf(fadeIn, TimelineEditing.overlap(clips, index - 1))
+                val soundOut = maxOf(fadeOut, TimelineEditing.overlap(clips, index))
                 val begins = TimelineEditing.clipStart(clips, index)
                 val picture = buildList<Effect> {
                     add(fit)
                     if (!clip.texts.isNullOrEmpty()) add(OverlayEffect(listOf(TitleOverlay(clip, begins, canvas.first, canvas.second))))
-                    if (fades) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut)) // after the titles, so they fade too
+                    if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut)) // after the titles, so they fade too
                 }
-                val sound = if (fades) listOf<AudioProcessor>(GainProcessor(FadeGain(clip.duration, fadeIn, fadeOut))) else emptyList()
+                val sound = if (soundIn > 0 || soundOut > 0) listOf<AudioProcessor>(GainProcessor(FadeGain(clip.duration, soundIn, soundOut))) else emptyList()
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
                     .setEffects(Effects(sound, picture))
                     .build()
             }
-            // Silence is generated for takes recorded without a microphone.
-            val composition = Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items)).build()
+            val chains = TimelineEditing.chains(clips)
+            val composition = if (chains.size == 1) {
+                // Silence is generated for takes recorded without a microphone.
+                Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items)).build()
+            } else {
+                // Dissolves: chains alternate between two sequences that overlap in
+                // time. The first is drawn on top with the opacity of its share.
+                val total = TimelineEditing.duration(clips)
+                val sequences = List(2) { EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO)) }
+                val filled = DoubleArray(2)
+                fun gap(deck: Int, until: Double) {
+                    val micros = ((until - filled[deck]) * 1e6).roundToLong()
+                    if (micros > 0) sequences[deck].addGap(micros)
+                }
+                chains.forEachIndexed { index, chain ->
+                    gap(index % 2, chain.start)
+                    for (clip in chain.first..chain.last) sequences[index % 2].addItem(items[clip])
+                    filled[index % 2] = chain.end
+                }
+                for (deck in 0..1) gap(deck, total)
+                Composition.Builder(sequences.map { it.build() })
+                    .setVideoCompositorSettings(DissolveCompositor(clips, Size(canvas.first, canvas.second)))
+                    .build()
+            }
             val running = Transformer.Builder(context)
                 .setVideoMimeType(MimeTypes.VIDEO_H264)
                 .setAudioMimeType(MimeTypes.AUDIO_AAC)

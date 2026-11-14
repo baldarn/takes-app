@@ -25,6 +25,9 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import app.takes.core.TextOverlay
+import android.view.LayoutInflater
+import androidx.compose.ui.draw.alpha
+import app.takes.core.ClipTransition
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -114,35 +117,90 @@ private fun preciseLabel(seconds: Double): String {
     return "%d:%02d.%d".format(tenths / 600, tenths / 10 % 60, tenths % 10)
 }
 
-/** Plays the edit as a playlist of clipped sources, addressed by timeline seconds. */
+/**
+ * Plays the edit, addressed by timeline seconds. Clips joined by cuts or fades
+ * form a chain that one player runs as a gapless playlist. A dissolve needs
+ * two pictures at once, so chains alternate between two decks whose views are
+ * stacked: deck 0 on top, like the first sequence of an export.
+ */
 private class EditorPlayer(context: Context) {
-    val player: ExoPlayer = ExoPlayer.Builder(context).build()
+    val decks = List(2) { ExoPlayer.Builder(context).build() }
     var playing by mutableStateOf(false); private set
 
-    init {
-        player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
-        })
-    }
+    private var clips = emptyList<TimelineClip>()
+    private var chains = emptyList<TimelineEditing.Chain>()
+    private var items = List(2) { emptyList<Int>() } // clip index of each playlist item, per deck
+    private var master = 0 // the chain whose deck is the clock
 
     fun load(clips: List<TimelineClip>, files: Map<String, File>, time: Double) {
-        val location = TimelineEditing.locate(clips, time)
-        if (location == null) { player.clearMediaItems(); return }
-        player.setMediaItems(clips.map { clippedItem(it, files.getValue(it.sourceID)) }, location.index, (location.offset * 1000).toLong())
-        player.prepare()
+        pause()
+        this.clips = clips
+        chains = TimelineEditing.chains(clips)
+        items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
+        decks.forEachIndexed { deck, player ->
+            player.setMediaItems(items[deck].map { clippedItem(clips[it], files.getValue(clips[it].sourceID)) })
+            player.prepare()
+        }
+        seek(time)
     }
 
-    fun time(clips: List<TimelineClip>): Double {
-        val index = player.currentMediaItemIndex.coerceIn(0, maxOf(0, clips.lastIndex))
-        return TimelineEditing.clipStart(clips, index) + player.currentPosition.coerceAtLeast(0) / 1000.0
-    }
-
-    fun seek(clips: List<TimelineClip>, time: Double) {
+    /** Puts every deck where [time] needs it: inside its chain, or parked at the start of its next one. */
+    fun seek(time: Double) {
         val location = TimelineEditing.locate(clips, time) ?: return
-        player.seekTo(location.index, (location.offset * 1000).toLong())
+        master = chains.indexOfFirst { location.index in it.first..it.last }
+        decks.forEachIndexed { deck, player ->
+            val mine = chains.withIndex().filter { it.index % 2 == deck }
+            val active = mine.lastOrNull { time >= it.value.start && time < it.value.end } ?: mine.lastOrNull { it.index == master }
+            if (active != null) {
+                val chain = active.value
+                val clip = (chain.first..chain.last).lastOrNull { TimelineEditing.clipStart(clips, it) <= time } ?: chain.first
+                val offset = (time - TimelineEditing.clipStart(clips, clip)).coerceIn(0.0, clips[clip].duration)
+                player.seekTo(items[deck].indexOf(clip), (offset * 1000).toLong())
+            } else {
+                mine.firstOrNull { it.value.start > time }?.let { player.seekTo(items[deck].indexOf(it.value.first), 0) }
+            }
+        }
     }
 
-    fun pause() = player.pause()
+    fun play(time: Double) {
+        if (clips.isEmpty()) return
+        seek(time) // line both decks up again
+        chains.forEachIndexed { index, chain -> if (time >= chain.start && time < chain.end || index == master) decks[index % 2].play() }
+        playing = true
+    }
+
+    fun pause() {
+        decks.forEach { it.pause() }
+        playing = false
+    }
+
+    /** Advances the hand-over between decks and returns the timeline time. Call once per frame while playing. */
+    fun tick(): Double {
+        val chain = chains.getOrNull(master) ?: return 0.0
+        val player = decks[master % 2]
+        val clip = items[master % 2].getOrNull(player.currentMediaItemIndex) ?: chain.last
+        // A deck that ran past its chain is already in its next one.
+        val time = if (clip > chain.last) chain.end
+        else (TimelineEditing.clipStart(clips, clip) + player.currentPosition.coerceAtLeast(0) / 1000.0).coerceAtMost(chain.end)
+        val next = chains.getOrNull(master + 1)
+        if (next != null && time >= next.start) {
+            decks[(master + 1) % 2].play()
+            master++
+        } else if (next == null && (player.playbackState == Player.STATE_ENDED || time >= chain.end)) {
+            pause()
+        }
+        // The deck that finished waits at the start of its next chain.
+        chains.getOrNull(master - 1)?.takeIf { time >= it.end }?.let {
+            val finished = decks[(master - 1) % 2]
+            if (finished.isPlaying || finished.playWhenReady) {
+                finished.pause()
+                chains.getOrNull(master + 1)?.let { upcoming -> finished.seekTo(items[(master + 1) % 2].indexOf(upcoming.first), 0) }
+            }
+        }
+        return time
+    }
+
+    fun release() = decks.forEach { it.release() }
 }
 
 /** Timeline thumbnails, decoded off the main thread and kept for reuse. */
@@ -199,7 +257,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) editor.pause() }
         owner.lifecycle.addObserver(observer)
-        onDispose { owner.lifecycle.removeObserver(observer); editor.player.release() }
+        onDispose { owner.lifecycle.removeObserver(observer); editor.release() }
     }
     LaunchedEffect(clips) {
         playhead = playhead.coerceIn(0.0, duration)
@@ -212,7 +270,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         scroll.scrollTo((playhead.coerceIn(0.0, duration) * pixelsPerSecond).roundToInt())
         while (editor.playing) {
             withFrameNanos { }
-            playhead = editor.time(clips).coerceIn(0.0, duration)
+            playhead = editor.tick().coerceIn(0.0, duration)
             scroll.scrollTo((playhead * pixelsPerSecond).roundToInt())
         }
     }
@@ -222,7 +280,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // Our own scrollTo lands within half a pixel of the playhead.
             if (!editor.playing && abs(time - playhead) > 0.6 / pixelsPerSecond) {
                 playhead = time
-                editor.seek(clips, time)
+                editor.seek(time)
             }
         }
     }
@@ -253,7 +311,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         trim = draft.copy(clip = next)
         // Show the frame at the moving edge while it is inside the current clip.
         val edge = if (draft.leading) next.start else next.end - 0.03
-        if (edge in original.start..original.end) editor.seek(clips, TimelineEditing.clipStart(clips, draft.index) + edge - original.start)
+        if (edge in original.start..original.end) editor.seek(TimelineEditing.clipStart(clips, draft.index) + edge - original.start)
     }
     val endTrim = end@{
         val draft = trim ?: return@end
@@ -261,7 +319,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val original = clips.getOrNull(draft.index) ?: return@end
         val base = TimelineEditing.clipStart(clips, draft.index)
         val next = TimelineEditing.trim(edit, draft.index, draft.clip.start, draft.clip.end, durations[original.sourceID] ?: original.end)
-        if (next == null) { editor.seek(clips, playhead); return@end }
+        if (next == null) { editor.seek(playhead); return@end }
         // Keep the same frame under the playhead when it survives the trim.
         val offset = (playhead - base - (draft.clip.start - original.start)).coerceIn(0.0, draft.clip.duration - 0.01)
         val moved = base + offset - playhead
@@ -277,7 +335,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val sourceTime = if (location != null && current != null) current.start + location.offset else 0.0
     val titles = current?.let { TimelineEditing.textsAt(it, sourceTime) }.orEmpty()
     val level = location?.let { TimelineEditing.level(clips, it.index, it.offset) } ?: 1.0
-    SideEffect { editor.player.volume = level.toFloat() }
+    // During a dissolve the incoming clip owns the playhead; the deck behind it carries the rest.
+    val weight = location?.let { TimelineEditing.weight(clips, it.index, it.offset) } ?: 1.0
+    val front = location?.let { at -> TimelineEditing.chains(clips).indexOfFirst { at.index in it.first..it.last } % 2 } ?: 0
+    val weights = List(2) { deck -> if (deck == front) weight else 1 - weight }
+    // Titles of the clip that is dissolving out stay with its picture.
+    val leavingTitles = if (location != null && weight < 1) clips.getOrNull(location.index - 1)?.let { leaving ->
+        TimelineEditing.textsAt(leaving, leaving.end - TimelineEditing.overlap(clips, location.index - 1) + location.offset)
+    }.orEmpty() else emptyList()
+    SideEffect { editor.decks.forEachIndexed { deck, player -> player.volume = (weights[deck] * level).toFloat() } }
     var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
 
@@ -291,12 +357,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
             Box(canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()) {
-                AndroidView(
-                    { PlayerView(it).apply { useController = false; player = editor.player } },
-                    Modifier.fillMaxSize(),
-                )
+                // Deck 1 below, opaque whenever it contributes; deck 0 above, as transparent as its share.
+                for (deck in listOf(1, 0)) {
+                    AndroidView(
+                        { (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = editor.decks[deck] } },
+                        Modifier.fillMaxSize().alpha(if (deck == 0) weights[0].toFloat() else if (weights[1] > 0) 1f else 0f),
+                    )
+                }
                 Canvas(Modifier.fillMaxSize()) {
-                    drawIntoCanvas { target -> titles.forEach { TitleRenderer.draw(target.nativeCanvas, size.width, size.height, it) } }
+                    drawIntoCanvas { target ->
+                        titles.forEach { TitleRenderer.draw(target.nativeCanvas, size.width, size.height, it, weight.toFloat()) }
+                        leavingTitles.forEach { TitleRenderer.draw(target.nativeCanvas, size.width, size.height, it, (1 - weight).toFloat()) }
+                    }
                 }
                 if (level < 1) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1 - level).toFloat())))
             }
@@ -306,10 +378,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
             TextButton(
                 onClick = {
-                    if (editor.playing) editor.pause() else {
-                        if (playhead >= duration - 0.05) editor.seek(clips, 0.0)
-                        editor.player.play()
-                    }
+                    if (editor.playing) editor.pause() else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
                 },
                 enabled = clips.isNotEmpty(),
             ) { Text(if (editor.playing) "Pause" else "Play", fontSize = 17.sp) }
@@ -356,8 +425,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     if (editingTransition && location != null) {
         TransitionDialog(
-            current = TimelineEditing.transition(clips, location.index)?.duration,
-            choose = { commit(TimelineEditing.setTransition(edit, location.index, it), playhead); editingTransition = false },
+            current = TimelineEditing.transition(clips, location.index),
+            choose = { seconds, style ->
+                // The timeline changes length; stay at the start of the clip being joined.
+                commit(TimelineEditing.setTransition(edit, location.index, seconds, style), TimelineEditing.clipStart(clips, location.index) + minOf(location.offset, clips[location.index].duration / 2))
+                editingTransition = false
+            },
             dismiss = { editingTransition = false },
         )
     }
@@ -422,14 +495,23 @@ private fun Timeline(
         },
     ) {
         val viewport = constraints.maxWidth
-        Row(
+        Box(
             Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).fillMaxHeight().offset { IntOffset(shift.roundToInt(), 0) },
-            verticalAlignment = Alignment.CenterVertically,
+            contentAlignment = Alignment.CenterStart,
         ) {
-            var offset = 0f
-            clips.forEachIndexed { index, clip ->
-                key(clip.id) { ClipStrip(clip, files.getValue(clip.sourceID), index == current, TimelineEditing.transition(clips, index) != null, offset, pixelsPerSecond, viewport, scroll) }
-                offset += (clip.duration * pixelsPerSecond).toFloat()
+            // Clips sit at their timeline position; a dissolve draws the incoming clip over the end of the previous one.
+            Box(Modifier.width(with(density) { (TimelineEditing.duration(clips) * pixelsPerSecond).toFloat().toDp() }), Alignment.CenterStart) {
+                clips.forEachIndexed { index, clip ->
+                    val offset = (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat()
+                    key(clip.id) {
+                        ClipStrip(
+                            clip, files.getValue(clip.sourceID), index == current,
+                            fades = TimelineEditing.fadeLength(clips, index) > 0,
+                            dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
+                            offset, pixelsPerSecond, viewport, scroll,
+                        )
+                    }
+                }
             }
         }
         Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
@@ -442,7 +524,7 @@ private fun Timeline(
 
 @Composable
 private fun ClipStrip(
-    clip: TimelineClip, file: File, current: Boolean, joined: Boolean, offset: Float,
+    clip: TimelineClip, file: File, current: Boolean, fades: Boolean, dissolve: Float, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState,
 ) {
     val density = LocalDensity.current
@@ -458,7 +540,10 @@ private fun ClipStrip(
         }
     }
     val peaks by produceState<ByteArray?>(null, file) { value = Waveforms.peaks(file) }
-    Box(Modifier.width(with(density) { width.toDp() }).border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black)) {
+    Box(
+        Modifier.offset { IntOffset(offset.roundToInt(), 0) }.width(with(density) { width.toDp() })
+            .border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black),
+    ) {
         Column {
             Box(Modifier.fillMaxWidth().height(TileSize).clipToBounds().background(Color(0xFF2A2D33))) {
                 for (index in visible) {
@@ -498,8 +583,14 @@ private fun ClipStrip(
                     .background(TitleColor, RoundedCornerShape(3.dp)).padding(horizontal = 3.dp),
             )
         }
-        // A transition into the next clip.
-        if (joined) {
+        // The part of this clip that dissolves in over the previous one.
+        if (dissolve > 0) {
+            Box(Modifier.width(with(density) { dissolve.toDp() }).height(TileSize + WaveHeight).background(Color.White.copy(alpha = 0.35f)))
+            Text("Dissolve", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp).background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
+        }
+        // A fade into the next clip.
+        if (fades) {
             Text("Fade", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp).background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
         }
@@ -568,17 +659,22 @@ private fun TitleDialog(
 }
 
 @Composable
-private fun TransitionDialog(current: Double?, choose: (Double?) -> Unit, dismiss: () -> Unit) {
+private fun TransitionDialog(current: ClipTransition?, choose: (Double?, ClipTransition.Style) -> Unit, dismiss: () -> Unit) {
+    var style by remember { mutableStateOf(current?.style ?: ClipTransition.Style.Dissolve) }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("Transition to the next clip") },
         text = {
             Column {
-                Text("Fade through black. Picture and sound fade out, then in.", color = Muted, fontSize = 13.sp)
+                Choices("Style", listOf("Cross dissolve" to ClipTransition.Style.Dissolve, "Fade through black" to ClipTransition.Style.FadeBlack), style) { style = it }
+                Text(
+                    if (style == ClipTransition.Style.Dissolve) "The clips overlap and blend, so the movie gets shorter by the transition time."
+                    else "Picture and sound fade out, then in. The length of the movie does not change.",
+                    color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 8.dp),
+                )
                 for ((label, seconds) in listOf<Pair<String, Double?>>("None" to null, "0.3 s" to 0.3, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0)) {
-                    TextButton(onClick = { choose(seconds) }) {
-                        Text((if (seconds == current) "● " else "○ ") + label, fontSize = 16.sp)
-                    }
+                    val selected = if (seconds == null) current == null else current?.duration == seconds && current.style == style
+                    TextButton(onClick = { choose(seconds, style) }) { Text((if (selected) "● " else "○ ") + label, fontSize = 16.sp) }
                 }
             }
         },

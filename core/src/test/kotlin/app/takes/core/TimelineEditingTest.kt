@@ -177,6 +177,81 @@ class TransitionAndTitleTest {
     }
 }
 
+class DissolveTest {
+    private val a = TimelineClip(sourceID = "A", start = 0.0, end = 4.0)
+    private val b = TimelineClip(sourceID = "B", start = 1.0, end = 3.0)
+    private val c = TimelineClip(sourceID = "C", start = 0.0, end = 3.0)
+    private val d = TimelineClip(sourceID = "D", start = 0.0, end = 1.0)
+    private val plain = EditState(listOf(a, b, c, d))
+    // a ~dissolve 1s~ b | cut | c ~dissolve 2s, limited to 0.5 by d~ d
+    private val state = TimelineEditing.setTransition(
+        TimelineEditing.setTransition(plain, 0, 1.0, ClipTransition.Style.Dissolve)!!, 2, 2.0, ClipTransition.Style.Dissolve)!!
+    private val clips = state.clips
+
+    @Test fun overlapShortensTheTimeline() {
+        assertEquals(1.0, TimelineEditing.overlap(clips, 0), 0.0)
+        assertEquals(0.0, TimelineEditing.overlap(clips, 1), 0.0)
+        assertEquals(0.5, TimelineEditing.overlap(clips, 2), 0.0)
+        assertEquals(0.0, TimelineEditing.fadeLength(clips, 0), 0.0)
+        assertEquals(listOf(0.0, 3.0, 5.0, 7.5), clips.indices.map { TimelineEditing.clipStart(clips, it) })
+        assertEquals(8.5, state.duration, 0.0)
+        assertEquals(10.0, plain.duration, 0.0)
+    }
+
+    @Test fun incomingClipOwnsTheOverlap() {
+        assertEquals(Location(0, 2.9), TimelineEditing.locate(clips, 2.9))
+        assertEquals(Location(1, 0.0), TimelineEditing.locate(clips, 3.0))
+        assertEquals(Location(1, 0.5), TimelineEditing.locate(clips, 3.5))
+        assertEquals(Location(2, 0.0), TimelineEditing.locate(clips, 5.0))
+        assertEquals(Location(3, 0.25), TimelineEditing.locate(clips, 7.75))
+        assertEquals(Location(3, 1.0), TimelineEditing.locate(clips, 8.5))
+    }
+
+    @Test fun weightsCrossAndAlwaysSumToOne() {
+        assertEquals(1.0, TimelineEditing.weight(clips, 0, 0.0), 0.0)
+        assertEquals(1.0, TimelineEditing.weight(clips, 0, 3.0), 0.0)
+        assertEquals(0.75, TimelineEditing.weight(clips, 0, 3.25), 1e-12)
+        assertEquals(0.25, TimelineEditing.weight(clips, 1, 0.25), 1e-12)
+        assertEquals(1.0, TimelineEditing.weight(clips, 1, 2.0), 0.0) // a cut, not a dissolve
+        for (time in listOf(3.0, 3.3, 3.99, 7.5, 7.6, 7.99)) {
+            val (index, offset) = TimelineEditing.locate(clips, time)!!
+            val before = clips[index - 1].duration - TimelineEditing.overlap(clips, index - 1) + offset
+            assertEquals(1.0, TimelineEditing.weight(clips, index, offset) + TimelineEditing.weight(clips, index - 1, before), 1e-12)
+        }
+    }
+
+    @Test fun chainsOverlapByTheDissolve() {
+        assertEquals(
+            listOf(TimelineEditing.Chain(0, 0, 0.0, 4.0), TimelineEditing.Chain(1, 2, 3.0, 8.0), TimelineEditing.Chain(3, 3, 7.5, 8.5)),
+            TimelineEditing.chains(clips),
+        )
+        assertEquals(listOf(TimelineEditing.Chain(0, 3, 0.0, 10.0)), TimelineEditing.chains(plain.clips))
+        assertEquals(emptyList<TimelineEditing.Chain>(), TimelineEditing.chains(emptyList()))
+    }
+
+    @Test fun noSplitInsideADissolve() {
+        assertNull(TimelineEditing.split(state, 3.5))  // b's incoming overlap
+        assertNull(TimelineEditing.split(state, 7.7))  // d's incoming overlap
+        val split = TimelineEditing.split(state, 2.0)!!
+        assertEquals(1.0, TimelineEditing.overlap(split.clips, 1), 0.0) // the dissolve stays with the piece next to b
+        assertEquals(state.duration, split.duration, 1e-12)
+    }
+
+    @Test fun changingStyleKeepsTheJoin() {
+        val faded = TimelineEditing.setTransition(state, 0, 1.0, ClipTransition.Style.FadeBlack)!!
+        assertEquals(clips[0].transition!!.id, faded.clips[0].transition!!.id)
+        assertEquals(0.0, TimelineEditing.overlap(faded.clips, 0), 0.0)
+        assertEquals(0.5, TimelineEditing.fadeLength(faded.clips, 0), 0.0)
+        assertEquals(9.5, faded.duration, 0.0)
+        val project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 4.0)).addRecording(SourceMedia(filename = "b.mp4", duration = 4.0))
+        val saved = project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, ClipTransition.Style.Dissolve)!!)
+        saved.validate()
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = saved.manifest { name, data -> files[name] = data }
+        assertEquals(7.0, Project.readManifest(manifest) { files.getValue(it) }.edit.duration, 0.0)
+    }
+}
+
 class WaveformTest {
     @Test fun onePeakPerSliceAcrossChannels() {
         val builder = WaveformBuilder(sampleRate = 100, channels = 2, peaksPerSecond = 10)

@@ -7,23 +7,58 @@ object TimelineEditing {
 
     data class Location(val index: Int, val offset: Double)
 
-    fun clipStart(clips: List<TimelineClip>, index: Int): Double = clips.take(index).sumOf { it.duration }
+    /** Timeline second where the clip at [index] begins. A dissolve pulls the next clip back under the previous one. */
+    fun clipStart(clips: List<TimelineClip>, index: Int): Double {
+        var start = 0.0
+        for (position in 0 until minOf(index, clips.size)) start += clips[position].duration - overlap(clips, position)
+        return start
+    }
 
-    /** The clip showing at [time]. A cut belongs to the clip that starts there; the end belongs to the last clip. */
+    fun duration(clips: List<TimelineClip>): Double = clipStart(clips, clips.size)
+
+    /**
+     * The clip showing at [time]. A cut belongs to the clip that starts there,
+     * and so does a dissolve: the incoming clip owns the overlap. The end
+     * belongs to the last clip.
+     */
     fun locate(clips: List<TimelineClip>, time: Double): Location? {
         if (clips.isEmpty() || !time.isFinite()) return null
         var start = 0.0
         clips.forEachIndexed { index, clip ->
-            if (time < start + clip.duration) return Location(index, (time - start).coerceAtLeast(0.0))
-            start += clip.duration
+            val next = start + clip.duration - overlap(clips, index)
+            if (time < next) return Location(index, (time - start).coerceAtLeast(0.0))
+            start = next
         }
         return Location(clips.lastIndex, clips.last().duration)
+    }
+
+    /** A run of clips joined by cuts or fades. Dissolves separate chains, which overlap in time. */
+    data class Chain(val first: Int, val last: Int, val start: Double, val end: Double)
+
+    fun chains(clips: List<TimelineClip>): List<Chain> {
+        val chains = mutableListOf<Chain>()
+        var first = 0
+        var start = 0.0
+        var time = 0.0
+        clips.forEachIndexed { index, clip ->
+            val end = time + clip.duration
+            val overlap = overlap(clips, index)
+            if (overlap > 0 || index == clips.lastIndex) {
+                chains += Chain(first, index, start, end)
+                first = index + 1
+                start = end - overlap
+            }
+            time = end - overlap
+        }
+        return chains
     }
 
     fun split(state: EditState, time: Double): EditState? {
         val (index, offset) = locate(state.clips, time) ?: return null
         val clip = state.clips[index]
         if (offset < MINIMUM_CLIP || clip.duration - offset < MINIMUM_CLIP) return null
+        // Not inside a dissolve: two clips are showing there.
+        if (offset < overlap(state.clips, index - 1) || offset > clip.duration - overlap(state.clips, index)) return null
         val cut = clip.start + offset
         // The join after the clip now follows the second piece; each piece keeps the titles it shows.
         fun titles(from: Double, to: Double) = clip.texts?.filter { it.start < to && it.end > from }?.ifEmpty { null }
@@ -78,13 +113,13 @@ object TimelineEditing {
         clips.getOrNull(index)?.transition?.takeIf { it.nextClipID == clips.getOrNull(index + 1)?.id }
 
     /** Sets the join after [index]; a null [duration] removes it. */
-    fun setTransition(state: EditState, index: Int, duration: Double?): EditState? {
+    fun setTransition(state: EditState, index: Int, duration: Double?, style: ClipTransition.Style = ClipTransition.Style.FadeBlack): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
         val next = state.clips.getOrNull(index + 1) ?: return null
         val transition = duration?.let {
             if (!it.isFinite() || it <= 0) return null
             val current = transition(state.clips, index)
-            ClipTransition(id = current?.id ?: newID(), nextClipID = next.id, duration = minOf(it, ClipTransition.MAXIMUM_DURATION))
+            ClipTransition(id = current?.id ?: newID(), nextClipID = next.id, style = style, duration = minOf(it, ClipTransition.MAXIMUM_DURATION))
         }
         if (transition == clip.transition) return null
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(transition = transition) })
@@ -95,8 +130,23 @@ object TimelineEditing {
      * takes more than half of either clip, so two fades cannot overlap.
      */
     fun fadeLength(clips: List<TimelineClip>, index: Int): Double {
-        val transition = transition(clips, index) ?: return 0.0
+        val transition = transition(clips, index)?.takeIf { it.style == ClipTransition.Style.FadeBlack } ?: return 0.0
         return minOf(transition.duration / 2, clips[index].duration / 2, clips[index + 1].duration / 2)
+    }
+
+    /**
+     * Seconds the clip after [index] overlaps it in a dissolve. Never more
+     * than half of either clip, so a clip's two dissolves cannot meet.
+     */
+    fun overlap(clips: List<TimelineClip>, index: Int): Double {
+        val transition = transition(clips, index)?.takeIf { it.style == ClipTransition.Style.Dissolve } ?: return 0.0
+        return minOf(transition.duration, clips[index].duration / 2, clips[index + 1].duration / 2)
+    }
+
+    /** Share of the picture and sound, 0–1, that the clip at [index] contributes at [offset] seconds into it. */
+    fun weight(clips: List<TimelineClip>, index: Int, offset: Double): Double {
+        val clip = clips.getOrNull(index) ?: return 0.0
+        return level(offset, clip.duration, overlap(clips, index - 1), overlap(clips, index))
     }
 
     /** Picture and sound level, 0–1, at [offset] seconds into the clip at [index]. */

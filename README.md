@@ -33,7 +33,8 @@ Needs JDK 17 and the Android SDK (API 36).
 - Basic editor: preview of the edit, scrolling thumbnail timeline under a fixed
   playhead with audio waveforms, split at the playhead, trim handles on the current
   clip, delete and reorder clips, persistent undo/redo.
-- Fade-through-black transitions between neighboring clips (picture and sound) and
+- Cross dissolves, where the next clip overlaps the end of the previous one, and
+  fade-through-black transitions between neighboring clips (picture and sound), and
   titles attached to their footage, identical in preview and export.
 - Export of the edit to a new H.264/AAC movie in the project's `Exports` folder, then
   play, share or save to the gallery. Sources are never modified.
@@ -42,7 +43,7 @@ Needs JDK 17 and the Android SDK (API 36).
 
 ## Not ported yet
 
-Multiple tracks, overlapping transitions (dissolve, wipe and the others), title fonts,
+Multiple tracks, the other transitions (wipe, split screen and so on), title fonts,
 colors and motion, LUTs, subtitles, speed,
 crop, export settings, video effects, audio restoration models, stabilization, dual camera, follow face,
 HDR/Log capture, microphone selection, manual focus, bookmarks, project ZIP/OTIO.
