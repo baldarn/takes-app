@@ -324,6 +324,69 @@ class BookmarkTest {
     }
 }
 
+class ClipAudioTest {
+    private val a = TimelineClip(sourceID = "A", start = 0.0, end = 4.0)
+    private val b = TimelineClip(sourceID = "B", start = 0.0, end = 4.0)
+    private val state = EditState(listOf(a, b))
+
+    @Test fun levelIsDecibelsAndMuteIsSilence() {
+        assertEquals(1.0, ClipAudio().gain, 0.0)
+        assertEquals(0.5012, ClipAudio(volumeDB = -6.0).gain, 1e-4)
+        assertEquals(3.981, ClipAudio(volumeDB = 12.0).gain, 1e-3)
+        assertEquals(0.0, ClipAudio(volumeDB = 12.0, muted = true).gain, 0.0)
+        assertNull(TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = 13.0)))
+        assertNull(TimelineEditing.setAudio(state, 0, ClipAudio(fadeIn = -1.0)))
+        assertNull(TimelineEditing.setAudio(state, 0, ClipAudio()))  // nothing to change
+        val quiet = TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = -6.0))!!
+        assertNull(TimelineEditing.setAudio(quiet, 0, ClipAudio())!!.clips[0].audio) // back to the default stores nothing
+    }
+
+    @Test fun fadesShapeTheSound() {
+        val clips = TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = -6.0, fadeIn = 1.0, fadeOut = 2.0))!!.clips
+        val gain = ClipAudio(volumeDB = -6.0).gain
+        assertEquals(0.0, TimelineEditing.soundLevel(clips, 0, 0.0), 0.0)
+        assertEquals(gain / 2, TimelineEditing.soundLevel(clips, 0, 0.5), 1e-12)
+        assertEquals(gain, TimelineEditing.soundLevel(clips, 0, 1.5), 1e-12)
+        assertEquals(gain / 2, TimelineEditing.soundLevel(clips, 0, 3.0), 1e-12)
+        assertEquals(1.0, TimelineEditing.soundLevel(clips, 1, 2.0), 0.0)
+        assertEquals(0.0, TimelineEditing.soundLevel(clips, 5, 0.0), 0.0)
+        // A fade longer than half the clip is held to its half.
+        val long = TimelineEditing.setAudio(state, 0, ClipAudio(fadeIn = 10.0, fadeOut = 10.0))!!.clips
+        assertEquals(1.0, TimelineEditing.soundLevel(long, 0, 2.0), 1e-12)
+        assertEquals(0.5, TimelineEditing.soundLevel(long, 0, 1.0), 1e-12)
+    }
+
+    @Test fun soundFollowsTransitionsToo() {
+        var clips = TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = 6.0))!!
+        clips = TimelineEditing.setTransition(clips, 0, 2.0, ClipTransition.Style.Dissolve)!!
+        val boosted = ClipAudio(volumeDB = 6.0).gain
+        assertEquals(boosted, TimelineEditing.soundLevel(clips.clips, 0, 1.0), 1e-12)
+        assertEquals(boosted / 2, TimelineEditing.soundLevel(clips.clips, 0, 3.0), 1e-12) // half way through the dissolve
+        assertEquals(0.5, TimelineEditing.soundLevel(clips.clips, 1, 1.0), 1e-12)
+        val faded = TimelineEditing.setTransition(state, 0, 2.0, ClipTransition.Style.FadeBlack)!!.clips
+        assertEquals(0.5, TimelineEditing.soundLevel(faded, 0, 3.5), 1e-12)
+    }
+
+    @Test fun splitKeepsEachFadeAtItsEnd() {
+        val shaped = TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = -3.0, fadeIn = 1.0, fadeOut = 1.0))!!
+        val split = TimelineEditing.split(shaped, 2.0)!!.clips
+        assertEquals(ClipAudio(volumeDB = -3.0, fadeIn = 1.0), split[0].audio)
+        assertEquals(ClipAudio(volumeDB = -3.0, fadeOut = 1.0), split[1].audio)
+        val plain = TimelineEditing.split(TimelineEditing.setAudio(state, 0, ClipAudio(fadeIn = 1.0))!!, 2.0)!!.clips
+        assertNull(plain[1].audio)
+    }
+
+    @Test fun projectsWithClipSoundUseSchema4() {
+        var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 4.0))
+        project = project.commit(TimelineEditing.setAudio(project.edit, 0, ClipAudio(muted = true))!!)
+        assertEquals(4, project.schemaVersion)
+        project.validate()
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
+    }
+}
+
 class WaveformTest {
     @Test fun onePeakPerSliceAcrossChannels() {
         val builder = WaveformBuilder(sampleRate = 100, channels = 2, peaksPerSecond = 10)

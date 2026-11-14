@@ -42,6 +42,8 @@ Needs JDK 17 and the Android SDK (API 36).
 - Import of videos from the device through the system picker, into a new or an
   existing project. HDR footage is tone-mapped on export.
 - Credits and licenses screen with the bundled license texts.
+- Clip sound: volume from silence to a 12 dB boost, mute, and a fade in and out,
+  shown on the waveform and applied in preview and export.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to

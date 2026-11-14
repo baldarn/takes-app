@@ -18,7 +18,6 @@ import androidx.media3.common.Effect
 import androidx.media3.common.util.Size
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.GainProcessor
 import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.OverlayEffect
 import app.takes.core.ExportSettings
@@ -121,9 +120,6 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val items = clips.mapIndexed { index, clip ->
                 val fadeIn = TimelineEditing.fadeLength(clips, index - 1)
                 val fadeOut = TimelineEditing.fadeLength(clips, index)
-                // A join is a fade or a dissolve, never both, and sound follows either one.
-                val soundIn = maxOf(fadeIn, TimelineEditing.overlap(clips, index - 1))
-                val soundOut = maxOf(fadeOut, TimelineEditing.overlap(clips, index))
                 val begins = TimelineEditing.clipStart(clips, index)
                 val picture = buildList<Effect> {
                     // A ceiling for high frame rate footage; frames are never invented. Media3 only
@@ -132,7 +128,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     add(fit)
                     if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut))
                 }
-                val sound = if (soundIn > 0 || soundOut > 0) listOf<AudioProcessor>(GainProcessor(FadeGain(clip.duration, soundIn, soundOut))) else emptyList()
+                // Sound follows the clip's own level and fades, and any transition at its ends.
+                val shaped = clip.audio != null || TimelineEditing.transition(clips, index) != null || TimelineEditing.transition(clips, index - 1) != null
+                val sound = if (shaped) listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(clips, index, it) }) else emptyList()
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
                     .setEffects(Effects(sound, picture))
                     .build()

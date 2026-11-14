@@ -63,10 +63,12 @@ object TimelineEditing {
         // The join after the clip now follows the second piece; each piece keeps the titles it shows.
         fun titles(from: Double, to: Double) = clip.texts?.filter { it.start < to && it.end > from }?.ifEmpty { null }
         val (before, after) = clip.bookmarks.orEmpty().partition { it.time < cut }
+        // Each piece keeps the level; the fade in stays at the start, the fade out at the end.
         val pieces = listOf(
-            clip.copy(end = cut, transition = null, texts = titles(clip.start, cut), bookmarks = before.ifEmpty { null }),
+            clip.copy(end = cut, transition = null, texts = titles(clip.start, cut), bookmarks = before.ifEmpty { null },
+                audio = clip.audio?.copy(fadeOut = 0.0).normalized()),
             TimelineClip(sourceID = clip.sourceID, start = cut, end = clip.end, transition = clip.transition,
-                texts = titles(cut, clip.end), bookmarks = after.ifEmpty { null }),
+                texts = titles(cut, clip.end), bookmarks = after.ifEmpty { null }, audio = clip.audio?.copy(fadeIn = 0.0).normalized()),
         )
         return state.copy(clips = state.clips.take(index) + pieces + state.clips.drop(index + 1))
     }
@@ -228,5 +230,31 @@ object TimelineEditing {
         val marks = clip.bookmarks.orEmpty()
         val next = if (existing != null) marks.filter { it.id != existing.id } else (marks + Bookmark(time = sourceTime)).sortedBy { it.time }
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(bookmarks = next.ifEmpty { null }) })
+    }
+
+    // MARK: Clip sound
+
+    private fun ClipAudio?.normalized(): ClipAudio? = this?.takeIf { it != ClipAudio() }
+
+    /** Sets how the clip at [index] sounds. The default settings are stored as nothing at all. */
+    fun setAudio(state: EditState, index: Int, audio: ClipAudio): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        if (!audio.valid) return null
+        val next = audio.normalized()
+        if (next == clip.audio) return null
+        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(audio = next) })
+    }
+
+    /**
+     * How loud the clip at [index] is at [offset] seconds into it, as a factor
+     * of the recorded sound: its level and mute, its own fades, and its share
+     * in a transition. Above 1 for a boosted clip.
+     */
+    fun soundLevel(clips: List<TimelineClip>, index: Int, offset: Double): Double {
+        val clip = clips.getOrNull(index) ?: return 0.0
+        val audio = clip.audio ?: ClipAudio()
+        // Fades never overlap: each takes at most its half of the clip.
+        val own = level(offset, clip.duration, minOf(audio.fadeIn, clip.duration / 2), minOf(audio.fadeOut, clip.duration / 2))
+        return audio.gain * own * level(clips, index, offset) * weight(clips, index, offset)
     }
 }

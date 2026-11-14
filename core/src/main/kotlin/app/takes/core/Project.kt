@@ -101,6 +101,25 @@ data class Bookmark(val id: String = newID(), val time: Double, val label: Strin
     val valid: Boolean get() = time.isFinite() && time >= 0 && (label?.length ?: 0) <= 100
 }
 
+/** How a clip's own sound is played: level, mute, and a fade at each end. Named as in the original app. */
+@Serializable
+data class ClipAudio(
+    val volumeDB: Double = 0.0,
+    val muted: Boolean = false,
+    val fadeIn: Double = 0.0,
+    val fadeOut: Double = 0.0,
+) {
+    val gain: Double get() = if (muted) 0.0 else Math.pow(10.0, volumeDB / 20)
+    val valid: Boolean
+        get() = volumeDB.isFinite() && volumeDB in MINIMUM_DB..MAXIMUM_DB &&
+            fadeIn.isFinite() && fadeOut.isFinite() && fadeIn >= 0 && fadeOut >= 0 && fadeIn <= 604800 && fadeOut <= 604800
+
+    companion object {
+        const val MINIMUM_DB = -60.0
+        const val MAXIMUM_DB = 12.0
+    }
+}
+
 @Serializable
 data class TimelineClip(
     val id: String = newID(),
@@ -111,11 +130,14 @@ data class TimelineClip(
     val transition: ClipTransition? = null,
     val texts: List<TextOverlay>? = null,
     val bookmarks: List<Bookmark>? = null,
+    /** Null plays the sound as recorded. */
+    val audio: ClipAudio? = null,
 ) {
     val duration: Double get() = end - start
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        audio != null -> 4
         !bookmarks.isNullOrEmpty() -> 3
         transition != null || !texts.isNullOrEmpty() -> 2
         else -> 1
@@ -278,6 +300,7 @@ data class Project(
                 val texts = clip.texts.orEmpty()
                 if (texts.map { it.id }.toSet().size != texts.size) invalid()
                 if (texts.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
+                if (clip.audio?.valid == false) invalid()
                 val marks = clip.bookmarks.orEmpty()
                 if (marks.map { it.id }.toSet().size != marks.size) invalid()
                 if (marks.any { !it.valid || it.time > source.duration + 0.001 }) invalid()
@@ -296,7 +319,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 3
+        const val LATEST_READABLE_SCHEMA = 4
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

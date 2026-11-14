@@ -16,7 +16,10 @@ import androidx.media3.common.OverlaySettings
 import androidx.media3.common.VideoCompositorSettings
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.common.audio.GainProcessor
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.BaseAudioProcessor
+import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.RgbMatrix
 import app.takes.core.TextOverlay
@@ -88,19 +91,44 @@ class FadeEffect(private val timelineStart: Double, private val duration: Double
     }
 }
 
-/** Fades the clip's sound with the picture. Audio positions count from the start of the clip. */
-class FadeGain(private val duration: Double, private val fadeIn: Double, private val fadeOut: Double) : GainProcessor.GainProvider {
-    override fun getGainFactorAtSamplePosition(samplePosition: Long, sampleRate: Int): Float =
-        TimelineEditing.level(samplePosition.toDouble() / sampleRate, duration, fadeIn, fadeOut).toFloat()
+/**
+ * Applies a clip's sound level over time in an export: its volume and mute,
+ * its fades and its share in a transition. [level] takes seconds from the
+ * start of the clip and may exceed 1 for a boosted clip; samples are clipped.
+ */
+class SoundProcessor(private val level: (Double) -> Double) : BaseAudioProcessor() {
+    private var frames = 0L
+    private var gain = 1f
 
-    /** The first position after [samplePosition] where the gain leaves 1, per the provider contract. */
-    override fun isUnityUntil(samplePosition: Long, sampleRate: Int): Long {
-        if (getGainFactorAtSamplePosition(samplePosition, sampleRate) != 1f) return C.TIME_UNSET
-        if (fadeOut <= 0) return C.TIME_END_OF_SOURCE
-        var next = maxOf(samplePosition + 1, ((duration - fadeOut) * sampleRate).toLong())
-        while (getGainFactorAtSamplePosition(next, sampleRate) == 1f) next++
-        return next
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT && inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
+            throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+        }
+        return inputAudioFormat
     }
+
+    override fun queueInput(inputBuffer: ByteBuffer) {
+        if (!inputBuffer.hasRemaining()) return
+        val format = inputAudioFormat
+        val output = replaceOutputBuffer(inputBuffer.remaining())
+        while (inputBuffer.hasRemaining()) {
+            // A new level every 64 frames is far finer than any fade needs.
+            if (frames % 64 == 0L) gain = level(frames.toDouble() / format.sampleRate).toFloat()
+            repeat(format.channelCount) {
+                if (format.encoding == C.ENCODING_PCM_16BIT) {
+                    output.putShort((inputBuffer.short * gain).roundToInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort())
+                } else {
+                    output.putFloat((inputBuffer.float * gain).coerceIn(-1f, 1f))
+                }
+            }
+            frames++
+        }
+        output.flip()
+    }
+
+    override fun onFlush() { frames = 0 }
+
+    override fun onReset() { frames = 0 }
 }
 
 /**

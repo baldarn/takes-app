@@ -30,6 +30,12 @@ import app.takes.core.TextOverlay
 import android.view.LayoutInflater
 import androidx.compose.ui.draw.alpha
 import app.takes.core.ClipTransition
+import android.media.AudioManager
+import android.media.audiofx.LoudnessEnhancer
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import app.takes.core.ClipAudio
+import kotlin.math.log10
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -131,7 +137,21 @@ private fun preciseLabel(seconds: Double): String {
  * stacked: deck 0 on top, like the first sequence of an export.
  */
 private class EditorPlayer(context: Context) {
-    val decks = List(2) { ExoPlayer.Builder(context).build() }
+    private val sessions = context.getSystemService(AudioManager::class.java)
+    val decks = List(2) { ExoPlayer.Builder(context).build().apply { audioSessionId = sessions.generateAudioSessionId() } }
+    // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
+    private val boosts = decks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
+
+    /** Sets how loud a deck plays, as a factor of the recorded sound. */
+    fun setSound(deck: Int, level: Double) {
+        decks[deck].volume = level.coerceIn(0.0, 1.0).toFloat()
+        boosts[deck]?.let { boost ->
+            runCatching {
+                if (level > 1) boost.setTargetGain((2000 * log10(level)).roundToInt())
+                boost.enabled = level > 1
+            }
+        }
+    }
     var playing by mutableStateOf(false); private set
 
     private var clips = emptyList<TimelineClip>()
@@ -207,7 +227,10 @@ private class EditorPlayer(context: Context) {
         return time
     }
 
-    fun release() = decks.forEach { it.release() }
+    fun release() {
+        boosts.forEach { runCatching { it?.release() } }
+        decks.forEach { it.release() }
+    }
 }
 
 /** Timeline thumbnails, decoded off the main thread and kept for reuse. */
@@ -353,6 +376,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val weight = location?.let { TimelineEditing.weight(clips, it.index, it.offset) } ?: 1.0
     val front = location?.let { at -> TimelineEditing.chains(clips).indexOfFirst { at.index in it.first..it.last } % 2 } ?: 0
     val weights = List(2) { deck -> if (deck == front) weight else 1 - weight }
+    // What each deck sounds like: the clip under the playhead, and during a dissolve the one leaving.
+    val sounds = List(2) { deck ->
+        when {
+            location == null -> 0.0
+            deck == front -> TimelineEditing.soundLevel(clips, location.index, location.offset)
+            weight < 1 && location.index > 0 -> clips[location.index - 1].let { leaving ->
+                TimelineEditing.soundLevel(clips, location.index - 1, leaving.duration - TimelineEditing.overlap(clips, location.index - 1) + location.offset)
+            }
+            else -> 0.0
+        }
+    }
+    SideEffect { sounds.forEachIndexed(editor::setSound) }
     val shownTitles = TimelineEditing.titlesAt(clips, playhead)
     val scope = rememberCoroutineScope()
     val jump = { time: Double ->
@@ -363,6 +398,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         Unit
     }
     var choosingExport by remember { mutableStateOf(false) }
+    var editingAudio by remember { mutableStateOf(false) }
     var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
 
@@ -426,18 +462,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             beginTrim = { leading -> location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
         )
-        // Six tools have to fit a phone's width; the row still scrolls on a narrower screen.
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp), Arrangement.SpaceEvenly) {
-            val tight = PaddingValues(horizontal = 8.dp)
-            val compact = Modifier.defaultMinSize(minWidth = 48.dp)
+        // Tools act on the clip under the playhead. Two rows, so nothing is cut off at any font size.
+        val tight = PaddingValues(horizontal = 8.dp)
+        val compact = Modifier.defaultMinSize(minWidth = 48.dp)
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), Arrangement.SpaceEvenly) {
             TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
                 enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text("Split") }
-            TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) {
-                Text(if (titles.isEmpty()) "Title" else "Edit title")
-            }
+            TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text("Sound") }
+            TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text("Title") }
             TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
                 enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text("Transition") }
-            for ((label, step) in listOf("◀" to -1, "▶" to 1)) {
+        }
+        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
+            for ((label, step) in listOf("◀ Move" to -1, "Move ▶" to 1)) {
                 val target = location?.let { it.index + step }
                 TextButton(
                     onClick = {
@@ -453,6 +490,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
+    if (editingAudio && location != null && current != null) {
+        SoundDialog(
+            current.audio ?: ClipAudio(),
+            save = { commit(TimelineEditing.setAudio(edit, location.index, it), playhead); editingAudio = false },
+            dismiss = { editingAudio = false },
+        )
+    }
     if (choosingExport) {
         ExportSettingsDialog(
             project.exportSettings, canvas,
@@ -592,6 +636,7 @@ private fun ClipStrip(
         }
     }
     val peaks by produceState<ByteArray?>(null, file) { value = Waveforms.peaks(file) }
+    val loudness = (clip.audio?.gain ?: 1.0).toFloat()
     Box(
         Modifier.offset { IntOffset(offset.roundToInt(), 0) }.width(with(density) { width.toDp() })
             .border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black),
@@ -617,8 +662,9 @@ private fun ClipStrip(
                 while (x < last) {
                     val from = clip.start + x / pixelsPerSecond
                     val level = WaveformBuilder.level(levels, from, minOf(clip.end, from + step / pixelsPerSecond))
-                    val bar = maxOf(1.dp.toPx(), sqrt(level) * size.height)
-                    drawRect(WaveColor, Offset(x, (size.height - bar) / 2), Size(step * 0.6f, bar))
+                    // Drawn at the clip's own level: flat when muted, taller when boosted.
+                    val bar = (sqrt(level * loudness) * size.height).coerceIn(1.dp.toPx(), size.height)
+                    drawRect(if (loudness == 0f) Muted else WaveColor, Offset(x, (size.height - bar) / 2), Size(step * 0.6f, bar))
                     x += step
                 }
             }
@@ -636,6 +682,17 @@ private fun ClipStrip(
                     // Clear of the trim grip when the title starts with the clip.
                     .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
+        }
+        // What has been done to the sound, where the waveform is.
+        clip.audio?.let { audio ->
+            val note = listOfNotNull(
+                if (audio.muted) "Muted" else audio.volumeDB.takeIf { it != 0.0 }?.let { (if (it > 0) "+" else "") + "${it.roundToInt()} dB" },
+                "Fade".takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
+            ).joinToString(" · ")
+            if (note.isNotEmpty()) {
+                Text(note, color = Color.White, fontSize = 10.sp, maxLines = 1,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).background(Color(0xCC000000), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
+            }
         }
         // Bookmarks as flags on the footage they mark.
         for (mark in clip.bookmarks.orEmpty()) {
@@ -668,6 +725,44 @@ private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected:
     Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
     }
+}
+
+/** The clip's own sound: level from silence to a 12 dB boost, mute, and a fade at each end. */
+@Composable
+private fun SoundDialog(saved: ClipAudio, save: (ClipAudio) -> Unit, dismiss: () -> Unit) {
+    var audio by remember { mutableStateOf(saved) }
+    val fades = listOf("None" to 0.0, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0, "3 s" to 3.0)
+    fun label(decibels: Double) = when {
+        decibels <= ClipAudio.MINIMUM_DB -> "Silent"
+        decibels > 0 -> "+${decibels.roundToInt()} dB"
+        else -> "${decibels.roundToInt()} dB"
+    }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Clip sound") },
+        text = {
+            Column {
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                    Text("Volume: " + if (audio.muted) "Muted" else label(audio.volumeDB), color = Color.White)
+                    TextButton(onClick = { audio = audio.copy(volumeDB = 0.0) }, enabled = audio.volumeDB != 0.0) { Text("Reset") }
+                }
+                // Whole decibels: the range is wide and finer steps are not audible.
+                Slider(
+                    value = audio.volumeDB.toFloat(), onValueChange = { audio = audio.copy(volumeDB = it.roundToInt().toDouble()) },
+                    valueRange = ClipAudio.MINIMUM_DB.toFloat()..ClipAudio.MAXIMUM_DB.toFloat(), enabled = !audio.muted,
+                    modifier = Modifier.semantics { contentDescription = "Volume" },
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = audio.muted, onCheckedChange = { audio = audio.copy(muted = it) }, modifier = Modifier.semantics { contentDescription = "Mute" })
+                    Text("  Mute this clip", color = Color.White)
+                }
+                Choices("Fade in", fades, audio.fadeIn) { audio = audio.copy(fadeIn = it) }
+                Choices("Fade out", fades, audio.fadeOut) { audio = audio.copy(fadeOut = it) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { save(audio) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+    )
 }
 
 /** Adds a title at the playhead, or edits the one showing there. */
