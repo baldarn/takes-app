@@ -3,6 +3,8 @@ package app.takes
 import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,6 +12,11 @@ import app.takes.core.EditState
 import app.takes.core.Project
 import app.takes.core.ProjectDisk
 import app.takes.core.SourceMedia
+import app.takes.core.newID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -39,6 +46,8 @@ data class DeletedProject(val project: Project, val date: Long?)
 /** Main-thread owner of the project library. Every change is saved before it is shown. */
 class ProjectStore(context: Context) {
     private val prefs = context.getSharedPreferences("projects", Context.MODE_PRIVATE)
+    private val resolver = context.contentResolver
+    private val scope = MainScope()
     val disk = ProjectDisk(File(context.filesDir, "Projects"))
 
     var projects by mutableStateOf(emptyList<Project>()); private set
@@ -46,6 +55,8 @@ class ProjectStore(context: Context) {
     var unavailable by mutableStateOf(emptyMap<String, String>()); private set
     var selectedID by mutableStateOf(prefs.getString("selected", null)); private set
     var error by mutableStateOf<String?>(null)
+    /** What an import in progress is doing, for display. */
+    var importing by mutableStateOf<String?>(null); private set
 
     val selected: Project? get() = projects.firstOrNull { it.id == selectedID }
 
@@ -74,6 +85,57 @@ class ProjectStore(context: Context) {
     fun rename(project: Project, title: String) {
         val trimmed = title.trim()
         if (trimmed.isNotEmpty() && trimmed != project.title) update(project.renamed(trimmed))
+    }
+
+    /**
+     * Copies videos picked from the device into the project, or into a new
+     * one when [projectID] is null, and adds them to the end of its timeline.
+     * The originals stay where they are; the project owns its copies.
+     */
+    fun importVideos(projectID: String?, uris: List<Uri>) {
+        if (uris.isEmpty() || importing != null) return
+        val project = projectID?.let { id -> projects.firstOrNull { it.id == id } } ?: create() ?: return
+        scope.launch {
+            var failed = 0
+            uris.forEachIndexed { index, uri ->
+                importing = "Importing ${index + 1} of ${uris.size}…"
+                val source = withContext(Dispatchers.IO) { copyIn(project.id, uri) }
+                if (source == null || !addRecording(project.id, source)) failed++
+            }
+            importing = null
+            if (failed > 0) {
+                error = if (uris.size == 1) "The video could not be imported. It may not be a playable movie."
+                else "$failed of ${uris.size} videos could not be imported."
+            }
+        }
+    }
+
+    private fun copyIn(projectID: String, uri: Uri): SourceMedia? {
+        val folder = disk.folder(projectID).apply { mkdirs() }
+        val id = newID()
+        val extension = when (resolver.getType(uri)) {
+            "video/quicktime" -> "mov"
+            "video/webm" -> "webm"
+            "video/x-matroska" -> "mkv"
+            "video/3gpp" -> "3gp"
+            else -> "mp4"
+        }
+        val file = File(folder, "import-${System.currentTimeMillis()}-$id.$extension")
+        // Hidden until complete, so an interrupted copy is never mistaken for a recording.
+        val partial = File(folder, ".${file.name}.tmp")
+        return try {
+            resolver.openInputStream(uri)?.use { input -> partial.outputStream().use { input.copyTo(it) } } ?: return null
+            val duration = mediaDuration(partial) ?: return null
+            if (displaySize(partial) == null || !partial.renameTo(file)) return null
+            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+            SourceMedia(id = id, filename = file.name, duration = duration, originalName = name?.take(255))
+        } catch (_: Exception) {
+            null
+        } finally {
+            partial.delete()
+        }
     }
 
     fun addRecording(projectID: String, source: SourceMedia): Boolean {

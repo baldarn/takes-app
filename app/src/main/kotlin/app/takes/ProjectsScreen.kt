@@ -5,7 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,19 +74,31 @@ private fun play(context: Context, file: File, report: (String) -> Unit) {
 fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Project, Int) -> Unit) {
     var renaming by remember { mutableStateOf<Project?>(null) }
     var erasing by remember { mutableStateOf<Project?>(null) }
+    // The project that picked videos go to; empty for a new project.
+    var importInto by rememberSaveable { mutableStateOf("") }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { videos ->
+        store.importVideos(importInto.ifEmpty { null }, videos)
+    }
+    val pickVideos = { projectID: String ->
+        importInto = projectID
+        picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+    }
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                 Text("Projects", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                Button(onClick = { store.create()?.let { open(it, 0) } }) { Text("New recording") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { pickVideos("") }) { Text("Import") }
+                    Button(onClick = { store.create()?.let { open(it, 0) } }) { Text("New recording") }
+                }
             }
         }
         if (store.projects.isEmpty()) {
-            item { Text("Nothing recorded yet. Each recording becomes a project you can continue later.", color = Muted) }
+            item { Text("Nothing here yet. Record something or import videos; each becomes a project you can continue later.", color = Muted) }
         }
         items(store.projects, key = { it.id }) { project ->
-            ProjectCard(project, store, open, rename = { renaming = project })
+            ProjectCard(project, store, open, rename = { renaming = project }, addVideos = { pickVideos(project.id) })
         }
         items(store.unavailable.toList(), key = { "unavailable-" + it.first }) { (folder, reason) ->
             Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp)) {
@@ -105,6 +122,9 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
         }
     }
 
+    store.importing?.let { step ->
+        AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text("Importing") }, text = { Text(step) })
+    }
     renaming?.let { project ->
         var title by remember(project.id) { mutableStateOf(project.title) }
         AlertDialog(
@@ -132,7 +152,7 @@ private fun summary(project: Project): String {
 }
 
 @Composable
-private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit) {
+private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(12.dp)) {
@@ -150,8 +170,11 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
             TextButton(onClick = rename) { Text("Rename") }
             TextButton(onClick = { store.delete(project) }) { Text("Delete", color = RecordRed) }
         }
-        if (project.sources.isNotEmpty()) {
-            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide original recordings" else "Original recordings") }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            if (project.sources.isNotEmpty()) {
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide original recordings" else "Original recordings") }
+            }
+            TextButton(onClick = addVideos) { Text("Add videos") }
         }
         if (expanded) {
             project.sources.forEachIndexed { index, source ->
@@ -162,9 +185,9 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                     Arrangement.SpaceBetween,
                 ) {
                     val switches = source.events.orEmpty().count { it.kind == "camera" }
-                    Text("${index + 1}.  ${dateLabel(source.recordedAt)}" + if (switches > 0) "  ·  $switches camera ${if (switches == 1) "switch" else "switches"}" else "",
-                        color = Color.White, fontSize = 14.sp)
-                    Text(timeLabel(source.duration), color = Muted, fontSize = 14.sp)
+                    Text("${index + 1}.  ${source.originalName ?: dateLabel(source.recordedAt)}" + if (switches > 0) "  ·  $switches camera ${if (switches == 1) "switch" else "switches"}" else "",
+                        color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(timeLabel(source.duration), color = Muted, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp))
                 }
             }
         }

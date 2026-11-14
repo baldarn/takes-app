@@ -85,6 +85,9 @@ fun displaySize(file: File): Pair<Int, Int>? {
  * other clips are scaled to fit inside it.
  */
 class Exporter(private val context: Context, private val store: ProjectStore) {
+    // The movie is always SDR H.264, so HDR footage from a phone camera is tone-mapped.
+    private val sdr = Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL
+
     private val scope = MainScope()
     private var job: Job? = null
 
@@ -137,7 +140,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val blended = File(folder, ".$name.blend").takeIf { chains.size > 1 && titles != Effects.EMPTY }
             val first = if (chains.size == 1) {
                 // Silence is generated for takes recorded without a microphone.
-                Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items)).setEffects(titles).build()
+                Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items)).setEffects(titles).setHdrMode(sdr).build()
             } else {
                 // Dissolves: chains alternate between two sequences that overlap in
                 // time. The first is drawn on top with the opacity of its share.
@@ -156,6 +159,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 for (deck in 0..1) gap(deck, total)
                 Composition.Builder(sequences.map { it.build() })
                     .setVideoCompositorSettings(DissolveCompositor(clips, Size(canvas.first, canvas.second)))
+                    .setHdrMode(sdr)
                     .build()
             }
             try {

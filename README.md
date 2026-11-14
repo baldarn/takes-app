@@ -38,6 +38,8 @@ Needs JDK 17 and the Android SDK (API 36).
   titles attached to their footage, identical in preview and export.
 - Export of the edit to a new H.264/AAC movie in the project's `Exports` folder, then
   play, share or save to the gallery. Sources are never modified.
+- Import of videos from the device through the system picker, into a new or an
+  existing project. HDR footage is tone-mapped on export.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
   the previous revision; finished takes missing from a manifest are indexed at launch.
 
