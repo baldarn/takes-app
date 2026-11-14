@@ -49,6 +49,10 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import kotlin.math.roundToLong
+import app.takes.core.PauseDetector
+import app.takes.core.PauseSettings
+import app.takes.core.SourceInterval
+import app.takes.core.SourceWaveform
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -500,6 +504,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         Unit
     }
     var choosingExport by remember { mutableStateOf(false) }
+    var findingPauses by remember { mutableStateOf(false) }
     var editingAudio by remember { mutableStateOf(false) }
     var chosenSound by remember { mutableStateOf<String?>(null) }   // the audio item being edited
     var shapingSound by remember { mutableStateOf(false) }
@@ -583,6 +588,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text("Title") }
             TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
                 enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text("Transition") }
+            TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text("Pauses") }
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
             for ((label, step) in listOf("◀ Move" to -1, "Move ▶" to 1)) {
@@ -626,6 +632,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
+    if (findingPauses && location != null && current != null) {
+        PausesDialog(
+            files.getValue(current.sourceID), current,
+            remove = { cuts ->
+                commit(TimelineEditing.removeIntervals(edit, location.index, cuts), TimelineEditing.clipStart(clips, location.index))
+                findingPauses = false
+            },
+            dismiss = { findingPauses = false },
+        )
+    }
     if (editingAudio && location != null && current != null) {
         SoundDialog(
             current.audio ?: ClipAudio(), canReduceNoise = true,
@@ -880,6 +896,51 @@ private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected:
     Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
     }
+}
+
+/**
+ * Finds the pauses in the clip under the playhead and offers to cut them out.
+ * The threshold between speech and silence is estimated from the recording.
+ */
+@Composable
+private fun PausesDialog(file: File, clip: TimelineClip, remove: (List<SourceInterval>) -> Unit, dismiss: () -> Unit) {
+    var minimum by remember { mutableDoubleStateOf(0.6) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    // null while measuring; then the measurements, or nothing when the clip has no usable sound.
+    val measured by produceState<Pair<SourceWaveform?, Boolean>>(null to false, file) {
+        value = PauseLevels.measure(file) { progress = it } to true
+    }
+    val wave = measured.first
+    val settings = PauseSettings(minimum = minimum)
+    val cuts = remember(wave, minimum, clip) { wave?.let { PauseDetector.detect(it, clip, settings) }.orEmpty() }
+    val shorter = clip.duration - PauseDetector.keptIntervals(clip, cuts).filter { it.duration >= TimelineEditing.MINIMUM_CLIP }.sumOf { it.duration }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Remove pauses") },
+        text = {
+            Column {
+                when {
+                    !measured.second -> {
+                        Text("Listening to the clip…", color = Color.White)
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
+                    }
+                    wave == null -> Text("This clip has no sound to analyze.", color = Color.White)
+                    else -> {
+                        Text(
+                            if (cuts.isEmpty()) "No pauses this long were found."
+                            else "${cuts.size} ${if (cuts.size == 1) "pause" else "pauses"} found. The clip would be ${preciseLabel(shorter)} shorter.",
+                            color = Color.White,
+                        )
+                        Text("Silence level: ${PauseDetector.levelDB(wave, settings).roundToInt()} dB, estimated from the recording.", color = Muted, fontSize = 13.sp)
+                        Choices("Shortest pause to remove", listOf("0.4 s" to 0.4, "0.6 s" to 0.6, "1 s" to 1.0, "2 s" to 2.0), minimum) { minimum = it }
+                        Text("A little silence is left around each cut so words are not clipped. One Undo brings the pauses back.", color = Muted, fontSize = 13.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { remove(cuts) }, enabled = cuts.isNotEmpty() && shorter > 0) { Text("Remove") } },
+        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+    )
 }
 
 /** What can be done to a sound on an audio track. Each edit is given ready, or null when it does not apply at the playhead. */

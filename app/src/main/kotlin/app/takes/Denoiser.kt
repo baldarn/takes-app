@@ -1,11 +1,6 @@
 package app.takes
 
-import android.media.AudioFormat
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import app.takes.rnnoise.ChannelDenoiser
-import app.takes.rnnoise.RNNoise
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -66,66 +61,22 @@ object Denoiser {
         }
     }
 
-    /** Linear resampling to 48 kHz for sound recorded at another rate. Enough for speech; not for music mastering. */
-    private class Resampler(inputRate: Int) {
-        private val step = inputRate.toDouble() / RNNoise.SAMPLE_RATE
-        private var position = 0.0 // of the next output sample, in input samples from the start of the chunk
-        private var last = 0f
-        private var primed = false
-        var output = FloatArray(0)
-
-        fun process(input: FloatArray, count: Int): Int {
-            if (count == 0) return 0
-            if (!primed) { last = input[0]; primed = true }
-            val room = (count / step).toInt() + 2
-            if (output.size < room) output = FloatArray(room)
-            var written = 0
-            while (true) {
-                val index = Math.floor(position).toInt()
-                if (index + 1 >= count) break
-                val before = if (index < 0) last else input[index]
-                val fraction = (position - index).toFloat()
-                output[written++] = before + (input[index + 1] - before) * fraction
-                position += step
-            }
-            last = input[count - 1]
-            position -= count
-            return written
-        }
-    }
-
     private fun render(file: File, amount: Float, target: File, progress: (Float) -> Unit, checkpoint: () -> Unit): Boolean {
-        val extractor = MediaExtractor()
-        var codec: MediaCodec? = null
         var denoisers = emptyList<ChannelDenoiser>()
-        var stream: BufferedOutputStream? = null
+        val output = BufferedOutputStream(FileOutputStream(target), 1 shl 16)
         try {
-            extractor.setDataSource(file.path)
-            val track = (0 until extractor.trackCount).firstOrNull {
-                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-            } ?: return false
-            val format = extractor.getTrackFormat(track)
-            val length = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
-            extractor.selectTrack(track)
-            val decoder = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
-            codec = decoder
-            decoder.configure(format, null, null, 0)
-            decoder.start()
-
-            var channels = 0
-            var resamplers: List<Resampler>? = null
+            var inputs = emptyList<Channel48k>()
             var pending = emptyList<Pending>()
-            var chunk = FloatArray(0)
+            var length = 0L
             var bytes = ByteBuffer.allocate(0)
             var frames = 0L
-            val output = BufferedOutputStream(FileOutputStream(target), 1 shl 16)
-            stream = output
             output.write(ByteArray(44)) // the header is filled in at the end
 
             // Writes every frame all channels have delivered.
             fun drain() {
                 val ready = pending.minOf { it.size }
                 if (ready == 0) return
+                val channels = pending.size
                 if (bytes.capacity() < ready * channels * 2) bytes = ByteBuffer.allocate(ready * channels * 2).order(ByteOrder.LITTLE_ENDIAN)
                 bytes.clear()
                 for (frame in 0 until ready) for (channel in pending) {
@@ -139,77 +90,34 @@ object Denoiser {
                 }
             }
 
-            val info = MediaCodec.BufferInfo()
-            var inputDone = false
-            var idle = 0
-            while (true) {
-                checkpoint()
-                if (!inputDone) {
-                    val input = decoder.dequeueInputBuffer(10_000)
-                    if (input >= 0) {
-                        val size = extractor.readSampleData(decoder.getInputBuffer(input)!!, 0)
-                        if (size < 0) {
-                            decoder.queueInputBuffer(input, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                            inputDone = true
-                        } else {
-                            decoder.queueInputBuffer(input, 0, size, extractor.sampleTime, 0)
-                            extractor.advance()
-                        }
+            val decoded = decodeAudio(
+                file, checkpoint,
+                begin = { format ->
+                    length = format.durationUs
+                    inputs = List(format.channels) { Channel48k(it, format.channels, format.sampleRate) }
+                    denoisers = List(format.channels) { ChannelDenoiser(amount) } // each channel has its own state, as in the original
+                    pending = List(format.channels) { Pending() }
+                },
+                samples = { block, time ->
+                    for (channel in inputs.indices) {
+                        val count = inputs[channel].read(block)
+                        denoisers[channel].write(inputs[channel].samples, 0, count, pending[channel].take)
                     }
-                }
-                val index = decoder.dequeueOutputBuffer(info, 10_000)
-                if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    val pcm = decoder.outputFormat
-                    if (pcm.containsKey(MediaFormat.KEY_PCM_ENCODING) &&
-                        pcm.getInteger(MediaFormat.KEY_PCM_ENCODING) != AudioFormat.ENCODING_PCM_16BIT) return false
-                    if (channels == 0) {
-                        channels = pcm.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                        val rate = pcm.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                        denoisers = List(channels) { ChannelDenoiser(amount) } // each channel has its own state, as in the original
-                        pending = List(channels) { Pending() }
-                        resamplers = if (rate == RNNoise.SAMPLE_RATE) null else List(channels) { Resampler(rate) }
-                    }
-                } else if (index >= 0) {
-                    idle = 0
-                    if (info.size > 0 && channels > 0) {
-                        val buffer = decoder.getOutputBuffer(index)!!
-                        buffer.position(info.offset).limit(info.offset + info.size)
-                        val samples = buffer.order(ByteOrder.nativeOrder()).asShortBuffer()
-                        val count = samples.remaining() / channels
-                        if (chunk.size < count) chunk = FloatArray(count)
-                        for (channel in 0 until channels) {
-                            for (frame in 0 until count) chunk[frame] = samples.get(samples.position() + frame * channels + channel) / 32768f
-                            val resampler = resamplers?.get(channel)
-                            if (resampler == null) denoisers[channel].write(chunk, 0, count, pending[channel].take)
-                            else {
-                                val resampled = resampler.process(chunk, count)
-                                denoisers[channel].write(resampler.output, 0, resampled, pending[channel].take)
-                            }
-                        }
-                        drain()
-                        if (length > 0) progress((info.presentationTimeUs.toFloat() / length).coerceIn(0f, 1f))
-                    }
-                    decoder.releaseOutputBuffer(index, false)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
-                } else if (inputDone && ++idle > 500) {
-                    return false // the decoder never signalled the end
-                }
-            }
-            if (channels == 0) return false
-            for (channel in 0 until channels) denoisers[channel].finish(pending[channel].take)
+                    drain()
+                    if (length > 0) progress((time.toFloat() / length).coerceIn(0f, 1f))
+                },
+            )
+            if (decoded != true) return false
+            for (channel in denoisers.indices) denoisers[channel].finish(pending[channel].take)
             drain()
             output.close()
-            stream = null
             if (frames == 0L) return false
-            writeHeader(target, channels, frames)
+            writeHeader(target, denoisers.size, frames)
             progress(1f)
             return true
         } finally {
-            runCatching { stream?.close() }
+            runCatching { output.close() }
             denoisers.forEach { runCatching { it.close() } }
-            runCatching { codec?.stop() }
-            runCatching { codec?.release() }
-            extractor.release()
         }
     }
 
@@ -218,7 +126,7 @@ object Denoiser {
         val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
         header.put("RIFF".toByteArray()).putInt((36 + data).toInt()).put("WAVE".toByteArray())
         header.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(channels.toShort())
-        header.putInt(RNNoise.SAMPLE_RATE).putInt(RNNoise.SAMPLE_RATE * channels * 2).putShort((channels * 2).toShort()).putShort(16)
+        header.putInt(Channel48k.RATE).putInt(Channel48k.RATE * channels * 2).putShort((channels * 2).toShort()).putShort(16)
         header.put("data".toByteArray()).putInt(data.toInt())
         RandomAccessFile(file, "rw").use { it.seek(0); it.write(header.array()) }
     }

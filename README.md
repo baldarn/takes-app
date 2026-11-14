@@ -51,6 +51,8 @@ for the `rnnoise` module.
   clips are edited, and is mixed with the clips' sound in preview and export.
 - Noise reduction on a clip's sound with RNNoise, off, light or full. The cleaned
   sound is made once in the background and kept in the project's cache.
+- Remove pauses: the clip under the playhead is measured, its silences are found with
+  the original's detector, and they are cut out as one undoable edit.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
