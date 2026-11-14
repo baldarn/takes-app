@@ -9,6 +9,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
@@ -167,11 +169,13 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                 Text(dateLabel(project.updatedAt), color = Muted, fontSize = 12.sp)
             }
         }
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-            TextButton(onClick = { open(project, 0) }) { Text("Continue recording") }
-            if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }) { Text("Edit") }
-            TextButton(onClick = rename) { Text("Rename") }
-            TextButton(onClick = { store.delete(project) }) { Text("Delete", color = RecordRed) }
+        // Four actions on one line: tight padding, labels that never wrap, and a scroll as the last resort.
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.SpaceBetween) {
+            val tight = PaddingValues(horizontal = 8.dp)
+            TextButton(onClick = { open(project, 0) }, contentPadding = tight) { Text("Continue recording", maxLines = 1, softWrap = false) }
+            if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }, contentPadding = tight) { Text("Edit", maxLines = 1, softWrap = false) }
+            TextButton(onClick = rename, contentPadding = tight) { Text("Rename", maxLines = 1, softWrap = false) }
+            TextButton(onClick = { store.delete(project) }, contentPadding = tight) { Text("Delete", color = RecordRed, maxLines = 1, softWrap = false) }
         }
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             if (project.sources.isNotEmpty()) {
