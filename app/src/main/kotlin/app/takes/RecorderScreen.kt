@@ -258,6 +258,10 @@ private fun Controls(capture: CaptureController, store: ProjectStore) {
             if (phase == Phase.Idle && store.selected?.sources?.isNotEmpty() == true) {
                 TextButton(onClick = { store.create() }) { Text("New project", fontSize = 15.sp) }
             }
+            // One tap marks the moment without interrupting the take.
+            if (phase == Phase.Recording) {
+                TextButton(onClick = capture::bookmark) { Text(if (capture.marks == 0) "Mark" else "Mark · ${capture.marks}", fontSize = 17.sp) }
+            }
         }
     }
 }

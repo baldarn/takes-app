@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import app.takes.core.CaptureEvent
+import app.takes.core.Project
 import app.takes.core.SourceMedia
 import app.takes.core.ZoomTransition
 import app.takes.core.newID
@@ -91,6 +92,8 @@ class CaptureController(private val context: Context, private val store: Project
     var audioWarning by mutableStateOf<String?>(null); private set
     var landscape by mutableStateOf(false); private set
     var message by mutableStateOf<String?>(null)
+    /** Bookmarks placed in the current take. */
+    var marks by mutableStateOf(0); private set
 
     private val orientation = object : OrientationEventListener(context) {
         override fun onOrientationChanged(degrees: Int) {
@@ -252,6 +255,13 @@ class CaptureController(private val context: Context, private val store: Project
         recording = pending.start(ContextCompat.getMainExecutor(context)) { event -> handle(next, event) }
     }
 
+    /** Marks this moment of the take, for example a mistake to find again in the editor. */
+    fun bookmark() {
+        val current = segment?.takeIf { phase == Phase.Recording } ?: return
+        current.events += CaptureEvent(time = current.nanos / 1e9, kind = Project.BOOKMARK_EVENT, detail = "")
+        marks++
+    }
+
     fun pause() = end(Phase.Paused)
 
     /** Finalizes the take and leaves the recorder ready for a new one. */
@@ -273,6 +283,7 @@ class CaptureController(private val context: Context, private val store: Project
 
     private fun reset() {
         phase = Phase.Idle
+        marks = 0
         segmentProject = null
         finished = 0.0
         elapsed = 0.0

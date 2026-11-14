@@ -16,7 +16,7 @@ Needs JDK 17 and the Android SDK (API 36).
 - `core/` — pure Kotlin, no Android. `Project` (sources, capture ledger, undo/redo
   snapshots), `ProjectDisk` (atomic manifest, content-addressed `History/`, revisions,
   Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
-  `TimelineEditing` (split, delete, move, trim, transitions, titles), `WaveformBuilder` (audio peaks).
+  `TimelineEditing` (split, delete, move, trim, transitions, titles, bookmarks), `WaveformBuilder` (audio peaks).
 - `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
   take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
   Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
@@ -42,6 +42,8 @@ Needs JDK 17 and the Android SDK (API 36).
 - Import of videos from the device through the system picker, into a new or an
   existing project. HDR footage is tone-mapped on export.
 - Credits and licenses screen with the bundled license texts.
+- Bookmarks: one tap while recording marks the moment; the editor shows the marks on
+  the timeline, steps between them, and adds or removes them with undo.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
   the previous revision; finished takes missing from a manifest are indexed at launch.
 

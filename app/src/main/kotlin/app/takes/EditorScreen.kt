@@ -11,7 +11,9 @@ import android.util.LruCache
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -115,6 +117,7 @@ private val TileSize = 56.dp
 private val WaveHeight = 30.dp
 private val WaveColor = Color(0xFF7DB7FF)
 private val TitleColor = Color(0xFFFFD54A)
+private val BookmarkColor = Color(0xFFFF7A45)
 
 private fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
@@ -351,6 +354,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val front = location?.let { at -> TimelineEditing.chains(clips).indexOfFirst { at.index in it.first..it.last } % 2 } ?: 0
     val weights = List(2) { deck -> if (deck == front) weight else 1 - weight }
     val shownTitles = TimelineEditing.titlesAt(clips, playhead)
+    val scope = rememberCoroutineScope()
+    val jump = { time: Double ->
+        editor.pause()
+        playhead = time
+        editor.seek(time)
+        scope.launch { scroll.scrollTo((time * pixelsPerSecond).roundToInt()) }
+        Unit
+    }
     var choosingExport by remember { mutableStateOf(false) }
     var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
@@ -381,17 +392,31 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
             if (clips.isEmpty()) Text("The timeline is empty. Undo to bring clips back.", color = Muted)
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
+            val tight = PaddingValues(horizontal = 6.dp)
+            val small = Modifier.defaultMinSize(minWidth = 40.dp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Bookmarks: step to the previous or next one, and set or clear one at the playhead.
+                val before = TimelineEditing.previousBookmark(clips, playhead)
+                val after = TimelineEditing.nextBookmark(clips, playhead)
+                val under = location?.let { TimelineEditing.bookmarkAt(clips, it.index, sourceTime) }
+                TextButton(onClick = { before?.let(jump) }, small.semantics { contentDescription = "Previous bookmark" }, enabled = before != null, contentPadding = tight) { Text("⇤", fontSize = 18.sp) }
+                TextButton(
+                    onClick = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
+                    small.semantics { contentDescription = if (under == null) "Add bookmark" else "Remove bookmark" }, enabled = location != null, contentPadding = tight,
+                ) { Text(if (under == null) "◇" else "◆", fontSize = 18.sp, color = if (location != null) BookmarkColor else Color.Unspecified) }
+                TextButton(onClick = { after?.let(jump) }, small.semantics { contentDescription = "Next bookmark" }, enabled = after != null, contentPadding = tight) { Text("⇥", fontSize = 18.sp) }
+            }
             TextButton(
                 onClick = {
                     if (editor.playing) editor.pause() else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
                 },
-                enabled = clips.isNotEmpty(),
+                enabled = clips.isNotEmpty(), contentPadding = tight,
             ) { Text(if (editor.playing) "Pause" else "Play", fontSize = 17.sp) }
             Row {
-                TextButton(onClick = { scale = (scale / 1.5f).coerceAtLeast(6f) }) { Text("−", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline out" }) }
-                TextButton(onClick = { scale = (scale * 1.5f).coerceAtMost(480f) }) { Text("+", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline in" }) }
+                TextButton(onClick = { scale = (scale / 1.5f).coerceAtLeast(6f) }, small, contentPadding = tight) { Text("−", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline out" }) }
+                TextButton(onClick = { scale = (scale * 1.5f).coerceAtMost(480f) }, small, contentPadding = tight) { Text("+", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline in" }) }
             }
         }
         Timeline(
@@ -611,6 +636,12 @@ private fun ClipStrip(
                     // Clear of the trim grip when the title starts with the clip.
                     .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
+        }
+        // Bookmarks as flags on the footage they mark.
+        for (mark in clip.bookmarks.orEmpty()) {
+            if (mark.time < clip.start || mark.time >= clip.end) continue
+            Box(Modifier.offset { IntOffset(((mark.time - clip.start) * pixelsPerSecond).roundToInt() - 1.dp.roundToPx(), 0) }
+                .width(3.dp).height(TileSize + WaveHeight).background(BookmarkColor))
         }
         // The part of this clip that dissolves in over the previous one.
         if (dissolve > 0) {

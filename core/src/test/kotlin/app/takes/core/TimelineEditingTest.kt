@@ -263,6 +263,67 @@ class DissolveTest {
     }
 }
 
+class BookmarkTest {
+    private val a = TimelineClip(sourceID = "A", start = 1.0, end = 5.0)
+    private val b = TimelineClip(sourceID = "B", start = 0.0, end = 3.0)
+    private val state = EditState(listOf(a, b))
+
+    @Test fun toggleAddsThenRemoves() {
+        val marked = TimelineEditing.toggleBookmark(state, 0, 2.0)!!
+        assertEquals(listOf(2.0), marked.clips[0].bookmarks!!.map { it.time })
+        assertEquals(listOf(1.0), TimelineEditing.bookmarkTimes(marked.clips)) // source 2.0 shows one second into the clip
+        // Close enough to the mark removes it; farther away adds another, kept in order.
+        assertNull(TimelineEditing.toggleBookmark(marked, 0, 2.1)!!.clips[0].bookmarks)
+        assertEquals(listOf(1.5, 2.0), TimelineEditing.toggleBookmark(marked, 0, 1.5)!!.clips[0].bookmarks!!.map { it.time })
+        assertNull(TimelineEditing.toggleBookmark(state, 0, 0.5)) // outside the clip
+        assertNull(TimelineEditing.toggleBookmark(state, 5, 1.0))
+    }
+
+    @Test fun navigationSkipsTheMarkUnderThePlayhead() {
+        var marked = TimelineEditing.toggleBookmark(state, 0, 2.0)!!   // timeline 1.0
+        marked = TimelineEditing.toggleBookmark(marked, 1, 0.5)!!      // timeline 4.5
+        marked = TimelineEditing.toggleBookmark(marked, 1, 2.5)!!      // timeline 6.5
+        val clips = marked.clips
+        assertEquals(listOf(1.0, 4.5, 6.5), TimelineEditing.bookmarkTimes(clips))
+        assertEquals(1.0, TimelineEditing.nextBookmark(clips, 0.0)!!, 0.0)
+        assertEquals(4.5, TimelineEditing.nextBookmark(clips, 1.0)!!, 0.0)
+        assertNull(TimelineEditing.nextBookmark(clips, 6.5))
+        assertEquals(4.5, TimelineEditing.previousBookmark(clips, 6.5)!!, 0.0)
+        assertNull(TimelineEditing.previousBookmark(clips, 1.0))
+    }
+
+    @Test fun marksFollowTheirFootage() {
+        val marked = TimelineEditing.toggleBookmark(TimelineEditing.toggleBookmark(state, 0, 2.0)!!, 0, 4.0)!!
+        val split = TimelineEditing.split(marked, 2.0)!! // source 3.0
+        assertEquals(listOf(2.0), split.clips[0].bookmarks!!.map { it.time })
+        assertEquals(listOf(4.0), split.clips[1].bookmarks!!.map { it.time })
+        assertEquals(listOf(1.0, 3.0), TimelineEditing.bookmarkTimes(split.clips))
+        // A mark trimmed out of sight is kept, and comes back when the clip is extended again.
+        val trimmed = TimelineEditing.trim(marked, 0, 2.5, 5.0, 10.0)!!
+        assertEquals(listOf(1.5), TimelineEditing.bookmarkTimes(trimmed.clips))
+        assertEquals(listOf(1.0, 3.0), TimelineEditing.bookmarkTimes(TimelineEditing.trim(trimmed, 0, 1.0, 5.0, 10.0)!!.clips))
+        assertEquals(listOf(4.0, 6.0), TimelineEditing.bookmarkTimes(TimelineEditing.move(marked, 0, 1)!!.clips))
+    }
+
+    @Test fun recordingMarksArriveOnTheTimeline() {
+        val take = SourceMedia(filename = "a.mp4", duration = 6.0, events = listOf(
+            CaptureEvent(time = 1.0, kind = "camera", detail = "Front"),
+            CaptureEvent(time = 2.5, kind = Project.BOOKMARK_EVENT, detail = ""),
+        ))
+        var project = Project("Trip").addRecording(SourceMedia(filename = "b.mp4", duration = 2.0))
+        assertEquals(1, project.schemaVersion)
+        project = project.addRecording(take)
+        assertEquals(3, project.schemaVersion) // older readers would silently drop the marks
+        assertEquals(listOf(4.5), TimelineEditing.bookmarkTimes(project.edit.clips))
+        project.validate()
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
+        val late = project.edit.clips.toMutableList().also { it[1] = it[1].copy(bookmarks = listOf(Bookmark(time = 9.0))) }
+        org.junit.Assert.assertThrows(ProjectException::class.java) { project.commit(EditState(late, 2)).validate() }
+    }
+}
+
 class WaveformTest {
     @Test fun onePeakPerSliceAcrossChannels() {
         val builder = WaveformBuilder(sampleRate = 100, channels = 2, peaksPerSecond = 10)

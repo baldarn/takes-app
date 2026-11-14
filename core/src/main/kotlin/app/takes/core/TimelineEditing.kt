@@ -62,9 +62,11 @@ object TimelineEditing {
         val cut = clip.start + offset
         // The join after the clip now follows the second piece; each piece keeps the titles it shows.
         fun titles(from: Double, to: Double) = clip.texts?.filter { it.start < to && it.end > from }?.ifEmpty { null }
+        val (before, after) = clip.bookmarks.orEmpty().partition { it.time < cut }
         val pieces = listOf(
-            clip.copy(end = cut, transition = null, texts = titles(clip.start, cut)),
-            TimelineClip(sourceID = clip.sourceID, start = cut, end = clip.end, transition = clip.transition, texts = titles(cut, clip.end)),
+            clip.copy(end = cut, transition = null, texts = titles(clip.start, cut), bookmarks = before.ifEmpty { null }),
+            TimelineClip(sourceID = clip.sourceID, start = cut, end = clip.end, transition = clip.transition,
+                texts = titles(cut, clip.end), bookmarks = after.ifEmpty { null }),
         )
         return state.copy(clips = state.clips.take(index) + pieces + state.clips.drop(index + 1))
     }
@@ -196,5 +198,35 @@ object TimelineEditing {
         val texts = clip.texts.orEmpty()
         if (texts.none { it.id == id }) return null
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(texts = texts.filter { it.id != id }.ifEmpty { null }) })
+    }
+
+    // MARK: Bookmarks
+
+    /** Marks closer than this to the playhead count as being under it. */
+    const val BOOKMARK_REACH = 0.15
+
+    /** Timeline seconds of every bookmark that is inside the visible part of its clip, in order. */
+    fun bookmarkTimes(clips: List<TimelineClip>): List<Double> = clips.flatMapIndexed { index, clip ->
+        val begins = clipStart(clips, index)
+        clip.bookmarks.orEmpty().filter { it.time >= clip.start && it.time < clip.end }.map { begins + it.time - clip.start }
+    }.sorted()
+
+    fun nextBookmark(clips: List<TimelineClip>, time: Double): Double? = bookmarkTimes(clips).firstOrNull { it > time + 0.05 }
+
+    fun previousBookmark(clips: List<TimelineClip>, time: Double): Double? = bookmarkTimes(clips).lastOrNull { it < time - 0.05 }
+
+    /** The bookmark of the clip at [index] within reach of [sourceTime], if any. */
+    fun bookmarkAt(clips: List<TimelineClip>, index: Int, sourceTime: Double): Bookmark? =
+        clips.getOrNull(index)?.bookmarks.orEmpty().filter { kotlin.math.abs(it.time - sourceTime) <= BOOKMARK_REACH }
+            .minByOrNull { kotlin.math.abs(it.time - sourceTime) }
+
+    /** Removes the bookmark under [sourceTime] on the clip at [index], or adds one there. */
+    fun toggleBookmark(state: EditState, index: Int, sourceTime: Double): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        if (!sourceTime.isFinite() || sourceTime < clip.start || sourceTime > clip.end) return null
+        val existing = bookmarkAt(state.clips, index, sourceTime)
+        val marks = clip.bookmarks.orEmpty()
+        val next = if (existing != null) marks.filter { it.id != existing.id } else (marks + Bookmark(time = sourceTime)).sortedBy { it.time }
+        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(bookmarks = next.ifEmpty { null }) })
     }
 }

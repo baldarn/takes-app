@@ -95,6 +95,12 @@ data class TextOverlay(
             x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 && size.isFinite() && size in 0.02..0.3
 }
 
+/** A mark on the footage, at a source second. It follows its clip through trims, splits and moves. */
+@Serializable
+data class Bookmark(val id: String = newID(), val time: Double, val label: String? = null) {
+    val valid: Boolean get() = time.isFinite() && time >= 0 && (label?.length ?: 0) <= 100
+}
+
 @Serializable
 data class TimelineClip(
     val id: String = newID(),
@@ -104,9 +110,16 @@ data class TimelineClip(
     /** The join to the clip after this one. */
     val transition: ClipTransition? = null,
     val texts: List<TextOverlay>? = null,
+    val bookmarks: List<Bookmark>? = null,
 ) {
     val duration: Double get() = end - start
-    val usesSchema2: Boolean get() = transition != null || !texts.isNullOrEmpty()
+
+    /** The oldest schema whose readers understand everything this clip uses. */
+    val schema: Int get() = when {
+        !bookmarks.isNullOrEmpty() -> 3
+        transition != null || !texts.isNullOrEmpty() -> 2
+        else -> 1
+    }
 }
 
 /**
@@ -210,7 +223,7 @@ data class Project(
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
         return copy(
             // Older readers must not silently drop transitions and titles.
-            schemaVersion = if (state.clips.any { it.usesSchema2 }) maxOf(schemaVersion, 2) else schemaVersion,
+            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1),
             snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips), cursor),
             historyCursor = historyCursor + 1,
             updatedAt = now,
@@ -218,11 +231,17 @@ data class Project(
     }
 
     /** Recording additions are outside editor Undo: every history step gains the take. */
-    fun addRecording(source: SourceMedia, now: Long = System.currentTimeMillis()): Project = copy(
-        sources = sources + source,
-        captureLedger = captureLedger + TimelineClip(sourceID = source.id, start = 0.0, end = source.duration),
-        updatedAt = now,
-    )
+    fun addRecording(source: SourceMedia, now: Long = System.currentTimeMillis()): Project {
+        // Marks made while recording arrive on the take's clip.
+        val marks = source.events.orEmpty().filter { it.kind == BOOKMARK_EVENT }.map { Bookmark(id = it.id, time = it.time) }.ifEmpty { null }
+        val clip = TimelineClip(sourceID = source.id, start = 0.0, end = source.duration, bookmarks = marks)
+        return copy(
+            schemaVersion = maxOf(schemaVersion, clip.schema),
+            sources = sources + source,
+            captureLedger = captureLedger + clip,
+            updatedAt = now,
+        )
+    }
 
     fun undo(now: Long = System.currentTimeMillis()): Project =
         if (canUndo) copy(historyCursor = historyCursor - 1, updatedAt = now) else this
@@ -259,6 +278,9 @@ data class Project(
                 val texts = clip.texts.orEmpty()
                 if (texts.map { it.id }.toSet().size != texts.size) invalid()
                 if (texts.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
+                val marks = clip.bookmarks.orEmpty()
+                if (marks.map { it.id }.toSet().size != marks.size) invalid()
+                if (marks.any { !it.valid || it.time > source.duration + 0.001 }) invalid()
             }
         }
     }
@@ -274,7 +296,8 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 2
+        const val LATEST_READABLE_SCHEMA = 3
+        const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
         private val RESERVED_NAMES = setOf("project.json", "history", "recovery", "cache", "exports")
