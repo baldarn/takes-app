@@ -4,13 +4,17 @@ REGISTRA A RIPRESE
 • Registra, metti in pausa, riprendi e ferma. Ogni pausa chiude una ripresa, e puoi tornare sullo stesso progetto più tardi, anche dopo aver chiuso l'app.
 • Passa dalla camera frontale a quella posteriore mentre registri.
 • Zoom predefiniti, pizzico per zoomare e transizioni di zoom fluide e temporizzate. Ogni camera ricorda il proprio zoom.
-• Livello del microfono in tempo reale durante la registrazione.
+• Livello del microfono in tempo reale e nome del microfono attivo durante la registrazione.
+• Segnalibri: segna un momento mentre registri e ritrovalo nel montaggio.
 
 MONTA SULLA TIMELINE
 • Timeline scorrevole con miniature e forme d'onda dell'audio.
 • Dividi sul cursore, rifila con le maniglie, elimina e riordina le clip.
 • Titoli che seguono le immagini, dissolvenze al nero e dissolvenze incrociate tra le clip.
 • Importa nel progetto i video già presenti sul telefono.
+• Audio per ogni clip: volume, mute e dissolvenze.
+• Due tracce audio separate per musica o voce, importate dai tuoi file.
+• Riduzione del rumore per l'audio registrato.
 • Annulla e ripristina che restano anche dopo aver chiuso l'app.
 • Le registrazioni originali non vengono mai modificate.
 

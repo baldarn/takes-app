@@ -4,13 +4,17 @@ RECORD IN TAKES
 • Record, pause, resume and stop. Every pause closes a take, and you can come back to the same project later, even after closing the app.
 • Switch between front and rear camera while recording.
 • Zoom presets, pinch to zoom, and smooth timed zoom transitions. Each camera remembers its own zoom.
-• Live microphone level while you record.
+• Live microphone level and the name of the active microphone while you record.
+• Bookmarks: mark a moment while recording and jump back to it in the editor.
 
 EDIT ON A TIMELINE
 • Scrolling thumbnail timeline with audio waveforms.
 • Split at the playhead, trim with handles, delete and reorder clips.
 • Titles that follow the footage, plus fades and cross dissolves between clips.
 • Import videos from your device into a project.
+• Sound for each clip: volume, mute and fades.
+• Two separate audio tracks for music or voice, imported from your files.
+• Noise reduction for recorded sound.
 • Undo and redo that survive closing the app.
 • Your original recordings are never modified.
 

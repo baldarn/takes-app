@@ -1,0 +1,1 @@
+Segnalibri, audio per clip (volume, mute, dissolvenze), due tracce audio separate con import di file audio, riduzione del rumore e nome del microfono attivo in registrazione.

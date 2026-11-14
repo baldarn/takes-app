@@ -1,0 +1,1 @@
+Bookmarks, per-clip sound (volume, mute, fades), two separate audio tracks with audio import, noise reduction, and the active microphone name while recording.
