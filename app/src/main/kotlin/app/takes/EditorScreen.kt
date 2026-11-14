@@ -9,6 +9,15 @@ import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.util.LruCache
 import androidx.annotation.OptIn
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.positionChange
+import app.takes.core.WaveformBuilder
+import kotlin.math.sqrt
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -89,6 +98,8 @@ import kotlin.math.roundToInt
 private val Panel = Color(0xFF1B1D21)
 private val Muted = Color(0xFFA0A4AB)
 private val TileSize = 56.dp
+private val WaveHeight = 30.dp
+private val WaveColor = Color(0xFF7DB7FF)
 
 private fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
@@ -208,13 +219,47 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
-    fun commit(next: EditState?, time: Double) {
-        if (next == null) return
-        editor.pause()
-        playhead = time
-        store.commit(project.id, next)
+    // Lambdas, not local functions: references to local functions compare
+    // equal across recompositions, so a long-lived gesture would keep the first.
+    val commit = { next: EditState?, time: Double ->
+        if (next != null) {
+            editor.pause()
+            playhead = time
+            store.commit(project.id, next)
+        }
     }
     val location = TimelineEditing.locate(clips, playhead)
+
+    // Trim handles change the clip under the playhead. The draft is shown in
+    // the timeline while dragging and becomes one undo step on release.
+    val durations = remember(project.sources) { project.sources.associate { it.id to it.duration } }
+    var trim by remember { mutableStateOf<Trim?>(null) }
+    val shown = trim?.takeIf { it.index in clips.indices }?.let { draft -> clips.toMutableList().also { it[draft.index] = draft.clip } } ?: clips
+    val dragTrim = drag@{ pixels: Float ->
+        val draft = trim ?: return@drag
+        val original = clips.getOrNull(draft.index) ?: return@drag
+        val delta = pixels / pixelsPerSecond
+        val limit = durations[original.sourceID] ?: original.end
+        val next = if (draft.leading) TimelineEditing.trimmed(original, original.start + delta, original.end, limit)
+        else TimelineEditing.trimmed(original, original.start, original.end + delta, limit)
+        trim = draft.copy(clip = next)
+        // Show the frame at the moving edge while it is inside the current clip.
+        val edge = if (draft.leading) next.start else next.end - 0.03
+        if (edge in original.start..original.end) editor.seek(clips, TimelineEditing.clipStart(clips, draft.index) + edge - original.start)
+    }
+    val endTrim = end@{
+        val draft = trim ?: return@end
+        trim = null
+        val original = clips.getOrNull(draft.index) ?: return@end
+        val base = TimelineEditing.clipStart(clips, draft.index)
+        val next = TimelineEditing.trim(edit, draft.index, draft.clip.start, draft.clip.end, durations[original.sourceID] ?: original.end)
+        if (next == null) { editor.seek(clips, playhead); return@end }
+        // Keep the same frame under the playhead when it survives the trim.
+        val offset = (playhead - base - (draft.clip.start - original.start)).coerceIn(0.0, draft.clip.duration - 0.01)
+        val moved = base + offset - playhead
+        commit(next, base + offset)
+        scroll.dispatchRawDelta((moved * pixelsPerSecond).toFloat()) // no one-frame jump before the scroll catches up
+    }
 
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -246,7 +291,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 TextButton(onClick = { scale = (scale * 1.5f).coerceAtMost(480f) }) { Text("+", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline in" }) }
             }
         }
-        Timeline(clips, files, location?.index, pixelsPerSecond, scroll) { editor.pause() }
+        Timeline(
+            shown, files, trim?.index ?: location?.index, trim, pixelsPerSecond,
+            shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
+            scroll = scroll, touched = { editor.pause() },
+            beginTrim = { leading -> location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
+            dragTrim = dragTrim, endTrim = endTrim,
+        )
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), Arrangement.SpaceEvenly) {
             TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) },
                 enabled = TimelineEditing.split(edit, playhead) != null) { Text("Split") }
@@ -268,19 +319,67 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     ExportDialogs(exporter, context) { store.error = it }
 }
 
+/** A trim in progress: the clip being changed and its uncommitted bounds. */
+private data class Trim(val index: Int, val leading: Boolean, val clip: TimelineClip)
+
 @Composable
 private fun Timeline(
-    clips: List<TimelineClip>, files: Map<String, File>, current: Int?,
-    pixelsPerSecond: Float, scroll: ScrollState, touched: () -> Unit,
+    clips: List<TimelineClip>, files: Map<String, File>, current: Int?, trim: Trim?,
+    pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
+    touched: () -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
 ) {
+    val density = LocalDensity.current
+    // The gesture below outlives recompositions; always call the latest callbacks.
+    val onTouched by rememberUpdatedState(touched)
+    val onBeginTrim by rememberUpdatedState(beginTrim)
+    val onDragTrim by rememberUpdatedState(dragTrim)
+    val onEndTrim by rememberUpdatedState(endTrim)
+    // Where a touch grabs a trim handle of the current clip instead of scrolling.
+    val handle by rememberUpdatedState { x: Float, half: Float ->
+        current?.takeIf { it in clips.indices }?.let { index ->
+            val left = half + (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat() + shift - scroll.value
+            val right = left + (clips[index].duration * pixelsPerSecond).toFloat()
+            val (outside, inside) = with(density) { 10.dp.toPx() to 22.dp.toPx() }
+            val leading = x in (left - outside)..(left + inside)
+            val trailing = x in (right - inside)..(right + outside)
+            when {
+                leading && trailing -> abs(x - left) < abs(x - right)
+                leading -> true
+                trailing -> false
+                else -> null
+            }
+        }
+    }
     BoxWithConstraints(
-        Modifier.fillMaxWidth().height(88.dp).background(Panel).pointerInput(Unit) {
-            // Scrubbing pauses playback; it stays paused after release.
-            awaitEachGesture { awaitFirstDown(requireUnconsumed = false); touched() }
+        Modifier.fillMaxWidth().height(120.dp).background(Panel).pointerInput(Unit) {
+            // The handles move under the finger, so the drag is tracked here,
+            // in a coordinate space that stays still.
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                onTouched() // scrubbing pauses playback; it stays paused after release
+                val leading = handle(down.position.x, size.width / 2f) ?: return@awaitEachGesture
+                down.consume()
+                onBeginTrim(leading)
+                try {
+                    var total = 0f
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                        total += change.positionChange().x
+                        change.consume()
+                        if (!change.pressed) break
+                        onDragTrim(total)
+                    }
+                } finally {
+                    onEndTrim()
+                }
+            }
         },
     ) {
         val viewport = constraints.maxWidth
-        Row(Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).fillMaxHeight().offset { IntOffset(shift.roundToInt(), 0) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             var offset = 0f
             clips.forEachIndexed { index, clip ->
                 key(clip.id) { ClipStrip(clip, files.getValue(clip.sourceID), index == current, offset, pixelsPerSecond, viewport, scroll) }
@@ -289,7 +388,8 @@ private fun Timeline(
         }
         Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
         if (clips.isNotEmpty()) {
-            Text("Clip ${(current ?: 0) + 1} of ${clips.size}", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp))
+            val label = trim?.let { "Clip ${it.index + 1}: ${preciseLabel(it.clip.duration)}" } ?: "Clip ${(current ?: 0) + 1} of ${clips.size}"
+            Text(label, color = if (trim != null) Color.White else Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp))
         }
     }
 }
@@ -311,18 +411,39 @@ private fun ClipStrip(
             first until last
         }
     }
-    Box(
-        Modifier.width(with(density) { width.toDp() }).height(TileSize).clipToBounds().background(Color(0xFF2A2D33))
-            .border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black),
-    ) {
-        for (index in visible) {
-            key(index) {
-                val time = (clip.start + (index + 0.5) * tile / pixelsPerSecond).coerceAtMost(clip.end)
-                val image by produceState<Bitmap?>(null, file, (time * 2).roundToInt()) { value = Thumbnails.frame(file, time) }
-                image?.let {
-                    Image(it.asImageBitmap(), null, Modifier.offset { IntOffset((index * tile).roundToInt(), 0) }.size(TileSize), contentScale = ContentScale.Crop)
+    val peaks by produceState<ByteArray?>(null, file) { value = Waveforms.peaks(file) }
+    Box(Modifier.width(with(density) { width.toDp() }).border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black)) {
+        Column {
+            Box(Modifier.fillMaxWidth().height(TileSize).clipToBounds().background(Color(0xFF2A2D33))) {
+                for (index in visible) {
+                    key(index) {
+                        val time = (clip.start + (index + 0.5) * tile / pixelsPerSecond).coerceAtMost(clip.end)
+                        val image by produceState<Bitmap?>(null, file, (time * 2).roundToInt()) { value = Thumbnails.frame(file, time) }
+                        image?.let {
+                            Image(it.asImageBitmap(), null, Modifier.offset { IntOffset((index * tile).roundToInt(), 0) }.size(TileSize), contentScale = ContentScale.Crop)
+                        }
+                    }
                 }
             }
+            Canvas(Modifier.fillMaxWidth().height(WaveHeight).background(Color(0xFF14161A))) {
+                val levels = peaks ?: return@Canvas
+                val step = 3.dp.toPx()
+                // Draw only the columns near the screen.
+                var x = ((scroll.value - viewport - offset).coerceAtLeast(0f) / step).toInt() * step
+                val last = minOf(size.width, scroll.value + viewport - offset)
+                while (x < last) {
+                    val from = clip.start + x / pixelsPerSecond
+                    val level = WaveformBuilder.level(levels, from, minOf(clip.end, from + step / pixelsPerSecond))
+                    val bar = maxOf(1.dp.toPx(), sqrt(level) * size.height)
+                    drawRect(WaveColor, Offset(x, (size.height - bar) / 2), Size(step * 0.6f, bar))
+                    x += step
+                }
+            }
+        }
+        if (current) {
+            val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(TileSize + WaveHeight).background(Color.White, RoundedCornerShape(3.dp))
+            Box(grip.align(Alignment.CenterStart))
+            Box(grip.align(Alignment.CenterEnd))
         }
     }
 }

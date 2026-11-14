@@ -41,4 +41,24 @@ object TimelineEditing {
         clips.add(to, clips.removeAt(from))
         return state.copy(clips = clips)
     }
+
+    /**
+     * The clip with new source bounds, kept inside its source and at least
+     * [MINIMUM_CLIP] long. Moving one edge never moves the other.
+     */
+    fun trimmed(clip: TimelineClip, start: Double, end: Double, sourceDuration: Double): TimelineClip {
+        if (!start.isFinite() || !end.isFinite()) return clip
+        val limit = maxOf(sourceDuration, clip.end)
+        val newStart = if (start == clip.start) start else start.coerceIn(0.0, maxOf(0.0, clip.end - MINIMUM_CLIP))
+        val newEnd = if (end == clip.end) end else end.coerceIn(minOf(limit, newStart + MINIMUM_CLIP), limit)
+        return clip.copy(start = newStart, end = newEnd)
+    }
+
+    /** Changes the clip's source range; later clips ripple. */
+    fun trim(state: EditState, index: Int, start: Double, end: Double, sourceDuration: Double): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        val next = trimmed(clip, start, end, sourceDuration)
+        if (next == clip) return null
+        return state.copy(clips = state.clips.toMutableList().also { it[index] = next })
+    }
 }
