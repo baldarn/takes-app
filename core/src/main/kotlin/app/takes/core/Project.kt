@@ -152,8 +152,35 @@ data class TimelineClip(
 data class EditState(
     val clips: List<TimelineClip> = emptyList(),
     val captureBase: Int? = null,
+    /** Sound placed on its own tracks, such as music or a voice-over. Null when there is none. */
+    val audio: List<AudioItem>? = null,
 ) {
+    /** The movie is as long as its picture; sound past the last clip is not played. */
     val duration: Double get() = TimelineEditing.duration(clips)
+}
+
+/**
+ * A piece of sound at a fixed place on the timeline, independent of the
+ * clips: editing the picture does not move it. Two tracks; items on the same
+ * track never overlap.
+ */
+@Serializable
+data class AudioItem(
+    val id: String = newID(),
+    val sourceID: String,
+    /** Timeline second where it begins. */
+    val start: Double,
+    val sourceStart: Double,
+    val sourceEnd: Double,
+    val track: Int = 0,
+    val audio: ClipAudio? = null,
+) {
+    val duration: Double get() = sourceEnd - sourceStart
+    val end: Double get() = start + duration
+
+    companion object {
+        const val TRACKS = 2
+    }
 }
 
 /**
@@ -225,7 +252,7 @@ data class Project(
     val exportSettings: ExportSettings = ExportSettings(),
 ) {
     private fun materialized(snapshot: EditSnapshot): EditState =
-        EditState(snapshot.state.clips + captureLedger.drop(snapshot.captureCursor), captureLedger.size)
+        EditState(snapshot.state.clips + captureLedger.drop(snapshot.captureCursor), captureLedger.size, snapshot.state.audio)
 
     val edit: EditState get() = materialized(snapshots[historyCursor])
     val history: List<EditState> get() = snapshots.map(::materialized)
@@ -241,16 +268,24 @@ data class Project(
      * newer takes are appended again rather than silently discarded.
      */
     fun commit(state: EditState, now: Long = System.currentTimeMillis()): Project {
-        if (state.clips == edit.clips) return this
+        val sound = state.audio?.ifEmpty { null }
+        if (state.clips == edit.clips && sound == edit.audio) return this
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
         return copy(
-            // Older readers must not silently drop transitions and titles.
-            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1),
-            snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips), cursor),
+            // Older readers must not silently drop what they do not know.
+            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1, if (sound != null) 5 else 1),
+            snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips, audio = sound), cursor),
             historyCursor = historyCursor + 1,
             updatedAt = now,
         )
     }
+
+    /**
+     * Adds media that is not a take, such as an imported sound file. It joins
+     * the project's files without appearing on the timeline by itself.
+     */
+    fun addSource(source: SourceMedia, now: Long = System.currentTimeMillis()): Project =
+        copy(sources = sources + source, updatedAt = now)
 
     /** Recording additions are outside editor Undo: every history step gains the take. */
     fun addRecording(source: SourceMedia, now: Long = System.currentTimeMillis()): Project {
@@ -292,6 +327,16 @@ data class Project(
         for (state in history) {
             if (!state.duration.isFinite() || state.duration > MAX_DURATION) invalid()
             if (state.clips.map { it.id }.toSet().size != state.clips.size) invalid()
+            val sound = state.audio.orEmpty()
+            if (sound.map { it.id }.toSet().size != sound.size) invalid()
+            for (item in sound) {
+                val source = byID[item.sourceID] ?: invalid()
+                if (!item.start.isFinite() || item.start < 0 || item.start > MAX_DURATION || item.track !in 0 until AudioItem.TRACKS) invalid()
+                if (!item.sourceStart.isFinite() || !item.sourceEnd.isFinite() || item.sourceStart < 0 ||
+                    item.sourceEnd <= item.sourceStart || item.sourceEnd > source.duration + 0.001) invalid()
+                if (item.audio?.valid == false) invalid()
+                if (sound.any { it !== item && it.track == item.track && it.start < item.end && item.start < it.end }) invalid()
+            }
             for (clip in state.clips) {
                 val source = byID[clip.sourceID] ?: invalid()
                 if (!clip.start.isFinite() || !clip.end.isFinite() || clip.start < 0 ||
@@ -319,7 +364,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 4
+        const val LATEST_READABLE_SCHEMA = 5
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

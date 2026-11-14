@@ -387,6 +387,82 @@ class ClipAudioTest {
     }
 }
 
+class AudioItemTest {
+    private val clip = TimelineClip(sourceID = "A", start = 0.0, end = 20.0)
+    private val state = EditState(listOf(clip))
+
+    @Test fun itemsTakeTheFirstFreeTrack() {
+        val music = TimelineEditing.addAudio(state, "M", 10.0, 2.0)!!
+        assertEquals(listOf(0), music.audio!!.map { it.track })
+        assertEquals(12.0, music.audio!![0].end, 0.0)
+        val voice = TimelineEditing.addAudio(music, "V", 3.0, 5.0)!!   // overlaps the music: second track
+        assertEquals(listOf(0, 1), voice.audio!!.map { it.track })
+        assertNull(TimelineEditing.addAudio(voice, "X", 3.0, 6.0))     // both tracks busy there
+        assertEquals(0, TimelineEditing.addAudio(voice, "X", 3.0, 12.0)!!.audio!!.last().track) // touching is not overlapping
+        assertNull(TimelineEditing.addAudio(state, "M", 10.0, -1.0))
+        assertNull(TimelineEditing.addAudio(state, "M", 0.0, 1.0))
+        assertEquals(state.duration, voice.duration, 0.0)              // sound does not lengthen the movie
+    }
+
+    @Test fun moveAndTrimKeepTheSoundInPlace() {
+        val added = TimelineEditing.addAudio(state, "M", 10.0, 2.0)!!
+        val id = added.audio!![0].id
+        assertEquals(4.0, TimelineEditing.moveAudio(added, id, 4.0)!!.audio!![0].start, 0.0)
+        assertNull(TimelineEditing.moveAudio(added, id, 2.0))
+        assertNull(TimelineEditing.moveAudio(added, "missing", 4.0))
+        // Trimming the start to 5.0 drops the first three seconds; the rest still plays at the same moments.
+        val head = TimelineEditing.trimAudio(added, id, 5.0, leading = true)!!.audio!![0]
+        assertEquals(listOf(5.0, 3.0, 10.0), listOf(head.start, head.sourceStart, head.sourceEnd))
+        val tail = TimelineEditing.trimAudio(added, id, 5.0, leading = false)!!.audio!![0]
+        assertEquals(listOf(2.0, 0.0, 3.0), listOf(tail.start, tail.sourceStart, tail.sourceEnd))
+        assertNull(TimelineEditing.trimAudio(added, id, 2.0, leading = true))   // at its edge: nothing to cut
+        assertNull(TimelineEditing.trimAudio(added, id, 30.0, leading = false)) // outside it
+        // A move onto a busy stretch changes track; when no track is free it is refused.
+        val two = TimelineEditing.addAudio(added, "V", 3.0, 14.0)!!
+        val voice = two.audio!!.first { it.sourceID == "V" }
+        assertEquals(1, TimelineEditing.moveAudio(two, voice.id, 5.0)!!.audio!!.first { it.id == voice.id }.track)
+    }
+
+    @Test fun soundSettingsAndLookup() {
+        val added = TimelineEditing.addAudio(state, "M", 10.0, 2.0)!!
+        val id = added.audio!![0].id
+        val quiet = TimelineEditing.setAudioItemSound(added, id, ClipAudio(volumeDB = -6.0, fadeIn = 2.0))!!
+        val item = quiet.audio!![0]
+        assertEquals(ClipAudio(volumeDB = -6.0).gain / 2, TimelineEditing.soundLevel(item, 1.0), 1e-12)
+        assertEquals(ClipAudio(volumeDB = -6.0).gain, TimelineEditing.soundLevel(item, 5.0), 1e-12)
+        assertNull(TimelineEditing.setAudioItemSound(quiet, id, ClipAudio(volumeDB = -6.0, fadeIn = 2.0)))
+        assertNull(TimelineEditing.setAudioItemSound(quiet, id, ClipAudio())!!.audio!![0].audio)
+        assertEquals(item, TimelineEditing.audioAt(quiet.audio!!, 0, 2.0))
+        assertNull(TimelineEditing.audioAt(quiet.audio!!, 0, 12.0))
+        assertNull(TimelineEditing.audioAt(quiet.audio!!, 1, 5.0))
+        assertNull(TimelineEditing.removeAudio(quiet, id)!!.audio)
+        assertNull(TimelineEditing.removeAudio(state, id))
+    }
+
+    @Test fun projectKeepsSoundThroughUndoAndRecording() {
+        val take = SourceMedia(filename = "a.mp4", duration = 20.0)
+        val song = SourceMedia(filename = "song.m4a", duration = 10.0, audioOnly = true)
+        var project = Project("x").addRecording(take).addSource(song)
+        assertEquals(1, project.edit.clips.size)          // a sound file does not become a clip
+        project = project.commit(TimelineEditing.addAudio(project.edit, song.id, song.duration, 2.0)!!)
+        assertEquals(5, project.schemaVersion)
+        project.validate()
+        assertEquals(1, project.edit.audio!!.size)
+        // A take recorded afterwards joins the clips and leaves the sound alone.
+        project = project.addRecording(SourceMedia(filename = "b.mp4", duration = 5.0))
+        assertEquals(2, project.edit.clips.size)
+        assertEquals(2.0, project.edit.audio!![0].start, 0.0)
+        assertNull(project.undo().edit.audio)
+        assertEquals(project.edit, project.undo().redo().edit)
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
+        // Overlapping items on one track are not a valid document.
+        val broken = project.edit.audio!! + project.edit.audio!![0].copy(id = "other", start = 3.0)
+        org.junit.Assert.assertThrows(ProjectException::class.java) { project.commit(project.edit.copy(audio = broken)).validate() }
+    }
+}
+
 class WaveformTest {
     @Test fun onePeakPerSliceAcrossChannels() {
         val builder = WaveformBuilder(sampleRate = 100, channels = 2, peaksPerSecond = 10)

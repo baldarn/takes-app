@@ -257,4 +257,68 @@ object TimelineEditing {
         val own = level(offset, clip.duration, minOf(audio.fadeIn, clip.duration / 2), minOf(audio.fadeOut, clip.duration / 2))
         return audio.gain * own * level(clips, index, offset) * weight(clips, index, offset)
     }
+
+    // MARK: Sound on its own tracks
+
+    private fun EditState.withAudio(items: List<AudioItem>) = copy(audio = items.sortedBy { it.start }.ifEmpty { null })
+
+    private fun fits(items: List<AudioItem>, item: AudioItem) =
+        items.none { it.id != item.id && it.track == item.track && it.start < item.end && item.start < it.end }
+
+    /** The first track where [item] overlaps nothing, or null when every track is busy there. */
+    private fun placed(items: List<AudioItem>, item: AudioItem): AudioItem? =
+        (listOf(item.track) + (0 until AudioItem.TRACKS)).distinct().map { item.copy(track = it) }.firstOrNull { fits(items, it) }
+
+    /** Puts a whole sound source on the timeline at [at]. Null when both tracks are busy there. */
+    fun addAudio(state: EditState, sourceID: String, sourceDuration: Double, at: Double): EditState? {
+        if (!at.isFinite() || at < 0 || !sourceDuration.isFinite() || sourceDuration < MINIMUM_CLIP) return null
+        val items = state.audio.orEmpty()
+        val item = placed(items, AudioItem(sourceID = sourceID, start = at, sourceStart = 0.0, sourceEnd = sourceDuration)) ?: return null
+        return state.withAudio(items + item)
+    }
+
+    /** Moves an item to begin at [start], changing track if its own is busy there. */
+    fun moveAudio(state: EditState, id: String, start: Double): EditState? {
+        val items = state.audio.orEmpty()
+        val item = items.firstOrNull { it.id == id } ?: return null
+        if (!start.isFinite() || start < 0 || start == item.start) return null
+        val moved = placed(items, item.copy(start = start)) ?: return null
+        return state.withAudio(items.map { if (it.id == id) moved else it })
+    }
+
+    /**
+     * Cuts the item so it begins or ends at timeline second [time], which
+     * must fall inside it. What stays keeps its place on the timeline.
+     */
+    fun trimAudio(state: EditState, id: String, time: Double, leading: Boolean): EditState? {
+        val items = state.audio.orEmpty()
+        val item = items.firstOrNull { it.id == id } ?: return null
+        if (!time.isFinite() || time - item.start < MINIMUM_CLIP || item.end - time < MINIMUM_CLIP) return null
+        val cut = item.sourceStart + (time - item.start)
+        val trimmed = if (leading) item.copy(start = time, sourceStart = cut) else item.copy(sourceEnd = cut)
+        return state.withAudio(items.map { if (it.id == id) trimmed else it })
+    }
+
+    fun setAudioItemSound(state: EditState, id: String, audio: ClipAudio): EditState? {
+        val items = state.audio.orEmpty()
+        val item = items.firstOrNull { it.id == id } ?: return null
+        if (!audio.valid || audio.normalized() == item.audio) return null
+        return state.withAudio(items.map { if (it.id == id) it.copy(audio = audio.normalized()) else it })
+    }
+
+    fun removeAudio(state: EditState, id: String): EditState? {
+        val items = state.audio.orEmpty()
+        if (items.none { it.id == id }) return null
+        return state.withAudio(items.filter { it.id != id })
+    }
+
+    /** The item playing on [track] at timeline second [time]. */
+    fun audioAt(items: List<AudioItem>, track: Int, time: Double): AudioItem? =
+        items.firstOrNull { it.track == track && time >= it.start && time < it.end }
+
+    /** How loud an item is at [offset] seconds into it: its level, mute and fades. */
+    fun soundLevel(item: AudioItem, offset: Double): Double {
+        val audio = item.audio ?: ClipAudio()
+        return audio.gain * level(offset, item.duration, minOf(audio.fadeIn, item.duration / 2), minOf(audio.fadeOut, item.duration / 2))
+    }
 }
