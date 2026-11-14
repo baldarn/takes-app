@@ -67,8 +67,9 @@ object TimelineEditing {
         val pieces = listOf(
             clip.copy(end = cut, transition = null, texts = titles(clip.start, cut), bookmarks = before.ifEmpty { null },
                 audio = clip.audio?.copy(fadeOut = 0.0).normalized()),
-            TimelineClip(sourceID = clip.sourceID, start = cut, end = clip.end, transition = clip.transition,
-                texts = titles(cut, clip.end), bookmarks = after.ifEmpty { null }, audio = clip.audio?.copy(fadeIn = 0.0).normalized()),
+            // A copy, so whatever else a clip carries, such as its color, stays on both pieces.
+            clip.copy(id = newID(), start = cut, texts = titles(cut, clip.end), bookmarks = after.ifEmpty { null },
+                audio = clip.audio?.copy(fadeIn = 0.0).normalized()),
         )
         return state.copy(clips = state.clips.take(index) + pieces + state.clips.drop(index + 1))
     }
@@ -119,10 +120,10 @@ object TimelineEditing {
         val pieces = kept.mapIndexed { position, part ->
             val first = position == 0
             val last = position == kept.lastIndex
-            TimelineClip(
+            clip.copy(
                 // The first piece stays the clip the previous one joins; the last carries the join to the next.
                 id = if (first) clip.id else newID(),
-                sourceID = clip.sourceID, start = part.start, end = part.end,
+                start = part.start, end = part.end,
                 transition = if (last) clip.transition else null,
                 texts = clip.texts?.filter { it.start < part.end && it.end > part.start }?.ifEmpty { null },
                 bookmarks = clip.bookmarks?.filter { it.time >= part.start && it.time < part.end }?.ifEmpty { null },
@@ -346,5 +347,16 @@ object TimelineEditing {
     fun soundLevel(item: AudioItem, offset: Double): Double {
         val audio = item.audio ?: ClipAudio()
         return audio.gain * level(offset, item.duration, minOf(audio.fadeIn, item.duration / 2), minOf(audio.fadeOut, item.duration / 2))
+    }
+
+    // MARK: Color
+
+    /** Sets the color of the clip at [index]. Settings that change nothing are stored as nothing at all. */
+    fun setColor(state: EditState, index: Int, color: ColorSettings): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        if (!color.valid) return null
+        val next = color.takeIf { !it.isIdentity }
+        if (next == clip.color) return null
+        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(color = next) })
     }
 }

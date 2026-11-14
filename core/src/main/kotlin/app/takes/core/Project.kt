@@ -134,11 +134,14 @@ data class TimelineClip(
     val bookmarks: List<Bookmark>? = null,
     /** Null plays the sound as recorded. */
     val audio: ClipAudio? = null,
+    /** Null shows the picture as recorded. */
+    val color: ColorSettings? = null,
 ) {
     val duration: Double get() = end - start
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        color != null -> 7
         (audio?.denoise ?: 0.0) > 0 -> 6
         audio != null -> 4
         !bookmarks.isNullOrEmpty() -> 3
@@ -350,7 +353,7 @@ data class Project(
                 val texts = clip.texts.orEmpty()
                 if (texts.map { it.id }.toSet().size != texts.size) invalid()
                 if (texts.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
-                if (clip.audio?.valid == false) invalid()
+                if (clip.audio?.valid == false || clip.color?.valid == false) invalid()
                 val marks = clip.bookmarks.orEmpty()
                 if (marks.map { it.id }.toSet().size != marks.size) invalid()
                 if (marks.any { !it.valid || it.time > source.duration + 0.001 }) invalid()
@@ -369,7 +372,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 6
+        const val LATEST_READABLE_SCHEMA = 7
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
