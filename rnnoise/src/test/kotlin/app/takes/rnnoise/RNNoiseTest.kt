@@ -238,4 +238,29 @@ class RNNoiseTest {
         val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         assertEquals("f0cdb52b30501aab489f90fedbc7a023c719d91b337db2da7f26fc3036556b95", hash)
     }
+
+    @Test fun streamingMatchesTheWholeChannelBitForBit() {
+        val random = java.util.Random(7)
+        for (length in listOf(0, 1, 479, 480, 481, 2000, 48_000 + 123)) {
+            val input = FloatArray(length) { (random.nextGaussian() * 0.05).toFloat() + 0.2f * kotlin.math.sin(it * 0.03).toFloat() }
+            for (amount in listOf(1f, 0.5f)) {
+                val whole = input.copyOf().also { denoise(it, amount) }
+                val streamed = FloatArray(length)
+                var written = 0
+                val collect = { block: FloatArray, count: Int -> System.arraycopy(block, 0, streamed, written, count); written += count }
+                ChannelDenoiser(amount).use { channel ->
+                    // Uneven chunks, as a decoder would deliver them.
+                    var offset = 0
+                    while (offset < length) {
+                        val chunk = minOf(length - offset, 1 + random.nextInt(1500))
+                        channel.write(input, offset, chunk, collect)
+                        offset += chunk
+                    }
+                    channel.finish(collect)
+                }
+                org.junit.Assert.assertEquals("length $length", length, written)
+                org.junit.Assert.assertArrayEquals("length $length amount $amount", whole, streamed, 0f)
+            }
+        }
+    }
 }

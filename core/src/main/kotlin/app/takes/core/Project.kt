@@ -108,10 +108,12 @@ data class ClipAudio(
     val muted: Boolean = false,
     val fadeIn: Double = 0.0,
     val fadeOut: Double = 0.0,
+    /** Noise reduction: how much of the cleaned sound replaces the recorded one, 0–1. Clips only. */
+    val denoise: Double = 0.0,
 ) {
     val gain: Double get() = if (muted) 0.0 else Math.pow(10.0, volumeDB / 20)
     val valid: Boolean
-        get() = volumeDB.isFinite() && volumeDB in MINIMUM_DB..MAXIMUM_DB &&
+        get() = volumeDB.isFinite() && volumeDB in MINIMUM_DB..MAXIMUM_DB && denoise.isFinite() && denoise in 0.0..1.0 &&
             fadeIn.isFinite() && fadeOut.isFinite() && fadeIn >= 0 && fadeOut >= 0 && fadeIn <= 604800 && fadeOut <= 604800
 
     companion object {
@@ -137,6 +139,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        (audio?.denoise ?: 0.0) > 0 -> 6
         audio != null -> 4
         !bookmarks.isNullOrEmpty() -> 3
         transition != null || !texts.isNullOrEmpty() -> 2
@@ -366,7 +369,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 5
+        const val LATEST_READABLE_SCHEMA = 6
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

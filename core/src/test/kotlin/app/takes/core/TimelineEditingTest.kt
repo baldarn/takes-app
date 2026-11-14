@@ -376,6 +376,20 @@ class ClipAudioTest {
         assertNull(plain[1].audio)
     }
 
+    @Test fun noiseReductionIsAnAmountAndNeedsSchema6() {
+        assertNull(TimelineEditing.setAudio(state, 0, ClipAudio(denoise = 1.5)))
+        assertNull(TimelineEditing.setAudio(state, 0, ClipAudio(denoise = Double.NaN)))
+        val cleaned = TimelineEditing.setAudio(state, 0, ClipAudio(denoise = 0.5))!!
+        assertEquals(6, cleaned.clips[0].schema)
+        assertEquals(1.0, TimelineEditing.soundLevel(cleaned.clips, 0, 2.0), 0.0) // it changes the sound, not its level
+        // Both pieces of a split stay cleaned.
+        assertEquals(listOf(0.5, 0.5), TimelineEditing.split(cleaned, 2.0)!!.clips.take(2).map { it.audio!!.denoise })
+        var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 4.0))
+        project = project.commit(TimelineEditing.setAudio(project.edit, 0, ClipAudio(denoise = 1.0))!!)
+        assertEquals(6, project.schemaVersion)
+        project.validate()
+    }
+
     @Test fun projectsWithClipSoundUseSchema4() {
         var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 4.0))
         project = project.commit(TimelineEditing.setAudio(project.edit, 0, ClipAudio(muted = true))!!)
