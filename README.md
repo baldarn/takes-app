@@ -6,7 +6,8 @@ reserved by its author.
 
 ## Build
 
-Needs JDK 17 and the Android SDK (API 36).
+Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1
+for the `rnnoise` module.
 
     ./gradlew :core:test            # project model, storage and zoom curve
     ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
@@ -17,6 +18,7 @@ Needs JDK 17 and the Android SDK (API 36).
   snapshots), `ProjectDisk` (atomic manifest, content-addressed `History/`, revisions,
   Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
   `TimelineEditing` (split, delete, move, trim, transitions, titles, bookmarks), `WaveformBuilder` (audio peaks).
+- `rnnoise/` — the RNNoise C library with a small Kotlin API, built with the NDK.
 - `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
   take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
   Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
@@ -47,6 +49,8 @@ Needs JDK 17 and the Android SDK (API 36).
 - Sound on two separate audio tracks: import a music or voice file, place it at the
   playhead, cut it, move it, set its level and fades. It stays where it is when the
   clips are edited, and is mixed with the clips' sound in preview and export.
+- Noise reduction on a clip's sound with RNNoise, off, light or full. The cleaned
+  sound is made once in the background and kept in the project's cache.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to

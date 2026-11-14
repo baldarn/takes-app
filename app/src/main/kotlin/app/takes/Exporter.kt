@@ -101,6 +101,11 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     // The movie is always SDR, so HDR footage from a phone camera is tone-mapped.
     private val sdr = Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL
 
+    private companion object {
+        /** Share of the progress bar given to noise reduction when a movie needs it. */
+        const val CLEANING = 0.25f
+    }
+
     private val scope = MainScope()
     private var job: Job? = null
 
@@ -129,6 +134,13 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val name = project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifEmpty { "Movie" } + " $stamp.mp4"
             val output = File(folder, name)
             val writing = File(folder, ".$name")
+            // Noise reduction: make the cleaned sound of every clip that asks for it, before rendering.
+            val wanted = clips.mapIndexedNotNull { index, clip -> clip.audio?.denoise?.takeIf { it > 0 }?.let { index to it } }
+            val clean = mutableMapOf<Int, File>()
+            wanted.forEachIndexed { step, (index, amount) ->
+                Denoiser.process(files.getValue(clips[index].sourceID), amount) { progress = CLEANING * (step + it) / wanted.size }?.let { clean[index] = it }
+            }
+            val began = if (wanted.isEmpty()) 0f else CLEANING
             val fit = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
             val items = clips.mapIndexed { index, clip ->
                 val fadeIn = TimelineEditing.fadeLength(clips, index - 1)
@@ -145,6 +157,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 val shaped = clip.audio != null || TimelineEditing.transition(clips, index) != null || TimelineEditing.transition(clips, index - 1) != null
                 val sound = if (shaped) listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(clips, index, it) }) else emptyList()
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
+                    .setRemoveAudio(index in clean) // its cleaned sound plays from a sequence of its own
                     .setEffects(Effects(sound, picture))
                     .build()
             }
@@ -174,6 +187,32 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 sequence.build()
             }
             val chains = TimelineEditing.chains(clips)
+            // Cleaned clip sound, in place of the recorded one: audio-only sequences at the
+            // clips' own times. Clips that dissolve into each other overlap, so chains alternate.
+            val cleaned = (0..1).mapNotNull { parity ->
+                val indices = clean.keys.sorted().filter { index -> chains.indexOfFirst { index in it.first..it.last } % 2 == parity }
+                if (indices.isEmpty()) return@mapNotNull null
+                val sequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
+                var filled = 0.0
+                fun gap(until: Double) {
+                    val micros = ((until - filled) * 1e6).roundToLong()
+                    if (micros > 0) sequence.addGap(micros)
+                }
+                for (index in indices) {
+                    val clip = clips[index]
+                    val begins = TimelineEditing.clipStart(clips, index)
+                    gap(begins)
+                    sequence.addItem(
+                        EditedMediaItem.Builder(clippedItem(clip, clean.getValue(index)))
+                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(clips, index, it) }), emptyList()))
+                            .build(),
+                    )
+                    filled = begins + clip.duration
+                }
+                gap(total)
+                sequence.build()
+            }
+            val extra = soundtracks + cleaned
             // Titles are drawn once, over the finished picture.
             val titles = if (clips.any { !it.texts.isNullOrEmpty() }) {
                 Effects(emptyList(), listOf<Effect>(OverlayEffect(listOf(TitleOverlay(clips, canvas.first, canvas.second)))))
@@ -184,7 +223,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val blended = File(folder, ".$name.blend").takeIf { chains.size > 1 && titles != Effects.EMPTY }
             val first = if (chains.size == 1) {
                 // Silence is generated for takes recorded without a microphone.
-                Composition.Builder(listOf(EditedMediaItemSequence.withAudioAndVideoFrom(items)) + soundtracks).setEffects(titles).setHdrMode(sdr).build()
+                Composition.Builder(listOf(EditedMediaItemSequence.withAudioAndVideoFrom(items)) + extra).setEffects(titles).setHdrMode(sdr).build()
             } else {
                 // Dissolves: chains alternate between two sequences that overlap in
                 // time. The first is drawn on top with the opacity of its share.
@@ -200,17 +239,17 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     filled[index % 2] = chain.end
                 }
                 for (deck in 0..1) gap(deck, total)
-                Composition.Builder(sequences.map { it.build() } + soundtracks)
+                Composition.Builder(sequences.map { it.build() } + extra)
                     .setVideoCompositorSettings(DissolveCompositor(clips, Size(canvas.first, canvas.second)))
                     .setHdrMode(sdr)
                     .build()
             }
             val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
             try {
-                if (blended == null) render(first, writing, codec, 0f, 1f) else {
-                    render(first, blended, codec, 0f, 0.5f)
+                if (blended == null) render(first, writing, codec, began, 1f) else {
+                    render(first, blended, codec, began, 0.5f + began / 2)
                     val whole = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(blended))).build()
-                    render(Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(listOf(whole))).setEffects(titles).build(), writing, codec, 0.5f, 1f)
+                    render(Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(listOf(whole))).setEffects(titles).build(), writing, codec, 0.5f + began / 2, 1f)
                 }
                 if (writing.renameTo(output)) result = output else store.error = "The exported movie could not be saved."
             } catch (problem: ExportException) {

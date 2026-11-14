@@ -40,6 +40,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import app.takes.core.AudioItem
+import android.net.Uri
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.exoplayer.source.ClippingMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
+import kotlin.math.roundToLong
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -143,9 +152,28 @@ private fun preciseLabel(seconds: Double): String {
  * two pictures at once, so chains alternate between two decks whose views are
  * stacked: deck 0 on top, like the first sequence of an export.
  */
-private class EditorPlayer(context: Context) {
+private class EditorPlayer(private val context: Context) {
     private val sessions = context.getSystemService(AudioManager::class.java)
-    val decks = List(2) { ExoPlayer.Builder(context).build().apply { audioSessionId = sessions.generateAudioSessionId() } }
+    val decks = List(2) {
+        ExoPlayer.Builder(context).build().apply {
+            audioSessionId = sessions.generateAudioSessionId()
+            // A clip with noise reduction carries two sounds, recorded and cleaned (a WAV): play the cleaned one.
+            trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredAudioMimeType(MimeTypes.AUDIO_RAW).build()
+        }
+    }
+    private val sources = DefaultMediaSourceFactory(context)
+
+    /** The clip as something to play: its own file, or its picture merged with its cleaned sound when that is ready. */
+    private fun source(clip: TimelineClip, file: File): MediaSource {
+        val clean = clip.audio?.denoise?.takeIf { it > 0 }?.let { Denoiser.ready(file, it) }
+            ?: return sources.createMediaSource(clippedItem(clip, file))
+        val merged = MergingMediaSource(
+            /* adjustPeriodTimeOffsets = */ true, /* clipDurations = */ true,
+            sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(file))), sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(clean))),
+        )
+        return ClippingMediaSource.Builder(merged)
+            .setStartPositionUs((clip.start * 1e6).roundToLong()).setEndPositionUs((clip.end * 1e6).roundToLong()).build()
+    }
     // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
     private val boosts = decks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
 
@@ -204,7 +232,7 @@ private class EditorPlayer(context: Context) {
         chains = TimelineEditing.chains(clips)
         items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
         decks.forEachIndexed { deck, player ->
-            player.setMediaItems(items[deck].map { clippedItem(clips[it], files.getValue(clips[it].sourceID)) })
+            player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID)) })
             player.prepare()
         }
         seek(time)
@@ -349,7 +377,23 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         onDispose { view.keepScreenOn = false }
     }
     val sounds = edit.audio.orEmpty()
-    LaunchedEffect(clips, sounds) {
+    // Noise reduction runs in the background, one recording at a time. Until a clip's
+    // cleaned sound is ready the preview plays the recorded sound; then the players reload.
+    val cleaning = clips.mapNotNull { clip -> clip.audio?.denoise?.takeIf { it > 0 }?.let { files.getValue(clip.sourceID) to it } }.distinct()
+    var cleaned by remember { mutableIntStateOf(0) }
+    var cleaningProgress by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(cleaning) {
+        try {
+            for ((file, amount) in cleaning) {
+                if (Denoiser.ready(file, amount) != null) continue
+                cleaningProgress = 0f
+                if (Denoiser.process(file, amount) { cleaningProgress = it } != null) cleaned++
+            }
+        } finally {
+            cleaningProgress = null
+        }
+    }
+    LaunchedEffect(clips, sounds, cleaned) {
         playhead = playhead.coerceIn(0.0, duration)
         editor.load(clips, sounds, files, playhead)
     }
@@ -519,6 +563,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 TextButton(onClick = { scale = (scale * 1.5f).coerceAtMost(480f) }, small, contentPadding = tight) { Text("+", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline in" }) }
             }
         }
+        cleaningProgress?.let {
+            Text("Reducing noise… ${(it * 100).roundToInt()}%", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
+        }
         Timeline(
             shown, files, sounds, names, { editor.pause(); chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
             shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
@@ -561,7 +608,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     sounds.firstOrNull { it.id == chosenSound }?.let { item ->
         if (shapingSound) {
             SoundDialog(
-                item.audio ?: ClipAudio(),
+                item.audio ?: ClipAudio(), canReduceNoise = false,
                 save = { commit(TimelineEditing.setAudioItemSound(edit, item.id, it), playhead); shapingSound = false; chosenSound = null },
                 dismiss = { shapingSound = false },
             )
@@ -581,7 +628,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
 
     if (editingAudio && location != null && current != null) {
         SoundDialog(
-            current.audio ?: ClipAudio(),
+            current.audio ?: ClipAudio(), canReduceNoise = true,
             save = { commit(TimelineEditing.setAudio(edit, location.index, it), playhead); editingAudio = false },
             dismiss = { editingAudio = false },
         )
@@ -795,6 +842,7 @@ private fun ClipStrip(
             val note = listOfNotNull(
                 if (audio.muted) "Muted" else audio.volumeDB.takeIf { it != 0.0 }?.let { (if (it > 0) "+" else "") + "${it.roundToInt()} dB" },
                 "Fade".takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
+                "Clean".takeIf { audio.denoise > 0 },
             ).joinToString(" · ")
             if (note.isNotEmpty()) {
                 Text(note, color = Color.White, fontSize = 10.sp, maxLines = 1,
@@ -859,7 +907,7 @@ private fun AudioItemDialog(
 
 /** The clip's own sound: level from silence to a 12 dB boost, mute, and a fade at each end. */
 @Composable
-private fun SoundDialog(saved: ClipAudio, save: (ClipAudio) -> Unit, dismiss: () -> Unit) {
+private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAudio) -> Unit, dismiss: () -> Unit) {
     var audio by remember { mutableStateOf(saved) }
     val fades = listOf("None" to 0.0, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0, "3 s" to 3.0)
     fun label(decibels: Double) = when {
@@ -888,6 +936,10 @@ private fun SoundDialog(saved: ClipAudio, save: (ClipAudio) -> Unit, dismiss: ()
                 }
                 Choices("Fade in", fades, audio.fadeIn) { audio = audio.copy(fadeIn = it) }
                 Choices("Fade out", fades, audio.fadeOut) { audio = audio.copy(fadeOut = it) }
+                if (canReduceNoise) {
+                    Choices("Noise reduction", listOf("Off" to 0.0, "Light" to 0.5, "Full" to 1.0), audio.denoise) { audio = audio.copy(denoise = it) }
+                    Text("Quiets steady background noise, mostly in the pauses of speech.", color = Muted, fontSize = 13.sp)
+                }
             }
         },
         confirmButton = { TextButton(onClick = { save(audio) }) { Text("Save") } },
