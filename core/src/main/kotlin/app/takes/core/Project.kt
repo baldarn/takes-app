@@ -257,7 +257,9 @@ data class Project(
     val edit: EditState get() = materialized(snapshots[historyCursor])
     val history: List<EditState> get() = snapshots.map(::materialized)
     val mediaFiles: List<String> get() = sources.map { it.filename }
-    val capturedDuration: Double get() = sources.sumOf { it.duration }
+    /** The footage, without imported sound files. */
+    val recordings: List<SourceMedia> get() = sources.filter { it.audioOnly != true }
+    val capturedDuration: Double get() = recordings.sumOf { it.duration }
     val canUndo: Boolean get() = historyCursor > 0
     val canRedo: Boolean get() = historyCursor + 1 < snapshots.size
 

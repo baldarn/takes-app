@@ -20,6 +20,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.OverlayEffect
+import app.takes.core.AudioItem
 import app.takes.core.ExportSettings
 import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
@@ -59,6 +60,17 @@ fun clippedItem(clip: TimelineClip, file: File): MediaItem = MediaItem.Builder()
         MediaItem.ClippingConfiguration.Builder()
             .setStartPositionUs((clip.start * 1e6).roundToLong())
             .setEndPositionUs((clip.end * 1e6).roundToLong())
+            .build(),
+    ).build()
+
+/** One audio item as a player or export item, cut to the part of its source it plays. */
+fun clippedItem(item: AudioItem, file: File, seconds: Double = item.duration): MediaItem = MediaItem.Builder()
+    .setUri(Uri.fromFile(file))
+    .setMediaId(item.id)
+    .setClippingConfiguration(
+        MediaItem.ClippingConfiguration.Builder()
+            .setStartPositionUs((item.sourceStart * 1e6).roundToLong())
+            .setEndPositionUs(((item.sourceStart + seconds) * 1e6).roundToLong())
             .build(),
     ).build()
 
@@ -106,7 +118,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             // The first clip gives the picture its shape; the settings give it its size.
             val canvas = withContext(Dispatchers.IO) { files[clips.first().sourceID]?.let(::displaySize) }
                 ?.let { settings.resolution.size(it.first, it.second) }
-            if (canvas == null || clips.any { files[it.sourceID]?.isFile != true }) {
+            val sounds = project.edit.audio.orEmpty()
+            if (canvas == null || clips.any { files[it.sourceID]?.isFile != true } || sounds.any { files[it.sourceID]?.isFile != true }) {
                 store.error = "A source file is missing or unreadable. The project has been preserved."
                 progress = null
                 return@launch
@@ -135,6 +148,31 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     .setEffects(Effects(sound, picture))
                     .build()
             }
+            // Sound on its own tracks: one audio-only sequence per track, silent between
+            // items. The movie ends with its picture, so later sound is left out.
+            val total = TimelineEditing.duration(clips)
+            val soundtracks = (0 until AudioItem.TRACKS).mapNotNull { track ->
+                val items = sounds.filter { it.track == track && it.start < total - 0.01 }.sortedBy { it.start }
+                if (items.isEmpty()) return@mapNotNull null
+                val sequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
+                var filled = 0.0
+                fun gap(until: Double) {
+                    val micros = ((until - filled) * 1e6).roundToLong()
+                    if (micros > 0) sequence.addGap(micros)
+                }
+                for (item in items) {
+                    gap(item.start)
+                    val seconds = minOf(item.end, total) - item.start
+                    sequence.addItem(
+                        EditedMediaItem.Builder(clippedItem(item, files.getValue(item.sourceID), seconds)).setRemoveVideo(true)
+                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(item, it) }), emptyList()))
+                            .build(),
+                    )
+                    filled = item.start + seconds
+                }
+                gap(total)
+                sequence.build()
+            }
             val chains = TimelineEditing.chains(clips)
             // Titles are drawn once, over the finished picture.
             val titles = if (clips.any { !it.texts.isNullOrEmpty() }) {
@@ -146,11 +184,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val blended = File(folder, ".$name.blend").takeIf { chains.size > 1 && titles != Effects.EMPTY }
             val first = if (chains.size == 1) {
                 // Silence is generated for takes recorded without a microphone.
-                Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(items)).setEffects(titles).setHdrMode(sdr).build()
+                Composition.Builder(listOf(EditedMediaItemSequence.withAudioAndVideoFrom(items)) + soundtracks).setEffects(titles).setHdrMode(sdr).build()
             } else {
                 // Dissolves: chains alternate between two sequences that overlap in
                 // time. The first is drawn on top with the opacity of its share.
-                val total = TimelineEditing.duration(clips)
                 val sequences = List(2) { EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO)) }
                 val filled = DoubleArray(2)
                 fun gap(deck: Int, until: Double) {
@@ -163,7 +200,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     filled[index % 2] = chain.end
                 }
                 for (deck in 0..1) gap(deck, total)
-                Composition.Builder(sequences.map { it.build() })
+                Composition.Builder(sequences.map { it.build() } + soundtracks)
                     .setVideoCompositorSettings(DissolveCompositor(clips, Size(canvas.first, canvas.second)))
                     .setHdrMode(sdr)
                     .build()

@@ -36,6 +36,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import app.takes.core.ClipAudio
 import kotlin.math.log10
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import app.takes.core.AudioItem
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -124,6 +128,9 @@ private val WaveHeight = 30.dp
 private val WaveColor = Color(0xFF7DB7FF)
 private val TitleColor = Color(0xFFFFD54A)
 private val BookmarkColor = Color(0xFFFF7A45)
+private val SoundColor = Color(0xFF7BD389)
+private val TrackHeight = 26.dp
+private val StripTop = 17.dp
 
 private fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
@@ -142,15 +149,44 @@ private class EditorPlayer(context: Context) {
     // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
     private val boosts = decks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
 
-    /** Sets how loud a deck plays, as a factor of the recorded sound. */
-    fun setSound(deck: Int, level: Double) {
-        decks[deck].volume = level.coerceIn(0.0, 1.0).toFloat()
-        boosts[deck]?.let { boost ->
+    // Sound on its own tracks: one audio-only player per track, holding the item that is
+    // playing there or the next one to come, so it can start on time.
+    private val tracks = List(AudioItem.TRACKS) { ExoPlayer.Builder(context).build().apply { audioSessionId = sessions.generateAudioSessionId() } }
+    private val trackBoosts = tracks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
+    private val cued = arrayOfNulls<AudioItem>(AudioItem.TRACKS)
+    private var sounds = emptyList<AudioItem>()
+    private var files = emptyMap<String, File>()
+
+    private fun apply(player: ExoPlayer, boost: LoudnessEnhancer?, level: Double) {
+        player.volume = level.coerceIn(0.0, 1.0).toFloat()
+        boost?.let {
             runCatching {
-                if (level > 1) boost.setTargetGain((2000 * log10(level)).roundToInt())
-                boost.enabled = level > 1
+                if (level > 1) it.setTargetGain((2000 * log10(level)).roundToInt())
+                it.enabled = level > 1
             }
         }
+    }
+
+    /** Sets how loud a deck plays, as a factor of the recorded sound. */
+    fun setSound(deck: Int, level: Double) = apply(decks[deck], boosts[deck], level)
+
+    /** Sets how loud an audio track plays. */
+    fun setTrackSound(track: Int, level: Double) = apply(tracks[track], trackBoosts[track], level)
+
+    /** Lines a track up with [time]: inside its item, or waiting at the start of the next one. */
+    private fun cue(track: Int, time: Double, play: Boolean) {
+        val player = tracks[track]
+        val item = TimelineEditing.audioAt(sounds, track, time) ?: sounds.filter { it.track == track && it.start > time }.minByOrNull { it.start }
+        if (item == null) { player.pause(); cued[track] = null; return }
+        val inside = time >= item.start
+        if (cued[track] != item) {
+            cued[track] = item
+            player.setMediaItem(clippedItem(item, files.getValue(item.sourceID)), if (inside) ((time - item.start) * 1000).toLong() else 0L)
+            player.prepare()
+        } else {
+            player.seekTo(if (inside) ((time - item.start) * 1000).toLong() else 0L)
+        }
+        player.playWhenReady = play && inside
     }
     var playing by mutableStateOf(false); private set
 
@@ -159,8 +195,11 @@ private class EditorPlayer(context: Context) {
     private var items = List(2) { emptyList<Int>() } // clip index of each playlist item, per deck
     private var master = 0 // the chain whose deck is the clock
 
-    fun load(clips: List<TimelineClip>, files: Map<String, File>, time: Double) {
+    fun load(clips: List<TimelineClip>, sounds: List<AudioItem>, files: Map<String, File>, time: Double) {
         pause()
+        this.sounds = sounds
+        this.files = files
+        cued.fill(null)
         this.clips = clips
         chains = TimelineEditing.chains(clips)
         items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
@@ -187,17 +226,20 @@ private class EditorPlayer(context: Context) {
                 mine.firstOrNull { it.value.start > time }?.let { player.seekTo(items[deck].indexOf(it.value.first), 0) }
             }
         }
+        for (track in tracks.indices) cue(track, time, play = false)
     }
 
     fun play(time: Double) {
         if (clips.isEmpty()) return
         seek(time) // line both decks up again
         chains.forEachIndexed { index, chain -> if (time >= chain.start && time < chain.end || index == master) decks[index % 2].play() }
+        for (track in tracks.indices) cue(track, time, play = true)
         playing = true
     }
 
     fun pause() {
         decks.forEach { it.pause() }
+        tracks.forEach { it.pause() }
         playing = false
     }
 
@@ -224,11 +266,21 @@ private class EditorPlayer(context: Context) {
                 chains.getOrNull(master + 1)?.let { upcoming -> finished.seekTo(items[(master + 1) % 2].indexOf(upcoming.first), 0) }
             }
         }
+        // Audio tracks: start the waiting item when its moment comes, then line up the next.
+        if (playing) for (track in tracks.indices) {
+            val item = cued[track]
+            when {
+                item == null -> Unit
+                time >= item.end -> cue(track, time, play = true)
+                time >= item.start && !tracks[track].playWhenReady -> tracks[track].play()
+            }
+        }
         return time
     }
 
     fun release() {
-        boosts.forEach { runCatching { it?.release() } }
+        (boosts + trackBoosts).forEach { runCatching { it?.release() } }
+        tracks.forEach { it.release() }
         decks.forEach { it.release() }
     }
 }
@@ -296,9 +348,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         view.keepScreenOn = busy
         onDispose { view.keepScreenOn = false }
     }
-    LaunchedEffect(clips) {
+    val sounds = edit.audio.orEmpty()
+    LaunchedEffect(clips, sounds) {
         playhead = playhead.coerceIn(0.0, duration)
-        editor.load(clips, files, playhead)
+        editor.load(clips, sounds, files, playhead)
     }
     // The timeline scrolls under a fixed playhead. Playback and edits move the
     // scroll position; a drag moves the playhead and seeks.
@@ -377,7 +430,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val front = location?.let { at -> TimelineEditing.chains(clips).indexOfFirst { at.index in it.first..it.last } % 2 } ?: 0
     val weights = List(2) { deck -> if (deck == front) weight else 1 - weight }
     // What each deck sounds like: the clip under the playhead, and during a dissolve the one leaving.
-    val sounds = List(2) { deck ->
+    val deckSounds = List(2) { deck ->
         when {
             location == null -> 0.0
             deck == front -> TimelineEditing.soundLevel(clips, location.index, location.offset)
@@ -387,7 +440,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             else -> 0.0
         }
     }
-    SideEffect { sounds.forEachIndexed(editor::setSound) }
+    SideEffect {
+        deckSounds.forEachIndexed(editor::setSound)
+        for (track in 0 until AudioItem.TRACKS) {
+            editor.setTrackSound(track, TimelineEditing.audioAt(sounds, track, playhead)?.let { TimelineEditing.soundLevel(it, playhead - it.start) } ?: 0.0)
+        }
+    }
     val shownTitles = TimelineEditing.titlesAt(clips, playhead)
     val scope = rememberCoroutineScope()
     val jump = { time: Double ->
@@ -399,6 +457,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     var choosingExport by remember { mutableStateOf(false) }
     var editingAudio by remember { mutableStateOf(false) }
+    var chosenSound by remember { mutableStateOf<String?>(null) }   // the audio item being edited
+    var shapingSound by remember { mutableStateOf(false) }
+    val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) store.importAudio(project.id, uri, playhead)
+    }
+    val names = remember(project.sources) { project.sources.associate { it.id to (it.originalName ?: "Sound") } }
     var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
 
@@ -456,7 +520,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
         }
         Timeline(
-            shown, files, trim?.index ?: location?.index, trim, pixelsPerSecond,
+            shown, files, sounds, names, { editor.pause(); chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
             shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
             beginTrim = { leading -> location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
@@ -485,8 +549,33 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     enabled = target != null && target in clips.indices, contentPadding = tight,
                 ) { Text(label) }
             }
+            TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text("Add audio") }
             TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
                 enabled = location != null, contentPadding = tight) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
+        }
+    }
+
+    store.importing?.let { step ->
+        AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text("Importing") }, text = { Text(step) })
+    }
+    sounds.firstOrNull { it.id == chosenSound }?.let { item ->
+        if (shapingSound) {
+            SoundDialog(
+                item.audio ?: ClipAudio(),
+                save = { commit(TimelineEditing.setAudioItemSound(edit, item.id, it), playhead); shapingSound = false; chosenSound = null },
+                dismiss = { shapingSound = false },
+            )
+        } else {
+            AudioItemDialog(
+                name = names[item.sourceID] ?: "Sound", item = item,
+                moved = TimelineEditing.moveAudio(edit, item.id, playhead),
+                startHere = TimelineEditing.trimAudio(edit, item.id, playhead, leading = true),
+                endHere = TimelineEditing.trimAudio(edit, item.id, playhead, leading = false),
+                removed = TimelineEditing.removeAudio(edit, item.id),
+                apply = { commit(it, playhead); chosenSound = null },
+                shape = { shapingSound = true },
+                dismiss = { chosenSound = null },
+            )
         }
     }
 
@@ -536,7 +625,8 @@ private data class Trim(val index: Int, val leading: Boolean, val clip: Timeline
 
 @Composable
 private fun Timeline(
-    clips: List<TimelineClip>, files: Map<String, File>, current: Int?, trim: Trim?,
+    clips: List<TimelineClip>, files: Map<String, File>, sounds: List<AudioItem>, names: Map<String, String>, chooseSound: (String) -> Unit,
+    current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
     touched: () -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
 ) {
@@ -564,14 +654,15 @@ private fun Timeline(
         }
     }
     BoxWithConstraints(
-        Modifier.fillMaxWidth().height(120.dp).background(Panel).pointerInput(Unit) {
+        // Clips at a fixed height from the top; audio tracks appear under them when there is sound.
+        Modifier.fillMaxWidth().height(120.dp + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel).pointerInput(Unit) {
             // The handles move under the finger, so the drag is tracked here,
             // in a coordinate space that stays still.
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 onTouched() // scrubbing pauses playback; it stays paused after release
                 // Above and below the clips the timeline only scrolls.
-                if (abs(down.position.y - size.height / 2f) > (TileSize + WaveHeight).toPx() / 2) return@awaitEachGesture
+                if (down.position.y < StripTop.toPx() || down.position.y > (StripTop + TileSize + WaveHeight).toPx()) return@awaitEachGesture
                 val leading = handle(down.position.x, size.width / 2f) ?: return@awaitEachGesture
                 down.consume()
                 onBeginTrim(leading)
@@ -591,12 +682,10 @@ private fun Timeline(
         },
     ) {
         val viewport = constraints.maxWidth
-        Box(
-            Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).fillMaxHeight().offset { IntOffset(shift.roundToInt(), 0) },
-            contentAlignment = Alignment.CenterStart,
-        ) {
+        Column(Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).padding(top = StripTop).fillMaxHeight()) {
+            val width = with(density) { (TimelineEditing.duration(clips) * pixelsPerSecond).toFloat().toDp() }
             // Clips sit at their timeline position; a dissolve draws the incoming clip over the end of the previous one.
-            Box(Modifier.width(with(density) { (TimelineEditing.duration(clips) * pixelsPerSecond).toFloat().toDp() }), Alignment.CenterStart) {
+            Box(Modifier.width(width).height(TileSize + WaveHeight).offset { IntOffset(shift.roundToInt(), 0) }, Alignment.CenterStart) {
                 clips.forEachIndexed { index, clip ->
                     val offset = (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat()
                     key(clip.id) {
@@ -606,6 +695,24 @@ private fun Timeline(
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
                             offset, pixelsPerSecond, viewport, scroll,
                         )
+                    }
+                }
+            }
+            // Sound on its own tracks. It stays where it is when the clips above are edited.
+            if (sounds.isNotEmpty()) for (track in 0 until AudioItem.TRACKS) {
+                Box(Modifier.width(width).height(TrackHeight).padding(top = 3.dp)) {
+                    for (item in sounds) {
+                        if (item.track != track) continue
+                        key(item.id) {
+                            val note = item.audio?.let { if (it.muted) " · Muted" else if (it.volumeDB != 0.0) " · ${it.volumeDB.roundToInt()} dB" else "" } ?: ""
+                            Text(
+                                (names[item.sourceID] ?: "Sound") + note, color = Color.Black, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt(), 0) }
+                                    .width(with(density) { (item.duration * pixelsPerSecond).toFloat().toDp() }).fillMaxHeight()
+                                    .background(SoundColor, RoundedCornerShape(4.dp))
+                                    .clickable(onClickLabel = "Edit sound") { chooseSound(item.id) }.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -725,6 +832,29 @@ private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected:
     Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
     }
+}
+
+/** What can be done to a sound on an audio track. Each edit is given ready, or null when it does not apply at the playhead. */
+@Composable
+private fun AudioItemDialog(
+    name: String, item: AudioItem, moved: EditState?, startHere: EditState?, endHere: EditState?, removed: EditState?,
+    apply: (EditState?) -> Unit, shape: () -> Unit, dismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column {
+                Text("${preciseLabel(item.start)} to ${preciseLabel(item.end)} · track ${item.track + 1}", color = Muted, fontSize = 13.sp)
+                TextButton(onClick = shape) { Text("Volume and fades") }
+                TextButton(onClick = { apply(moved) }, enabled = moved != null) { Text("Move to start at the playhead") }
+                TextButton(onClick = { apply(startHere) }, enabled = startHere != null) { Text("Cut off what comes before the playhead") }
+                TextButton(onClick = { apply(endHere) }, enabled = endHere != null) { Text("Cut off what comes after the playhead") }
+                TextButton(onClick = { apply(removed) }) { Text("Remove", color = RecordRed) }
+            }
+        },
+        confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
+    )
 }
 
 /** The clip's own sound: level from silence to a 12 dB boost, mute, and a fade at each end. */

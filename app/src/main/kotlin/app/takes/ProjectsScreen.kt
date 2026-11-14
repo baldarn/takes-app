@@ -144,7 +144,7 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
         AlertDialog(
             onDismissRequest = { erasing = null },
             title = { Text("Delete “${project.title}” permanently?") },
-            text = { Text("Its ${project.sources.size} recordings will be erased. This cannot be undone.") },
+            text = { Text("Its ${project.recordings.size} recordings will be erased. This cannot be undone.") },
             confirmButton = { TextButton(onClick = { store.erase(project); erasing = null }) { Text("Delete permanently", color = RecordRed) } },
             dismissButton = { TextButton(onClick = { erasing = null }) { Text("Cancel") } },
         )
@@ -152,7 +152,7 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
 }
 
 private fun summary(project: Project): String {
-    val takes = project.sources.size
+    val takes = project.recordings.size
     return if (takes == 0) "No recordings" else "$takes ${if (takes == 1) "recording" else "recordings"} · ${timeLabel(project.capturedDuration)}"
 }
 
@@ -162,7 +162,7 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
     var expanded by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Thumbnail(project.sources.firstOrNull()?.let { store.file(project, it) })
+            Thumbnail(project.recordings.firstOrNull()?.let { store.file(project, it) })
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
                 Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2)
                 Text(summary(project), color = Muted, fontSize = 13.sp)

@@ -44,6 +44,9 @@ Needs JDK 17 and the Android SDK (API 36).
 - Credits and licenses screen with the bundled license texts.
 - Clip sound: volume from silence to a 12 dB boost, mute, and a fade in and out,
   shown on the waveform and applied in preview and export.
+- Sound on two separate audio tracks: import a music or voice file, place it at the
+  playhead, cut it, move it, set its level and fades. It stays where it is when the
+  clips are edited, and is mixed with the clips' sound in preview and export.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
@@ -51,7 +54,7 @@ Needs JDK 17 and the Android SDK (API 36).
 
 ## Not ported yet
 
-Multiple tracks, the other transitions (wipe, split screen and so on), title fonts,
+More than one video layer, unlinking a clip's sound from its picture, the other transitions (wipe, split screen and so on), title fonts,
 colors and motion, LUTs, subtitles, speed,
 crop, video effects, audio restoration models, stabilization, dual camera, follow face,
 HDR/Log capture, microphone selection, manual focus, bookmarks, project ZIP/OTIO.

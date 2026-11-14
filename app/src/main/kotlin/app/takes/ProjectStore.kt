@@ -13,6 +13,7 @@ import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.ProjectDisk
 import app.takes.core.SourceMedia
+import app.takes.core.TimelineEditing
 import app.takes.core.newID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -108,6 +109,70 @@ class ProjectStore(context: Context) {
                 error = if (uris.size == 1) "The video could not be imported. It may not be a playable movie."
                 else "$failed of ${uris.size} videos could not be imported."
             }
+        }
+    }
+
+    /**
+     * Copies a sound file picked from the device into the project and places
+     * it on an audio track at timeline second [at], as one undoable edit.
+     */
+    fun importAudio(projectID: String, uri: Uri, at: Double) {
+        if (importing != null) return
+        scope.launch {
+            importing = "Importing sound…"
+            val source = withContext(Dispatchers.IO) { copyInSound(projectID, uri) }
+            importing = null
+            val project = projects.firstOrNull { it.id == projectID }
+            if (source == null || project == null) {
+                error = "The sound could not be imported. It may not be a playable audio file."
+                return@launch
+            }
+            val added = project.addSource(source)
+            val edit = TimelineEditing.addAudio(added.edit, source.id, source.duration, at)
+            if (edit == null) {
+                file(project, source).delete()
+                error = "Both audio tracks are busy here. Move the playhead or remove a sound first."
+            } else update(added.commit(edit))
+        }
+    }
+
+    private fun copyInSound(projectID: String, uri: Uri): SourceMedia? {
+        val folder = disk.folder(projectID).apply { mkdirs() }
+        val id = newID()
+        val extension = when (resolver.getType(uri)) {
+            "audio/mpeg" -> "mp3"
+            "audio/wav", "audio/x-wav" -> "wav"
+            "audio/ogg" -> "ogg"
+            "audio/flac", "audio/x-flac" -> "flac"
+            "audio/aac" -> "aac"
+            else -> "m4a"
+        }
+        val file = File(folder, "audio-${System.currentTimeMillis()}-$id.$extension")
+        val partial = File(folder, ".${file.name}.tmp")
+        return try {
+            resolver.openInputStream(uri)?.use { input -> partial.outputStream().use { input.copyTo(it) } } ?: return null
+            val duration = mediaDuration(partial) ?: return null
+            if (!hasAudio(partial) || !partial.renameTo(file)) return null
+            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+            SourceMedia(id = id, filename = file.name, duration = duration, audioOnly = true, originalName = name?.take(255))
+        } catch (_: Exception) {
+            null
+        } finally {
+            partial.delete()
+        }
+    }
+
+    private fun hasAudio(file: File): Boolean {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.path)
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 
