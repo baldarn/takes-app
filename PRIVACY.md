@@ -19,6 +19,10 @@ speech model used for subtitles (about 161 MB). This happens only when you tap t
 download button in the Subtitles tool, which shows the size first. Nothing is downloaded
 when the app starts, there are no update checks and no telemetry.
 
+From version 0.7, before that download the app checks on the device whether the
+connection is metered (for example mobile data) and, if it is, asks you to confirm. This
+check reads the network state from Android and sends nothing.
+
 The model files come from Hugging Face (`huggingface.co` and its content delivery
 network). The request carries no account, cookie or identifier. As with any download, the
 server sees your IP address, and that request is covered by
