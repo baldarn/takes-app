@@ -164,6 +164,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import app.takes.core.EditState
 import app.takes.core.ExportSettings
 import app.takes.core.Project
+import app.takes.core.RangeEditing
+import app.takes.core.RangeMarks
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TitleMotionRanges
@@ -563,6 +565,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     val location = TimelineEditing.locate(clips, playhead)
+    // The marked range and the selection: the editor's own, never saved. They follow the edit as it changes.
+    var marks by remember { mutableStateOf(RangeMarks()) }
+    LaunchedEffect(saved) { marks = marks.retained(saved) }
+    // The last thing that happened, said beside the Mark button for a moment.
+    var feedback by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(feedback) { if (feedback != null) { kotlinx.coroutines.delay(3000); feedback = null } }
 
     // Trim handles change the clip under the playhead. The draft is shown in
     // the timeline while dragging and becomes one undo step on release.
@@ -708,8 +716,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
-            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
+            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
             Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
@@ -840,6 +848,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             scroll = scroll, touched = { editor.pause() },
             beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
+            // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
+            marked = if (transitioning == null && trim == null) MarkedView.of(marks, playhead) else null,
         )
         val framing = cropping
         if (framing != null) {
@@ -953,7 +963,33 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // Tools act on the clip under the playhead. Short rows, so nothing is cut off at any font size.
             val tight = PaddingValues(horizontal = 8.dp)
             val compact = Modifier.defaultMinSize(minWidth = 48.dp)
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), Arrangement.SpaceEvenly) {
+            val endAfterStart = stringResource(R.string.range_end_after_start)
+            val tooShort = stringResource(R.string.range_too_short)
+            val aligned = stringResource(R.string.range_aligned_to_join)
+            val cleared = stringResource(R.string.selection_cleared)
+            val open = marks.range != null || marks.start != null
+            SelectionBar(
+                step = marks.step,
+                // On the frame grid, on a cut when one is near, and never inside a transition.
+                mark = if (duration <= 0) null else ({
+                    val time = RangeEditing.markTime(edit, playhead, scale.toDouble())
+                    feedback = if (RangeEditing.transitionAt(clips, RangeEditing.quantize(playhead)) != null && abs(time - playhead) > RangeEditing.EPSILON) aligned else null
+                    jump(time)
+                    when (marks.refusal(time)) {
+                        RangeMarks.Refusal.EndBeforeStart -> feedback = endAfterStart
+                        RangeMarks.Refusal.TooShort -> feedback = tooShort
+                        null -> marks = marks.marked(time)
+                    }
+                }),
+                title = if (open || !marks.selected.isEmpty) selectionTitle(edit, if (open) marks.rangeTargets else marks.selected, names) else null,
+                detail = when {
+                    marks.start != null -> stringResource(R.string.range_choose_end)
+                    else -> marks.range?.let { preciseLabel(it.duration) } ?: selectionCount(marks.selected)
+                },
+                message = feedback ?: stringResource(R.string.range_hint),
+                clear = { marks = marks.cleared(); feedback = cleared },
+            )
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                 TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
                     enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
                 TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
@@ -1161,6 +1197,7 @@ private fun Timeline(
     openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
     touched: () -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
+    marked: MarkedView? = null,
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -1235,6 +1272,14 @@ private fun Timeline(
                         )
                     }
                 }
+                // What is marked: the part of each clip inside the range, or the clips selected whole.
+                if (marked != null) {
+                    clips.forEachIndexed { index, clip ->
+                        val start = TimelineEditing.clipStart(clips, index)
+                        if (marked.clip(clip.id)) MarkedPart(marked, start, start + clip.duration, pixelsPerSecond, TileSize + WaveHeight)
+                    }
+                    marked.range?.let { RangeGuides(it, pixelsPerSecond, Modifier.matchParentSize()) }
+                }
             }
             // Sound on its own tracks. It stays where it is when the clips above are edited.
             val soundName = stringResource(R.string.editor_sound_default_name)
@@ -1254,6 +1299,10 @@ private fun Timeline(
                                     .clickable(onClickLabel = editSoundLabel) { chooseSound(item.id) }.padding(horizontal = 6.dp, vertical = 2.dp),
                             )
                         }
+                    }
+                    if (marked != null) {
+                        for (item in sounds) if (item.track == track && marked.audio(item.id)) MarkedPart(marked, item.start, item.end, pixelsPerSecond, TrackHeight - 3.dp)
+                        marked.range?.let { RangeGuides(it, pixelsPerSecond, Modifier.matchParentSize()) }
                     }
                 }
             }

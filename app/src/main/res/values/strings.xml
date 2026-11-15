@@ -576,4 +576,50 @@
     <string name="unused_insert">Insert</string>
     <string name="unused_insert_count">Insert %1$d</string>
     <string name="unused_failed">Couldn\'t insert the selected takes.</string>
+    <string name="range_mark_start">Mark start</string>
+    <string name="range_mark_end">Mark end</string>
+    <string name="range_move_end">Move end</string>
+    <string name="range_start_short">Start</string>
+    <string name="range_end_short">End</string>
+    <string name="range_choose_end">Choose end</string>
+    <string name="range_end_after_start">Place the end after the start</string>
+    <string name="range_too_short">Choose an end at least one frame away</string>
+    <string name="range_aligned_to_join">Selection aligned to the transition join</string>
+    <string name="range_preview_cut">Preview cut</string>
+    <string name="range_hint">Scroll to scrub · − and + to zoom</string>
+    <string name="selection_actions">Selection actions: %1$s</string>
+    <string name="selection_video">Video</string>
+    <string name="selection_audio">Audio</string>
+    <string name="selection_video_audio">Video + audio</string>
+    <string name="selection_items">%1$s · %2$d items</string>
+    <plurals name="selection_videos">
+        <item quantity="one">%1$d video</item>
+        <item quantity="other">%1$d videos</item>
+    </plurals>
+    <plurals name="selection_audio_parts">
+        <item quantity="one">%1$d audio part</item>
+        <item quantity="other">%1$d audio parts</item>
+    </plurals>
+    <string name="selection_clear">Clear selection</string>
+    <string name="selection_cleared">Selection cleared</string>
+    <string name="selection_delete">Delete selection</string>
+    <string name="selection_deleted">Deleted · Undo available</string>
+    <string name="selection_nothing_to_delete">Nothing selected to delete</string>
+    <string name="selection_tool_range">Selected range · %1$s–%2$s</string>
+    <string name="selection_tool_selected">Selected · %1$s</string>
+    <string name="clipboard_copy">Copy</string>
+    <string name="clipboard_cut">Cut</string>
+    <string name="clipboard_copy_selection">Copy selection</string>
+    <string name="clipboard_cut_selection">Cut selection</string>
+    <string name="clipboard_paste">Paste</string>
+    <string name="clipboard_clear">Clear clipboard</string>
+    <string name="clipboard_copied">Copied to clipboard</string>
+    <string name="clipboard_cut_done">Cut to clipboard</string>
+    <string name="clipboard_pasted">Pasted · Undo available</string>
+    <string name="clipboard_replaces_transition">Replaces transition</string>
+    <plurals name="clipboard_pasted_skipped">
+        <item quantity="one">Pasted, but %1$d sound was left out: both audio tracks are busy there.</item>
+        <item quantity="other">Pasted, but %1$d sounds were left out: both audio tracks are busy there.</item>
+    </plurals>
+    <string name="clipboard_paste_no_room">Nothing was pasted: both audio tracks are busy here.</string>
 </resources>

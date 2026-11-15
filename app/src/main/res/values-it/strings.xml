@@ -580,4 +580,53 @@
     <string name="unused_insert">Inserisci</string>
     <string name="unused_insert_count">Inserisci %1$d</string>
     <string name="unused_failed">Non è stato possibile inserire le riprese scelte.</string>
+    <string name="range_mark_start">Segna inizio</string>
+    <string name="range_mark_end">Segna fine</string>
+    <string name="range_move_end">Sposta fine</string>
+    <string name="range_start_short">Inizio</string>
+    <string name="range_end_short">Fine</string>
+    <string name="range_choose_end">Scegli la fine</string>
+    <string name="range_end_after_start">Metti la fine dopo l\'inizio</string>
+    <string name="range_too_short">Scegli una fine ad almeno un fotogramma di distanza</string>
+    <string name="range_aligned_to_join">Selezione allineata alla giunzione della transizione</string>
+    <string name="range_preview_cut">Anteprima del taglio</string>
+    <string name="range_hint">Scorri per muoverti · − e + per lo zoom</string>
+    <string name="selection_actions">Azioni sulla selezione: %1$s</string>
+    <string name="selection_video">Video</string>
+    <string name="selection_audio">Audio</string>
+    <string name="selection_video_audio">Video + audio</string>
+    <string name="selection_items">%1$s · %2$d elementi</string>
+    <plurals name="selection_videos">
+        <item quantity="one">%1$d video</item>
+        <item quantity="many">%1$d video</item>
+        <item quantity="other">%1$d video</item>
+    </plurals>
+    <plurals name="selection_audio_parts">
+        <item quantity="one">%1$d parte audio</item>
+        <item quantity="many">%1$d parti audio</item>
+        <item quantity="other">%1$d parti audio</item>
+    </plurals>
+    <string name="selection_clear">Annulla la selezione</string>
+    <string name="selection_cleared">Selezione annullata</string>
+    <string name="selection_delete">Elimina la selezione</string>
+    <string name="selection_deleted">Eliminato · Puoi annullare</string>
+    <string name="selection_nothing_to_delete">Niente di selezionato da eliminare</string>
+    <string name="selection_tool_range">Intervallo selezionato · %1$s–%2$s</string>
+    <string name="selection_tool_selected">Selezione · %1$s</string>
+    <string name="clipboard_copy">Copia</string>
+    <string name="clipboard_cut">Taglia</string>
+    <string name="clipboard_copy_selection">Copia la selezione</string>
+    <string name="clipboard_cut_selection">Taglia la selezione</string>
+    <string name="clipboard_paste">Incolla</string>
+    <string name="clipboard_clear">Svuota gli appunti</string>
+    <string name="clipboard_copied">Copiato negli appunti</string>
+    <string name="clipboard_cut_done">Tagliato negli appunti</string>
+    <string name="clipboard_pasted">Incollato · Puoi annullare</string>
+    <string name="clipboard_replaces_transition">Sostituisce la transizione</string>
+    <plurals name="clipboard_pasted_skipped">
+        <item quantity="one">Incollato, ma %1$d audio è rimasto fuori: lì le due tracce audio sono già occupate.</item>
+        <item quantity="many">Incollato, ma %1$d audio sono rimasti fuori: lì le due tracce audio sono già occupate.</item>
+        <item quantity="other">Incollato, ma %1$d audio sono rimasti fuori: lì le due tracce audio sono già occupate.</item>
+    </plurals>
+    <string name="clipboard_paste_no_room">Non è stato incollato niente: qui le due tracce audio sono già occupate.</string>
 </resources>
