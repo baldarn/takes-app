@@ -28,7 +28,8 @@ ESPORTA E CONDIVIDI
 
 I TUOI VIDEO RESTANO TUOI
 • Nessun account, nessuna pubblicità, nessun tracciamento.
-• L'app non ha accesso a internet: registrazioni e progetti restano sul tuo dispositivo.
+• Registrazioni e progetti non lasciano mai il tuo dispositivo.
+• L'app va su internet per una cosa sola: scaricare il modello vocale per i sottotitoli, e solo quando lo chiedi tu.
 • I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
 • Esporta un intero progetto come ZIP e riaprilo più tardi, o su un altro telefono.
 • In italiano e in inglese.

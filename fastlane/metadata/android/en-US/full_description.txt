@@ -28,7 +28,8 @@ EXPORT AND SHARE
 
 YOUR VIDEOS STAY YOURS
 • No account, no ads, no tracking.
-• The app has no internet access: recordings and projects stay on your device.
+• Your recordings and projects never leave your device.
+• The app goes online for one thing only: downloading the speech model for subtitles, and only when you ask.
 • Deleted projects go to Recently Deleted, where you can restore them.
 • Export a whole project as a ZIP and open it again later, or on another phone.
 • In English and Italian.
