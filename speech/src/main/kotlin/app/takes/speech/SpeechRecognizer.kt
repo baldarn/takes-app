@@ -2,6 +2,7 @@ package app.takes.speech
 
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
+import com.k2fsa.sherpa.onnx.OfflineQwen3AsrModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizerResult
@@ -20,17 +21,17 @@ data class Word(val text: String, val start: Double, val end: Double)
  * (which sound each piece of text was read from); they are measured, not spread evenly.
  * Nothing recognized gives an empty [text] and an empty list.
  *
- * [language] is Whisper's code for the language it wrote in ("it", "en"), the forced one or
- * the one detected in the first window; empty when nothing was recognized.
+ * [language] is the code of the language Whisper wrote in ("it", "en"), the forced one or
+ * the one detected in the first window; empty when nothing was recognized. Qwen3-ASR does not
+ * say what it detected: with it this is the forced language, or empty.
  */
 data class Transcript(val text: String, val words: List<Word>?, val language: String)
 
 /**
- * Speech to text with Whisper, on the device, through sherpa-onnx.
+ * Speech to text on the device, through sherpa-onnx, with the recognizer [model] asks for.
  *
- * Lifetime and memory: creating one reads the whole model into memory (under half a second
- * on a desktop), and recognizing needs more than loading: with the base model about 100 MB
- * loaded and 280 MB while working on 12 s pieces, on a desktop; the figures are in the
+ * Lifetime and memory: creating one reads the whole model into memory, and recognizing needs
+ * more than loading; the figures for each model, on a computer and on a phone, are in the
  * README. Create it when a transcription starts, use it for all the audio of that job and
  * [close] it afterwards; it holds native memory that the garbage collector does not see.
  *
@@ -40,16 +41,16 @@ data class Transcript(val text: String, val words: List<Word>?, val language: St
  * plan) and check between them.
  *
  * @param modelFolder holds the files of [model]; check [SpeechModel.installed] first.
- * @param language Whisper's code ("it", "en", "fr", "de", "es", "pt", "zh", "ja", "ko",
- *   "ru", "ar" and the others it knows), or null to let it detect the language.
+ * @param language a two-letter code ("it", "en", "fr", "de", "es", "pt", "zh", "ja", "ko",
+ *   "ru", "ar" and the others the model knows), or null to let it detect the language.
  * @throws IllegalArgumentException when a file is missing or is not a model. That is all the
  *   protection there is: a damaged token table gives empty transcripts or makes sherpa-onnx
  *   end the whole process. Only load a folder for which [SpeechModel.installed] is true.
  */
 class SpeechRecognizer(
     private val modelFolder: File,
+    val model: SpeechModel,
     val language: String? = null,
-    val model: SpeechModel = SpeechModel.Default,
     val threads: Int = minOf(4, Runtime.getRuntime().availableProcessors()),
 ) : AutoCloseable {
     private var config: OfflineRecognizerConfig
@@ -57,14 +58,29 @@ class SpeechRecognizer(
 
     init {
         for (file in model.files) require(File(modelFolder, file.name).isFile) { "Missing ${file.name} in $modelFolder" }
+        hint(language) // refuses a language the model does not know before anything is loaded
+        fun path(part: String) = File(modelFolder, model.file(part).name).path
         config = OfflineRecognizerConfig(
             featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
-            modelConfig = OfflineModelConfig(
-                whisper = whisper(language),
-                tokens = File(modelFolder, model.tokens.name).path,
-                modelType = "whisper",
-                numThreads = threads,
-            ),
+            modelConfig = when (model.kind) {
+                SpeechModel.Kind.Whisper -> OfflineModelConfig(
+                    whisper = whisper(language),
+                    tokens = path(SpeechModel.TOKENS),
+                    modelType = "whisper",
+                    numThreads = threads,
+                )
+                SpeechModel.Kind.Qwen3Asr -> OfflineModelConfig(
+                    qwen3Asr = OfflineQwen3AsrModelConfig(
+                        convFrontend = path(SpeechModel.FRONTEND),
+                        encoder = path(SpeechModel.ENCODER),
+                        decoder = path(SpeechModel.DECODER),
+                        tokenizer = File(modelFolder, SpeechModel.TOKENIZER).path,
+                        maxNewTokens = QWEN_NEW_TOKENS,
+                    ),
+                    tokens = "",
+                    numThreads = threads,
+                )
+            },
         )
         // No AssetManager: the model is read from files, on a phone and on a computer alike.
         recognizer = try {
@@ -74,30 +90,37 @@ class SpeechRecognizer(
         }
     }
 
-    private fun whisper(language: String?): OfflineWhisperModelConfig {
+    /** What the model is told for [language]: Whisper its code, Qwen3-ASR the language's English name. */
+    private fun hint(language: String?): String {
         require(language == null || model.multilingual || language == "en") { "This model only knows English" }
-        return OfflineWhisperModelConfig(
-            encoder = File(modelFolder, model.encoder.name).path,
-            decoder = File(modelFolder, model.decoder.name).path,
+        return when (model.kind) {
             // Empty makes sherpa-onnx detect the language; an English-only model has no such choice.
-            language = language ?: if (model.multilingual) "" else "en",
-            task = "transcribe",
-            tailPaddings = TAIL_PADDING_FRAMES,
-            // Ignored, with one line in the log, by a model exported without attention outputs.
-            enableTokenTimestamps = true,
-        )
+            SpeechModel.Kind.Whisper -> language ?: if (model.multilingual) "" else "en"
+            SpeechModel.Kind.Qwen3Asr -> if (language == null) "" else requireNotNull(QWEN_LANGUAGES[language]) { "Qwen3-ASR does not know the language $language" }
+        }
     }
+
+    private fun whisper(language: String?) = OfflineWhisperModelConfig(
+        encoder = File(modelFolder, model.file(SpeechModel.ENCODER).name).path,
+        decoder = File(modelFolder, model.file(SpeechModel.DECODER).name).path,
+        language = hint(language),
+        task = "transcribe",
+        tailPaddings = TAIL_PADDING_FRAMES,
+        // Ignored, with one line in the log, by a model exported without attention outputs.
+        enableTokenTimestamps = true,
+    )
 
     /**
      * Transcribes [samples]: one channel, floats in −1…1, at [sampleRate] (16 kHz is what
-     * Whisper hears; anything else is resampled inside sherpa-onnx).
+     * the models hear; anything else is resampled inside sherpa-onnx).
      *
-     * Whisper reads at most 30 seconds at once and sherpa-onnx silently drops what is beyond.
-     * Longer audio is therefore cut into windows of at most [MAX_WINDOW_SECONDS], each at the
-     * quietest moment of its last third, and the results are joined; word times stay relative
-     * to the first sample. A cut can still fall inside a word when nobody pauses, and each
-     * window is recognized without the context of the one before. Callers that know where
-     * the pauses are (the app's speech plan) do better by cutting themselves.
+     * Whisper reads at most 30 seconds at once and sherpa-onnx silently drops what is beyond;
+     * Qwen3-ASR has a limit of its own on sound and text together. Longer audio is therefore
+     * cut into windows of at most [MAX_WINDOW_SECONDS], each at the quietest moment of its
+     * last third, and the results are joined; word times stay relative to the first sample.
+     * A cut can still fall inside a word when nobody pauses, and each window is recognized
+     * without the context of the one before. Callers that know where the pauses are (the
+     * app's speech plan) do better by cutting themselves.
      *
      * [language] replaces the constructor's choice for this call: null detects again, in
      * every window separately.
@@ -109,10 +132,14 @@ class SpeechRecognizer(
         val recognizer = checkNotNull(recognizer) { "Closed" }
         require(sampleRate > 0) { "Sample rate must be positive" }
 
-        val wanted = whisper(language)
-        if (wanted != config.modelConfig.whisper) {
-            config = config.copy(modelConfig = config.modelConfig.copy(whisper = wanted))
-            recognizer.setConfig(config)
+        val hint = hint(language)
+        // Whisper's language belongs to the recognizer; Qwen3-ASR takes it with each piece.
+        if (model.kind == SpeechModel.Kind.Whisper) {
+            val wanted = whisper(language)
+            if (wanted != config.modelConfig.whisper) {
+                config = config.copy(modelConfig = config.modelConfig.copy(whisper = wanted))
+                recognizer.setConfig(config)
+            }
         }
 
         val texts = mutableListOf<String>()
@@ -126,6 +153,8 @@ class SpeechRecognizer(
             if (level(samples, from, to) < SILENCE) continue
             val stream = recognizer.createStream()
             val result = try {
+                // The same words the iPhone app puts after the sound: "language Italian".
+                if (model.kind == SpeechModel.Kind.Qwen3Asr && hint.isNotEmpty()) stream.setOption("language", hint)
                 stream.acceptWaveform(if (from == 0 && to == samples.size) samples else samples.copyOfRange(from, to), sampleRate)
                 recognizer.decode(stream)
                 recognizer.getResult(stream)
@@ -134,7 +163,7 @@ class SpeechRecognizer(
             }
             val text = result.text.trim()
             if (text.isEmpty()) continue
-            if (spoken.isEmpty()) spoken = result.lang.removePrefix("<|").removeSuffix("|>")
+            if (spoken.isEmpty()) spoken = result.lang.removePrefix("<|").removeSuffix("|>").ifEmpty { language.orEmpty() }
             texts += text
             val timed = words(result, from.toDouble() / sampleRate, to.toDouble() / sampleRate)
             if (timed == null) untimed = true else words += tightened(timed, samples, sampleRate)
@@ -150,11 +179,27 @@ class SpeechRecognizer(
     }
 
     companion object {
-        /** The rate Whisper works at. Audio at this rate is not resampled. */
+        /** The rate the models work at. Audio at this rate is not resampled. */
         const val SAMPLE_RATE = 16_000
 
-        /** The longest piece handed to Whisper at once. Its own limit is 30 s, less the padding it needs to notice the end. */
+        /**
+         * The longest piece handed to a model at once. Whisper's own limit is 30 s, less the
+         * padding it needs to notice the end. Qwen3-ASR as exported holds 512 tokens of sound
+         * and text together, 13 for each second of sound: 24 s leave room for 170 of text.
+         */
         const val MAX_WINDOW_SECONDS = 24.0
+
+        // The iPhone app's limit on the text of one piece (`maxTokens: 256`); sherpa-onnx's own is 128.
+        private const val QWEN_NEW_TOKENS = 256
+
+        /** The languages Qwen3-ASR was trained on, by code, as it expects them named. */
+        internal val QWEN_LANGUAGES = mapOf(
+            "zh" to "Chinese", "en" to "English", "yue" to "Cantonese", "ar" to "Arabic", "de" to "German", "fr" to "French",
+            "es" to "Spanish", "pt" to "Portuguese", "id" to "Indonesian", "it" to "Italian", "ko" to "Korean", "ru" to "Russian",
+            "th" to "Thai", "vi" to "Vietnamese", "ja" to "Japanese", "tr" to "Turkish", "hi" to "Hindi", "ms" to "Malay",
+            "nl" to "Dutch", "sv" to "Swedish", "da" to "Danish", "fi" to "Finnish", "pl" to "Polish", "cs" to "Czech",
+            "fil" to "Filipino", "fa" to "Persian", "el" to "Greek", "hu" to "Hungarian", "mk" to "Macedonian", "ro" to "Romanian",
+        )
 
         // Whisper was trained on 30 s windows filled up with silence, and needs some of that
         // silence after the last word to notice that the speech ended. sherpa-onnx's default

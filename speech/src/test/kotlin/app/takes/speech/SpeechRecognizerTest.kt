@@ -39,8 +39,8 @@ class SpeechRecognizerTest {
         return folder
     }
 
-    private fun tiny() = SpeechRecognizer(folder(SpeechModel.WhisperTiny, "tiny"), null, SpeechModel.WhisperTiny)
-    private fun base(language: String? = null) = SpeechRecognizer(folder(SpeechModel.WhisperBase, "base"), language, SpeechModel.WhisperBase)
+    private fun tiny() = SpeechRecognizer(folder(SpeechModel.WhisperTiny, "tiny"), SpeechModel.WhisperTiny)
+    private fun base(language: String? = null) = SpeechRecognizer(folder(SpeechModel.WhisperBase, "base"), SpeechModel.WhisperBase, language)
 
     /** A recording at 16 kHz, downloaded once and checked. */
     private fun recording(name: String): FloatArray {
@@ -85,7 +85,7 @@ class SpeechRecognizerTest {
     @Test fun missingFilesAreReportedBeforeAnythingNativeRuns() {
         val empty = Files.createTempDirectory("speech-empty").toFile()
         try {
-            val failure = assertThrows(IllegalArgumentException::class.java) { SpeechRecognizer(empty) }
+            val failure = assertThrows(IllegalArgumentException::class.java) { SpeechRecognizer(empty, SpeechModel.WhisperBase) }
             assertTrue(failure.message!!.startsWith("Missing base-encoder.int8.onnx"))
         } finally {
             empty.deleteRecursively()
@@ -100,8 +100,8 @@ class SpeechRecognizerTest {
             // end the whole process (seen here: exit code 255), which no test can survive
             // and no app either: verify the files before loading them.
             for (file in SpeechModel.WhisperBase.files) File(folder, file.name).writeBytes(ByteArray(4096) { (it * 31).toByte() })
-            File(folder, SpeechModel.WhisperBase.tokens.name).writeText("IQ== 0\nIg== 1\n")
-            val failure = assertThrows(IllegalArgumentException::class.java) { SpeechRecognizer(folder) }
+            File(folder, "base-tokens.txt").writeText("IQ== 0\nIg== 1\n")
+            val failure = assertThrows(IllegalArgumentException::class.java) { SpeechRecognizer(folder, SpeechModel.WhisperBase) }
             assertTrue(failure.message!!.startsWith("Cannot load the model in "))
         } finally {
             folder.deleteRecursively()
@@ -131,6 +131,89 @@ class SpeechRecognizerTest {
             show("$name it.wav detected", samples, transcript, ITALIAN)
             assertEquals("it", transcript.language)
             assertEquals(letters(ITALIAN), letters(transcript.text))
+        }
+    }
+
+    /**
+     * Qwen3-ASR is 987 MB, so it is not fetched for a test: it runs when the model is already
+     * in `<models>/qwen3-asr-0.6b`, downloaded by an earlier run or copied there by hand
+     * (the files are verified and adopted).
+     */
+    private fun qwen(language: String? = null): SpeechRecognizer {
+        assumeTrue("No -Pspeech.models=<folder>: recognition tests skipped", models != null)
+        val model = SpeechModel.Qwen3Asr
+        val folder = File(models!!, model.folder)
+        assumeTrue("No Qwen3-ASR in $folder: its tests are skipped", model.installed(folder) || model.adopt(folder))
+        return SpeechRecognizer(folder, model, language)
+    }
+
+    @Test fun qwenRecognizesItalianAndEnglishWithoutBeingTold() {
+        qwen().use { recognizer ->
+            val italian = recording("it.wav")
+            val transcript = recognizer.transcribe(italian)
+            show("qwen it.wav detected", italian, transcript, ITALIAN)
+            assertEquals(letters(ITALIAN), letters(transcript.text))
+            // It gives no word times and does not say which language it heard.
+            assertNull(transcript.words)
+            assertEquals("", transcript.language)
+
+            for (file in listOf("0.wav", "1.wav")) {
+                val samples = recording(file)
+                val english = recognizer.transcribe(samples)
+                show("qwen $file", samples, english, REFERENCE.getValue(file))
+                assertTrue(errors(REFERENCE.getValue(file), english.text) <= 0.10)
+            }
+            assertEquals(Transcript("", emptyList(), ""), recognizer.transcribe(silence(2.0)))
+        }
+    }
+
+    @Test fun qwenTakesTheLanguageWithEachPiece() {
+        val italian = recording("it.wav")
+        val english = recording("0.wav")
+        qwen("it").use { recognizer ->
+            val told = recognizer.transcribe(italian)
+            show("qwen it.wav told Italian", italian, told, ITALIAN)
+            // Told the language it writes "I uomini" for "Gli uomini", which it gets right when left to detect.
+            assertTrue(errors(ITALIAN, told.text) <= 0.10)
+            assertEquals("it", told.language)
+            // For one call another language, or none; the recognizer is not loaded again.
+            val other = recognizer.transcribe(english, language = "en")
+            show("qwen 0.wav told English for one call", english, other, REFERENCE.getValue("0.wav"))
+            assertTrue(errors(REFERENCE.getValue("0.wav"), other.text) <= 0.10)
+            assertEquals(letters(ITALIAN), letters(recognizer.transcribe(italian, language = null).text))
+            // A language it was not trained on is refused, not guessed.
+            assertThrows(IllegalArgumentException::class.java) { recognizer.transcribe(italian, language = "xx") }
+        }
+    }
+
+    @Test fun qwenSpeedAndMemoryOnThisComputer() {
+        val twelve = recording("1.wav").copyOf(12 * 16000)
+        System.gc()
+        val before = resident()
+        var started = System.nanoTime()
+        qwen().use { recognizer ->
+            val load = (System.nanoTime() - started) / 1e6
+            val loaded = resident()
+            val times = (1..3).map {
+                started = System.nanoTime()
+                recognizer.transcribe(twelve)
+                (System.nanoTime() - started) / 1e9
+            }.sorted()
+            println("qwen3-asr, ${recognizer.threads} threads: loaded in %.0f ms; 12 s in %.2f s (%.3f of real time)".format(load, times[1], times[1] / 12))
+            println("    resident memory: $before MB before, $loaded MB loaded, ${resident()} MB after 12 s pieces; peak of the whole test process so far ${resident(peak = true)} MB")
+        }
+    }
+
+    @Test fun aLanguageTheModelDoesNotKnowIsRefusedBeforeLoading() {
+        val folder = Files.createTempDirectory("speech-language").toFile()
+        try {
+            for (file in SpeechModel.Qwen3Asr.files) File(folder, file.name).apply { parentFile!!.mkdirs() }.writeBytes(ByteArray(16))
+            val failure = assertThrows(IllegalArgumentException::class.java) { SpeechRecognizer(folder, SpeechModel.Qwen3Asr, "xx") }
+            assertEquals("Qwen3-ASR does not know the language xx", failure.message)
+            // The twelve the app offers are all known to it.
+            for (code in listOf("it", "en", "fr", "de", "es", "pt", "zh", "ja", "ko", "ru", "ar")) assertTrue(code in SpeechRecognizer.QWEN_LANGUAGES)
+        } finally {
+            folder.deleteRecursively()
         }
     }
 
@@ -253,7 +336,7 @@ class SpeechRecognizerTest {
                 System.gc()
                 val before = resident()
                 var started = System.nanoTime()
-                SpeechRecognizer(folder, "en", model, threads).use { recognizer ->
+                SpeechRecognizer(folder, model, "en", threads).use { recognizer ->
                     val load = (System.nanoTime() - started) / 1e6
                     val loaded = resident()
                     val lines = mutableListOf<String>()
@@ -279,7 +362,7 @@ class SpeechRecognizerTest {
     private fun timed(): SpeechRecognizer {
         val folder = System.getProperty("speech.timedModel")?.let(::File)
         assumeTrue("No -Pspeech.timedModel=<folder>: word time tests skipped", folder != null)
-        return SpeechRecognizer(folder!!, null, SpeechModel.WhisperBase)
+        return SpeechRecognizer(folder!!, SpeechModel.WhisperBase)
     }
 
     /** Where 20 ms slices are louder than −40 dB of full scale: start of the first, end of the last. */
