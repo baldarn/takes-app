@@ -1103,7 +1103,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     jump(join.time.coerceIn(0.0, duration))
                 }
             },
-            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
+            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null && cropping == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
             marked = if (transitioning == null && trim == null && auditioning == null) MarkedView.of(marks, playhead) else null,
