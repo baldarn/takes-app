@@ -121,11 +121,36 @@ class SubtitleOverlay(cues: List<SubtitleCue>, private val settings: SubtitleSet
         // A caption stays for many frames: draw when it changes, not for every frame.
         if (visible != shown) {
             shown = visible
-            bitmap = if (visible.isEmpty()) empty else (frame ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame = it }).also {
+            bitmap = if (visible.isEmpty()) empty else (frame ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame = it }).let {
                 it.eraseColor(Color.TRANSPARENT)
                 layout.draw(Canvas(it), width.toFloat(), height.toFloat(), time, settings)
+                straightened(it)
             }
         }
         return bitmap
+    }
+
+    private var straight: Bitmap? = null
+    private var pixels: IntArray? = null
+
+    /**
+     * Android keeps a bitmap's colors already multiplied by their opacity;
+     * Media3 multiplies an overlay's colors by its opacity again when it lays
+     * it over the picture. The see-through plate, the soft shadow and the
+     * smoothed edges of the letters would all come out darker than in the
+     * preview, so the captions are handed over with their colors not
+     * multiplied, as styled titles are.
+     */
+    private fun straightened(drawn: Bitmap): Bitmap {
+        // A band of rows at a time: a whole 4K frame of numbers would be a large thing to keep.
+        val band = minOf(height, 64)
+        val buffer = pixels ?: IntArray(width * band).also { pixels = it }
+        val result = straight ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { it.isPremultiplied = false; straight = it }
+        for (top in 0 until height step band) {
+            val rows = minOf(band, height - top)
+            drawn.getPixels(buffer, 0, width, 0, top, width, rows) // read as plain colors
+            result.setPixels(buffer, 0, width, 0, top, width, rows) // and stored as they are
+        }
+        return result
     }
 }
