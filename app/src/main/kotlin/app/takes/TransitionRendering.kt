@@ -46,9 +46,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val FADE = 2
         const val WIPE = 3
         const val SPLIT = 4
+        const val HITCHCOCK = 5
 
         /** The styles the shader draws. The editor offers these; any other is shown as a dissolve, and cannot be made here. */
-        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.FlashCut, TransitionStyle.Still)
+        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.Hitchcock, TransitionStyle.FlashCut, TransitionStyle.Still)
 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
@@ -99,6 +100,7 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
                     put(5, frame.mix.first, frame.mix.pair, frame.mix.second, frame.lineColor.red)
                     SceneDrawing(SPLIT, first, second, fill, values)
                 }
+                is TransitionFrame.Hitchcock -> { put(0, frame.key.scale, frame.key.bias); SceneDrawing(HITCHCOCK, first, second, fill, values) }
                 // A style this version cannot draw: a plain dissolve by its share of the incoming picture.
                 else -> { put(0, moment.secondShare / maxOf(1e-9, moment.firstShare + moment.secondShare)); SceneDrawing(DISSOLVE, first, second, fill, values) }
             }
@@ -134,6 +136,12 @@ object TransitionShader {
                 // A wipe: the second picture behind the edge, the first ahead of it, a ramp across its band.
                 float share = clamp(1.0 - dot(q - uA.xy, uA.zw) / uB.x, 0.0, 1.0);
                 return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), share));
+            }
+            if (uMode > 4.5) {
+                // Hitchcock: the second picture comes through the first by the first's own brightness, as it is encoded.
+                vec3 key = clamp(side(uKind.x, q), 0.0, 1.0);
+                float share = clamp(uA.x * dot(key, vec3(0.2126, 0.7152, 0.0722)) + uA.y, 0.0, 1.0);
+                return enc(mix(lin(key), lin(side(uKind.y, q)), share));
             }
             // A split screen: each picture framed in its half over black, the second half over the first, then
             // the line between them; the whole blends from the first picture alone and to the second alone.
