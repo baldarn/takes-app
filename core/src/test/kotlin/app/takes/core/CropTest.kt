@@ -1,6 +1,7 @@
 package app.takes.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -159,5 +160,24 @@ class CropTest {
         assertEquals(crop, documentJson.decodeFromString(CropSettings.serializer(), text))
         // Older documents have no rotation.
         assertEquals(0.0, documentJson.decodeFromString(CropSettings.serializer(), """{"id":"A","x":0.5,"y":0.5,"zoom":1}""").rotation, 0.0)
+    }
+
+    // Own test: the crop as an edit on a clip.
+    @Test fun cropIsAnEditThatFollowsTheClip() {
+        val state = EditState(listOf(TimelineClip(sourceID = "A", start = 0.0, end = 10.0)))
+        assertNull(TimelineEditing.setCrop(state, 0, null))                       // nothing to remove
+        assertNull(TimelineEditing.setCrop(state, 0, CropSettings(zoom = 9.0)))   // outside the limits
+        val framed = TimelineEditing.setCrop(state, 0, CropSettings(x = 0.25, y = 0.5, zoom = 2.0))!!
+        assertEquals(8, framed.clips[0].schema)
+        assertNull(TimelineEditing.setCrop(framed, 0, framed.clips[0].crop))      // unchanged
+        assertNull(TimelineEditing.setCrop(framed, 0, null)!!.clips[0].crop)
+        assertEquals(listOf(2.0, 2.0), TimelineEditing.split(framed, 4.0)!!.clips.map { it.crop!!.zoom })
+        var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 10.0))
+        project = project.commit(TimelineEditing.setCrop(project.edit, 0, CropSettings(zoom = 1.5))!!)
+        assertEquals(8, project.schemaVersion)
+        project.validate()
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
     }
 }

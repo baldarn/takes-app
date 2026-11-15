@@ -59,6 +59,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.ImportedLUT
+import app.takes.core.CropSettings
+import app.takes.core.Size as FrameSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -475,6 +477,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val canvas by produceState<Pair<Int, Int>?>(null, clips.firstOrNull()?.sourceID) {
         value = clips.firstOrNull()?.let { files[it.sourceID] }?.let { withContext(Dispatchers.IO) { displaySize(it) } }
     }
+    // The upright size of each recording, for framing.
+    val sizes by produceState(emptyMap<String, FrameSize>(), project.sources) {
+        value = withContext(Dispatchers.IO) {
+            project.recordings.mapNotNull { source ->
+                displaySize(store.file(project, source))?.let { source.id to FrameSize(it.first.toDouble(), it.second.toDouble()) }
+            }.toMap()
+        }
+    }
+    // Reframing in progress: the clip being framed and the framing not saved yet, shown live.
+    var cropping by remember { mutableStateOf<Pair<String, CropSettings>?>(null) }
     val current = location?.let { clips[it.index] }
     val sourceTime = if (location != null && current != null) current.start + location.offset else 0.0
     val titles = current?.let { TimelineEditing.textsAt(it, sourceTime) }.orEmpty()
@@ -503,6 +515,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             weight < 1 && location.index > 0 -> clips[location.index - 1].color
             else -> null
         }
+    }
+    // The framing each deck shows, with the size of the recording it applies to.
+    val deckFrames = List(2) { deck ->
+        val clip = when {
+            location == null -> null
+            deck == front -> clips[location.index]
+            weight < 1 && location.index > 0 -> clips[location.index - 1]
+            else -> null
+        }
+        val crop = clip?.let { cropping?.takeIf { (id, _) -> id == clip.id }?.second ?: clip.crop }
+        val size = clip?.let { sizes[it.sourceID] }
+        if (crop != null && size != null) crop to size else null
     }
     SideEffect {
         deckSounds.forEachIndexed(editor::setSound)
@@ -541,7 +565,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
-            Box(canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()) {
+            Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).clipToBounds()) {
                 val effects = deckColors.map { color ->
                     remember(color, folder) {
                         if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder).asComposeRenderEffect() else null
@@ -554,6 +578,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         Modifier.fillMaxSize().graphicsLayer {
                             alpha = if (deck == 0) weights[0].toFloat() else if (weights[1] > 0) 1f else 0f
                             renderEffect = effects[deck]
+                            // The player fits the whole picture in this view. Enlarge and shift the
+                            // view so the crop window fills it, as the export will.
+                            deckFrames[deck]?.let { (crop, source) ->
+                                val window = crop.rect(source, FrameSize(size.width.toDouble(), size.height.toDouble()))
+                                val fitted = minOf(size.width / source.width, size.height / source.height)
+                                val enlarge = (size.width / (window.width * fitted)).toFloat()
+                                scaleX = enlarge
+                                scaleY = enlarge
+                                translationX = (-(window.midX - source.width / 2) * fitted * enlarge).toFloat()
+                                translationY = (-(window.midY - source.height / 2) * fitted * enlarge).toFloat()
+                            }
                         },
                     )
                 }
@@ -603,34 +638,52 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             beginTrim = { leading -> location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
         )
-        // Tools act on the clip under the playhead. Two rows, so nothing is cut off at any font size.
-        val tight = PaddingValues(horizontal = 8.dp)
-        val compact = Modifier.defaultMinSize(minWidth = 48.dp)
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), Arrangement.SpaceEvenly) {
-            TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
-                enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text("Split") }
-            TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text("Sound") }
-            TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null, contentPadding = tight) { Text("Color") }
-            TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text("Title") }
-            TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
-                enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text("Transition") }
-        }
-        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
-            TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text("Pauses") }
-            for ((label, step) in listOf("◀" to -1, "▶" to 1)) {
-                val target = location?.let { it.index + step }
-                TextButton(
-                    onClick = {
-                        val next = TimelineEditing.move(edit, location!!.index, target!!)
-                        commit(next, next?.let { TimelineEditing.clipStart(it.clips, target) + location.offset } ?: playhead)
-                    },
-                    compact.semantics { contentDescription = if (step < 0) "Move clip earlier" else "Move clip later" },
-                    enabled = target != null && target in clips.indices, contentPadding = tight,
-                ) { Text(label) }
+        val framing = cropping
+        if (framing != null) {
+            CropPanel(
+                framing.second, removable = clips.firstOrNull { it.id == framing.first }?.crop != null,
+                change = { cropping = framing.first to it },
+                done = { crop ->
+                    val index = clips.indexOfFirst { it.id == framing.first }
+                    cropping = null
+                    commit(TimelineEditing.setCrop(edit, index, crop), playhead)
+                },
+                cancel = { cropping = null },
+            )
+        } else {
+            // Tools act on the clip under the playhead. Short rows, so nothing is cut off at any font size.
+            val tight = PaddingValues(horizontal = 8.dp)
+            val compact = Modifier.defaultMinSize(minWidth = 48.dp)
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), Arrangement.SpaceEvenly) {
+                TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
+                    enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text("Split") }
+                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text("Sound") }
+                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null, contentPadding = tight) { Text("Color") }
+                TextButton(onClick = { editor.pause(); current?.let { cropping = it.id to (it.crop ?: CropSettings()) } }, compact,
+                    enabled = current != null && sizes[current.sourceID] != null, contentPadding = tight) { Text("Crop") }
             }
-            TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text("Add audio") }
-            TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
-                enabled = location != null, contentPadding = tight) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
+                TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text("Title") }
+                TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
+                    enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text("Transition") }
+                TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text("Pauses") }
+                TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text("Add audio") }
+            }
+            Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
+                for ((label, step) in listOf("◀ Move" to -1, "Move ▶" to 1)) {
+                    val target = location?.let { it.index + step }
+                    TextButton(
+                        onClick = {
+                            val next = TimelineEditing.move(edit, location!!.index, target!!)
+                            commit(next, next?.let { TimelineEditing.clipStart(it.clips, target) + location.offset } ?: playhead)
+                        },
+                        compact.semantics { contentDescription = if (step < 0) "Move clip earlier" else "Move clip later" },
+                        enabled = target != null && target in clips.indices, contentPadding = tight,
+                    ) { Text(label) }
+                }
+                TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
+                    enabled = location != null, contentPadding = tight) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
+            }
         }
     }
 
@@ -887,9 +940,9 @@ private fun ClipStrip(
                     .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
         }
-        // The clip's color, named over its pictures.
-        clip.color?.let { color ->
-            Text(color.title, color = Color.Black, fontSize = 10.sp, maxLines = 1,
+        // What has been done to the picture, named over it.
+        listOfNotNull(clip.color?.title, "Crop".takeIf { clip.crop != null }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { tags ->
+            Text(tags, color = Color.Black, fontSize = 10.sp, maxLines = 1,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 12.dp).background(Color(0xFFB6C2FF), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
         }
         // What has been done to the sound, where the waveform is.
@@ -934,6 +987,32 @@ private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected:
     Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
     Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
+    }
+}
+
+/**
+ * Reframes a clip in place of the tools, so the picture stays visible and
+ * follows the sliders. A crop fills the movie's frame with part of the clip.
+ */
+@Composable
+private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSettings) -> Unit, done: (CropSettings?) -> Unit, cancel: () -> Unit) {
+    @Composable
+    fun Level(label: String, shown: String, value: Double, range: ClosedFloatingPointRange<Float>, set: (Double) -> Unit) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("$label  $shown", color = Color.White, fontSize = 13.sp, modifier = Modifier.width(120.dp))
+            Slider(value = value.toFloat(), onValueChange = { set(it.toDouble()) }, valueRange = range,
+                modifier = Modifier.weight(1f).semantics { contentDescription = label })
+        }
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Level("Zoom", "%.1f×".format(crop.zoom), crop.zoom, 1f..CropSettings.MAXIMUM_ZOOM.toFloat()) { change(crop.copy(zoom = (it * 10).roundToInt() / 10.0)) }
+        Level("Left–right", "${(crop.x * 100).roundToInt()}", crop.x, 0f..1f) { change(crop.copy(x = (it * 100).roundToInt() / 100.0)) }
+        Level("Up–down", "${(crop.y * 100).roundToInt()}", crop.y, 0f..1f) { change(crop.copy(y = (it * 100).roundToInt() / 100.0)) }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
+            TextButton(onClick = cancel) { Text("Cancel") }
+            if (removable) TextButton(onClick = { done(null) }) { Text("Remove crop", color = RecordRed) }
+            Button(onClick = { done(crop) }) { Text("Done") }
+        }
     }
 }
 

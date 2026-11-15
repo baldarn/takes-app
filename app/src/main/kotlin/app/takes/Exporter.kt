@@ -18,10 +18,12 @@ import androidx.media3.common.Effect
 import androidx.media3.common.util.Size
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.effect.Crop
 import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.OverlayEffect
 import app.takes.core.AudioItem
 import app.takes.core.ExportSettings
+import app.takes.core.Size as FrameSize
 import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -142,6 +144,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 Denoiser.process(files.getValue(clips[index].sourceID), amount) { progress = CLEANING * (step + it) / wanted.size }?.let { clean[index] = it }
             }
             val began = if (wanted.isEmpty()) 0f else CLEANING
+            // The upright size of each recording that is cropped; the window is measured in its pixels.
+            val sizes = withContext(Dispatchers.IO) {
+                clips.filter { it.crop != null }.map { it.sourceID }.distinct().associateWith { files[it]?.let(::displaySize) }
+            }
             val fit = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
             val items = clips.mapIndexed { index, clip ->
                 val fadeIn = TimelineEditing.fadeLength(clips, index - 1)
@@ -153,6 +159,16 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     if (settings.frameRate <= 30) add(FrameDropEffect.createDefaultFrameDropEffect(settings.frameRate.toFloat()))
                     // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
                     clip.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, folder.parentFile!!))) }
+                    // A crop cuts the window out of the footage; fitting then fills the frame with it.
+                    val source = sizes[clip.sourceID]
+                    if (clip.crop != null && source != null) {
+                        val window = clip.crop!!.rect(FrameSize(source.first.toDouble(), source.second.toDouble()), FrameSize(canvas.first.toDouble(), canvas.second.toDouble()))
+                        // Media3 wants the window in its −1…1 coordinates, y upward.
+                        add(Crop(
+                            (2 * window.x / source.first - 1).toFloat(), (2 * (window.x + window.width) / source.first - 1).toFloat(),
+                            (1 - 2 * (window.y + window.height) / source.second).toFloat(), (1 - 2 * window.y / source.second).toFloat(),
+                        ))
+                    }
                     add(fit)
                     if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut))
                 }

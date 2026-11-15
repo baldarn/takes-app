@@ -56,6 +56,8 @@ for the `rnnoise` module.
 - Clip color: the original's fourteen looks or an imported `.cube` LUT at a chosen
   strength, with exposure, warmth and tint. One lookup table drives both the preview
   (Android 13 or newer) and the export.
+- Crop and reframing: zoom into a clip and move the window, with the picture following
+  the sliders live; a cropped clip fills the movie's frame.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
 - Zip project: the recordings, sounds, imported LUTs, editing history and the current
@@ -67,6 +69,6 @@ for the `rnnoise` module.
 
 More than one video layer, unlinking a clip's sound from its picture, the other transitions (wipe, split screen and so on), title fonts,
 colors and motion, Log footage and highlight recovery, subtitles, speed,
-crop, video effects, audio restoration models, stabilization, dual camera, follow face,
+rotated and animated crops, video effects, audio restoration models, stabilization, dual camera, follow face,
 HDR/Log capture, microphone selection, manual focus, bookmarks.
 The project file format is this port's own and is not interchangeable with iOS.

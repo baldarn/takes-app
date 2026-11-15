@@ -359,4 +359,13 @@ object TimelineEditing {
         if (next == clip.color) return null
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(color = next) })
     }
+
+    // MARK: Crop
+
+    /** Sets the framing of the clip at [index]; null removes it, showing the whole picture again. */
+    fun setCrop(state: EditState, index: Int, crop: CropSettings?): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        if (crop?.valid == false || crop == clip.crop) return null
+        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(crop = crop) })
+    }
 }
