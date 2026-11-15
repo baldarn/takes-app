@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Purple, so the trial copy of a release stands out from the store build and the development one. -->
+    <color name="ic_launcher_background">#FF6A1B9A</color>
+</resources>

@@ -46,6 +46,13 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
         }
+        // The release as it ships, under its own name and icon, to try on a phone beside the store build.
+        create("smoke") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".smoke"
+            versionNameSuffix = "-smoke"
+            matchingFallbacks += "release"
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
