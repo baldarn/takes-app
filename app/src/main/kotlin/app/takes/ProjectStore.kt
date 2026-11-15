@@ -7,8 +7,10 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.takes.core.ClipFragment
 import app.takes.core.CubeLUT
 import app.takes.core.EditState
 import app.takes.core.ImportedLUT
@@ -80,6 +82,11 @@ class ProjectStore(context: Context) {
     var error by mutableStateOf<String?>(null)
     /** What an import in progress is doing, for display. */
     var importing by mutableStateOf<String?>(null); private set
+    /**
+     * What Copy or Cut last took in each project, by project id. As in the original, a project has its own
+     * clipboard, kept while the app runs and never saved: a fragment names the recordings of its project.
+     */
+    val clipboards = mutableStateMapOf<String, ClipFragment>()
 
     val selected: Project? get() = projects.firstOrNull { it.id == selectedID }
 

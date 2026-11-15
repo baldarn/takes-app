@@ -162,6 +162,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import app.takes.core.EditState
+import app.takes.core.EditTargets
 import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.RangeEditing
@@ -999,6 +1000,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val cleared = stringResource(R.string.selection_cleared)
             val deleted = stringResource(R.string.selection_deleted)
             val nothingToDelete = stringResource(R.string.selection_nothing_to_delete)
+            val copied = stringResource(R.string.clipboard_copied)
+            val cutDone = stringResource(R.string.clipboard_cut_done)
+            val pasteDone = stringResource(R.string.clipboard_pasted)
+            val noRoom = stringResource(R.string.clipboard_paste_no_room)
+            val clipboard = store.clipboards[project.id]
             val open = marks.range != null || marks.start != null
             SelectionBar(
                 step = marks.step,
@@ -1036,6 +1042,42 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     marks = marks.cleared()
                     feedback = if (removed != null) deleted else nothingToDelete
                 }),
+                canCopy = marks.canCopy,
+                copy = {
+                    RangeEditing.copy(edit, marks.scope)?.let {
+                        editor.pause()
+                        store.clipboards[project.id] = it
+                        marks = marks.cleared()
+                        feedback = copied
+                    }
+                },
+                // Copy and delete as one Undo step. The clipboard takes the piece once the edit is saved.
+                cut = {
+                    RangeEditing.cut(edit, marks.scope, playhead)?.let { lifted ->
+                        commit(lifted.state, lifted.position ?: playhead)
+                        if (store.selected?.edit?.clips == lifted.state.clips) {
+                            store.clipboards[project.id] = lifted.fragment
+                            marks = marks.cleared()
+                            feedback = cutDone
+                        }
+                    }
+                },
+                // At the playhead: picture opens room for itself, sound is laid on a free track. What was pasted is selected.
+                paste = clipboard?.let { fragment ->
+                    {
+                        val pasted = RangeEditing.paste(edit, fragment, playhead)
+                        if (pasted == null) store.error = noRoom else {
+                            commit(pasted.state, pasted.start)
+                            marks = RangeMarks(selected = EditTargets(pasted.clips.toSet(), pasted.audio.toSet()))
+                            feedback = pasteDone
+                            if (pasted.skippedAudio > 0) store.error = context.resources.getQuantityString(R.plurals.clipboard_pasted_skipped, pasted.skippedAudio, pasted.skippedAudio)
+                        }
+                    }
+                },
+                canPaste = !editor.playing,
+                replacesTransition = clipboard?.insertsTime == true &&
+                    (RangeEditing.transitionAt(clips, playhead) != null || TimelineEditing.layout(clips).joins.any { it.transition != null && abs(it.time - playhead) < RangeEditing.EPSILON }),
+                clearClipboard = { store.clipboards.remove(project.id) },
             )
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                 TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
