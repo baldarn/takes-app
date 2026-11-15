@@ -138,8 +138,8 @@ data class RenderPlan(
         frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND },
     ): TransitionScene.Moment = TransitionScene.moment(clips, time, canvas, deckOf, frames)
 
-    /** The frames per second of the movie while the transition of [join] plays ([TransitionScene.frameRate]). */
-    fun frameRate(join: TransitionLayout.Join, footage: List<Double?>, ceiling: Int): Double = TransitionScene.frameRate(clips, join, footage, ceiling, deckOf)
+    /** The frames per second of the movie, which are the same during every transition ([TransitionScene.frameRate]). */
+    fun frameRate(footage: List<Double?>, ceiling: Int): Int = TransitionScene.frameRate(footage, ceiling)
 
     /** The titles showing at [time], each with its opacity. */
     fun titlesAt(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Pair<TextOverlay, Double>> =

@@ -781,16 +781,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }.toMap()
         }
     }
-    // The frames per second of each recording, and from them the frame rate the movie will have during a join's
-    // transition with the export settings as they are: a flash cut counts its frames in it, here as in the export.
+    // The frames per second of each recording, and from them the frame rate the movie will have with the export
+    // settings as they are: a flash cut counts its frames in it, here as in the export.
     val rates by produceState(emptyMap<String, Double>(), project.sources) {
         value = withContext(Dispatchers.IO) { project.recordings.mapNotNull { source -> frameRate(store.file(project, source))?.let { source.id to it } }.toMap() }
     }
     val ceiling = project.exportSettings.frameRate
     val frames = remember(clips, rates, ceiling) {
-        val footage = clips.map { rates[it.sourceID] }
-        val decks = TransitionScene.decks(clips)
-        val rate: (TransitionLayout.Join) -> Double = { TransitionScene.frameRate(clips, it, footage, ceiling, decks) }
+        val movie = TransitionScene.frameRate(clips.map { rates[it.sourceID] }, ceiling).toDouble()
+        val rate: (TransitionLayout.Join) -> Double = { movie }
         rate
     }
     var pacing by remember { mutableStateOf(false) }

@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import android.media.metrics.LogSessionId
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -20,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.graphics.createBitmap
 import androidx.media3.common.C
 import androidx.media3.common.Effect
+import androidx.media3.common.Format
 import androidx.media3.common.util.Size
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
@@ -37,6 +39,7 @@ import app.takes.core.normalized
 import androidx.media3.effect.OverlayEffect
 import app.takes.core.AudioItem
 import app.takes.core.SoundEnvelope
+import app.takes.core.ExportSections
 import app.takes.core.ExportSettings
 import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
@@ -48,7 +51,9 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.SingleColorLut
+import androidx.media3.transformer.Codec
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
@@ -133,6 +138,30 @@ class FrameCeilingEffect(private val framesPerSecond: Int) : GlEffect {
 }
 
 /**
+ * Gives the frames that pass through other times: [retimed] of their own, in microseconds.
+ *
+ * It is used twice on a movie that a clock gives its frames. The clock's frames are given times a few
+ * microseconds early, and the frames of the movie made from them the times of the movie's frame grid.
+ *
+ * Early, because Media3 draws, for each frame of the clock, the frame of a deck nearest to it in time. Footage at
+ * half the movie's frame rate has two frames equally near every other frame of the clock, and a microsecond
+ * decided between them (a file gives its frames times cut down to the microsecond, the clock's are rounded): on
+ * two such frames in three the movie showed the frame that had not begun yet, so that a frame of the footage
+ * lasted one frame of the movie and the next one three. A few microseconds earlier, the frame that is showing is
+ * always the nearer one, and footage at the movie's own rate is not concerned.
+ *
+ * On the grid, because Media3 counts the clock's frame times in a frame length it keeps with seven digits: they
+ * fall behind the grid by a microsecond every thousand frames. A flash cut counts the frames of the movie from
+ * their times, and forty seconds into a movie its flashes came a frame late.
+ */
+class FrameTimeEffect(private val retimed: (Long) -> Long) : GlEffect {
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = object : PassthroughShaderProgram() {
+        override fun queueInputFrame(glObjectsProvider: GlObjectsProvider, inputTexture: GlTextureInfo, presentationTimeUs: Long) =
+            super.queueInputFrame(glObjectsProvider, inputTexture, retimed(presentationTimeUs))
+    }
+}
+
+/**
  * A cropped clip's picture in the export: the footage zoomed, turned and
  * moved into the movie's frame, which it fills. The framing is worked out
  * for each frame by [PictureFraming.frame], the function the preview draws
@@ -140,7 +169,7 @@ class FrameCeilingEffect(private val framesPerSecond: Int) : GlEffect {
  *
  * [begins] is where the clip starts in the movie: Media3 times a clip's
  * frames from the start of its sequence, after its speed, and the sequences
- * are filled with gaps so that their time is the movie's. [source] is the
+ * are filled with stills so that their time is the movie's. [source] is the
  * upright size of the recording and [canvas] the size of the movie's frame.
  */
 class FramingEffect(private val clip: TimelineClip, private val begins: Double, private val source: FrameSize, private val canvas: FrameSize) : MatrixTransformation {
@@ -234,6 +263,22 @@ fun frameRate(file: File): Double? {
 }
 
 /**
+ * The encoders of a movie that a clock gives its frames. Media3 tells the video encoder the frame rate of the
+ * first thing it is given, which is then the clock's still, and a still states none: every movie would be
+ * encoded as one of 30 frames a second, with the bitrate Media3 picks for 30. This states the movie's own.
+ */
+class ClockedEncoders(private val encoders: Codec.EncoderFactory, private val framesPerSecond: Int) : Codec.EncoderFactory {
+    override fun createForAudioEncoding(format: Format, logSessionId: LogSessionId?): Codec = encoders.createForAudioEncoding(format, logSessionId)
+
+    override fun createForVideoEncoding(format: Format, logSessionId: LogSessionId?): Codec =
+        encoders.createForVideoEncoding(format.buildUpon().setFrameRate(framesPerSecond.toFloat()).build(), logSessionId)
+
+    override fun audioNeedsEncoding(): Boolean = encoders.audioNeedsEncoding()
+
+    override fun videoNeedsEncoding(): Boolean = encoders.videoNeedsEncoding()
+}
+
+/**
  * Renders the current edit to a new movie in the project's `Exports` folder.
  * Sources are never modified. The picture takes the size of the first clip;
  * other clips are scaled to fit inside it.
@@ -245,6 +290,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     private companion object {
         /** Share of the progress bar given to noise reduction when a movie needs it. */
         const val CLEANING = 0.25f
+
+        /** How much earlier than its own time a frame of the clock asks the decks for theirs, in microseconds ([FrameTimeEffect]). */
+        const val CLOCK_LEAD = 3L
     }
 
     private val scope = MainScope()
@@ -296,21 +344,25 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val sizes = withContext(Dispatchers.IO) {
                 clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::displaySize) }
             }
-            // A flash cut counts its frames in the frame rate the movie has while it plays, which follows the footage.
             val rates = withContext(Dispatchers.IO) { clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::frameRate) } }
-            val footage = clips.map { rates[it.sourceID] }
-            val frames = { join: TransitionLayout.Join -> TransitionScene.frameRate(clips, join, footage, settings.frameRate) }
+            val total = TimelineEditing.duration(clips)
             val chains = TimelineEditing.chains(clips)
-            // Clips that play at once are on two sequences, which carry the picture alone.
-            val decked = chains.size > 1
+            val joined = TimelineEditing.transitions(clips).isNotEmpty()
+            // A movie with a transition or a freeze in it is given its frames by a clock, at one rate that follows the
+            // footage under the ceiling of the settings; a flash cut counts its frames in it. A movie of plain cuts
+            // is the clips one after the other and keeps the frame times of the footage.
+            val clocked = joined || chains.size > 1 || chains[0].start >= 0.0005 || total - chains[0].end >= 0.0005
+            val rate = TransitionScene.frameRate(clips.map { rates[it.sourceID] }, settings.frameRate)
+            val frames = { _: TransitionLayout.Join -> rate.toDouble() }
             // One for every item: a Presentation keeps the matrix it worked out for the size of its last input, and
             // two items of different shapes that play at once, one in each sequence, would be drawn with each other's.
             fun fit() = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
             val items = clips.mapIndexed { index, clip ->
                 val picture = buildList<Effect> {
                     // A ceiling for high frame rate footage; frames are never invented, and footage
-                    // at or below the ceiling keeps every frame.
-                    if (settings.frameRate <= 30) add(FrameCeilingEffect(settings.frameRate))
+                    // at or below the ceiling keeps every frame. Under a clock nothing is thinned
+                    // beforehand: the clock takes, for each of its frames, the nearest of the footage.
+                    if (!clocked && settings.frameRate <= TransitionScene.HIGHEST_CEILING) add(FrameCeilingEffect(settings.frameRate))
                     // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
                     clip.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, folder.parentFile!!))) }
                     // A crop fills the frame with part of the footage, frame by frame; fitting then has nothing left to do.
@@ -328,14 +380,13 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 val sound = listOf<AudioProcessor>(SoundProcessor(SoundEnvelope.clip(clips, index), TimelineEditing.clipStart(clips, index)))
                 // Speed comes first in Media3, so the effects after it are timed in movie seconds.
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
-                    .setRemoveAudio(decked || index in clean) // its sound plays from a sequence of its own
+                    .setRemoveAudio(clocked || index in clean) // its sound plays from a sequence of its own
                     .setEffects(Effects(sound, picture))
                     .apply { steadySpeed(clip)?.let(::setSpeed) }
                     .build()
             }
             // Sound on its own tracks: one audio-only sequence per track, silent between
             // items. The movie ends with its picture, so later sound is left out.
-            val total = TimelineEditing.duration(clips)
             val soundtracks = (0 until AudioItem.TRACKS).mapNotNull { track ->
                 val items = sounds.filter { it.track == track && it.start < total - 0.01 }.sortedBy { it.start }
                 if (items.isEmpty()) return@mapNotNull null
@@ -359,14 +410,14 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 sequence.build()
             }
             // Clip sound on sequences of its own, audio only, at the clips' own times: the cleaned sound of a clip
-            // that has it, in place of the recorded one, and with two picture sequences the sound of every clip.
-            // Clips that dissolve into each other overlap, so chains alternate.
+            // that has it, in place of the recorded one, and under a clock the sound of every clip. Clips that
+            // dissolve into each other overlap, so chains alternate.
             //
-            // The two picture sequences carry the picture alone. One that carries sound and opens on a still asks
+            // Under a clock the decks carry the picture alone. A deck that carries sound and opens on a still asks
             // Media3 for its silence the moment its picture is taken, and Media3 has none to give until the first
             // sequence with sound has given its own: the export then stopped with "Asset loader error", whenever
-            // that sequence was the quicker of the two. A sequence of sound alone waits instead.
-            val voiced = if (!decked) emptyMap() else withContext(Dispatchers.IO) { clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::hasSound) == true } }
+            // that deck was the quicker of the two. A sequence of sound alone waits instead.
+            val voiced = if (!clocked) emptyMap() else withContext(Dispatchers.IO) { clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::hasSound) == true } }
             val apart = clips.indices.filter { it in clean || voiced[clips[it].sourceID] == true }
             val cleaned = (0..1).mapNotNull { parity ->
                 val indices = apart.filter { index -> chains.indexOfFirst { index in it.first..it.last } % 2 == parity }
@@ -392,10 +443,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 gap(total)
                 sequence.build()
             }
-            // A movie on two picture sequences with no sound anywhere still has a sound track, silent, as it has
-            // when its clips carry their sound themselves.
+            // A movie under a clock with no sound anywhere still has a sound track, silent, as it has when its
+            // clips carry their sound themselves.
             val extra = (soundtracks + cleaned).ifEmpty {
-                if (decked) listOf(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addGap((total * 1e6).roundToLong()).build()) else emptyList()
+                if (clocked) listOf(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addGap((total * 1e6).roundToLong()).build()) else emptyList()
             }
             // Titles and subtitles are drawn once, over the finished picture; subtitles on top.
             val captions = SubtitleEditing.cues(project.edit)
@@ -413,55 +464,51 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     FrameRect((frame.width - source.first * scale) / 2, (frame.height - source.second * scale) / 2, source.first * scale, source.second * scale)
                 }
             }
-            // Transitions are drawn on the finished frame, from one sequence or from two.
-            val joined = TimelineEditing.transitions(clips).isNotEmpty()
-            fun drawn(decks: Int) = TransitionEffect(clips, Size(canvas.first, canvas.second), decks, frames, content)
             // Titles and subtitles go over the frame the transition effect has finished, in the same
             // pass. (While Media3 itself blended the two sequences, an overlay in the same composition
             // corrupted the blend, and such a movie took a second pass and a second encoding.)
-            val movie = if (chains.size == 1) {
-                val chain = chains[0]
-                val effects = if (joined) Effects(emptyList(), listOf<Effect>(drawn(1)) + titles.videoEffects) else titles
+            val movie = if (!clocked) {
                 // Silence is generated for takes recorded without a microphone.
-                val sequence = if (chain.start < 0.0005 && total - chain.end < 0.0005) EditedMediaItemSequence.withAudioAndVideoFrom(items) else {
-                    // A freeze before the first clip or after the last one: time with no clip in it.
-                    val padded = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO))
-                    ((chain.start * 1e6).roundToLong()).takeIf { it > 0 }?.let(padded::addGap)
-                    items.forEach(padded::addItem)
-                    (((total - chain.end) * 1e6).roundToLong()).takeIf { it > 0 }?.let(padded::addGap)
-                    padded.build()
-                }
-                Composition.Builder(listOf(sequence) + extra).setEffects(effects).setHdrMode(sdr).build()
+                Composition.Builder(listOf(EditedMediaItemSequence.withAudioAndVideoFrom(items)) + extra).setEffects(titles).setHdrMode(sdr).build()
             } else {
-                // Chains alternate between two sequences, since neighbors play at once or
-                // with a pause between them. The two are laid side by side and the
-                // transition effect makes each frame from them.
-                val sequences = List(2) { EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)) }
-                val filled = DoubleArray(2)
+                // The clock: a sequence of its own, first, that holds one still for the whole movie at the movie's
+                // frame rate. Media3 composes one frame for every frame of its first sequence, at that frame's time,
+                // and takes from each of the others the frame nearest to it. Without the clock the first deck gave
+                // the times: its footage's while it played, and 30 a second where it was empty, whatever the footage
+                // on the other deck. The clock is not drawn (DecksCompositor).
+                val black = withContext(Dispatchers.IO) { blackStill(context) }
+                val ticks = ExportSections.pictures(total, rate)
+                val clock = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO))
+                    .addItem(still(black, Math.round(ticks * 1e6 / rate), rate, listOf(FrameTimeEffect { maxOf(0, it - CLOCK_LEAD) }))).build()
+                // The clips are on one deck, or, where neighbors play at once or with a pause between them, their
+                // chains alternate between two. The decks are laid one above the other and the transition effect makes
+                // each frame from them.
+                val decks = minOf(chains.size, 2)
+                val sequences = List(decks) { EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)) }
+                val filled = DoubleArray(decks)
                 // Where a deck has no clip it shows a black still, fitted like a clip. Media3's own gap
                 // gives frames of 16 by 16 pixels: at every change between those and a clip's frames the deck's
                 // textures were made again while the compositor still held frames in the old ones, which came out
                 // black (a clip's last frame) or were drawn over too soon (a clip two frames ahead of its time).
-                val black = withContext(Dispatchers.IO) { blackStill(context) }
                 fun gap(deck: Int, until: Double) {
                     val micros = ((until - filled[deck]) * 1e6).roundToLong()
-                    if (micros > 0) sequences[deck].addItem(still(black, micros, TransitionScene.FRAMES_PER_SECOND.toInt(), listOf(fit())))
+                    if (micros > 0) sequences[deck].addItem(still(black, micros, rate, listOf(fit())))
                 }
                 chains.forEachIndexed { index, chain ->
-                    gap(index % 2, chain.start)
-                    for (clip in chain.first..chain.last) sequences[index % 2].addItem(items[clip])
-                    filled[index % 2] = chain.end
+                    gap(index % decks, chain.start)
+                    for (clip in chain.first..chain.last) sequences[index % decks].addItem(items[clip])
+                    filled[index % decks] = chain.end
                 }
-                for (deck in 0..1) gap(deck, total)
-                Composition.Builder(sequences.map { it.build() } + extra)
-                    .setVideoCompositorSettings(DecksCompositor(Size(canvas.first, canvas.second)))
-                    .setEffects(Effects(emptyList(), listOf<Effect>(drawn(2)) + titles.videoEffects))
+                for (deck in 0 until decks) gap(deck, total)
+                Composition.Builder(listOf(clock) + sequences.map { it.build() } + extra)
+                    .setVideoCompositorSettings(DecksCompositor(Size(canvas.first, canvas.second), decks))
+                    .setEffects(Effects(emptyList(), listOf<Effect>(FrameTimeEffect { Math.round(Math.round(it * rate / 1e6) * 1e6 / rate) }, TransitionEffect(clips, Size(canvas.first, canvas.second), decks, frames, content)) + titles.videoEffects))
                     .setHdrMode(sdr)
                     .build()
             }
             val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
             try {
-                render(movie, writing, codec, began, 1f)
+                render(movie, writing, codec, began, 1f, rate.takeIf { clocked })
                 if (writing.renameTo(output)) result = output else store.error = context.getString(R.string.export_save_failed)
             } catch (problem: ExportException) {
                 store.error = context.getString(R.string.export_failed, problem.message ?: problem.errorCodeName)
@@ -472,8 +519,11 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
     }
 
-    /** Runs one export to [file], reporting progress between [from] and [to]. Cancelling the coroutine cancels the export. */
-    private suspend fun render(composition: Composition, file: File, codec: String, from: Float, to: Float) = coroutineScope {
+    /**
+     * Runs one export to [file], reporting progress between [from] and [to]. Cancelling the coroutine cancels the export.
+     * [framesPerSecond] is the movie's frame rate when a clock gives it one; null when its frames are those of the footage.
+     */
+    private suspend fun render(composition: Composition, file: File, codec: String, from: Float, to: Float, framesPerSecond: Int?) = coroutineScope {
         var running: Transformer? = null
         val watching = launch {
             val holder = ProgressHolder()
@@ -487,6 +537,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 val transformer = Transformer.Builder(context)
                     .setVideoMimeType(codec)
                     .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                    .apply { framesPerSecond?.let { setEncoderFactory(ClockedEncoders(DefaultEncoderFactory.Builder(context).build(), it)) } }
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) = continuation.resume(Unit)
 

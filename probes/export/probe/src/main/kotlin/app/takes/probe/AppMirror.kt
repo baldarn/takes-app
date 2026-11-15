@@ -20,7 +20,6 @@ import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
-import app.takes.DecksCompositor
 import app.takes.TransitionEffect
 import app.takes.core.FrameCeiling
 import app.takes.core.Rect
@@ -35,8 +34,9 @@ import kotlin.math.roundToLong
 /**
  * The composition the app's exporter makes of a list of clips, rebuilt here line for line from
  * `Exporter.start` so the probe can run it without the app: the same clipping, the same gaps, the
- * same two sequences, and the app's own `TransitionEffect` and `DecksCompositor`, compiled into the
- * probe from the app's source file. Titles, colour, crop, speed and the shaping of the sound are
+ * same two sequences, and the app's own `TransitionEffect`, compiled into the probe from the app's
+ * source file (its `DecksCompositor` has since taken the clock for granted; `StackCompositor` here lays
+ * the decks out the same way with it and without). Titles, colour, crop, speed and the shaping of the sound are
  * left out; none of them decides which frames a movie holds.
  *
  * With [clock] the two changes the probe proposes are made: a sequence before the decks that holds
@@ -62,7 +62,9 @@ object AppMirror {
     }
 
     fun composition(clips: List<TimelineClip>, files: List<File>, footage: List<Double>, canvas: Size, ceiling: Int, clock: Timing.Clock?, later: Long = 0): Composition {
-        val frames = { join: TransitionLayout.Join -> clock?.framesPerSecond?.toDouble() ?: TransitionScene.frameRate(clips, join, footage, ceiling) }
+        // Without the clock the movie took the frame times of the footage on its first deck, which is what a flash cut
+        // then counted in; the app's rule has since become the clock's rate (TransitionScene.frameRate).
+        val frames = { _: TransitionLayout.Join -> clock?.framesPerSecond?.toDouble() ?: TransitionScene.frameRate(footage, ceiling).toDouble() }
         // The app fits every clip with one Presentation. It keeps the matrix it worked out for the size of its
         // last input, so beside a still of another size each item needs its own.
         val shared = Presentation.createForWidthAndHeight(canvas.width, canvas.height, Presentation.LAYOUT_SCALE_TO_FIT)
@@ -116,7 +118,7 @@ object AppMirror {
         }
         for (deck in 0..1) gap(deck, total)
         return Composition.Builder(listOfNotNull(timer) + sequences.map { it.build() })
-            .setVideoCompositorSettings(if (timer == null) DecksCompositor(canvas) else StackCompositor(canvas, clock = true))
+            .setVideoCompositorSettings(StackCompositor(canvas, clock = timer != null))
             .setEffects(Effects(emptyList(), listOf<Effect>(drawn(2))))
             .build()
     }

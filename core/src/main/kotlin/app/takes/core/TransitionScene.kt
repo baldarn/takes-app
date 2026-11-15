@@ -1,5 +1,7 @@
 package app.takes.core
 
+import kotlin.math.abs
+
 /**
  * What the movie shows at one moment: which pictures a renderer needs and
  * how [TransitionPicture] says to combine them. The preview and the export
@@ -53,35 +55,45 @@ object TransitionScene {
     }
 
     /**
-     * The frame rate taken for footage whose own is not known, the one of the
-     * frames an export puts where its first sequence has no clip, and the one
-     * a still's held frame is counted in.
+     * The frame rate taken for footage whose own is not known, the one a
+     * flash cut counts in where no movie is in sight, and the one a still's
+     * held frame is counted in.
      */
     const val FRAMES_PER_SECOND = 30.0
 
-    /** An export thins footage only under a ceiling up to this; above it every frame of the footage stays. */
+    /** An export of plain cuts thins footage only under a ceiling up to this; above it every frame of the footage stays. */
     const val HIGHEST_CEILING = 30
 
     /**
-     * The frames per second of the movie while the transition of [join]
-     * plays: what a flash cut counts its frames in, as the original counts
-     * them in the frame rate of its export, so that a flash is one frame of
-     * the movie.
+     * The frames per second of a movie that has a transition or a freeze in
+     * it: what a flash cut counts its frames in, as the original counts them
+     * in the frame rate of its export, so that a flash is one frame of the
+     * movie.
      *
-     * An export here has no frame rate of its own: every frame of the movie
-     * takes the time of a frame of the footage. While two clips play at once
-     * the frames are those of the clip on the first deck, whose sequence
-     * leads the export. That clip's [footage] frames per second (one entry
-     * per clip; null when not known), times its speed, are thinned by the
-     * [ceiling] of the export settings when that is [HIGHEST_CEILING] or
-     * less ([FrameCeiling.rate]). Where the first deck shows neither clip of
-     * the join, its sequence is empty there and gives [FRAMES_PER_SECOND].
+     * Such a movie has one frame rate from its first frame to its last, as
+     * the original's has (TransitionRenderer.swift:167): the export gives it
+     * a frame on every tick of that rate, whatever the footage, and takes
+     * for each the frame of the footage nearest in time. The original is
+     * told its rate; here the setting is a [ceiling] and the footage decides
+     * below it. The rate is that of the fastest footage among the clips
+     * ([footage]: frames per second, one entry per clip, null when not
+     * known and then counted as [FRAMES_PER_SECOND]), each first brought
+     * under the ceiling by leaving out whole frames ([FrameCeiling.rate]: 60
+     * under 30 is 30, 50 under 30 is 25), and then the nearest of the rates
+     * the original exports at ([ExportSettings.FRAME_RATES]) that is not
+     * above the ceiling. So footage all of one rate at or under the ceiling
+     * keeps every frame and gets none added; where rates are mixed the
+     * slower footage has frames shown twice, and a clip's speed changes which
+     * of its frames are shown, not the rate of the movie.
+     *
+     * A movie of plain cuts is not concerned: it has no clock, and its frames
+     * keep the times of the footage, thinned under the ceiling.
      */
-    fun frameRate(clips: List<TimelineClip>, join: TransitionLayout.Join, footage: List<Double?>, ceiling: Int, decks: List<Int> = decks(clips)): Double {
-        val sides = listOfNotNull(join.outgoing, join.incoming)
-        val leading = sides.firstOrNull { decks.getOrNull(it) == 0 } ?: return FRAMES_PER_SECOND
-        val own = (footage.getOrNull(leading)?.takeIf { it.isFinite() && it > 0 } ?: FRAMES_PER_SECOND) * clips[leading].rate
-        return if (ceiling <= HIGHEST_CEILING) FrameCeiling.rate(own, ceiling.toDouble()) else own
+    fun frameRate(footage: List<Double?>, ceiling: Int): Int {
+        val fastest = footage.maxOfOrNull { FrameCeiling.rate(it?.takeIf { rate -> rate.isFinite() && rate > 0 } ?: FRAMES_PER_SECOND, ceiling.toDouble()) } ?: FRAMES_PER_SECOND
+        val allowed = ExportSettings.FRAME_RATES.filter { it <= ceiling }.ifEmpty { listOf(ExportSettings.FRAME_RATES.min()) }
+        // Halfway between two rates, the higher: frames shown twice rather than left out.
+        return allowed.sortedDescending().minBy { abs(it - fastest) }
     }
 
     /** The deck showing each clip: chains alternate. */
@@ -107,7 +119,7 @@ object TransitionScene {
      * The moment at timeline second [time]. [canvas] is the size of the
      * picture in pixels; the geometry of a wipe, a split screen, a whip pan
      * and a defocus is given in it. [frames] is the frame rate of the movie
-     * during a join's transition ([frameRate]); a flash cut counts in it.
+     * ([frameRate]), asked for the join it is needed at; a flash cut counts in it.
      */
     fun moment(
         clips: List<TimelineClip>, time: Double, canvas: Size = Size(1920.0, 1080.0), decks: List<Int> = decks(clips),
