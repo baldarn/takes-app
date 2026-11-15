@@ -213,14 +213,14 @@ class RecordingInsertionTest {
 
     // MARK: Transitions at the place
 
-    private fun joined(style: ClipTransition.Style): Project {
+    private fun joined(style: TransitionStyle): Project {
         val x = take("x", 4.0); val y = take("y", 4.0)
         val project = Project("x").addRecording(x).addRecording(y)
         return project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, style)!!)
     }
 
     @Test fun insideADissolveTheTakeGoesBetweenTheTwoClips() {
-        val base = joined(ClipTransition.Style.Dissolve)
+        val base = joined(TransitionStyle.Dissolve)
         assertEquals(7.0, base.edit.duration, 1e-9)
         // 3.5 is inside the overlap, where a split is refused: both clips are showing.
         val project = base.beginRecordingInsertion(3.5).addRecording(b)
@@ -236,7 +236,7 @@ class RecordingInsertionTest {
     }
 
     @Test fun aFadeOnTheJoinIsRemovedNotPassedToTheTake() {
-        val base = joined(ClipTransition.Style.FadeBlack)
+        val base = joined(TransitionStyle.FadeColor)
         val project = base.beginRecordingInsertion(4.0).addRecording(b)
         assertEquals(listOf(0.0 to 4.0, 0.0 to 3.0, 0.0 to 4.0), ranges(project))
         assertTrue(project.edit.clips.all { it.transition == null })
@@ -246,7 +246,7 @@ class RecordingInsertionTest {
     }
 
     @Test fun aJoinAwayFromThePlaceIsKept() {
-        val base = joined(ClipTransition.Style.FadeBlack)
+        val base = joined(TransitionStyle.FadeColor)
         val join = base.edit.clips[0].transition!!
         // Inside the first clip: the join to the second clip follows the piece that now precedes it.
         val project = base.beginRecordingInsertion(2.0).addRecording(b)
@@ -412,7 +412,7 @@ class RecordingInsertionTest {
         assertEquals(1, plain.beginRecordingInsertion(10.0).schemaVersion)
         // An older reader would replay the take at the end of every history step.
         assertEquals(10, plain.beginRecordingInsertion(10.0).addRecording(b).schemaVersion)
-        assertEquals(12, Project.LATEST_READABLE_SCHEMA) // subtitles and title designs came after
+        assertEquals(13, Project.LATEST_READABLE_SCHEMA) // subtitles, title designs and the nine transitions came after
     }
 
     @Test fun aProjectWithoutInsertionsIsSavedAsBefore() {
@@ -501,8 +501,8 @@ class RecordingInsertionTest {
         val x = TimelineClip(sourceID = "X", start = 0.0, end = 4.0)
         val z = TimelineClip(sourceID = "Z", start = 0.0, end = 2.0)
         // The join to a clip that is not coming along is dropped; the one between the two inserted clips stays.
-        val y = TimelineClip(sourceID = "Y", start = 0.0, end = 2.0, transition = ClipTransition(nextClipID = z.id))
-        val last = z.copy(transition = ClipTransition(nextClipID = "elsewhere"))
+        val y = TimelineClip(sourceID = "Y", start = 0.0, end = 2.0, transition = TransitionSettings(nextClipID = z.id))
+        val last = z.copy(transition = TransitionSettings(nextClipID = "elsewhere"))
         val inserted = TimelineEditing.insert(EditState(listOf(x)), listOf(y, last), 4.0)!!
         assertEquals(listOf(x, y, z), inserted.clips)
     }

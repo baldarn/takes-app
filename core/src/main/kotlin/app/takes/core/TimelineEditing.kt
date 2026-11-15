@@ -166,17 +166,17 @@ object TimelineEditing {
     }
 
     /** The transition into the clip after [index], if those two clips are still neighbors. */
-    fun transition(clips: List<TimelineClip>, index: Int): ClipTransition? =
-        clips.getOrNull(index)?.transition?.takeIf { it.nextClipID == clips.getOrNull(index + 1)?.id }
+    fun transition(clips: List<TimelineClip>, index: Int): TransitionSettings? =
+        clips.getOrNull(index)?.transition?.takeIf { index + 1 < clips.size && it.nextClipID == clips[index + 1].id }
 
     /** Sets the join after [index]; a null [duration] removes it. */
-    fun setTransition(state: EditState, index: Int, duration: Double?, style: ClipTransition.Style = ClipTransition.Style.FadeBlack): EditState? {
+    fun setTransition(state: EditState, index: Int, duration: Double?, style: TransitionStyle = TransitionStyle.FadeColor): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
         val next = state.clips.getOrNull(index + 1) ?: return null
         val transition = duration?.let {
             if (!it.isFinite() || it <= 0) return null
             val current = transition(state.clips, index)
-            ClipTransition(id = current?.id ?: newID(), nextClipID = next.id, style = style, duration = minOf(it, ClipTransition.MAXIMUM_DURATION))
+            TransitionSettings(id = current?.id ?: newID(), nextClipID = next.id, style = style, duration = minOf(it, TransitionSettings.LEGACY_MAXIMUM_DURATION))
         }
         if (transition == clip.transition) return null
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(transition = transition) })
@@ -187,7 +187,7 @@ object TimelineEditing {
      * takes more than half of either clip, so two fades cannot overlap.
      */
     fun fadeLength(clips: List<TimelineClip>, index: Int): Double {
-        val transition = transition(clips, index)?.takeIf { it.style == ClipTransition.Style.FadeBlack } ?: return 0.0
+        val transition = transition(clips, index)?.takeIf { it.style == TransitionStyle.FadeColor } ?: return 0.0
         return minOf(transition.duration / 2, clips[index].duration / 2, clips[index + 1].duration / 2)
     }
 
@@ -196,7 +196,7 @@ object TimelineEditing {
      * than half of either clip, so a clip's two dissolves cannot meet.
      */
     fun overlap(clips: List<TimelineClip>, index: Int): Double {
-        val transition = transition(clips, index)?.takeIf { it.style == ClipTransition.Style.Dissolve } ?: return 0.0
+        val transition = transition(clips, index)?.takeIf { it.style == TransitionStyle.Dissolve } ?: return 0.0
         return minOf(transition.duration, clips[index].duration / 2, clips[index + 1].duration / 2)
     }
 

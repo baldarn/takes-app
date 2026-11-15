@@ -50,33 +50,8 @@ data class SourceMedia(
     val originalName: String? = null,
 )
 
-/**
- * A join belongs to these exact neighbors: it only applies while the clip
- * after it is [nextClipID]. Moving or deleting a clip never passes a
- * transition on to unrelated footage.
- */
-@Serializable
-data class ClipTransition(
-    val id: String = newID(),
-    val nextClipID: String,
-    val style: Style = Style.FadeBlack,
-    val duration: Double = 0.5,
-) {
-    @Serializable
-    enum class Style {
-        /** Both clips fade through black; nothing overlaps. */
-        @SerialName("fadeBlack") FadeBlack,
-
-        /** The next clip starts under the end of this one and they blend. The timeline gets shorter. */
-        @SerialName("dissolve") Dissolve,
-    }
-
-    val valid: Boolean get() = duration.isFinite() && duration > 0 && duration <= MAXIMUM_DURATION
-
-    companion object {
-        const val MAXIMUM_DURATION = 10.0
-    }
-}
+/** The name the saved transition had while it knew two styles. */
+typealias ClipTransition = TransitionSettings
 
 /** A title over the picture. Times are source seconds, so it follows its footage through trims and moves. */
 @Serializable
@@ -139,8 +114,10 @@ data class TimelineClip(
     val sourceID: String,
     val start: Double,
     val end: Double,
-    /** The join to the clip after this one. */
-    val transition: ClipTransition? = null,
+    /** The join to the clip after this one. On the last clip, with no next clip named, the close of the timeline. */
+    val transition: TransitionSettings? = null,
+    /** The transition into this clip from nothing. It counts on the first clip only. */
+    val openingTransition: TransitionSettings? = null,
     val texts: List<TextOverlay>? = null,
     val bookmarks: List<Bookmark>? = null,
     /** Null plays the sound as recorded. */
@@ -168,6 +145,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        openingTransition != null || transition?.legacy == false -> 13
         texts.orEmpty().any { it.styled } -> 12
         !subtitleWords.isNullOrEmpty() -> 11
         speed != null -> 9
@@ -459,7 +437,7 @@ data class Project(
                 val source = byID[clip.sourceID] ?: invalid()
                 if (!clip.start.isFinite() || !clip.end.isFinite() || clip.start < 0 ||
                     clip.end <= clip.start || clip.end > source.duration + 0.001) invalid()
-                if (clip.transition?.valid == false) invalid()
+                if (clip.transition?.valid == false || clip.openingTransition?.valid == false) invalid()
                 val texts = clip.texts.orEmpty()
                 if (texts.map { it.id }.toSet().size != texts.size) invalid()
                 if (texts.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
@@ -486,7 +464,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 12
+        const val LATEST_READABLE_SCHEMA = 13
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

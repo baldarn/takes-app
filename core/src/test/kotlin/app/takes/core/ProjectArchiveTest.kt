@@ -41,7 +41,7 @@ class ProjectArchiveTest {
     private fun saved(): Pair<Project, File> {
         val disk = disk()
         var project = Project("Trip").addRecording(take).addRecording(scene).addSource(music)
-        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, ClipTransition.Style.Dissolve)!!)
+        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, TransitionStyle.Dissolve)!!)
         project = project.commit(TimelineEditing.addAudio(project.edit, music.id, music.duration, 2.0)!!)
         disk.save(project)
         val folder = disk.folder(project.id)

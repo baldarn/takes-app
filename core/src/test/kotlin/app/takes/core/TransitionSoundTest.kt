@@ -173,9 +173,9 @@ class TransitionSoundTest {
 
     // What the app plays today, for the two styles it has.
 
-    private fun pair(style: ClipTransition.Style, duration: Double, audio: ClipAudio? = null): List<TimelineClip> {
+    private fun pair(style: TransitionStyle, duration: Double, audio: ClipAudio? = null): List<TimelineClip> {
         val second = TimelineClip(id = "B", sourceID = "S", start = 0.0, end = 4.0)
-        return listOf(TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 4.0, transition = ClipTransition(nextClipID = "B", style = style, duration = duration), audio = audio), second)
+        return listOf(TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 4.0, transition = TransitionSettings(nextClipID = "B", style = style, duration = duration), audio = audio), second)
     }
 
     /** The new envelope for the same two clips, laid out as the original lays them out. */
@@ -185,7 +185,7 @@ class TransitionSoundTest {
     }
 
     @Test fun aDefaultDissolveSoundsAsItDoesToday() {
-        val clips = pair(ClipTransition.Style.Dissolve, 1.0)
+        val clips = pair(TransitionStyle.Dissolve, 1.0)
         val settings = TransitionSettings(style = TransitionStyle.Dissolve, duration = 1.0)
         assertEquals(TimelineEditing.duration(clips), TransitionLayout.sequence(listOf(4.0, 4.0), listOf(null, settings, null)).duration, 0.0)
         var time = 0.0
@@ -200,7 +200,7 @@ class TransitionSoundTest {
     }
 
     @Test fun aDefaultFadeThroughBlackSoundsAsItDoesToday() {
-        val clips = pair(ClipTransition.Style.FadeBlack, 1.0)
+        val clips = pair(TransitionStyle.FadeColor, 1.0)
         val settings = TransitionSettings(style = TransitionStyle.FadeColor, duration = 1.0)
         assertEquals(TimelineEditing.duration(clips), TransitionLayout.sequence(listOf(4.0, 4.0), listOf(null, settings, null)).duration, 0.0)
         var time = 0.0
@@ -214,7 +214,7 @@ class TransitionSoundTest {
 
     @Test fun shortClipsAreWhereTodaysSoundAndTheOriginalsPartWays() {
         // Today a dissolve takes at most half of either clip; the original lets it take all the free footage.
-        val first = TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 1.0, transition = ClipTransition(nextClipID = "B", style = ClipTransition.Style.Dissolve, duration = 2.0))
+        val first = TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 1.0, transition = TransitionSettings(nextClipID = "B", style = TransitionStyle.Dissolve, duration = 2.0))
         val clips = listOf(first, TimelineClip(id = "B", sourceID = "S", start = 0.0, end = 4.0))
         assertEquals(0.5, TimelineEditing.overlap(clips, 0), 0.0)
         val join = TransitionLayout.sequence(listOf(1.0, 4.0), listOf(null, TransitionSettings(duration = 2.0), null)).joins[1]

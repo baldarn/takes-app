@@ -321,11 +321,18 @@ class TransitionGeometryTest {
     }
 
     @Test fun settingsWriteTheOriginalFieldsAndReadTheExistingTransition() {
-        val framing = """{"x":0.5,"y":0.5,"zoom":1.0}"""
+        // The six settings the first two styles never had are written only when they are not at their defaults.
         assertEquals(
-            """{"id":"A","nextClipID":"B","style":"dissolve","duration":0.5,"axis":"horizontal","divider":0.5,"reverse":false,""" +
-                """"audio":"crossfade","first":$framing,"second":$framing}""",
+            """{"id":"A","nextClipID":"B","style":"dissolve","duration":0.5}""",
             documentJson.encodeToString(TransitionSettings.serializer(), TransitionSettings(id = "A", nextClipID = "B")),
+        )
+        assertEquals(
+            """{"id":"A","nextClipID":"B","style":"split","duration":0.5,"axis":"vertical","divider":0.4,"reverse":true,"audio":"first",""" +
+                """"first":{"x":0.25,"y":0.5,"zoom":1.0},"second":{"x":0.5,"y":0.5,"zoom":2.0}}""",
+            documentJson.encodeToString(TransitionSettings.serializer(), TransitionSettings(
+                id = "A", nextClipID = "B", style = TransitionStyle.Split, axis = TransitionAxis.Vertical, divider = 0.4, reverse = true,
+                audio = TransitionAudio.First, first = TransitionFraming(x = 0.25), second = TransitionFraming(zoom = 2.0),
+            )),
         )
         val full = TransitionSettings(
             style = TransitionStyle.Wipe, axis = TransitionAxis.Vertical, audio = TransitionAudio.Second, fadeColor = TransitionColor(0.2, 0.7, 0.4),
@@ -337,10 +344,18 @@ class TransitionGeometryTest {
             listOf("dissolve", "fadeBlack", "wipe", "split", "hitchcock", "whip", "flashCut", "still", "defocus"),
             TransitionStyle.entries.map { documentJson.encodeToString(TransitionStyle.serializer(), it).trim('"') },
         )
-        // What the port saves today is read unchanged, and its two styles are read back by it.
-        val existing = ClipTransition(id = "A", nextClipID = "B", style = ClipTransition.Style.FadeBlack, duration = 1.0)
-        val read = documentJson.decodeFromString(TransitionSettings.serializer(), documentJson.encodeToString(ClipTransition.serializer(), existing))
-        assertEquals(TransitionSettings(id = "A", nextClipID = "B", style = TransitionStyle.FadeColor, duration = 1.0), read)
-        assertEquals(existing, documentJson.decodeFromString(ClipTransition.serializer(), documentJson.encodeToString(TransitionSettings.serializer(), read)))
+        // What the port saved while it knew two styles is read unchanged and written back byte for byte.
+        for (saved in listOf(
+            """{"id":"A","nextClipID":"B","style":"fadeBlack","duration":1.0}""",
+            """{"id":"A","nextClipID":"B","style":"dissolve","duration":0.3}""",
+        )) {
+            val read = documentJson.decodeFromString(TransitionSettings.serializer(), saved)
+            assertTrue(read.legacy)
+            assertEquals(saved, documentJson.encodeToString(TransitionSettings.serializer(), read))
+        }
+        assertEquals(
+            TransitionSettings(id = "A", nextClipID = "B", style = TransitionStyle.FadeColor, duration = 1.0),
+            documentJson.decodeFromString(TransitionSettings.serializer(), """{"id":"A","nextClipID":"B","style":"fadeBlack","duration":1.0}"""),
+        )
     }
 }

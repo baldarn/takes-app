@@ -286,7 +286,7 @@ class TitleProjectTest {
         for (title in listOf(plain.copy(appearance = TitleDesign()), plain.copy(motion = fade), plain.copy(appearance = TitleDesign.looks[2].second, motion = fade))) {
             val project = project(title)
             assertEquals(12, project.schemaVersion)
-            assertEquals(12, Project.LATEST_READABLE_SCHEMA)
+            assertEquals(13, Project.LATEST_READABLE_SCHEMA) // the nine transitions came after
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }
@@ -335,7 +335,7 @@ class TitleProjectTest {
         assertEquals(TitleInk.BLACK, plain.border)
     }
 
-    private fun clip(id: String, start: Double, end: Double, title: TextOverlay?, rate: Double = 1.0, join: ClipTransition? = null) = TimelineClip(
+    private fun clip(id: String, start: Double, end: Double, title: TextOverlay?, rate: Double = 1.0, join: TransitionSettings? = null) = TimelineClip(
         id = id, sourceID = "S1", start = start, end = end, texts = title?.let { listOf(it) }, transition = join,
         speed = if (rate == 1.0) null else SpeedSettings(rate = rate),
     )
@@ -418,7 +418,7 @@ class TitleProjectTest {
 
     @Test fun aTitleOnBothSidesOfADissolveIsDrawnOnce() {
         val title = TextOverlay(id = "T", text = "Hi", start = 0.0, end = 10.0, motion = fade)
-        val first = clip("A", 0.0, 4.0, title, join = ClipTransition(nextClipID = "B", style = ClipTransition.Style.Dissolve, duration = 1.0))
+        val first = clip("A", 0.0, 4.0, title, join = TransitionSettings(nextClipID = "B", style = TransitionStyle.Dissolve, duration = 1.0))
         val clips = listOf(first, clip("B", 4.0, 10.0, title))
         val ranges = TitleMotionRanges(clips)
         // 4 s + 6 s with one second shared: a single run of nine seconds.

@@ -172,7 +172,7 @@ class SubtitleEditingTest {
     @Test fun captionsOfBothClipsShowDuringADissolve() {
         // B's sentence at 1–2 s of B; a 2 s dissolve pulls B two seconds under the end of A.
         val late = SubtitleEditing.install(project.edit, mapOf("A" to listOf(word("Goodbye.", 18.5, 19.5)), "B" to heard.getValue("B")), "English")
-        val joined = TimelineEditing.setTransition(late, 0, 2.0, ClipTransition.Style.Dissolve)!!
+        val joined = TimelineEditing.setTransition(late, 0, 2.0, TransitionStyle.Dissolve)!!
         val cues = SubtitleEditing.cues(joined)
         assertEquals(listOf("Goodbye.", "Hello there."), cues.map { it.text })
         assertEquals(19.0, cues[1].start, 1e-9)
@@ -267,7 +267,7 @@ class SubtitleEditingTest {
         for (changed in listOf(
             TimelineEditing.move(transcribed, 0, 1)!!, TimelineEditing.trim(transcribed, 0, 0.5, 20.0, 20.0)!!, TimelineEditing.setSpeed(transcribed, 0, 2.0)!!,
             TimelineEditing.setAudio(transcribed, 0, ClipAudio(muted = true))!!, TimelineEditing.delete(transcribed, 1)!!,
-            TimelineEditing.setTransition(transcribed, 0, 1.0, ClipTransition.Style.Dissolve)!!,
+            TimelineEditing.setTransition(transcribed, 0, 1.0, TransitionStyle.Dissolve)!!,
         )) assertNotEquals(print, SubtitleEditing.fingerprint(changed.clips))
     }
 

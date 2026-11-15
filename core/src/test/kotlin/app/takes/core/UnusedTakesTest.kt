@@ -234,7 +234,7 @@ class UnusedTakesTest {
 
     @Test fun aTransitionOnTheJoinItLandsOnIsRemovedAndComesBackWithUndo() {
         var project = edited()
-        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, ClipTransition.Style.FadeBlack)!!)
+        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, TransitionStyle.FadeColor)!!)
         val added = UnusedTakes.add(project, listOf(b), 20.0)!!.project
         assertTrue(added.edit.clips.all { it.transition == null })
         assertEquals(project.edit.clips, added.undo().edit.clips)

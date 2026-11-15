@@ -185,7 +185,7 @@ class DissolveTest {
     private val plain = EditState(listOf(a, b, c, d))
     // a ~dissolve 1s~ b | cut | c ~dissolve 2s, limited to 0.5 by d~ d
     private val state = TimelineEditing.setTransition(
-        TimelineEditing.setTransition(plain, 0, 1.0, ClipTransition.Style.Dissolve)!!, 2, 2.0, ClipTransition.Style.Dissolve)!!
+        TimelineEditing.setTransition(plain, 0, 1.0, TransitionStyle.Dissolve)!!, 2, 2.0, TransitionStyle.Dissolve)!!
     private val clips = state.clips
 
     @Test fun overlapShortensTheTimeline() {
@@ -249,13 +249,13 @@ class DissolveTest {
     }
 
     @Test fun changingStyleKeepsTheJoin() {
-        val faded = TimelineEditing.setTransition(state, 0, 1.0, ClipTransition.Style.FadeBlack)!!
+        val faded = TimelineEditing.setTransition(state, 0, 1.0, TransitionStyle.FadeColor)!!
         assertEquals(clips[0].transition!!.id, faded.clips[0].transition!!.id)
         assertEquals(0.0, TimelineEditing.overlap(faded.clips, 0), 0.0)
         assertEquals(0.5, TimelineEditing.fadeLength(faded.clips, 0), 0.0)
         assertEquals(9.5, faded.duration, 0.0)
         val project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 4.0)).addRecording(SourceMedia(filename = "b.mp4", duration = 4.0))
-        val saved = project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, ClipTransition.Style.Dissolve)!!)
+        val saved = project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, TransitionStyle.Dissolve)!!)
         saved.validate()
         val files = mutableMapOf<String, ByteArray>()
         val manifest = saved.manifest { name, data -> files[name] = data }
@@ -358,12 +358,12 @@ class ClipAudioTest {
 
     @Test fun soundFollowsTransitionsToo() {
         var clips = TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = 6.0))!!
-        clips = TimelineEditing.setTransition(clips, 0, 2.0, ClipTransition.Style.Dissolve)!!
+        clips = TimelineEditing.setTransition(clips, 0, 2.0, TransitionStyle.Dissolve)!!
         val boosted = ClipAudio(volumeDB = 6.0).gain
         assertEquals(boosted, TimelineEditing.soundLevel(clips.clips, 0, 1.0), 1e-12)
         assertEquals(boosted / 2, TimelineEditing.soundLevel(clips.clips, 0, 3.0), 1e-12) // half way through the dissolve
         assertEquals(0.5, TimelineEditing.soundLevel(clips.clips, 1, 1.0), 1e-12)
-        val faded = TimelineEditing.setTransition(state, 0, 2.0, ClipTransition.Style.FadeBlack)!!.clips
+        val faded = TimelineEditing.setTransition(state, 0, 2.0, TransitionStyle.FadeColor)!!.clips
         assertEquals(0.5, TimelineEditing.soundLevel(faded, 0, 3.5), 1e-12)
     }
 
@@ -504,7 +504,7 @@ class RemoveIntervalsTest {
 
     @Test fun everythingAttachedToTheClipStaysWithItsFootage() {
         var state = EditState(listOf(a, b))
-        state = TimelineEditing.setTransition(state, 0, 1.0, ClipTransition.Style.FadeBlack)!!
+        state = TimelineEditing.setTransition(state, 0, 1.0, TransitionStyle.FadeColor)!!
         state = TimelineEditing.setText(state, 0, TextOverlay(text = "T", start = 2.0, end = 5.0))!!
         state = TimelineEditing.toggleBookmark(state, 0, 9.0)!!
         state = TimelineEditing.setAudio(state, 0, ClipAudio(volumeDB = -3.0, fadeIn = 1.0, fadeOut = 1.0, denoise = 1.0))!!

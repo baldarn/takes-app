@@ -22,9 +22,9 @@ class OpenTimelineTest {
         Project("Interchange", sources = listOf(first, other, music), exportSettings = ExportSettings(frameRate = frameRate))
             .commit(EditState(clips, audio = audio)).also { it.validate() }
 
-    private fun joined(style: ClipTransition.Style, duration: Double): List<TimelineClip> {
+    private fun joined(style: TransitionStyle, duration: Double): List<TimelineClip> {
         val right = TimelineClip(sourceID = other.id, start = 0.0, end = 3.0)
-        val left = TimelineClip(sourceID = first.id, start = 0.0, end = 3.0, transition = ClipTransition(nextClipID = right.id, style = style, duration = duration))
+        val left = TimelineClip(sourceID = first.id, start = 0.0, end = 3.0, transition = TransitionSettings(nextClipID = right.id, style = style, duration = duration))
         return listOf(left, right)
     }
 
@@ -86,7 +86,7 @@ class OpenTimelineTest {
 
     // From the original: an isolated cross dissolve is editable on a single track.
     @Test fun dissolveIsATransitionOnTheCutWithMediaOnBothSides() {
-        val project = project(joined(ClipTransition.Style.Dissolve, 1.0))
+        val project = project(joined(TransitionStyle.Dissolve, 1.0))
         assertTrue(OpenTimeline.text(project).contains("SMPTE_Dissolve"))
         // The clips overlap for a second: the timeline is five seconds, not six.
         for (track in tracks(project)) {
@@ -108,7 +108,7 @@ class OpenTimelineTest {
 
     @Test fun oddOverlapSplitsIntoWholeFrames() {
         // 0.5 s at 30 fps is 15 frames: 7 before the cut and 8 after.
-        val project = project(joined(ClipTransition.Style.Dissolve, 0.5))
+        val project = project(joined(TransitionStyle.Dissolve, 0.5))
         val (outgoing, transition, incoming) = tracks(project).last().children()
         assertEquals(7.0 to 8.0, transition.frames("in_offset") to transition.frames("out_offset"))
         assertEquals(82.0, outgoing.length(), 0.0)
@@ -117,7 +117,7 @@ class OpenTimelineTest {
 
     @Test fun dissolveIsLimitedLikeTheEditor() {
         // Asked for 10 s, but a dissolve never takes more than half of either clip.
-        val clips = joined(ClipTransition.Style.Dissolve, 10.0)
+        val clips = joined(TransitionStyle.Dissolve, 10.0)
         assertEquals(1.5, TimelineEditing.overlap(clips, 0), 0.0)
         val (outgoing, transition, incoming) = tracks(project(clips)).last().children()
         assertEquals(45.0, transition.frames("in_offset") + transition.frames("out_offset"), 0.0)
@@ -125,7 +125,7 @@ class OpenTimelineTest {
     }
 
     @Test fun fadeThroughBlackStaysACutWithAMarker() {
-        val project = project(joined(ClipTransition.Style.FadeBlack, 1.0))
+        val project = project(joined(TransitionStyle.FadeColor, 1.0))
         for (track in tracks(project)) {
             assertEquals(listOf("Clip.2", "Clip.2"), track.children().map { it.schema() })
             assertEquals(listOf(90.0, 90.0), track.children().map { it.length() })
@@ -139,7 +139,7 @@ class OpenTimelineTest {
     }
 
     @Test fun staleTransitionIsIgnored() {
-        val clips = joined(ClipTransition.Style.Dissolve, 1.0)
+        val clips = joined(TransitionStyle.Dissolve, 1.0)
         val project = project(listOf(clips[0], TimelineClip(sourceID = other.id, start = 0.0, end = 1.0), clips[1]))
         assertEquals(List(3) { "Clip.2" }, tracks(project).last().children().map { it.schema() })
     }
@@ -228,7 +228,7 @@ class OpenTimelineTest {
     }
 
     @Test fun outputIsStableAndReadable() {
-        val project = project(joined(ClipTransition.Style.Dissolve, 1.0))
+        val project = project(joined(TransitionStyle.Dissolve, 1.0))
         val text = OpenTimeline.text(project)
         assertEquals(text, OpenTimeline.text(project))
         assertEquals(OpenTimeline.json(project), Json.parseToJsonElement(text))

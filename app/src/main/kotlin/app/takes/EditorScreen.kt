@@ -47,7 +47,8 @@ import androidx.compose.ui.graphics.nativeCanvas
 import app.takes.core.TextOverlay
 import android.view.LayoutInflater
 import androidx.compose.ui.draw.alpha
-import app.takes.core.ClipTransition
+import app.takes.core.TransitionSettings
+import app.takes.core.TransitionStyle
 import android.media.AudioManager
 import android.media.audiofx.LoudnessEnhancer
 import androidx.compose.material3.Slider
@@ -1503,16 +1504,16 @@ private fun ExportSettingsDialog(saved: ExportSettings, canvas: Pair<Int, Int>?,
 }
 
 @Composable
-private fun TransitionDialog(current: ClipTransition?, choose: (Double?, ClipTransition.Style) -> Unit, dismiss: () -> Unit) {
-    var style by remember { mutableStateOf(current?.style ?: ClipTransition.Style.Dissolve) }
+private fun TransitionDialog(current: TransitionSettings?, choose: (Double?, TransitionStyle) -> Unit, dismiss: () -> Unit) {
+    var style by remember { mutableStateOf(current?.style ?: TransitionStyle.Dissolve) }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(stringResource(R.string.transition_title)) },
         text = {
             Column {
-                Choices(stringResource(R.string.transition_style), listOf(stringResource(R.string.transition_cross_dissolve) to ClipTransition.Style.Dissolve, stringResource(R.string.transition_fade_black) to ClipTransition.Style.FadeBlack), style) { style = it }
+                Choices(stringResource(R.string.transition_style), listOf(stringResource(R.string.transition_cross_dissolve) to TransitionStyle.Dissolve, stringResource(R.string.transition_fade_black) to TransitionStyle.FadeColor), style) { style = it }
                 Text(
-                    stringResource(if (style == ClipTransition.Style.Dissolve) R.string.transition_dissolve_note else R.string.transition_fade_note),
+                    stringResource(if (style == TransitionStyle.Dissolve) R.string.transition_dissolve_note else R.string.transition_fade_note),
                     color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 8.dp),
                 )
                 for ((label, seconds) in listOf<Pair<String, Double?>>(stringResource(R.string.transition_none) to null, "0.3 s" to 0.3, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0)) {

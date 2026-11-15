@@ -144,7 +144,7 @@ class AudioUnlinkingTest {
     @Test fun transitionRampsBecomeTheSoundsOwnFades() {
         // A fade through black into B and a dissolve out of it.
         var joined = TimelineEditing.setTransition(state, 0, 1.0)!!
-        joined = TimelineEditing.setTransition(joined, 1, 0.8, ClipTransition.Style.Dissolve)!!
+        joined = TimelineEditing.setTransition(joined, 1, 0.8, TransitionStyle.Dissolve)!!
         val unlinked = AudioUnlinking.unlink(joined, 1)!!
         val sound = unlinked.audio!!.single()
         assertEquals(ClipAudio(fadeIn = 0.5, fadeOut = 0.8), sound.audio)
@@ -260,7 +260,7 @@ class AudioUnlinkingTest {
         assertEquals(-3.0, AudioUnlinking.syncOffset(reordered, 2)!!, 1e-12) // the picture moved later; the sound is early
 
         // A dissolve added before the clip pulls its picture back, too.
-        val dissolved = TimelineEditing.setTransition(unlinked, 0, 1.0, ClipTransition.Style.Dissolve)!!
+        val dissolved = TimelineEditing.setTransition(unlinked, 0, 1.0, TransitionStyle.Dissolve)!!
         assertEquals(1.0, AudioUnlinking.syncOffset(dissolved, 1)!!, 1e-12)
 
         // Putting it back is one explicit step, after which the pair links again.

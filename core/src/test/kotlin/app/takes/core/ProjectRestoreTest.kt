@@ -49,7 +49,7 @@ class ProjectRestoreTest {
     /** Two takes with a dissolve between them. */
     private fun trip(): Project {
         val project = Project("Trip").addRecording(take).addRecording(scene)
-        return project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, ClipTransition.Style.Dissolve)!!)
+        return project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, TransitionStyle.Dissolve)!!)
     }
 
     private fun restore(data: ByteArray, maximumBytes: Long = Long.MAX_VALUE, limits: ProjectRestore.Limits = ProjectRestore.Limits()) =
@@ -122,7 +122,7 @@ class ProjectRestoreTest {
 
     @Test fun historyUndoAndRedoComeBack() {
         var project = trip()
-        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 0.5, ClipTransition.Style.FadeBlack)!!)
+        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 0.5, TransitionStyle.FadeColor)!!)
         project = save(project.undo().renamed("Trip to the sea"))
         assertTrue(project.canUndo && project.canRedo)
 

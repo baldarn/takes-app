@@ -1,5 +1,7 @@
 package app.takes.core
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
@@ -78,13 +80,17 @@ data class TransitionColor(val red: Double, val green: Double, val blue: Double)
 }
 
 /**
- * The original app's `ClipTransition` in full. The port's existing
- * `ClipTransition` is the same saved object with only the fields of its two
- * styles; this type reads and writes every field, so the two are to be merged.
+ * How one clip gives way to the next: the original app's `ClipTransition` in
+ * full, and the saved form of a join. A join belongs to its exact neighbors:
+ * it only applies while the clip after it is [nextClipID], so moving or
+ * deleting a clip never passes a transition on to unrelated footage.
  *
- * Fields added after the first release are null when unset, so documents
- * that do not use them stay readable by older versions.
+ * Fields added after the first release are null when unset, and the six
+ * settings the first two styles never had are left out of the file while they
+ * are at their defaults, so a dissolve or a fade through black is written as
+ * it always was and older versions still read it.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class TransitionSettings(
     val id: String = newID(),
@@ -92,13 +98,13 @@ data class TransitionSettings(
     val nextClipID: String? = null,
     val style: TransitionStyle = TransitionStyle.Dissolve,
     val duration: Double = 0.5,
-    val axis: TransitionAxis = TransitionAxis.Horizontal,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val axis: TransitionAxis = TransitionAxis.Horizontal,
     /** Where a split screen divides, as a fraction from the left or the top. */
-    val divider: Double = 0.5,
-    val reverse: Boolean = false,
-    val audio: TransitionAudio = TransitionAudio.Crossfade,
-    val first: TransitionFraming = TransitionFraming(),
-    val second: TransitionFraming = TransitionFraming(),
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val divider: Double = 0.5,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val reverse: Boolean = false,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val audio: TransitionAudio = TransitionAudio.Crossfade,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val first: TransitionFraming = TransitionFraming(),
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val second: TransitionFraming = TransitionFraming(),
     val fadeColor: TransitionColor? = null,
     /** Seconds the move pauses at its midpoint. */
     val hold: Double? = null,
@@ -154,6 +160,19 @@ data class TransitionSettings(
         return result
     }
 
+    /**
+     * True when versions of the app from before the nine styles read this
+     * transition and play it as it was made: a dissolve or a fade through
+     * black between two clips, at most [LEGACY_MAXIMUM_DURATION] long, with
+     * nothing else set.
+     */
+    val legacy: Boolean
+        get() = (style == TransitionStyle.Dissolve || style == TransitionStyle.FadeColor) && nextClipID != null &&
+            duration <= LEGACY_MAXIMUM_DURATION && axis == TransitionAxis.Horizontal && divider == 0.5 && !reverse &&
+            audio == TransitionAudio.Crossfade && first == TransitionFraming() && second == TransitionFraming() &&
+            fadeColor == null && hold == null && audioOffset == null && audioBlend == null && wipeAngle == null && hardEdge == null &&
+            highlightsFirst == null && flashCount == null && flashAcceleration == null && stillDissolve == null && blurAmount == null
+
     /** The ranges a saved project may hold. */
     val valid: Boolean
         get() = duration.isFinite() && duration > 0 && duration <= MAXIMUM_DURATION && divider.isFinite() && divider in 0.15..0.85 &&
@@ -171,6 +190,9 @@ data class TransitionSettings(
          * by the actual neighboring footage, not an arbitrary short preset cap.
          */
         const val MAXIMUM_DURATION = 604800.0
+
+        /** The longest transition the app's first two styles could have. */
+        const val LEGACY_MAXIMUM_DURATION = 10.0
     }
 }
 

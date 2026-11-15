@@ -42,7 +42,7 @@ class ProjectDuplicateTest {
     /** Two takes with a dissolve between them, made and last changed at known times. */
     private fun trip(): Project {
         val project = Project("Trip", createdAt = 10).addRecording(take, now = 11).addRecording(scene, now = 12)
-        return project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, ClipTransition.Style.Dissolve)!!, now = 13)
+        return project.commit(TimelineEditing.setTransition(project.edit, 0, 1.0, TransitionStyle.Dissolve)!!, now = 13)
     }
 
     private fun duplicate(project: Project, title: String = "Trip copy", maximumBytes: Long = Long.MAX_VALUE, progress: (Long, Long) -> Unit = { _, _ -> }) =
@@ -88,7 +88,7 @@ class ProjectDuplicateTest {
 
     @Test fun historyUndoAndRedoComeAlong() {
         var project = trip()
-        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 0.5, ClipTransition.Style.FadeBlack)!!)
+        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 0.5, TransitionStyle.FadeColor)!!)
         project = save(project.undo().copy(exportSettings = ExportSettings(ExportSettings.Codec.HEVC, ExportSettings.Resolution.FullHD, 25)))
         assertTrue(project.canUndo && project.canRedo)
 
