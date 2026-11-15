@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.HighlightAlt
 import androidx.compose.material.icons.outlined.Slideshow
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -68,6 +71,9 @@ internal val RangeColor = Color(0xFFFFD60A)
 /** What Copy, Cut and Paste are drawn in. */
 private val ClipboardColor = Color(0xFF64D2FF)
 private val Quiet = Color(0xFFA0A4AB)
+
+/** What a transition is offered in: the original's orange. */
+private val TransitionColor = Color(0xFFFF9F0A)
 
 /**
  * What the marks show on the timeline: the stretch of time, marked or still
@@ -142,9 +148,17 @@ internal fun selectionCount(targets: EditTargets): String = listOfNotNull(
 ).joinToString(" + ")
 
 /**
+ * A transition offered in the row under the timeline, as the original offers
+ * it there: one to add on the join the playhead is on, or the one the
+ * playhead is on or inside, to open.
+ */
+internal class TransitionChip(val label: String, val description: String, val adds: Boolean, val open: () -> Unit)
+
+/**
  * The row between the timeline and the tools. Mark is always there. Beside it,
  * while something is marked or selected, what can be done with it; otherwise
- * Paste when the clipboard holds something, and the last thing that happened.
+ * Paste when the clipboard holds something, then the [transitions] at the
+ * playhead, or without any the last thing that happened.
  * An action that is null is not offered.
  */
 @Composable
@@ -156,6 +170,7 @@ internal fun SelectionBar(
     copy: (() -> Unit)? = null, cut: (() -> Unit)? = null, canCopy: Boolean = true,
     paste: (() -> Unit)? = null, canPaste: Boolean = true, replacesTransition: Boolean = false, clearClipboard: () -> Unit = {},
     editSound: (() -> Unit)? = null,
+    transitions: List<TransitionChip> = emptyList(),
 ) {
     Row(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         val markLabel = stringResource(when (step) {
@@ -204,7 +219,19 @@ internal fun SelectionBar(
                 PasteButton(canPaste, replacesTransition, it)
                 BarIcon(Icons.Filled.Close, R.string.clipboard_clear, Color.White.copy(alpha = 0.8f), clearClipboard)
             }
-            Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (transitions.isEmpty()) Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            else Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 4.dp), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) {
+                for (chip in transitions) {
+                    TextButton(
+                        onClick = chip.open, Modifier.semantics { contentDescription = chip.description }, shape = CircleShape,
+                        colors = ButtonDefaults.textButtonColors(containerColor = TransitionColor.copy(alpha = 0.12f), contentColor = TransitionColor),
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                    ) {
+                        Icon(if (chip.adds) Icons.Filled.Add else Icons.Outlined.Tune, null, Modifier.size(18.dp))
+                        Text(chip.label, Modifier.padding(start = 4.dp), maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }

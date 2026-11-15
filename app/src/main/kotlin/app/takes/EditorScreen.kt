@@ -1033,6 +1033,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             trim?.index ?: location?.index, trim, pixelsPerSecond,
             shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
+            // A tap on the name of a transition puts the playhead on its join, where the row below offers it, as in the original.
+            focusTransition = { join ->
+                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                    marks = marks.selecting()
+                    jump(join.time.coerceIn(0.0, duration))
+                }
+            },
             beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
@@ -1170,6 +1177,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val clipboard = store.clipboards[project.id]
             val resources = LocalResources.current
             val open = marks.range != null || marks.start != null
+            // The transitions offered beside Mark, as the original offers them (EditorView.swift:633-674, 803-826): with the
+            // playhead on a join (Transitions.swift:254-257) that has room for a frame, a new one or the one that is there;
+            // and every other one the playhead is inside. A join between two clips comes before an opening or a close there.
+            val offered = remember(clips, playhead) {
+                val on = TimelineEditing.layout(clips).joins.filter { abs(it.time - playhead) < TimelineEditing.JOIN_REACH }
+                    .let { found -> found.firstOrNull { it.edge == 0 } ?: found.firstOrNull() }
+                    ?.takeIf { TimelineEditing.joinMaximum(clips, it.index) >= PauseDetector.FRAME }
+                listOfNotNull(on) + TimelineEditing.transitions(clips).filter { it.index != on?.index && playhead >= it.range.start && playhead <= it.range.endInclusive }
+            }
             SelectionBar(
                 step = marks.step,
                 // On the frame grid, on a cut when one is near, and never inside a transition.
@@ -1244,6 +1260,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 clearClipboard = { store.clipboards.remove(project.id) },
                 // A sound on an audio track is opened from here once it is the one thing selected.
                 editSound = marks.selected.audio.singleOrNull()?.takeIf { !open && marks.selected.clips.isEmpty() }?.let { id -> { editor.pause(); chosenSound = id } },
+                transitions = offered.map { join ->
+                    val style = join.transition?.style
+                    val name = stringResource(style?.label ?: R.string.editor_transition)
+                    TransitionChip(
+                        name, if (style == null) stringResource(R.string.transition_chip_add) else stringResource(R.string.transition_chip_edit, name), adds = style == null,
+                    ) { editor.pause(); jump(join.time.coerceIn(0.0, duration)); transitioning = Transitioning.at(edit, join.index, canvas) }
+                },
             )
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                 TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead); marks = marks.cleared() }, compact,
@@ -1501,7 +1524,7 @@ private fun Timeline(
     select: (clip: String?, audio: String?) -> Unit, toggle: (clip: String?, audio: String?) -> Unit, seek: (time: Double, deselect: Boolean) -> Unit,
     openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
-    touched: () -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
+    touched: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
     marked: MarkedView? = null,
 ) {
     val density = LocalDensity.current
@@ -1576,13 +1599,14 @@ private fun Timeline(
                             clip, files.getValue(clip.sourceID), index == current,
                             // The transition into the clip where it begins, when it is the clip's own opening or plays over the clip before;
                             // the one out of it where it ends, when it is the clip's own close or the next clip only follows.
-                            entering = TimelineEditing.entering(clips, index)?.takeIf { it.edge == -1 || it.timing.overlap > 0 }?.transition?.style,
-                            leaving = TimelineEditing.leaving(clips, index)?.takeIf { it.edge == 1 || it.timing.overlap <= 0 }?.transition?.style,
+                            entering = TimelineEditing.entering(clips, index)?.takeIf { it.edge == -1 || it.timing.overlap > 0 },
+                            leaving = TimelineEditing.leaving(clips, index)?.takeIf { it.edge == 1 || it.timing.overlap <= 0 },
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
                             // The edge being dragged keeps its grip while the draft changes around it.
                             trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
                             offset, pixelsPerSecond, viewport, scroll, openTitle = { openTitle(index, it) },
                             select = { onSelect(clip.id, null) }, toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(clip.id, null) },
+                            focusTransition = focusTransition,
                         )
                     }
                 }
@@ -1643,9 +1667,9 @@ private fun Timeline(
 
 @Composable
 private fun ClipStrip(
-    clip: TimelineClip, file: File, current: Boolean, entering: TransitionStyle?, leaving: TransitionStyle?, dissolve: Float, trimsEnd: Boolean, offset: Float,
+    clip: TimelineClip, file: File, current: Boolean, entering: TransitionLayout.Join?, leaving: TransitionLayout.Join?, dissolve: Float, trimsEnd: Boolean, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
-    select: () -> Unit, toggle: () -> Unit,
+    select: () -> Unit, toggle: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit,
 ) {
     val density = LocalDensity.current
     val onSelect by rememberUpdatedState(select)
@@ -1748,13 +1772,21 @@ private fun ClipStrip(
         }
         // The part of this clip that plays over the previous one, and the transitions at its two ends by name.
         if (dissolve > 0) Box(Modifier.width(with(density) { dissolve.toDp() }).height(TileSize + WaveHeight).background(Color.White.copy(alpha = 0.35f)))
+        // A tap on the name goes to the join, where the transition is offered for editing; the touch reaches a little around the name.
+        val onFocus by rememberUpdatedState(focusTransition)
+        val focusLabel = stringResource(R.string.transition_tag_focus)
         @Composable
-        fun tag(style: TransitionStyle, modifier: Modifier) = Text(
-            stringResource(if (style == TransitionStyle.FadeColor) R.string.transition_tag_fade else style.label), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-            modifier = modifier.background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
-        )
-        entering?.let { tag(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp)) }
-        leaving?.let { tag(it, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp)) }
+        fun tag(join: TransitionLayout.Join, modifier: Modifier, reach: PaddingValues) {
+            val style = join.transition?.style ?: return
+            Box(modifier.clickable(onClickLabel = focusLabel) { onFocus(join) }.padding(reach)) {
+                Text(
+                    stringResource(if (style == TransitionStyle.FadeColor) R.string.transition_tag_fade else style.label), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    modifier = Modifier.background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
+                )
+            }
+        }
+        entering?.let { tag(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp), PaddingValues(top = 14.dp, end = 12.dp)) }
+        leaving?.let { tag(it, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp), PaddingValues(top = 14.dp, start = 12.dp)) }
         if (current) {
             val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(TileSize + WaveHeight).background(Color.White, RoundedCornerShape(3.dp))
             // No grip on an edge that lies under a transition playing two clips at once: it is not the edge of the footage shown.
