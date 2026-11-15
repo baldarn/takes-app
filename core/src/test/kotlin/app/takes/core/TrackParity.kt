@@ -3,14 +3,17 @@ package app.takes.core
 import kotlin.math.abs
 
 /**
- * The parity suite: every editing function of today, run as it is and run
- * through the track model ([TrackSequenceView]), on the same edit with the
- * same arguments, and the two answers compared.
+ * The parity suite: every editing function as it was in release 0.8
+ * (`LegacyTimelineEditing` and the others, kept in the tests) and as it is
+ * now that it runs on the track model ([TrackWrapping]), on the same edit
+ * with the same arguments, and the two answers compared.
  *
  * It does not judge. A difference is given a kind ([TrackParityKinds]) and
  * counted; what the suite produces is the list of kinds, with an example of
- * each, for whoever replaces a function of today by its port to read first
- * (docs/TRACKS-PARITY.md, written by [TrackParityTest]).
+ * each (docs/TRACKS-PARITY.md, written by [TrackParityTest]), and the gate
+ * ([TrackParityAccepted]) says which kinds may be found. The words "today"
+ * and "through the track model" in the names of what differs are the ones
+ * the kinds were written with: the function as it was, and as it is.
  */
 internal object TrackParity {
     /** An edit to try the functions on, with the media of its project. */
@@ -41,6 +44,8 @@ internal object TrackParity {
     class Case(
         val subject: Subject, val function: String, val label: String, val tags: Set<String>,
         var today: Answer?, var track: Answer?, val verdict: Verdict, val aspects: Set<String>,
+        /** Whether the two edits answered are the same saved bytes once the ids made during the call are renamed; null when one side answered no edit. */
+        val sameBytes: Boolean? = null,
     ) {
         val obstacle: SequenceObstacle? = track?.obstacle
         val notes: Set<SequenceNote> = track?.notes.orEmpty()
@@ -170,8 +175,11 @@ internal object TrackParity {
         } catch (failure: RuntimeException) {
             Answer(values = mapOf("throws" to failure.javaClass.simpleName))
         }
-        val today = settled(answered(run.today)?.let { answer -> Answer(answer.state?.let(::canonical), answer.values) })
-        val track = settled(answered(run.track))
+        val rawToday = answered(run.today)
+        val rawTrack = answered(run.track)
+        val sameBytes = if (rawToday?.state == null || rawTrack?.state == null) null else saved(rawToday.state) == saved(rawTrack.state)
+        val today = settled(rawToday?.let { answer -> Answer(answer.state?.let(::canonical), answer.values) })
+        val track = settled(rawTrack?.let { answer -> Answer(answer.state?.let(::canonical), answer.values, timeline = answer.timeline) })
         val aspects = LinkedHashSet<String>()
         val verdict = when {
             today == null && track == null -> Verdict.Identical
@@ -184,7 +192,13 @@ internal object TrackParity {
                 if (aspects.isEmpty()) Verdict.Identical else Verdict.Different
             }
         }
-        return Case(subject, run.function, run.label, run.tags, today, track, verdict, aspects)
+        return Case(subject, run.function, run.label, run.tags, today, track, verdict, aspects, sameBytes)
+    }
+
+    /** [state] as it is saved, with every id made at random replaced by a numbered one in the order they appear. */
+    private fun saved(state: EditState): String {
+        val names = HashMap<String, String>()
+        return random.replace(documentJson.encodeToString(EditState.serializer(), state)) { names.getOrPut(it.value) { "~${names.size + 1}" } }
     }
 
     // MARK: Showing
