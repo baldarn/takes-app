@@ -162,7 +162,7 @@ private fun QuickSettings(capture: CaptureController) {
             ) { capture.chooseStabilization(!capture.settings.stabilization) }
         }
     }
-    if (tiles.isEmpty()) return
+    if (tiles.isEmpty() && !capture.offersHDR) return
     Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (tiles.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -171,6 +171,7 @@ private fun QuickSettings(capture: CaptureController) {
                 repeat(maxOf(0, 4 - tiles.size)) { Spacer(Modifier.weight(1f)) }
             }
         }
+        if (capture.offersHDR) RecordingColor(capture)
     }
     help?.let { text ->
         AlertDialog(
@@ -206,6 +207,37 @@ internal fun AssistTile(
             Text(title, color = color, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, textAlign = TextAlign.Center)
         }
         if (on) Icon(Icons.Filled.CheckCircle, null, Modifier.align(Alignment.TopEnd).padding(6.dp).size(12.dp), tint = SettingsCyan)
+    }
+}
+
+/** "Recording color", as in the original without Log: SDR or HDR, changed before a take or while it is paused. */
+@Composable
+private fun RecordingColor(capture: CaptureController) {
+    val hdr = capture.format.hdr
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(stringResource(R.string.recorder_color), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
+        Row(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(11.dp)).padding(3.dp), Arrangement.spacedBy(3.dp)) {
+            listOf(false to R.string.recorder_color_sdr, true to R.string.recorder_color_hdr).forEach { (mode, name) ->
+                val chosen = mode == hdr
+                val enabled = capture.canChangeFormat && (!mode || capture.offers.hdr)
+                Box(
+                    Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).background(if (chosen) SettingsCyan else Color.Transparent)
+                        .clickable(enabled = enabled, role = Role.RadioButton) { if (!chosen) capture.chooseHDR(mode) }.semantics { selected = chosen },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(stringResource(name), color = if (chosen) Color.Black else if (enabled) Color.White else Secondary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        SettingsNote(stringResource(when {
+            capture.hasActiveTake -> R.string.recorder_color_note_pause
+            !capture.ready -> R.string.recorder_color_note_not_ready
+            !capture.offers.hdr -> R.string.recorder_color_note_sdr_only
+            // Asked for, and this camera has it, but not in the size being recorded.
+            capture.settings.hdr && !hdr -> R.string.recorder_color_note_size
+            hdr -> R.string.recorder_color_note_hdr
+            else -> R.string.recorder_color_note_sdr
+        }))
     }
 }
 
