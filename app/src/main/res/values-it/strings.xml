@@ -424,6 +424,7 @@
     <!-- Recorder -->
     <string name="recorder_mic_mismatch">Si sta registrando da %1$s, non da %2$s.</string>
     <string name="recorder_mic_phone">Microfono del telefono</string>
+    <string name="recorder_mic_phone_short">Mic telefono</string>
     <string name="recorder_mic_wired">Cuffie con filo</string>
     <string name="recorder_mic_named">%1$s: %2$s</string>
     <string name="recorder_mic_external">Microfono esterno</string>

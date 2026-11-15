@@ -420,6 +420,7 @@
     <!-- Recorder -->
     <string name="recorder_mic_mismatch">Recording from %1$s, not %2$s.</string>
     <string name="recorder_mic_phone">Phone microphone</string>
+    <string name="recorder_mic_phone_short">Phone mic</string>
     <string name="recorder_mic_wired">Wired headset</string>
     <string name="recorder_mic_named">%1$s: %2$s</string>
     <string name="recorder_mic_external">External microphone</string>
