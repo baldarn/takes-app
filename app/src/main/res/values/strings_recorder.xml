@@ -88,6 +88,15 @@
     <string name="recorder_stabilize_inactive">Stabilization inactive</string>
     <string name="recorder_stabilize_unavailable">Stabilization unavailable for this camera</string>
     <string name="recorder_stabilize_help">The phone\'s camera stabilization reduces hand shake and crops the picture slightly. Choose it before recording or while paused.</string>
+    <string name="recorder_color">Recording color</string>
+    <string name="recorder_color_sdr">SDR</string>
+    <string name="recorder_color_hdr">HDR</string>
+    <string name="recorder_color_note_pause">Pause to change recording color or stabilization.</string>
+    <string name="recorder_color_note_not_ready">Recording color is available when the camera is ready.</string>
+    <string name="recorder_color_note_sdr_only">This camera supports SDR only.</string>
+    <string name="recorder_color_note_size">This camera has no HDR at the chosen quality. Recording in SDR.</string>
+    <string name="recorder_color_note_hdr">HDR keeps more highlight and color detail.</string>
+    <string name="recorder_color_note_sdr">SDR is ready to share on any display.</string>
     <string name="recorder_settings_picture">Picture</string>
     <string name="recorder_mirror_preview">Mirror selfie preview</string>
     <string name="recorder_mirror_recording">Save mirrored selfies</string>

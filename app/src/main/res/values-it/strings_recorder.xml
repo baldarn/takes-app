@@ -88,6 +88,15 @@
     <string name="recorder_stabilize_inactive">Stabilizzazione non attiva</string>
     <string name="recorder_stabilize_unavailable">Stabilizzazione non disponibile per questa camera</string>
     <string name="recorder_stabilize_help">La stabilizzazione della camera del telefono riduce il tremolio della mano e ritaglia leggermente l\'immagine. Sceglila prima di registrare o durante una pausa.</string>
+    <string name="recorder_color">Colore di registrazione</string>
+    <string name="recorder_color_sdr">SDR</string>
+    <string name="recorder_color_hdr">HDR</string>
+    <string name="recorder_color_note_pause">Metti in pausa per cambiare il colore di registrazione o la stabilizzazione.</string>
+    <string name="recorder_color_note_not_ready">Il colore di registrazione è disponibile quando la camera è pronta.</string>
+    <string name="recorder_color_note_sdr_only">Questa camera supporta solo SDR.</string>
+    <string name="recorder_color_note_size">Questa camera non ha l\'HDR alla qualità scelta. Si registra in SDR.</string>
+    <string name="recorder_color_note_hdr">L\'HDR conserva più dettaglio nelle luci e nei colori.</string>
+    <string name="recorder_color_note_sdr">L\'SDR è pronto da condividere su qualsiasi schermo.</string>
     <string name="recorder_settings_picture">Immagine</string>
     <string name="recorder_mirror_preview">Anteprima selfie a specchio</string>
     <string name="recorder_mirror_recording">Salva i selfie specchiati</string>
