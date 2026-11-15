@@ -4,7 +4,7 @@ REGISTRA A RIPRESE
 • Registra, metti in pausa, riprendi e ferma. Ogni pausa chiude una ripresa, e puoi tornare sullo stesso progetto più tardi, anche dopo aver chiuso l'app.
 • Passa dalla camera frontale a quella posteriore mentre registri.
 • Zoom predefiniti, pizzico per zoomare e transizioni di zoom fluide e temporizzate. Ogni camera ricorda il proprio zoom.
-• Livello del microfono in tempo reale e nome del microfono attivo durante la registrazione.
+• Scegli il microfono, anche delle cuffie Bluetooth, e controllane il livello in tempo reale.
 • Segnalibri: segna un momento mentre registri e ritrovalo nel montaggio.
 
 MONTA SULLA TIMELINE
@@ -15,6 +15,10 @@ MONTA SULLA TIMELINE
 • Audio per ogni clip: volume, mute e dissolvenze.
 • Due tracce audio separate per musica o voce, importate dai tuoi file.
 • Riduzione del rumore per l'audio registrato.
+• Rimuovi le pause: trova i silenzi in una clip e li taglia.
+• Colore: look, esposizione, calore e tinta per ogni clip, oppure importa una tua LUT .cube.
+• Ritaglia e reinquadra l'immagine.
+• Registra qui: aggiungi una nuova ripresa sul cursore senza uscire dal montaggio.
 • Annulla e ripristina che restano anche dopo aver chiuso l'app.
 • Le registrazioni originali non vengono mai modificate.
 
@@ -26,5 +30,7 @@ I TUOI VIDEO RESTANO TUOI
 • Nessun account, nessuna pubblicità, nessun tracciamento.
 • L'app non ha accesso a internet: registrazioni e progetti restano sul tuo dispositivo.
 • I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
+• Esporta un intero progetto come ZIP e riaprilo più tardi, o su un altro telefono.
+• In italiano e in inglese.
 
 Takes è un port Android non ufficiale e open source di YouRec di Salvatore Sanfilippo (antirez). È una prima versione: altri strumenti di montaggio sono in arrivo.

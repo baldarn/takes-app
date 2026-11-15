@@ -1,0 +1,1 @@
+Italian interface, microphone choice (Bluetooth headsets too), Record here from the editor, pause removal, color looks and LUTs, crop, project ZIP export and reopening, icons and a per-project actions menu.

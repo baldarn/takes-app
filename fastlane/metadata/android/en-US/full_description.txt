@@ -4,7 +4,7 @@ RECORD IN TAKES
 • Record, pause, resume and stop. Every pause closes a take, and you can come back to the same project later, even after closing the app.
 • Switch between front and rear camera while recording.
 • Zoom presets, pinch to zoom, and smooth timed zoom transitions. Each camera remembers its own zoom.
-• Live microphone level and the name of the active microphone while you record.
+• Choose the microphone, including a Bluetooth headset, and watch its live level.
 • Bookmarks: mark a moment while recording and jump back to it in the editor.
 
 EDIT ON A TIMELINE
@@ -15,6 +15,10 @@ EDIT ON A TIMELINE
 • Sound for each clip: volume, mute and fades.
 • Two separate audio tracks for music or voice, imported from your files.
 • Noise reduction for recorded sound.
+• Remove pauses: find the silences in a clip and cut them out.
+• Color: looks, exposure, warmth and tint for each clip, or import your own .cube LUT.
+• Crop and reframe the picture.
+• Record here: add a new take at the playhead without leaving the editor.
 • Undo and redo that survive closing the app.
 • Your original recordings are never modified.
 
@@ -26,5 +30,7 @@ YOUR VIDEOS STAY YOURS
 • No account, no ads, no tracking.
 • The app has no internet access: recordings and projects stay on your device.
 • Deleted projects go to Recently Deleted, where you can restore them.
+• Export a whole project as a ZIP and open it again later, or on another phone.
+• In English and Italian.
 
 Takes is an unofficial, open source Android port of YouRec by Salvatore Sanfilippo (antirez). It is an early release: more editing tools are on the way.

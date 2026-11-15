@@ -1,0 +1,1 @@
+Interfaccia in italiano, scelta del microfono (anche cuffie Bluetooth), Registra qui dal montaggio, rimozione delle pause, colore e LUT, ritaglio, esportazione e riapertura del progetto come ZIP, icone e menu delle azioni nei progetti.
