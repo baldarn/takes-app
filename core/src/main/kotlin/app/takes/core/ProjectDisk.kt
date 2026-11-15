@@ -45,6 +45,9 @@ class ProjectDisk(val root: File) {
         val head = File(directory, "project.json")
         val primary = runCatching { Project.readManifest(head.readBytes(), load) }
         primary.getOrNull()?.let { return it }
+        // A head saved by a newer version is not damage. Opening an older revision in its
+        // place would let the next saves push the newer work out of the kept revisions.
+        (primary.exceptionOrNull() as? ProjectException)?.takeIf { it.reason == ProjectException.Reason.NewerVersion }?.let { throw it }
         // A damaged head must not hide the project: fall back to the newest
         // readable revision and leave every file in place.
         for (revision in revisions(directory)) {

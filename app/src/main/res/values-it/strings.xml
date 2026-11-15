@@ -635,4 +635,5 @@
     <string name="clipboard_paste_no_room">Non è stato incollato niente: qui le due tracce audio sono già occupate.</string>
     <string name="selection_select">Seleziona</string>
     <string name="selection_toggle">Aggiungi o togli dalla selezione</string>
+    <string name="project_error_newer_version">Questo progetto è stato salvato da una versione più recente di Takes. Aggiorna l\'app per aprirlo. I suoi file sono stati conservati.</string>
 </resources>

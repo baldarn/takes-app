@@ -160,6 +160,37 @@ class ProjectDiskTest {
         assertEquals(first, disk.read(disk.folder(first.id)))
     }
 
+    /**
+     * A project saved by a later version must be refused, never opened from an
+     * older revision: the saves that would follow push the newer work out of
+     * the kept revisions.
+     */
+    @Test fun aHeadFromANewerVersionIsRefusedAndNeverReplacedByARevision() {
+        val disk = disk()
+        val first = Project("Trip").addRecording(take("a", 4.0))
+        disk.save(first)
+        disk.save(first.addRecording(take("b", 1.0)))
+        val head = File(disk.folder(first.id), "project.json")
+        val newer = head.readText().replaceFirst(Regex("\"schemaVersion\"\\s*:\\s*\\d+"), "\"schemaVersion\": ${Project.LATEST_READABLE_SCHEMA + 1}")
+        assertTrue(newer != head.readText())
+        head.writeText(newer)
+        val files = disk.folder(first.id).walkTopDown().filter { it.isFile }.associate { it.path to it.readBytes().toList() }
+        val refused = runCatching { disk.read(disk.folder(first.id)) }.exceptionOrNull() as? ProjectException
+        assertEquals(ProjectException.Reason.NewerVersion, refused?.reason)
+        val library = disk.loadAll()
+        assertTrue(library.projects.isEmpty())
+        assertEquals(ProjectException.Reason.NewerVersion.message, library.unavailable[first.id])
+        // Nothing on disk was touched by looking.
+        assertEquals(files, disk.folder(first.id).walkTopDown().filter { it.isFile }.associate { it.path to it.readBytes().toList() })
+    }
+
+    @Test fun onlyADocumentThatSaysSoIsNewer() {
+        assertTrue(Project.isNewer("{\"schemaVersion\": ${Project.LATEST_READABLE_SCHEMA + 1}}".toByteArray()))
+        assertTrue(!Project.isNewer("{\"schemaVersion\": ${Project.LATEST_READABLE_SCHEMA}}".toByteArray()))
+        assertTrue(!Project.isNewer("{ truncated".toByteArray()))
+        assertTrue(!Project.isNewer("[]".toByteArray()))
+    }
+
     @Test fun tamperedSnapshotIsReportedNotLoaded() {
         val disk = disk()
         val project = Project("Trip").addRecording(take("a", 4.0))

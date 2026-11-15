@@ -627,4 +627,5 @@
     <string name="clipboard_paste_no_room">Nothing was pasted: both audio tracks are busy here.</string>
     <string name="selection_select">Select</string>
     <string name="selection_toggle">Add to or remove from the selection</string>
+    <string name="project_error_newer_version">This project was saved by a newer version of Takes. Update the app to open it. Its files have been preserved.</string>
 </resources>

@@ -64,6 +64,7 @@ val ProjectException.Reason.label: Int
         ProjectException.Reason.InvalidDocument -> R.string.project_error_invalid_document
         ProjectException.Reason.MissingMedia -> R.string.project_error_missing_media
         ProjectException.Reason.InvalidMedia -> R.string.project_error_invalid_media
+        ProjectException.Reason.NewerVersion -> R.string.project_error_newer_version
     }
 
 /** Main-thread owner of the project library. Every change is saved before it is shown. */

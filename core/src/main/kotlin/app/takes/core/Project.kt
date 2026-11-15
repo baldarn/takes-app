@@ -19,6 +19,9 @@ class ProjectException(val reason: Reason, cause: Throwable? = null) : Exception
         InvalidDocument("This project has unsupported or invalid editing data. Its files have been preserved."),
         MissingMedia("A source file is missing. The project has been preserved."),
         InvalidMedia("The recording could not be opened as a valid video. Its file has been preserved."),
+
+        /** Not damage: the project uses something this version does not know. It must never be replaced by an older revision. */
+        NewerVersion("This project was saved by a newer version of Takes. Update the app to open it. Its files have been preserved."),
     }
 }
 
@@ -508,7 +511,21 @@ data class Project(
         fun isSnapshotName(name: String): Boolean =
             name.length == 69 && name.endsWith(".json") && name.take(64).all { it in HEX }
 
+        /**
+         * Whether [data] is a manifest written by a later version: a document
+         * that says so itself, with a schema number above the ones read here.
+         * Anything that cannot be read as that is not newer, it is damaged.
+         */
+        fun isNewer(data: ByteArray): Boolean = try {
+            val schema = (documentJson.parseToJsonElement(data.decodeToString()) as? kotlinx.serialization.json.JsonObject)
+                ?.get("schemaVersion") as? kotlinx.serialization.json.JsonPrimitive
+            (schema?.content?.toIntOrNull() ?: 0) > LATEST_READABLE_SCHEMA
+        } catch (_: Exception) {
+            false
+        }
+
         fun readManifest(data: ByteArray, load: (name: String) -> ByteArray): Project {
+            if (isNewer(data)) throw ProjectException(ProjectException.Reason.NewerVersion)
             val manifest = try {
                 documentJson.decodeFromString(Manifest.serializer(), data.decodeToString())
             } catch (error: Exception) {
