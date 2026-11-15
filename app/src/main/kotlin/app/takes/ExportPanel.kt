@@ -31,7 +31,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -103,7 +105,7 @@ fun ExportPanel(project: Project, canvas: Pair<Int, Int>?, store: ProjectStore, 
         )
         // Not over the movie that has just been made.
         choosing && exporter.result == null -> ExportSettingsDialog(
-            project, exporter, canvas, context, report = { message -> store.error = message },
+            project, exporter, canvas, context, store,
             start = { settings ->
                 dismiss()
                 store.setExportSettings(project.id, settings)
@@ -112,7 +114,7 @@ fun ExportPanel(project: Project, canvas: Pair<Int, Int>?, store: ProjectStore, 
             dismiss = dismiss,
         )
     }
-    if (status == null) exporter.result?.let { ExportedDialog(it, exporter, context) { message -> store.error = message } }
+    if (status == null) exporter.result?.let { ExportedDialog(it, exporter, context, store) }
 }
 
 /**
@@ -124,8 +126,9 @@ fun ExportPanel(project: Project, canvas: Pair<Int, Int>?, store: ProjectStore, 
  */
 @Composable
 private fun ExportSettingsDialog(
-    project: Project, exporter: Exporter, canvas: Pair<Int, Int>?, context: Context, report: (String) -> Unit, start: (ExportSettings) -> Unit, dismiss: () -> Unit,
+    project: Project, exporter: Exporter, canvas: Pair<Int, Int>?, context: Context, store: ProjectStore, start: (ExportSettings) -> Unit, dismiss: () -> Unit,
 ) {
+    val report = { message: String -> store.error = message }
     var settings by remember { mutableStateOf(project.exportSettings) }
     val exported by produceState<ExportedMovie?>(null, project.id, project.updatedAt, project.historyCursor, settings) {
         value = exporter.exported(project.copy(exportSettings = settings))
@@ -160,6 +163,7 @@ private fun ExportSettingsDialog(
                     Text(stringResource(R.string.export_previous_note), color = Muted, fontSize = 13.sp)
                     ExportedActions(movie.file, exporter, context, report, R.string.export_share_previous, R.string.export_save_previous)
                 }
+                DialogNotice(store)
             }
         },
         confirmButton = {
@@ -186,6 +190,24 @@ private fun ExportedActions(file: File, exporter: Exporter, context: Context, re
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         TextButton(onClick = { exporter.saveToGallery(file) }) { Text(stringResource(save)) }
     }
+}
+
+/**
+ * What the app has to say while one of these dialogs is open, said in the dialog: that the movie is in the
+ * gallery, or that it could not be saved or opened. The app's own notice is drawn in the screen under the
+ * dialog, where the message would wait unseen and turn up later over whatever screen came next. The original
+ * says "Saved to Photos" in the panel, where the button was.
+ */
+@Composable
+private fun DialogNotice(store: ProjectStore) {
+    var said by remember { mutableStateOf<String?>(null) }
+    val message = store.error
+    LaunchedEffect(message) { if (message != null) { said = message; store.error = null } }
+    val text = message ?: said ?: return
+    Text(
+        text, color = if (text == stringResource(R.string.export_gallery_saved)) Done else Warning, fontSize = 13.sp,
+        modifier = Modifier.padding(top = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+    )
 }
 
 /** The export as it runs: the step it is at, in words, and one bar for all of it, which never moves back. */
@@ -248,7 +270,7 @@ private fun ExportAudioWarning(warning: ExportReceipt.AudioWarning) {
 
 /** The finished movie, to play, share or save. */
 @Composable
-private fun ExportedDialog(file: File, exporter: Exporter, context: Context, report: (String) -> Unit) {
+private fun ExportedDialog(file: File, exporter: Exporter, context: Context, store: ProjectStore) {
     AlertDialog(
         onDismissRequest = { exporter.result = null },
         title = { Text(stringResource(R.string.export_done_title)) },
@@ -256,7 +278,8 @@ private fun ExportedDialog(file: File, exporter: Exporter, context: Context, rep
             Column {
                 Text(file.name, color = Muted, fontSize = 13.sp)
                 exporter.warning?.let { ExportAudioWarning(it) }
-                ExportedActions(file, exporter, context, report, R.string.export_share, R.string.export_save_to_gallery)
+                ExportedActions(file, exporter, context, { message -> store.error = message }, R.string.export_share, R.string.export_save_to_gallery)
+                DialogNotice(store)
             }
         },
         confirmButton = { TextButton(onClick = { exporter.result = null }) { Text(stringResource(R.string.common_done)) } },
