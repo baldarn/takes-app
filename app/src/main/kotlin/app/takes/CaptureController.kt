@@ -71,6 +71,7 @@ class CaptureController(private val context: Context, private val store: Project
     private class Segment(val id: String, val projectID: String, val file: File) {
         val events = mutableListOf<CaptureEvent>()
         var nanos = 0L
+        var reportedAt = 0L // when [nanos] was reported, on the elapsed-time clock; zero before the first report
         var requested: Phase? = null // null: the system ended this segment
     }
 
@@ -442,7 +443,10 @@ class CaptureController(private val context: Context, private val store: Project
     /** Marks this moment of the take, for example a mistake to find again in the editor. */
     fun bookmark() {
         val current = segment?.takeIf { phase == Phase.Recording } ?: return
-        current.events += CaptureEvent(time = current.nanos / 1e9, kind = Project.BOOKMARK_EVENT, detail = "")
+        // The moment of the tap, as the original reads its clock at the tap: the length the recorder
+        // last reported and the time since. Bounded, because a recording that stalls reports nothing.
+        val since = if (current.reportedAt == 0L) 0L else (SystemClock.elapsedRealtimeNanos() - current.reportedAt).coerceIn(0L, 1_000_000_000L)
+        current.events += CaptureEvent(time = (current.nanos + since) / 1e9, kind = Project.BOOKMARK_EVENT, detail = "")
         marks++
     }
 
@@ -489,6 +493,7 @@ class CaptureController(private val context: Context, private val store: Project
                 val second = event.recordingStats.recordedDurationNanos / 1_000_000_000
                 if (second != current.nanos / 1_000_000_000) showActiveMicrophone(audioManager.activeRecordingConfigurations)
                 current.nanos = event.recordingStats.recordedDurationNanos
+                current.reportedAt = SystemClock.elapsedRealtimeNanos()
                 elapsed = finished + current.nanos / 1e9
                 val audio = event.recordingStats.audioStats
                 level = audio.audioAmplitude.toFloat().coerceIn(0f, 1f)
@@ -517,7 +522,9 @@ class CaptureController(private val context: Context, private val store: Project
         }
         if (segment === current) { segment = null; recording = null }
         if (seconds != null) {
-            val events = CaptureEvent.recovered(current.events, seconds).ifEmpty { null }
+            // A mark made as the take stops can fall a moment past what was written: it belongs to the last frame.
+            val last = maxOf(0.0, seconds - 1.0 / 30)
+            val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
             if (store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events))) {
                 finished += seconds
             }

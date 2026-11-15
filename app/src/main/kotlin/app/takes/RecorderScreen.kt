@@ -346,9 +346,9 @@ private fun Controls(capture: CaptureController) {
             }
         }
         Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
-            // One tap marks the moment without interrupting the take.
-            if (phase == Phase.Recording) {
-                TextButton(onClick = capture::bookmark) { Text(if (capture.marks == 0) stringResource(R.string.recorder_mark) else stringResource(R.string.recorder_mark_count, capture.marks), fontSize = 17.sp) }
+            // One tap marks the moment without interrupting the take. It stays in place, disabled, while the take is paused.
+            if (phase == Phase.Recording || phase == Phase.Paused) {
+                TextButton(onClick = capture::bookmark, enabled = phase == Phase.Recording) { Text(if (capture.marks == 0) stringResource(R.string.recorder_mark) else stringResource(R.string.recorder_mark_count, capture.marks), fontSize = 17.sp) }
             }
         }
     }
