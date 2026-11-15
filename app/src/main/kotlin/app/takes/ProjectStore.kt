@@ -18,6 +18,8 @@ import app.takes.core.Project
 import app.takes.core.ProjectArchive
 import app.takes.core.ProjectException
 import app.takes.core.ProjectDisk
+import app.takes.core.ProjectDuplicate
+import app.takes.core.ProjectDuplicateException
 import app.takes.core.ProjectRestore
 import app.takes.core.ProjectRestoreException
 import app.takes.core.SourceMedia
@@ -349,6 +351,29 @@ class ProjectStore(context: Context) {
             importing = null
             reload()
             error = if (problem == null) context.getString(R.string.projects_unzip_done) else context.getString(R.string.projects_unzip_failed, problem)
+        }
+    }
+
+    /** Makes an independent copy of the project, with its recordings and editing history. */
+    fun duplicate(project: Project) {
+        if (importing != null) return
+        scope.launch {
+            importing = context.getString(R.string.projects_duplicating)
+            val title = ProjectDuplicate.title(project.title, projects.map { it.title }, context.getString(R.string.projects_copy_word))
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val room = (disk.root.usableSpace - 256_000_000L).coerceAtLeast(0)
+                    Result.success(ProjectDuplicate.duplicate(project, disk.root, title, room))
+                } catch (failure: Exception) {
+                    Result.failure(failure)
+                }
+            }
+            importing = null
+            reload()
+            result.onSuccess { select(it.id) }.onFailure { failure ->
+                val problem = if (failure is ProjectDuplicateException) context.getString(R.string.unzip_no_space) else describe(failure as Exception)
+                error = context.getString(R.string.projects_duplicate_failed, problem)
+            }
         }
     }
 

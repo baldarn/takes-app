@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
@@ -221,6 +222,7 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.projects_actions, project.title), tint = Color.White) }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem({ Text(stringResource(R.string.projects_rename)) }, { choose(rename) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) })
+                    DropdownMenuItem({ Text(stringResource(R.string.projects_duplicate)) }, { choose { store.duplicate(project) } }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) })
                     if (project.sources.isNotEmpty()) DropdownMenuItem(
                         { Text(stringResource(if (expanded) R.string.projects_hide_originals else R.string.projects_originals)) }, { choose { expanded = !expanded } },
                         leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) })
