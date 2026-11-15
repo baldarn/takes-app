@@ -18,9 +18,10 @@ class OpenTimelineTest {
     private val other = SourceMedia(filename = "next-scene.mp4", duration = 4.0)
     private val music = SourceMedia(filename = "music.m4a", duration = 60.0, audioOnly = true, originalName = "Song.m4a")
 
+    // A project as 0.9.1 saved it, which keeps the track of each sound item; one saved since lays them by first fit.
     private fun project(clips: List<TimelineClip>, audio: List<AudioItem>? = null, frameRate: Int = 30) =
-        Project("Interchange", sources = listOf(first, other, music), exportSettings = ExportSettings(frameRate = frameRate))
-            .commit(EditState(clips, audio = audio)).also { it.validate() }
+        LegacyProject.commit(Project("Interchange", sources = listOf(first, other, music), exportSettings = ExportSettings(frameRate = frameRate)), EditState(clips, audio = audio))
+            .also { it.validate() }
 
     private fun joined(style: TransitionStyle, duration: Double): List<TimelineClip> {
         val right = TimelineClip(sourceID = other.id, start = 0.0, end = 3.0)

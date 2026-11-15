@@ -18,8 +18,9 @@ import kotlin.math.pow
  * bookmarks, placements and transitions stored as relations between items by
  * id. Key names, units and which keys may be absent are the original's.
  *
- * Nothing saves or reads these yet. The edit a project holds is still
- * [EditState]; [TrackConversion] goes from one to the other and back.
+ * Every step a project commits saves one ([EditSnapshot]); the rest of the
+ * app still edits the [EditState] it shows, and [TrackConversion] and
+ * [TrackSequenceForm] go from one to the other and back.
  *
  * Where the JSON differs from what Swift writes, by choice:
  *  - a set of ids ([TimelineLink.members], [VideoPlacementRegion.participants])
@@ -399,12 +400,11 @@ data class TrackTimeline(
         fun alias(id: String): String = derived(id, 4, ALIAS_SUFFIX)
 
         /**
-         * The schema number a project takes when it saves a timeline: the
-         * next one free when this was written. Nothing reads it yet, since
-         * nothing saves a timeline; it is here so the number is in one place
-         * when something does, and it moves if another format step lands first.
+         * The schema number a project takes when it saves a timeline, the
+         * floor of every commit ([Project.commit]): readers before it would
+         * take a timeline step for an empty edit. 16 is a clip's video effects.
          */
-        const val SCHEMA = 16
+        const val SCHEMA = 17
 
         const val COUNTERPART_SUFFIX = "~sound"
         const val ALIAS_SUFFIX = "~item"

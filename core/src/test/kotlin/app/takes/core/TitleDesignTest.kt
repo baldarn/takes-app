@@ -264,7 +264,7 @@ class TitleProjectTest {
     private fun project(vararg texts: TextOverlay): Project {
         val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
         val clip = base.edit.clips[0].copy(id = "C1", texts = texts.toList())
-        return base.commit(EditState(listOf(clip), base.edit.captureBase), now = 3)
+        return LegacyProject.commit(base, EditState(listOf(clip), base.edit.captureBase), now = 3)
     }
 
     @Test fun aTitleWithoutDesignIsWrittenAsBeforeAndKeepsItsSchema() {
@@ -286,7 +286,7 @@ class TitleProjectTest {
         for (title in listOf(plain.copy(appearance = TitleDesign()), plain.copy(motion = fade), plain.copy(appearance = TitleDesign.looks[2].second, motion = fade))) {
             val project = project(title)
             assertEquals(12, project.schemaVersion)
-            assertEquals(15, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops and fades cut by a split came after
+            assertEquals(17, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops, fades cut by a split and the timeline came after
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }

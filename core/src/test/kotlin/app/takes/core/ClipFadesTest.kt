@@ -68,12 +68,12 @@ class ClipFadesTest {
         assertEquals(15, clip.copy(audio = ClipAudio(fadeOut = 1.0, fadeOutElapsed = 0.5)).schema)
         // Half of what the clip lasts in the movie, not of its footage.
         assertEquals(15, clip.copy(audio = ClipAudio(fadeIn = 3.0), speed = SpeedSettings(rate = 2.0)).schema)
-        assertEquals(15, Project.LATEST_READABLE_SCHEMA)
+        assertEquals(17, Project.LATEST_READABLE_SCHEMA)
 
         val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2).addSource(music, now = 2)
-        val plain = base.commit(TimelineEditing.setAudio(base.edit, 0, ClipAudio(volumeDB = -6.5, fadeIn = 1.7))!!, now = 3)
+        val plain = LegacyProject.commit(base, TimelineEditing.setAudio(base.edit, 0, ClipAudio(volumeDB = -6.5, fadeIn = 1.7))!!, now = 3)
         assertEquals(4, plain.schemaVersion)
-        val long = plain.commit(TimelineEditing.setAudio(plain.edit, 0, ClipAudio(fadeIn = 12.0))!!, now = 4)
+        val long = LegacyProject.commit(plain, TimelineEditing.setAudio(plain.edit, 0, ClipAudio(fadeIn = 12.0))!!, now = 4)
         assertEquals(15, long.schemaVersion)
         long.validate()
         val files = mutableMapOf<String, ByteArray>()
@@ -86,21 +86,21 @@ class ClipFadesTest {
         }
 
         // A split inside a fade, and a sound on an audio track, count the same.
-        assertEquals(15, plain.commit(TimelineEditing.split(plain.edit, 1.0)!!, now = 4).schemaVersion)
-        assertEquals(4, plain.commit(TimelineEditing.split(plain.edit, 5.0)!!, now = 4).schemaVersion)
+        assertEquals(15, LegacyProject.commit(plain, TimelineEditing.split(plain.edit, 1.0)!!, now = 4).schemaVersion)
+        assertEquals(4, LegacyProject.commit(plain, TimelineEditing.split(plain.edit, 5.0)!!, now = 4).schemaVersion)
         val sound = TimelineEditing.addAudio(plain.edit, "S2", 30.0, 0.0)!!
         val item = sound.audio!!.single()
-        assertEquals(5, plain.commit(TimelineEditing.setAudioItemSound(sound, item.id, ClipAudio(fadeOut = 15.0))!!, now = 4).schemaVersion)
-        assertEquals(15, plain.commit(TimelineEditing.setAudioItemSound(sound, item.id, ClipAudio(fadeOut = 15.5))!!, now = 4).schemaVersion)
-        assertEquals(15, plain.commit(TimelineEditing.trimAudio(TimelineEditing.setAudioItemSound(sound, item.id, ClipAudio(fadeIn = 2.0))!!, item.id, 1.0, leading = true)!!, now = 4).schemaVersion)
+        assertEquals(5, LegacyProject.commit(plain, TimelineEditing.setAudioItemSound(sound, item.id, ClipAudio(fadeOut = 15.0))!!, now = 4).schemaVersion)
+        assertEquals(15, LegacyProject.commit(plain, TimelineEditing.setAudioItemSound(sound, item.id, ClipAudio(fadeOut = 15.5))!!, now = 4).schemaVersion)
+        assertEquals(15, LegacyProject.commit(plain, TimelineEditing.trimAudio(TimelineEditing.setAudioItemSound(sound, item.id, ClipAudio(fadeIn = 2.0))!!, item.id, 1.0, leading = true)!!, now = 4).schemaVersion)
     }
 
     /** A take recorded into the middle of a fade cuts it: the step then holds a cut fade. */
     @Test fun aTakeInsertedInsideAFadeRaisesTheSchema() {
         val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
-        val faded = base.commit(TimelineEditing.setAudio(base.edit, 0, ClipAudio(fadeIn = 4.0))!!, now = 3)
+        val faded = LegacyProject.commit(base, TimelineEditing.setAudio(base.edit, 0, ClipAudio(fadeIn = 4.0))!!, now = 3)
         val more = SourceMedia(id = "S3", filename = "more.mp4", duration = 5.0, recordedAt = 7)
-        val inserted = faded.beginRecordingInsertion(2.0).addRecording(more, now = 4)
+        val inserted = LegacyProject.addRecording(faded.beginRecordingInsertion(2.0), more, now = 4)
         assertEquals(ClipAudio(fadeIn = 4.0, fadeInElapsed = 2.0), inserted.edit.clips[2].audio)
         assertEquals(15, inserted.schemaVersion)
         inserted.validate()

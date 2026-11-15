@@ -38,7 +38,7 @@ object GoldenProjects {
         )
     }
 
-    /** Builds a project step by step, as the app does: takes are recorded, sounds imported, and every edit is a step of the history. */
+    /** Builds a project step by step, as release 0.9.1 did ([LegacyProject]): takes are recorded, sounds imported, and every edit is a step of the history. */
     private class Builder(val name: String) {
         var project = Project(title = "Golden $name", id = "P-$name", createdAt = CREATED, updatedAt = CREATED)
         private var clock = CREATED
@@ -50,7 +50,7 @@ object GoldenProjects {
         /** Records a take of [seconds]; it joins the end of the timeline, or the place chosen for it. */
         fun take(seconds: Double, events: List<CaptureEvent>? = null): Builder {
             numbered++
-            project = project.addRecording(SourceMedia("S$numbered", "take-$numbered.mp4", seconds, CREATED + numbered * 1000L, events), ++clock)
+            project = LegacyProject.addRecording(project, SourceMedia("S$numbered", "take-$numbered.mp4", seconds, CREATED + numbered * 1000L, events), ++clock)
             return this
         }
 
@@ -65,7 +65,7 @@ object GoldenProjects {
         fun step(what: (EditState) -> EditState?): Builder {
             val next = checkNotNull(what(edit)) { "$name: an edit did not apply at step ${project.snapshots.size}" }
             val before = project
-            project = project.commit(next, ++clock)
+            project = LegacyProject.commit(project, next, ++clock)
             check(project !== before) { "$name: an edit changed nothing at step ${before.snapshots.size}" }
             return this
         }

@@ -411,9 +411,9 @@ class TransitionFitTest {
     @Test fun fitsSurviveSavingReadingUndoAndRedo() {
         // TransitionTests.swift:26-28, "Transition parameters and undo/redo survive reopening".
         val source = SourceMedia(id = "S", filename = "take.mp4", duration = 4.0)
-        var project = Project("Fits", sources = listOf(source)).commit(chain)
+        var project = LegacyProject.commit(Project("Fits", sources = listOf(source)), chain)
         val split = TimelineEditing.split(project.edit, 1.5)!!
-        project = project.commit(split).undo()
+        project = LegacyProject.commit(project, split).undo()
         val files = HashMap<String, ByteArray>()
         val manifest = project.manifest { name, data -> files[name] = data }
         var reopened = Project.readManifest(manifest) { files.getValue(it) }
@@ -429,8 +429,8 @@ class TransitionFitTest {
 
     @Test fun anEditThatMovesNoFootageSavesNoFit() {
         val source = SourceMedia(id = "S", filename = "take.mp4", duration = 4.0)
-        val project = Project("Fits", sources = listOf(source)).commit(chain)
-        val titled = project.commit(TimelineEditing.setText(project.edit, 0, TextOverlay(text = "Hello", start = 0.0, end = 1.0))!!)
+        val project = LegacyProject.commit(Project("Fits", sources = listOf(source)), chain)
+        val titled = LegacyProject.commit(project, TimelineEditing.setText(project.edit, 0, TextOverlay(text = "Hello", start = 0.0, end = 1.0))!!)
         assertEquals(listOf(null, null, null), fits(titled.edit))
         assertTrue(!EditSnapshot(titled.edit, 0).data().decodeToString().contains("Fit"))
         val colored = TimelineEditing.setColor(project.edit, 0, ColorSettings(exposure = 0.3))

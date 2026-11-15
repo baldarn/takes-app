@@ -195,15 +195,15 @@ class TransitionAndTitleTest {
         assertEquals(1, project.schemaVersion)
         val plain = project.snapshots[0].data().decodeToString()
         assertEquals("{\"state\":{\"clips\":[]},\"captureCursor\":0}", plain) // unchanged bytes for old history
-        project = project.commit(TimelineEditing.setTransition(project.edit, 0, 0.5, TransitionStyle.FadeColor)!!)
+        project = LegacyProject.commit(project, TimelineEditing.setTransition(project.edit, 0, 0.5, TransitionStyle.FadeColor)!!)
         assertEquals(2, project.schemaVersion)
-        project = project.commit(TimelineEditing.setText(project.edit, 0, TextOverlay(text = "Hi", start = 0.0, end = 4.0))!!)
+        project = LegacyProject.commit(project, TimelineEditing.setText(project.edit, 0, TextOverlay(text = "Hi", start = 0.0, end = 4.0))!!)
         project.validate()
         val files = mutableMapOf<String, ByteArray>()
         val manifest = project.manifest { name, data -> files[name] = data }
         assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
         val late = TimelineEditing.setText(project.edit, 0, TextOverlay(start = 3.0, end = 9.0))!!
-        org.junit.Assert.assertThrows(ProjectException::class.java) { project.commit(late).validate() }
+        org.junit.Assert.assertThrows(ProjectException::class.java) { LegacyProject.commit(project, late).validate() }
     }
 }
 
@@ -428,14 +428,14 @@ class ClipAudioTest {
         // Both pieces of a split stay cleaned.
         assertEquals(listOf(0.5, 0.5), TimelineEditing.split(cleaned, 2.0)!!.clips.take(2).map { it.audio!!.denoise })
         var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 4.0))
-        project = project.commit(TimelineEditing.setAudio(project.edit, 0, ClipAudio(denoise = 1.0))!!)
+        project = LegacyProject.commit(project, TimelineEditing.setAudio(project.edit, 0, ClipAudio(denoise = 1.0))!!)
         assertEquals(6, project.schemaVersion)
         project.validate()
     }
 
     @Test fun projectsWithClipSoundUseSchema4() {
         var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 4.0))
-        project = project.commit(TimelineEditing.setAudio(project.edit, 0, ClipAudio(muted = true))!!)
+        project = LegacyProject.commit(project, TimelineEditing.setAudio(project.edit, 0, ClipAudio(muted = true))!!)
         assertEquals(4, project.schemaVersion)
         project.validate()
         val files = mutableMapOf<String, ByteArray>()
@@ -501,7 +501,7 @@ class AudioItemTest {
         val song = SourceMedia(filename = "song.m4a", duration = 10.0, audioOnly = true)
         var project = Project("x").addRecording(take).addSource(song)
         assertEquals(1, project.edit.clips.size)          // a sound file does not become a clip
-        project = project.commit(TimelineEditing.addAudio(project.edit, song.id, song.duration, 2.0)!!)
+        project = LegacyProject.commit(project, TimelineEditing.addAudio(project.edit, song.id, song.duration, 2.0)!!)
         assertEquals(5, project.schemaVersion)
         project.validate()
         assertEquals(1, project.edit.audio!!.size)
@@ -516,7 +516,7 @@ class AudioItemTest {
         assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
         // Overlapping items on one track are not a valid document.
         val broken = project.edit.audio!! + project.edit.audio!![0].copy(id = "other", start = 3.0)
-        org.junit.Assert.assertThrows(ProjectException::class.java) { project.commit(project.edit.copy(audio = broken)).validate() }
+        org.junit.Assert.assertThrows(ProjectException::class.java) { LegacyProject.commit(project, project.edit.copy(audio = broken)).validate() }
     }
 }
 

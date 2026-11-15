@@ -173,7 +173,7 @@ class CropTest {
         assertNull(TimelineEditing.setCrop(framed, 0, null)!!.clips[0].crop)
         assertEquals(listOf(2.0, 2.0), TimelineEditing.split(framed, 4.0)!!.clips.map { it.crop!!.zoom })
         var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 10.0))
-        project = project.commit(TimelineEditing.setCrop(project.edit, 0, CropSettings(zoom = 1.5))!!)
+        project = LegacyProject.commit(project, TimelineEditing.setCrop(project.edit, 0, CropSettings(zoom = 1.5))!!)
         assertEquals(8, project.schemaVersion)
         project.validate()
         val files = mutableMapOf<String, ByteArray>()

@@ -2,6 +2,7 @@ package app.takes.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -294,7 +295,10 @@ class UnusedTakesTest {
         assertEquals(project.edit, added.undo().edit)
     }
 
-    @Test fun theSchemaStaysReadableByOlderVersions() {
-        assertEquals(1, UnusedTakes.add(edited(), listOf(b, d), 5.0)!!.project.schemaVersion)
+    /** Adding takes is an edit step like any other, saved as a timeline. */
+    @Test fun addingTakesSavesATimelineStep() {
+        val added = UnusedTakes.add(edited(), listOf(b, d), 5.0)!!.project
+        assertEquals(TrackTimeline.SCHEMA, added.schemaVersion)
+        assertNotNull(added.snapshots.last().timeline)
     }
 }
