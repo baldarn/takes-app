@@ -92,6 +92,8 @@ class CaptureController(private val context: Context, private val store: Project
         var nanos = 0L
         var reportedAt = 0L // when [nanos] was reported, on the elapsed-time clock; zero until the recording starts
         var requested: Phase? = null // null: the system ended this segment
+        var abandoned = false // the recorder did not report its end in time; see [abandon]
+        var indexed = false // in the project
     }
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
@@ -709,6 +711,28 @@ class CaptureController(private val context: Context, private val store: Project
         current.requested = next
         phase = Phase.Saving
         recording?.stop()
+        scope.launch {
+            // In steps, so that time the system kept the app frozen in the background is not counted.
+            repeat(SAVE_STEPS) { delay(SAVE_STEP_MILLIS) }
+            if (segment === current) abandon(current)
+        }
+    }
+
+    /**
+     * The recorder has not reported the end of this segment, and "Saving…" would stay for good with every
+     * control off. The take goes on with the recorder the next bind builds and this one is never bound
+     * again. What it wrote stays on disk: it joins the project now if it can be read, or when its end is
+     * reported after all.
+     */
+    private suspend fun abandon(current: Segment) {
+        current.abandoned = true
+        segment = null
+        recording = null
+        // [close] binds anew, or lets the camera go; either way this recorder gets no further surface.
+        stale = true
+        val seconds = withContext(Dispatchers.IO) { mediaDuration(current.file) }
+        close(current, seconds)
+        if (!current.indexed) message = context.getString(R.string.recorder_saving_late)
     }
 
     private fun reset() {
@@ -763,6 +787,8 @@ class CaptureController(private val context: Context, private val store: Project
         }
         // After the last write of its events, which may still be on its way.
         if (!current.file.exists()) withContext(eventFiles) { CaptureEventsFile.delete(current.file) }
+        // The take went on without waiting for this segment: it only joins the project.
+        if (current.abandoned) { index(current, seconds); return }
         if (segment === current) { segment = null; recording = null }
         val requested = current.requested
         close(current, seconds)
@@ -773,14 +799,17 @@ class CaptureController(private val context: Context, private val store: Project
         }
     }
 
+    private fun index(current: Segment, seconds: Double?) {
+        if (seconds == null || current.indexed) return
+        // A mark made as the take stops can fall a moment past what was written: it belongs to the last frame.
+        val last = maxOf(0.0, seconds - 1.0 / 30)
+        val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
+        current.indexed = store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events))
+    }
+
     /** The segment has ended: the take is paused or over, as was asked, and the camera returns. */
     private fun close(current: Segment, seconds: Double?) {
-        if (seconds != null) {
-            // A mark made as the take stops can fall a moment past what was written: it belongs to the last frame.
-            val last = maxOf(0.0, seconds - 1.0 / 30)
-            val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
-            store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events))
-        }
+        index(current, seconds)
         // The segment is in the edit now, and the clock counts it there.
         if (current.requested == Phase.Idle) reset() else { phase = Phase.Paused; level = 0f }
         dropLostMicrophone()
@@ -788,6 +817,9 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     private companion object {
+        // A segment ends in a second or two; after five the recorder is taken to be stuck.
+        const val SAVE_STEPS = 50
+        const val SAVE_STEP_MILLIS = 100L
         /** Thirty frames per second, exactly, as the original sets it. */
         val THIRTY = Range(CaptureFormat.FRAMES_PER_SECOND, CaptureFormat.FRAMES_PER_SECOND)
         val FRAME_SIZES = mapOf(
