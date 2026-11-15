@@ -175,7 +175,7 @@ internal fun SelectionBar(
                 val actionsLabel = stringResource(R.string.selection_actions, title)
                 Box {
                     TextButton(onClick = { menu = true }, Modifier.semantics { contentDescription = actionsLabel }, contentPadding = PaddingValues(horizontal = 6.dp)) {
-                        Column(Modifier.widthIn(min = 44.dp, max = 120.dp)) {
+                        Column(Modifier.widthIn(min = 44.dp, max = 84.dp)) {
                             Text(title, color = Color.White, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(detail, color = Quiet, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -211,7 +211,7 @@ internal fun SelectionBar(
 
 @Composable
 private fun BarIcon(icon: ImageVector, label: Int, tint: Color, action: () -> Unit) {
-    TextButton(onClick = action, Modifier.defaultMinSize(minWidth = 44.dp), contentPadding = PaddingValues(horizontal = 6.dp)) {
+    TextButton(onClick = action, Modifier.defaultMinSize(minWidth = 40.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
         Icon(icon, stringResource(label), Modifier.size(22.dp), tint = tint)
     }
 }
@@ -221,7 +221,7 @@ private fun BarIcon(icon: ImageVector, label: Int, tint: Color, action: () -> Un
 private fun ClipboardButton(icon: ImageVector, name: Int, label: Int, enabled: Boolean, action: () -> Unit) {
     val description = stringResource(label)
     val tint = if (enabled) ClipboardColor else Quiet
-    TextButton(onClick = action, Modifier.defaultMinSize(minWidth = 46.dp).semantics { contentDescription = description }, enabled = enabled, contentPadding = PaddingValues(horizontal = 6.dp)) {
+    TextButton(onClick = action, Modifier.defaultMinSize(minWidth = 44.dp).semantics { contentDescription = description }, enabled = enabled, contentPadding = PaddingValues(horizontal = 4.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(icon, null, Modifier.size(18.dp), tint = tint)
             Text(stringResource(name), color = if (enabled) Color.White else Quiet, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
