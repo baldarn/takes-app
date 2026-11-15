@@ -256,6 +256,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                     Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)),
                 ) { settingsOpen = true }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    FocusHint(capture.focus)
                     ProjectChip(capture, store, openEditor)
                     val usable = capture.ready && capture.phase != Phase.Saving && cover == null
                     if (zoomOpen && capture.hasZoom) {
