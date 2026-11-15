@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import app.takes.core.CaptureEvent
+import app.takes.core.CaptureEventsFile
 import app.takes.core.Project
 import app.takes.core.SourceMedia
 import app.takes.core.ZoomTransition
@@ -238,6 +239,19 @@ class CaptureController(private val context: Context, private val store: Project
         }
     }
 
+    // One at a time and in order, so the newest list is the one left on disk.
+    private val eventFiles = Dispatchers.IO.limitedParallelism(1)
+
+    /**
+     * Adds an event to the segment and saves the list beside the movie at once, as the original does:
+     * the marks of a take that is interrupted are then found with it when it is indexed.
+     */
+    private fun note(segment: Segment, event: CaptureEvent) {
+        segment.events += event
+        val events = segment.events.toList()
+        scope.launch(eventFiles) { runCatching { CaptureEventsFile.write(events, segment.file) } }
+    }
+
     private fun bind(choice: CameraChoice) {
         val provider = provider ?: return
         val owner = owner ?: return
@@ -266,7 +280,7 @@ class CaptureController(private val context: Context, private val store: Project
         // The old camera's move must not resume when that camera is selected again.
         zoomRamp?.cancel()
         segment?.takeIf { phase == Phase.Recording }?.let {
-            it.events += CaptureEvent(time = it.nanos / 1e9, kind = "camera", detail = choice.label)
+            note(it, CaptureEvent(time = it.nanos / 1e9, kind = "camera", detail = choice.label))
         }
         bind(choice)
     }
@@ -446,7 +460,7 @@ class CaptureController(private val context: Context, private val store: Project
         // The moment of the tap, as the original reads its clock at the tap: the length the recorder
         // last reported and the time since. Bounded, because a recording that stalls reports nothing.
         val since = if (current.reportedAt == 0L) 0L else (SystemClock.elapsedRealtimeNanos() - current.reportedAt).coerceIn(0L, 1_000_000_000L)
-        current.events += CaptureEvent(time = (current.nanos + since) / 1e9, kind = Project.BOOKMARK_EVENT, detail = "")
+        note(current, CaptureEvent(time = (current.nanos + since) / 1e9, kind = Project.BOOKMARK_EVENT, detail = ""))
         marks++
     }
 
@@ -520,6 +534,8 @@ class CaptureController(private val context: Context, private val store: Project
             // An empty file holds nothing to preserve; any other one is kept.
             if (current.file.length() == 0L) { current.file.delete(); null } else mediaDuration(current.file)
         }
+        // After the last write of its events, which may still be on its way.
+        if (!current.file.exists()) withContext(eventFiles) { CaptureEventsFile.delete(current.file) }
         if (segment === current) { segment = null; recording = null }
         if (seconds != null) {
             // A mark made as the take stops can fall a moment past what was written: it belongs to the last frame.

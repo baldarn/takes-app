@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.takes.core.CaptureEventsFile
 import app.takes.core.ClipFragment
 import app.takes.core.CubeLUT
 import app.takes.core.EditState
@@ -435,7 +436,9 @@ class ProjectStore(context: Context) {
     private fun indexFinishedTakes(project: Project) {
         for (file in disk.unindexedRecordings(project)) {
             val duration = mediaDuration(file) ?: continue
-            addRecording(project.id, SourceMedia(filename = file.name, duration = duration, recordedAt = file.lastModified()))
+            // The marks and camera changes saved beside the take while it was recorded come back with it.
+            val events = CaptureEventsFile.read(file, duration)
+            addRecording(project.id, SourceMedia(filename = file.name, duration = duration, recordedAt = file.lastModified(), events = events))
         }
     }
 }
