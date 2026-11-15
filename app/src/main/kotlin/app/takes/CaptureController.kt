@@ -95,7 +95,8 @@ class CaptureController(private val context: Context, private val store: Project
     var cameraID by mutableStateOf<String?>(null); private set
     var zoom by mutableStateOf(1.0); private set
     var zoomRange by mutableStateOf(1.0..1.0); private set
-    var zoomDuration by mutableStateOf(ZoomTransition.boundedDuration(prefs.getFloat("zoomDuration", 1f).toDouble())); private set
+    /** Seconds a zoom preset takes. Instant until the person chooses a time, as in the original. */
+    var zoomDuration by mutableStateOf(ZoomTransition.boundedDuration(prefs.getFloat("zoomDuration", 0f).toDouble())); private set
     var elapsed by mutableStateOf(0.0); private set
     var level by mutableStateOf(0f); private set
     var audioWarning by mutableStateOf<String?>(null); private set
