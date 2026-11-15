@@ -47,6 +47,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    // The app speaks English and Italian; without this the libraries bring ninety more languages along.
+    androidResources { localeFilters += listOf("en", "it") }
 }
 
 kotlin { jvmToolchain(17) }
