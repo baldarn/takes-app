@@ -1,10 +1,12 @@
 package app.takes
 
+import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
 import app.takes.speech.SpeechModel
 import app.takes.speech.SpeechModelFetcher
 import app.takes.speech.SpeechModelSource
+import app.takes.speech.SpeechModels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.ensureActive
@@ -18,45 +20,85 @@ import java.net.URL
 import kotlin.coroutines.coroutineContext
 
 /**
- * The speech model subtitles are made with. It is not part of the app: it is
+ * The speech models subtitles are made with. None is part of the app: one is
  * downloaded when the person asks for it, checked against the SHA-256 the app
  * carries for each file, and kept outside backups until removed.
+ *
+ * Which models there are and what each consists of is data in the speech
+ * module ([SpeechModels], [SpeechModel]); here is where they live on the phone.
  *
  * This file holds the app's only network code. Nothing else opens a connection,
  * and this does so only inside [download].
  */
 object SubtitleModel {
-    val model = SpeechModel.Default
+    /** The size of [model] in megabytes, as shown before a download starts. */
+    fun megabytes(model: SpeechModel): Int = megabytes(model.bytes)
 
-    /** The download in megabytes, as shown before it starts. */
-    val megabytes: Int get() = Math.round(model.bytes / 1e6).toInt()
+    fun megabytes(bytes: Long): Int = Math.round(bytes / 1e6).toInt()
 
-    fun folder(context: Context): File = File(context.noBackupFilesDir, "speech/base")
+    fun folder(context: Context, model: SpeechModel): File = File(context.noBackupFilesDir, "speech/${model.folder}")
 
-    fun installed(context: Context): Boolean = model.installed(folder(context))
+    fun installed(context: Context, model: SpeechModel): Boolean = model.installed(folder(context, model))
 
-    /** Bytes free where the model goes, less what an interrupted download already holds there. */
-    fun hasRoom(context: Context): Boolean {
-        val folder = folder(context)
-        val present = folder.listFiles().orEmpty().sumOf { it.length() }
-        val free = generateSequence(folder) { it.parentFile }.first { it.exists() }.usableSpace
-        return free <= 0 || free > model.bytes - present + RESERVE
+    /** The bytes of [model] on the phone: all of it, the part an interrupted download left, or nothing. */
+    fun present(context: Context, model: SpeechModel): Long = model.present(folder(context, model))
+
+    /** The model in use: the person's choice, else the one this phone gets by its memory and by what it already has. */
+    fun selected(context: Context): SpeechModel = SpeechModels.selected(
+        prefs(context).getString(CHOSEN, null), SpeechModels.known.filter { installed(context, it) }.map { it.id }.toSet(), totalMemory(context),
+    )
+
+    /** The models to choose from: those offered, and an earlier one while any of it is on the phone. */
+    fun choices(context: Context): List<SpeechModel> =
+        SpeechModels.choices(SpeechModels.known.filter { present(context, it) > 0 }.map { it.id }.toSet(), selected(context))
+
+    fun recommended(context: Context): SpeechModel = SpeechModels.recommended(totalMemory(context))
+
+    fun choose(context: Context, model: SpeechModel) = prefs(context).edit().putString(CHOSEN, model.id).apply()
+
+    /** The phone's memory in bytes as Android reports it, somewhat less than it is sold with; 0 when unknown. */
+    fun totalMemory(context: Context): Long = memory(context)?.totalMem ?: 0
+
+    /** Whether the phone has the memory free, at this moment, that recognizing with [model] takes. Unknown counts as yes. */
+    fun hasMemory(context: Context, model: SpeechModel): Boolean {
+        val free = memory(context)?.availMem ?: return true
+        return free >= model.bytes * WORKING_MEMORY_PER_BYTE
     }
 
     /**
-     * Fetches what is missing of the model; a download interrupted earlier
-     * continues where it stopped. Cancelling the coroutine stops it within
-     * moments and keeps what has arrived. Throws IOException when the network
-     * fails or a file does not pass verification.
+     * The model a transcription was loading or running when the app was last
+     * stopped from outside, which is what Android does to an app that takes
+     * more memory than the phone can give. Null when the last job ended by itself.
      */
-    suspend fun download(context: Context, progress: (Float) -> Unit) {
-        val folder = folder(context)
+    fun interrupted(context: Context): SpeechModel? = prefs(context).getString(RUNNING, null)?.let { id -> SpeechModels.known.firstOrNull { it.id == id } }
+
+    /** Notes that a job with [model] begins (written at once: the app may not live to write it later), or with null that it ended. */
+    fun running(context: Context, model: SpeechModel?) {
+        prefs(context).edit().apply { if (model == null) remove(RUNNING) else putString(RUNNING, model.id) }.commit()
+    }
+
+    /** Bytes free where the model goes, less what an interrupted download already holds there. */
+    fun hasRoom(context: Context, model: SpeechModel): Boolean {
+        val folder = folder(context, model)
+        val free = generateSequence(folder) { it.parentFile }.first { it.exists() }.usableSpace
+        return free <= 0 || free > model.bytes - model.present(folder) + RESERVE
+    }
+
+    /**
+     * Fetches what is missing of [model]; a download interrupted earlier
+     * continues where it stopped. [progress] receives the bytes present so far.
+     * Cancelling the coroutine stops it within moments and keeps what has
+     * arrived. Throws IOException when the network fails or a file does not
+     * pass verification.
+     */
+    suspend fun download(context: Context, model: SpeechModel, progress: (Long) -> Unit) {
+        val folder = folder(context, model)
         withContext(Dispatchers.IO) {
             val source = HttpsSource()
             // A read can wait a minute for a silent server: closing the connection ends it at once.
             val watcher = launch { try { awaitCancellation() } finally { source.close() } }
             try {
-                SpeechModelFetcher.download(model, folder, source, { done, total -> progress(done.toFloat() / total) }, { !isActive })
+                SpeechModelFetcher.download(model, folder, source, { done, _ -> progress(done) }, { !isActive })
             } catch (failure: IOException) {
                 coroutineContext.ensureActive() // cancelled, not failed
                 throw failure
@@ -66,10 +108,22 @@ object SubtitleModel {
         }
     }
 
-    /** Deletes the model and any unfinished download. Subtitles already made are not touched. */
-    fun remove(context: Context) = model.remove(folder(context))
+    /** Deletes [model] and any unfinished download of it. Subtitles already made are not touched. */
+    fun remove(context: Context, model: SpeechModel) = model.remove(folder(context, model))
 
-    private const val RESERVE = 20_000_000L
+    private fun prefs(context: Context) = context.getSharedPreferences("subtitles", Context.MODE_PRIVATE)
+
+    private fun memory(context: Context): ActivityManager.MemoryInfo? = runCatching {
+        ActivityManager.MemoryInfo().also { context.getSystemService(ActivityManager::class.java).getMemoryInfo(it) }
+    }.getOrNull()
+
+    private const val CHOSEN = "model"
+    private const val RUNNING = "running"
+    const val RESERVE = 20_000_000L
+
+    // Recognizing takes about this many bytes of memory for each byte of the model's files,
+    // on the phone it was measured on; see the speech module's README.
+    private const val WORKING_MEMORY_PER_BYTE = 1.5
 }
 
 /**

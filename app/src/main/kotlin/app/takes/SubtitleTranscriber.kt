@@ -9,6 +9,7 @@ import app.takes.core.SubtitleSpeechPlan
 import app.takes.core.SubtitleTiming
 import app.takes.core.SubtitleWord
 import app.takes.core.TimelineClip
+import app.takes.speech.SpeechModel
 import app.takes.speech.SpeechRecognizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -50,10 +51,11 @@ object SubtitleTranscriber {
 
     /** Why there are no subtitles to show for. The captions the project had are untouched. */
     class Failure(val reason: Reason) : Exception(reason.name) {
-        enum class Reason { NoSound, NoSpeech, NoWords, Model }
+        /** [Model]: its files could not be loaded. [Memory]: the phone has too little memory free for it. */
+        enum class Reason { NoSound, NoSpeech, NoWords, Model, Memory }
     }
 
-    /** The words by recording id, the language they were written in, and what the job took. */
+    /** The words by recording id, the language of the first piece when the model tells it, and what the job took. */
     class Result(val words: Map<String, List<SubtitleWord>>, val language: String, val speechSeconds: Double, val recognizingSeconds: Double)
 
     const val RATE = SubtitleSpeechAudio.RATE
@@ -69,12 +71,12 @@ object SubtitleTranscriber {
     private class Piece(val source: String, val range: SourceInterval, val speech: List<SourceInterval>)
 
     /**
-     * [language] is Whisper's code, or null to detect it: then the first piece
-     * decides for the whole job, so two pieces cannot come out in two languages.
-     * Cancelling the coroutine stops between two pieces.
+     * [language] is a two-letter code, or null to detect it: then every piece is
+     * recognized without a hint, as the original does, and the model decides
+     * piece by piece. Cancelling the coroutine stops between two pieces.
      */
     suspend fun transcribe(
-        context: Context, clips: List<TimelineClip>, files: Map<String, File>, language: String?, progress: (Float, Step) -> Unit,
+        context: Context, model: SpeechModel, clips: List<TimelineClip>, files: Map<String, File>, language: String?, progress: (Float, Step) -> Unit,
     ): Result = withContext(working) {
         val job = coroutineContext
         val stretches = SubtitleEditing.stretches(clips)
@@ -105,15 +107,23 @@ object SubtitleTranscriber {
 
             progress(READING, Step.Loading)
             job.ensureActive()
+            // A model larger than the memory at hand does not fail politely: Android ends the
+            // app. So it is not tried, and the note left here tells the next start if it happened anyway.
+            if (!SubtitleModel.hasMemory(context, model)) throw Failure(Failure.Reason.Memory)
+            SubtitleModel.running(context, model)
             val recognizer = try {
-                SpeechRecognizer(SubtitleModel.folder(context), language)
+                SpeechRecognizer(SubtitleModel.folder(context, model), model, language)
             } catch (problem: Exception) {
+                SubtitleModel.running(context, null)
                 throw Failure(Failure.Reason.Model)
             } catch (problem: LinkageError) {
+                SubtitleModel.running(context, null)
                 throw Failure(Failure.Reason.Model) // no native library for this processor
+            } catch (problem: OutOfMemoryError) {
+                SubtitleModel.running(context, null)
+                throw Failure(Failure.Reason.Memory)
             }
             val words = mutableMapOf<String, MutableList<SubtitleWord>>()
-            var spoken = language
             var written = ""
             val total = pieces.sumOf { it.range.duration }
             var done = 0.0
@@ -125,9 +135,7 @@ object SubtitleTranscriber {
                     val rate = if (done > 0) elapsed() / done else pace
                     progress(READING + (1 - READING) * (done / total).toFloat(), Step.Section(index + 1, pieces.size, rate?.let { it * (total - done) }))
                     val sound = sounds.getValue(piece.source)
-                    val transcript = recognizer.transcribe(samples(sound, piece.range), RATE, spoken)
-                    // Detected once: the rest of the job is written in the same language.
-                    if (spoken == null && transcript.language.isNotEmpty()) spoken = transcript.language
+                    val transcript = recognizer.transcribe(samples(sound, piece.range), RATE, language)
                     if (written.isEmpty()) written = transcript.language
                     val timed = transcript.words
                     words.getOrPut(piece.source) { mutableListOf() } += if (timed != null) {
@@ -138,8 +146,11 @@ object SubtitleTranscriber {
                     done += piece.range.duration
                     pace = elapsed() / done
                 }
+            } catch (problem: OutOfMemoryError) {
+                throw Failure(Failure.Reason.Memory)
             } finally {
                 recognizer.close() // its memory is native: the garbage collector does not see it
+                SubtitleModel.running(context, null)
             }
             job.ensureActive()
             if (words.values.all { it.isEmpty() }) throw Failure(Failure.Reason.NoWords)
