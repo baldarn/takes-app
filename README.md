@@ -43,9 +43,13 @@ The port is still in progress. What works today is listed under
 - Basic editor: preview of the edit, scrolling thumbnail timeline under a fixed
   playhead with audio waveforms, split at the playhead, trim handles on the current
   clip, delete and reorder clips, persistent undo/redo.
-- Cross dissolves, where the next clip overlaps the end of the previous one, and
-  fade-through-black transitions between neighboring clips (picture and sound), and
-  titles attached to their footage, identical in preview and export.
+- The original's nine transitions between neighboring clips and at the start and
+  the end of the movie: dissolve, fade through a color, wipe, split screen,
+  Hitchcock, whip pan, flash cut, still and defocus, each with its settings, a
+  hold, and its own audio timing (J and L cuts). Picture and sound are identical in
+  preview and export; before Android 13 the preview shows the styles that need a
+  shader as dissolves.
+- Titles attached to their footage, identical in preview and export.
 - Title design and motion as in the original: its seven font families and the phone's
   own, solid or gradient fill, outline, shadow, a box behind the words or each line,
   alignment and spacing, entrance and exit (fade, drift, scale, wipe), placing by
@@ -90,8 +94,8 @@ The port is still in progress. What works today is listed under
 
 ## Not ported yet
 
-More than one video layer, unlinking a clip's sound from its picture, the other
-transitions (wipe, split screen and so on), importing fonts for titles, Log footage
+More than one video layer, unlinking a clip's sound from its picture,
+importing fonts for titles, Log footage
 and highlight recovery, subtitles for sound on the audio tracks or for a selected range
 only, placing captions by dragging them, caption designs and motion, rotated and animated crops, video
 effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log

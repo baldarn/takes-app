@@ -1,6 +1,6 @@
 # Transitions: moving the saved project to `TransitionSettings`
 
-A plan, not yet carried out. It moves the saved project from the two-style `ClipTransition` (`core/.../Project.kt:59-79`) to the original's full settings (`core/.../TransitionSettings.kt`), and the app from `TimelineEditing.overlap / fadeLength / weight / level` to the functions added in `TransitionPicture.kt`, `TransitionSound.kt` and `TransitionLayout.kt`.
+Carried out with Option A (section 6); what follows is the plan as it was written, and section 10 says where the work departed from it. It moves the saved project from the two-style `ClipTransition` (`core/.../Project.kt:59-79`) to the original's full settings (`core/.../TransitionSettings.kt`), and the app from `TimelineEditing.overlap / fadeLength / weight / level` to the functions added in `TransitionPicture.kt`, `TransitionSound.kt` and `TransitionLayout.kt`.
 
 Line numbers are those of the branch this was written on (main at 0.5 plus the transitions specification). Paths starting with `YouRec/` are in the original app's repository. See `docs/TRANSITIONS-SPEC.md` for the styles themselves.
 
@@ -197,3 +197,13 @@ Guards for the app: the host tests of the core for every number; on a device, th
 2. Opening and closing transitions when a clip is added before the first or after the last one (sections 7 and 8).
 3. Unlinking a clip's sound under a transition with a custom offset (section 7, `AudioUnlinking`).
 4. Whether the Android compositor blends in linear light. All the core's numbers assume it, as the original does (`YouRec/VideoToolCompositor.swift:194`).
+
+## 10. As carried out
+
+- Sections 4, 5 and 6 as written, Option A. `ClipTransition` is now a type alias of `TransitionSettings`.
+- Section 7, step 2: `TimelineEditing.layout(clips)` is the one layout; `setJoin(state, join, settings)` sets any join (0 the opening, the number of clips the close) and `setTransition` remains as a short form for a join between two clips. `overlap` stays as a reading of the layout; `fadeLength`, `weight` and `level(clips, …)` are gone.
+- Open point 2: moving, deleting or inserting clips removes an opening that is no longer on the first clip and a close that is no longer on the last, as it removes a join whose neighbor changed. A take recorded later is appended without an edit, so a close on the clip before it stays saved, unused, and counts again if that take is removed.
+- Open point 3: `AudioUnlinking` takes the lengths of the two sound ramps; a ramp moved by a custom offset is still turned into a fade at the clip's edge. The app does not offer unlinking.
+- Open point 4: Media3's own compositor lays one sequence over the other by opacity on encoded pixels. The app no longer uses it to blend: the two sequences are laid one above the other untouched and one shader (`TransitionShader`, the same text in the preview and in the export) makes each frame from them in linear light.
+- New in the core: `TransitionScene` (what a moment shows: the two sides, their decks, a held frame, the fill) with `TransitionSceneTest`.
+- Titles are still drawn once over the finished frame, each as opaque as its clip is showing, not into each clip's picture before the mix (section 7, `Titles.kt:72-74`).

@@ -361,6 +361,7 @@
     <string name="transition_acceleration">Accelerazione</string>
     <plurals name="transition_flashes_fit">
         <item quantity="one">In questa durata entra %1$d flash.</item>
+        <item quantity="many">In questa durata entrano %1$d flash.</item>
         <item quantity="other">In questa durata entrano %1$d flash.</item>
     </plurals>
     <string name="transition_after_freeze">Dopo il fermo immagine</string>
