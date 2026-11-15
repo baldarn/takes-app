@@ -80,8 +80,14 @@
     <string name="recorder_focus_note_manual">Nel registratore, scorri verso l\'alto su MF per mettere a fuoco più lontano o verso il basso per mettere a fuoco più vicino.</string>
     <!-- Picture format: quality, colour, stabilisation and the two mirror switches. Each shows only where a camera has it. -->
     <string name="recorder_format_reduced">Questa camera non è riuscita a partire con tutte le impostazioni richieste. Si registra senza HDR o senza stabilizzazione.</string>
+    <string name="recorder_camera_1080_only">%1$s · solo 1080p</string>
     <string name="recorder_settings_picture">Immagine</string>
     <string name="recorder_mirror_preview">Anteprima selfie a specchio</string>
     <string name="recorder_mirror_recording">Salva i selfie specchiati</string>
     <string name="recorder_mirror_note">L\'anteprima della camera frontale si comporta come uno specchio. Nel video salvato le scritte restano leggibili, a meno che Salva i selfie specchiati sia attivo. Lo specchio dell\'anteprima si cambia prima di una ripresa o durante una pausa; l\'immagine salvata resta com\'è fino allo Stop.</string>
+    <string name="recorder_settings_quality">Qualità di registrazione</string>
+    <string name="recorder_quality_1080">1080p · 30 fps</string>
+    <string name="recorder_quality_4k">4K · 30 fps</string>
+    <string name="recorder_quality_note">Il 4K usa più spazio e più batteria. La qualità resta fissa fino allo Stop.</string>
+    <string name="recorder_quality_note_camera">La camera in uso non ha il 4K e registra a 1080p. La qualità resta fissa fino allo Stop.</string>
 </resources>

@@ -80,8 +80,14 @@
     <string name="recorder_focus_note_manual">In the recorder, swipe up on MF for farther focus or down for nearer focus.</string>
     <!-- Picture format: quality, colour, stabilisation and the two mirror switches. Each shows only where a camera has it. -->
     <string name="recorder_format_reduced">This camera could not start with every setting asked for. Recording without HDR or stabilization.</string>
+    <string name="recorder_camera_1080_only">%1$s · 1080p only</string>
     <string name="recorder_settings_picture">Picture</string>
     <string name="recorder_mirror_preview">Mirror selfie preview</string>
     <string name="recorder_mirror_recording">Save mirrored selfies</string>
     <string name="recorder_mirror_note">The front-camera preview behaves like a mirror by default. Saved video keeps writing readable unless Save mirrored selfies is on. The preview mirror changes before a take or while it is paused; the saved picture stays as it is until Stop.</string>
+    <string name="recorder_settings_quality">Recording quality</string>
+    <string name="recorder_quality_1080">1080p · 30 fps</string>
+    <string name="recorder_quality_4k">4K · 30 fps</string>
+    <string name="recorder_quality_note">4K uses more storage and power. Quality stays fixed until Stop.</string>
+    <string name="recorder_quality_note_camera">The camera in use has no 4K and records 1080p. Quality stays fixed until Stop.</string>
 </resources>
