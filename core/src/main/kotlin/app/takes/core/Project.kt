@@ -233,6 +233,13 @@ data class TimelineClip(
     val transitionFit: TransitionFit? = null,
     /** The fit of [openingTransition]. */
     val openingTransitionFit: TransitionFit? = null,
+    /**
+     * The clip's video effects in the order they were applied, as the original saves them
+     * (YouRec/Project.swift:58). Ranges and keyframes are in source seconds, so both pieces of a split
+     * keep the list. Null when the clip has none; effects of a later version are left out when read.
+     */
+    @Serializable(with = SupportedVideoEffects::class)
+    val videoEffects: List<VideoEffectSettings>? = null,
 ) {
     /** How fast the clip plays: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
@@ -248,6 +255,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        !videoEffects.isNullOrEmpty() -> 16
         audio?.reshaped(duration) == true -> 15
         crop?.reframed == true -> 14
         openingTransition != null || transition?.legacy == false -> 13
