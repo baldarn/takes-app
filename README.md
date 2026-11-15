@@ -62,9 +62,13 @@ The port is still in progress. What works today is listed under
   dragging, and channel styles saved for every project.
 - Export of the edit to a new movie in the project's `Exports` folder, with a choice
   of size (original, 720p, 1080p, 4K), H.264 or H.265, and a 30 or 60 fps ceiling, then
-  play, share or save to the gallery. Sources are never modified. A movie with a
-  transition runs at one frame rate, the fastest footage's under the ceiling; a movie of
-  plain cuts keeps the footage's own frames.
+  play, share or save to the gallery. Sources are never modified. A movie runs at one
+  frame rate, the fastest footage's under the ceiling, and slower footage repeats frames.
+  The movie is made in sections of twelve seconds that are kept as they are finished:
+  leaving the app pauses the export, as in the original, and it resumes from the saved
+  sections, also after the app was closed. The finished movie is checked (its length, its
+  first and last picture, the loudest peak of its sound) and keeps a receipt, so an
+  unchanged edit offers the movie it has in place of exporting again.
 - Import of videos from the device through the system picker, into a new or an
   existing project. HDR footage is tone-mapped on export.
 - Credits and licenses screen with the bundled license texts.

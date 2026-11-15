@@ -394,7 +394,7 @@
     <string name="export_pixels">%1$d × %2$d pixels</string>
     <string name="export_frame_rate">Frames per second</string>
     <string name="export_up_to">Up to %1$d</string>
-    <string name="export_frame_rate_note">Footage with more frames is reduced. Plain cuts keep the footage\'s own frames. With a transition the movie runs at the rate of its fastest footage, and slower footage repeats frames.</string>
+    <string name="export_frame_rate_note">Footage with more frames is reduced. The movie runs at the rate of its fastest footage, and slower footage repeats frames.</string>
     <string name="export_format">Format</string>
     <string name="export_h265_smaller">H.265 (smaller file)</string>
     <string name="export_progress">Exporting… %1$d%%</string>
