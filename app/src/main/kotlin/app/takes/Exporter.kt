@@ -80,6 +80,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -457,7 +458,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     }
 
     /** The whole export of [project]; [published] is told the movie once it is saved. Cancelling the coroutine stops it, and what is in [checkpoint] by then stays. */
-    private suspend fun run(project: Project, folder: File, checkpoint: ExportCheckpoint, published: (File) -> Unit) {
+    private suspend fun run(project: Project, folder: File, checkpoint: ExportCheckpoint, published: (File) -> Unit): Unit = coroutineScope {
         val clips = project.edit.clips
         val duration = project.edit.duration
         val settings = project.exportSettings
@@ -507,25 +508,28 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
         val sections = ExportSections.sections(duration)
 
-        // How loud the mix gets, measured once before anything is encoded and kept with the saved work.
-        if (checkpoint.measuredPeak == null) {
-            report(ExportProgress.of(ExportProgress.Step.AudioPeak))
-            ExportCheck.peak(project.edit, files) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
-                ?.let { peak -> withContext(Dispatchers.IO) { checkpoint.savePeak(peak) } }
-        }
-
-        // The sound, once for the whole movie.
-        if (!checkpoint.audioFile.isFile) {
-            report(ExportProgress.of(ExportProgress.Step.Audio))
-            val file = partial()
-            withContext(Dispatchers.IO) { ExportSpace.require(ExportSpace.audio(duration), scratch) }
-            render(movie.sound(), file, codec, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Audio, it)) }
-            withContext(Dispatchers.IO) {
-                if (ExportTrack.read(file, "audio/") == null) throw IOException("The sound of the movie could not be rendered.")
-                checkpoint.publish(file, checkpoint.audioFile)
+        // Beside the picture, not before it: the sound of the whole movie in one pass, and how loud the mix gets,
+        // measured before anything is encoded and kept with the saved work. On a phone the sound takes about as
+        // long as the picture, and one after the other an export took twice the time of a single pass.
+        val measuring = async {
+            if (checkpoint.measuredPeak == null) {
+                report(ExportProgress.of(ExportProgress.Step.AudioPeak))
+                ExportCheck.peak(project.edit, files) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
+                    ?.let { peak -> withContext(Dispatchers.IO) { checkpoint.savePeak(peak) } }
             }
         }
-        report(ExportProgress.of(ExportProgress.Step.Audio, 1.0))
+        val sounding = async {
+            if (!checkpoint.audioFile.isFile) {
+                report(ExportProgress.of(ExportProgress.Step.Audio))
+                val file = partial()
+                withContext(Dispatchers.IO) { ExportSpace.require(ExportSpace.audio(duration), scratch) }
+                render(movie.sound(), file, codec, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Audio, it)) }
+                withContext(Dispatchers.IO) {
+                    if (ExportTrack.read(file, "audio/") == null) throw IOException("The sound of the movie could not be rendered.")
+                    checkpoint.publish(file, checkpoint.audioFile)
+                }
+            }
+        }
 
         // The picture, a section at a time. One that is saved is not rendered again.
         var tracks: List<ExportTrack> = emptyList()
@@ -567,6 +571,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             again = true
             withContext(Dispatchers.IO) { sections.forEach { checkpoint.section(it.index).delete() } }
         }
+
+        sounding.await()
+        measuring.await()
 
         // The join: the sections end to end and the sound beside them, nothing encoded again.
         val joined = partial()
