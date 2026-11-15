@@ -19,7 +19,7 @@ YouRec name and icon are reserved by its author, so this port has its own.
 
 Android 8 or newer. Recordings, projects and what is said in them stay on the device.
 The app uses the network for one thing: downloading the speech model for subtitles (about
-161 MB, from Hugging Face) when you ask for it.
+987 MB or 375 MB depending on the model, from Hugging Face) when you ask for it.
 
 The port is still in progress. What works today is listed under
 [What it does](#what-it-does), what is missing under [Not ported yet](#not-ported-yet).
@@ -88,8 +88,9 @@ The port is still in progress. What works today is listed under
 - Sound levels in half decibels with a warning when the mix would clip, fades of any
   length that survive a split, short fades at cuts so they do not click, and the level
   set by dragging a waveform up or down.
-- Subtitles: the speech of the clips is transcribed on the phone with Whisper (through
-  sherpa-onnx), in the language you choose or one it detects. The model is downloaded
+- Subtitles: the speech of the clips is transcribed on the phone with Qwen3-ASR, the
+  original's model, or with the lighter Whisper small on phones with less memory (both
+  through sherpa-onnx), in the language you choose or one it detects. The model is downloaded
   once on request, verified, kept out of backups, and can be removed. Captions follow
   their footage through splits, trims, moves and speed changes; their text can be
   corrected or deleted, regrouped by words per caption, and styled (plain, bold, box or
@@ -132,8 +133,8 @@ for the `rnnoise` module.
   Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
   `TimelineEditing` (split, delete, move, trim, transitions, titles, bookmarks), `WaveformBuilder` (audio peaks).
 - `rnnoise/` — the RNNoise C library with a small Kotlin API, built with the NDK.
-- `speech/` — speech recognition for subtitles: Whisper through sherpa-onnx, and the
-  verified download of its model. The first build fetches sherpa-onnx from its GitHub release.
+- `speech/` — speech recognition for subtitles: Qwen3-ASR and Whisper through sherpa-onnx,
+  the description of each model and the verified download of its files. The first build fetches sherpa-onnx from its GitHub release.
 - `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
   take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
   Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.

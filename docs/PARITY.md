@@ -49,7 +49,7 @@ Per area:
 | 11. Export | 6 | 1 | 0 | 5 | 0 |
 | 12. Settings, credits, localisation, accessibility | 3 | 1 | 0 | 1 | 2 |
 
-The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), Whisper language choice with a 161 MB model instead of 713 MB, and "Save to gallery" plus "Play" on the export result.
+The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
 
 ## 1. App shell and project list
 
@@ -257,8 +257,8 @@ The port goes beyond the original in three places, not counted above: Italian lo
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
-| On-device transcription, model downloaded on request, verified, removable | O/SubtitleModelPack.swift:9-82, O/SubtitleTranscriber.swift:24-83 | DONE | A/SubtitleModel.kt, A/SubtitleTranscriber.kt, `speech/` (Whisper base, 161 MB, instead of Qwen3-ASR) | — | | |
-| Language choice (Auto + 11) | O/SubtitleEditor.swift:47 | DONE | A/SubtitlesPanel.kt:93-106 | — | | |
+| On-device transcription, model downloaded on request, verified, removable | O/SubtitleModelPack.swift:9-82, O/SubtitleTranscriber.swift:24-83 | DONE | A/SubtitleModel.kt, A/SubtitleTranscriber.kt, `speech/` (Qwen3-ASR 0.6B as in the original, 987 MB; Whisper small, 375 MB, for phones with less memory; see "Departures in the recognizer" below) | — | | |
+| Language choice (Auto + 11); Auto gives every piece to the model without a hint | O/SubtitleEditor.swift:47, O/SubtitleTranscriber.swift:70-71 | DONE | A/SubtitlesPanel.kt (`Languages`), A/SubtitleTranscriber.kt (`transcribe`) | — | | |
 | Progress with sections and time left, cancel | O/SubtitleEditor.swift:150-157 | PARTIAL | A/SubtitlesPanel.kt:186, strings `subtitles_section`, `subtitles_stopping` | Pause on backgrounding with "Resume transcription" from a checkpoint | M | Yes |
 | Transcribe a marked selection only | O/SubtitleEditor.swift:232-236 | MISSING | Whole project | Needs range selection | M | Yes |
 | Transcribes the mix, including sound on audio tracks | O/Subtitles.swift:205-247 | PARTIAL | Clips' own sound only (C/SubtitleEditing.kt:17, README "Not ported yet") | Audio items | M | Yes |
@@ -270,6 +270,22 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Styles plain/bold/box/highlight, six colours, five fonts | O/Subtitles.swift:15-47 | DONE | A/SubtitlesPanel.kt:475, A/SubtitleRendering.kt:96 | — | | |
 | Full title inspector for captions (looks, fonts, fill, outline, shadow, background) and per-caption motion | O/SubtitleEditor.swift:279-294 | MISSING | Kept as raw JSON so it is not lost (C/Subtitles.kt:36-59) | Depends on area 7 | M | Yes |
 | Same drawing in preview and export, two stacked captions | O/SubtitleRenderer.swift:93-203 | DONE | A/SubtitleRendering.kt:33-131, A/Exporter.kt:249-254 | — | | |
+
+### Departures in the recognizer
+
+Brought up to date on 2026-11-15 with the change that brings the original's model. The original runs Qwen3-ASR 0.6B (4-bit, MLX) in pieces of at most 12 s, with no hint when the language is Auto and "language <name>" otherwise, at most 256 tokens per piece (`O/SubtitleTranscriber.swift:70-71`, `O/SubtitleSpeech.swift:34-46`, `ThirdParty/QwenASR/Sources/YouRecQwen/Qwen3ASR/Qwen3ASR.swift:492-498`). The port does the same with the same model, through sherpa-onnx. Where it departs, and why:
+
+| Departure | Original | Port | Why |
+|---|---|---|---|
+| Another conversion of the same model | aufklarer's 4-bit MLX conversion, 713 MB, five files (`O/SubtitleModelPack.swift:7-16`) | The sherpa-onnx project's 8-bit ONNX export, 987 MB, six files (`S/SpeechModel.kt`, `Qwen3Asr`). The three tokenizer files are byte for byte the original's | Android forces it: MLX runs on Apple hardware only |
+| A second, lighter model | One model for every iPhone | Whisper small (375 MB) is offered too, and is what a phone gets by itself when Android reports under 7 GB of memory (`S/SpeechModels.kt`, `QWEN_MINIMUM_RAM_BYTES`) | Android forces it: Qwen3-ASR takes 2.1 GB of memory while it works (measured, `speech/README.md`), which phones sold with 4 or 6 GB cannot be counted on to have |
+| A choice of model in the tool | None | A line "Model: … · n MB" at the foot of the tool opens a choice of the two, with removal for each; someone who does nothing sees one download button, as in the original (`A/SubtitlesPanel.kt`, `ModelChoice`) | Follows from the second model |
+| Whisper base kept where it is | — | A phone that downloaded Whisper base with an earlier version keeps using it until the person picks another model; it is not offered for download any more | Not to take away, on an update, what the person downloaded |
+| Refusal for lack of memory | Loads the model whatever the memory | Before loading, the free memory is compared with what the model takes; when it is not enough the tool says so and offers the lighter model. A job the app did not survive is reported the next time the tool opens (`A/SubtitleTranscriber.kt`, `A/SubtitleModel.kt`, `interrupted`) | Android ends an app that takes more memory than the phone can give, without a chance to say anything |
+| Language hint by code | The name the person picked goes to the model as it is | The same name reaches Qwen3-ASR ("language Italian"), by way of the two-letter code Whisper needs (`S/SpeechRecognizer.kt`, `QWEN_LANGUAGES`) | Two recognizers behind one interface; the model receives the same words |
+| What is listened to | The finished mix of the timeline | Each clip's own recording | Older departure, unchanged here: `docs/SUBTITLES-REVIEW.md`, findings 2, 3 and 8 |
+
+Not a departure any more: with Auto the port used to force the language of the first piece on all the others. Every piece is now recognized without a hint, as in the original, so two pieces can come out in two languages on both platforms.
 
 ## 10. Video effects
 
