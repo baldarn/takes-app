@@ -332,7 +332,7 @@ internal fun CropPanel(
                     val spoken = stringResource(if (across) R.string.crop_across_slider else R.string.crop_down_slider)
                     val reach = CropGestures.positionRange(crop, across, source, canvas)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, color = Color.White, fontSize = 14.sp, modifier = Modifier.width(88.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(name, color = Color.White, fontSize = 14.sp, modifier = Modifier.width(104.dp).padding(end = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Slider(
                             value = (if (across) visible.x else visible.y).toFloat().coerceIn(reach.start.toFloat(), reach.endInclusive.toFloat()),
                             onValueChange = {
