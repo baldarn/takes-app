@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -20,6 +22,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,6 +46,7 @@ import java.io.File
 
 private val Muted = Color(0xFFA0A4AB)
 private val Warning = Color(0xFFFF9F0A)
+private val Done = Color(0xFF30D158)
 
 /** What the status line of an export says, in the person's language. */
 private val ExportProgress.Label.caption: Int
@@ -97,8 +101,9 @@ fun ExportPanel(project: Project, canvas: Pair<Int, Int>?, store: ProjectStore, 
             discard = { dismiss(); exporter.cancel() },
             close = { aside = paused; dismiss() },
         )
-        choosing -> ExportSettingsDialog(
-            project.exportSettings, canvas,
+        // Not over the movie that has just been made.
+        choosing && exporter.result == null -> ExportSettingsDialog(
+            project, exporter, canvas, context, report = { message -> store.error = message },
             start = { settings ->
                 dismiss()
                 store.setExportSettings(project.id, settings)
@@ -110,15 +115,27 @@ fun ExportPanel(project: Project, canvas: Pair<Int, Int>?, store: ProjectStore, 
     if (status == null) exporter.result?.let { ExportedDialog(it, exporter, context) { message -> store.error = message } }
 }
 
-/** The choices are remembered in the project. [canvas] is the shape of the first clip. */
+/**
+ * The choices are remembered in the project. [canvas] is the shape of the first clip.
+ *
+ * While the edit and the choices are those of a movie that is already exported, that movie is offered, to
+ * play, share and save, in place of a new export; a movie made from an earlier edit or with other choices is
+ * offered as the previous export beside the new one.
+ */
 @Composable
-private fun ExportSettingsDialog(saved: ExportSettings, canvas: Pair<Int, Int>?, start: (ExportSettings) -> Unit, dismiss: () -> Unit) {
-    var settings by remember { mutableStateOf(saved) }
+private fun ExportSettingsDialog(
+    project: Project, exporter: Exporter, canvas: Pair<Int, Int>?, context: Context, report: (String) -> Unit, start: (ExportSettings) -> Unit, dismiss: () -> Unit,
+) {
+    var settings by remember { mutableStateOf(project.exportSettings) }
+    val exported by produceState<ExportedMovie?>(null, project.id, project.updatedAt, project.historyCursor, settings) {
+        value = exporter.exported(project.copy(exportSettings = settings))
+    }
+    val made = exported?.takeIf { it.current }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(stringResource(R.string.export_title)) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Choices(stringResource(R.string.export_size), listOf(
                     stringResource(R.string.export_size_original) to ExportSettings.Resolution.Project, "720p" to ExportSettings.Resolution.HD,
                     "1080p" to ExportSettings.Resolution.FullHD, "4K" to ExportSettings.Resolution.UltraHD,
@@ -132,11 +149,43 @@ private fun ExportSettingsDialog(saved: ExportSettings, canvas: Pair<Int, Int>?,
                 Choices(stringResource(R.string.export_format), listOf("H.264" to ExportSettings.Codec.H264, stringResource(R.string.export_h265_smaller) to ExportSettings.Codec.HEVC), settings.codec) {
                     settings = settings.copy(codec = it)
                 }
+                val movie = exported
+                if (made != null) {
+                    Text(stringResource(R.string.export_step_complete), color = Done, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp))
+                    made.warning?.let { ExportAudioWarning(it) }
+                    ExportedActions(made.file, exporter, context, report, R.string.export_share_latest, R.string.export_save_to_gallery)
+                } else if (movie != null) {
+                    Text(stringResource(R.string.export_previous_stays), fontSize = 13.sp, modifier = Modifier.padding(top = 16.dp))
+                    Text(stringResource(R.string.export_previous_title), fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
+                    Text(stringResource(R.string.export_previous_note), color = Muted, fontSize = 13.sp)
+                    ExportedActions(movie.file, exporter, context, report, R.string.export_share_previous, R.string.export_save_previous)
+                }
             }
         },
-        confirmButton = { Button(onClick = { start(settings) }) { Text(stringResource(R.string.editor_export)) } },
-        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
+        confirmButton = {
+            if (made != null) TextButton(onClick = dismiss) { Text(stringResource(R.string.common_done)) }
+            else Button(onClick = { start(settings) }) { Text(stringResource(R.string.editor_export)) }
+        },
+        dismissButton = { if (made == null) TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
+}
+
+/** What can be done with the movie in [file]: playing it, sharing it, saving it to the gallery. */
+@Composable
+private fun ExportedActions(file: File, exporter: Exporter, context: Context, report: (String) -> Unit, share: Int, save: Int) {
+    val uri = remember(file) { runCatching { FileProvider.getUriForFile(context, "${context.packageName}.files", file) }.getOrNull() } ?: return
+    fun open(intent: Intent) = try {
+        context.startActivity(intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+    } catch (_: Exception) {
+        report(context.getString(R.string.export_open_failed))
+    }
+    TextButton(onClick = { open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4")) }) { Text(stringResource(R.string.common_play)) }
+    TextButton(onClick = {
+        open(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, uri), null))
+    }) { Text(stringResource(share)) }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        TextButton(onClick = { exporter.saveToGallery(file) }) { Text(stringResource(save)) }
+    }
 }
 
 /** The export as it runs: the step it is at, in words, and one bar for all of it, which never moves back. */
@@ -200,12 +249,6 @@ private fun ExportAudioWarning(warning: ExportReceipt.AudioWarning) {
 /** The finished movie, to play, share or save. */
 @Composable
 private fun ExportedDialog(file: File, exporter: Exporter, context: Context, report: (String) -> Unit) {
-    val uri = remember(file) { FileProvider.getUriForFile(context, "${context.packageName}.files", file) }
-    fun open(intent: Intent) = try {
-        context.startActivity(intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-    } catch (_: Exception) {
-        report(context.getString(R.string.export_open_failed))
-    }
     AlertDialog(
         onDismissRequest = { exporter.result = null },
         title = { Text(stringResource(R.string.export_done_title)) },
@@ -213,13 +256,7 @@ private fun ExportedDialog(file: File, exporter: Exporter, context: Context, rep
             Column {
                 Text(file.name, color = Muted, fontSize = 13.sp)
                 exporter.warning?.let { ExportAudioWarning(it) }
-                TextButton(onClick = { open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4")) }) { Text(stringResource(R.string.common_play)) }
-                TextButton(onClick = {
-                    open(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, uri), null))
-                }) { Text(stringResource(R.string.export_share)) }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    TextButton(onClick = { exporter.saveToGallery(file) }) { Text(stringResource(R.string.export_save_to_gallery)) }
-                }
+                ExportedActions(file, exporter, context, report, R.string.export_share, R.string.export_save_to_gallery)
             }
         },
         confirmButton = { TextButton(onClick = { exporter.result = null }) { Text(stringResource(R.string.common_done)) } },

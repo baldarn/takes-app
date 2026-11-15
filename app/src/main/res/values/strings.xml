@@ -726,4 +726,10 @@
     <string name="export_discard">Discard export</string>
     <string name="export_audio_warning_title">Audio may distort</string>
     <string name="export_audio_warning">Peaks are %1$s dB above full scale. Lower Volume in the editor and export again.</string>
+    <string name="export_previous_stays">Your previous export stays available until the new movie is ready.</string>
+    <string name="export_previous_title">Previous export</string>
+    <string name="export_previous_note">This movie uses the earlier edits and settings.</string>
+    <string name="export_share_latest">Share latest export</string>
+    <string name="export_share_previous">Share previous movie</string>
+    <string name="export_save_previous">Save previous movie to gallery</string>
 </resources>
