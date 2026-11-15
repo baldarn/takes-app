@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The pixel tests of the transition shader run under an instrumentation of their own, which needs
+    nothing the build does not already have (no test runner library):
+
+        adb shell am instrument -w app.takes.dev.test/app.takes.pixels.TransitionPixelRunner
+
+    The target is the development build, the only one a test build is made for.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <instrumentation
+        android:name="app.takes.pixels.TransitionPixelRunner"
+        android:label="Transition shader pixel tests"
+        android:targetPackage="app.takes.dev" />
+</manifest>
