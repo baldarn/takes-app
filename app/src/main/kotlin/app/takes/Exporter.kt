@@ -2,6 +2,7 @@
 
 package app.takes
 
+import app.takes.core.ExportProblem
 import android.app.Activity
 import android.app.Application
 import android.content.ContentValues
@@ -416,7 +417,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         try {
             checkpoint.prepare(project)
         } catch (problem: Exception) {
-            store.error = context.getString(R.string.export_failed, problem.message ?: context.getString(R.string.common_unknown_error))
+            store.error = context.getString(R.string.export_failed, said(problem))
             return
         }
         checkpoint.pauseReason = null
@@ -454,7 +455,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             problem == null -> if (pausing) ExportCheckpoint.Failure.PausedInBackground else ExportCheckpoint.Failure.Cancelled
             problem is Refusal -> ExportCheckpoint.Failure.Failed(problem.message.orEmpty())
             else -> ExportCheckpoint.failure(
-                context.getString(R.string.export_failed, problem.message ?: (problem as? ExportException)?.errorCodeName ?: context.getString(R.string.common_unknown_error)),
+                context.getString(R.string.export_failed, said(problem)),
                 cancelled = false, outOfSpace = outOfSpace(problem), foreground = foreground, paused = pausing,
             )
         }
@@ -477,6 +478,11 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     }
 
     /** Whether [problem] is the device being full. */
+    /** The reason of a failed export in the person's language; a technical code or the system's text when the export gave none. */
+    private fun said(problem: Throwable): String =
+        (problem as? ExportProblem)?.let { context.getString(it.reason.label) }
+            ?: problem.message ?: (problem as? ExportException)?.errorCodeName ?: context.getString(R.string.common_unknown_error)
+
     private fun outOfSpace(problem: Throwable): Boolean =
         generateSequence(problem) { it.cause }.take(8).any { it is ExportSpaceException || it.message?.contains("ENOSPC") == true || it.message?.contains("No space left") == true }
 
@@ -513,7 +519,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val scratch = File(folder, ExportCheckpoint.PROCESSING)
         withContext(Dispatchers.IO) {
             ExportCheckpoint.reclaim(folder)
-            if (!scratch.mkdirs() && !scratch.isDirectory) throw IOException("The export could not be prepared.")
+            if (!scratch.mkdirs() && !scratch.isDirectory) throw ExportProblem(ExportProblem.Reason.NotPrepared)
         }
         fun partial() = File(scratch, UUID.randomUUID().toString().uppercase() + ".mp4")
 
@@ -561,7 +567,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 withContext(Dispatchers.IO) { ExportSpace.require(ExportSpace.audio(duration), scratch) }
                 render(movie.sound(), file, codec, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Audio, it)) }
                 withContext(Dispatchers.IO) {
-                    if (ExportTrack.read(file, "audio/") == null) throw IOException("The sound of the movie could not be rendered.")
+                    if (ExportTrack.read(file, "audio/") == null) throw ExportProblem(ExportProblem.Reason.SoundNotRendered)
                     checkpoint.publish(file, checkpoint.audioFile)
                 }
             }
@@ -587,7 +593,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     }
                     if (saved) break
                 }
-                if (!saved) throw IOException("A section of the movie came out incomplete.")
+                if (!saved) throw ExportProblem(ExportProblem.Reason.SectionIncomplete)
             }
             // First pass of the join: every section is looked at. They must hold the frames the movie needs and
             // agree on the codec's setup data, of which the movie holds one copy.
@@ -603,7 +609,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             if (fits) { tracks = read.filterNotNull(); break }
             // Sections that do not fit together, made by another version of the system or damaged: all of them
             // are rendered again, once.
-            if (again) throw IOException("The saved sections of the movie do not fit together.")
+            if (again) throw ExportProblem(ExportProblem.Reason.SectionsMismatch)
             again = true
             withContext(Dispatchers.IO) { sections.forEach { checkpoint.section(it.index).delete() } }
         }
@@ -615,7 +621,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val joined = partial()
         withContext(Dispatchers.IO) {
             val parts = sections.map { checkpoint.section(it.index) }
-            val sound = ExportTrack.read(checkpoint.audioFile, "audio/") ?: throw IOException("The saved sound of the export cannot be read.")
+            val sound = ExportTrack.read(checkpoint.audioFile, "audio/") ?: throw ExportProblem(ExportProblem.Reason.SavedSoundUnreadable)
             ExportSpace.require(ExportSpace.join(parts.sumOf { it.length() } + checkpoint.audioFile.length()), scratch)
             val active = coroutineContext
             ExportJoin.join(
@@ -639,7 +645,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         // first and last picture decode. One that fails is reported and never published.
         report(ExportProgress.of(ExportProgress.Step.Verifying))
         withContext(Dispatchers.IO) {
-            if (ExportTrack.read(joined, "video/")?.samples != tracks.sumOf { it.samples }) throw IOException("The exported movie is not complete.")
+            if (ExportTrack.read(joined, "video/")?.samples != tracks.sumOf { it.samples }) throw ExportProblem(ExportProblem.Reason.Incomplete)
             ExportCheck.verify(joined, duration, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Verifying, 0.5)) }
         }
 
@@ -767,3 +773,20 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
     }
 }
+
+val ExportProblem.Reason.label: Int
+    get() = when (this) {
+        ExportProblem.Reason.WrongLength -> R.string.export_problem_wrong_length
+        ExportProblem.Reason.Incomplete -> R.string.export_problem_incomplete
+        ExportProblem.Reason.FirstPicture -> R.string.export_problem_first_picture
+        ExportProblem.Reason.LastPicture -> R.string.export_problem_last_picture
+        ExportProblem.Reason.Unreadable -> R.string.export_problem_unreadable
+        ExportProblem.Reason.NotPrepared -> R.string.export_problem_not_prepared
+        ExportProblem.Reason.SoundNotRendered -> R.string.export_problem_sound_not_rendered
+        ExportProblem.Reason.SectionIncomplete -> R.string.export_problem_section_incomplete
+        ExportProblem.Reason.SectionsMismatch -> R.string.export_problem_sections_mismatch
+        ExportProblem.Reason.SavedSoundUnreadable -> R.string.export_problem_saved_sound_unreadable
+        ExportProblem.Reason.SavedSectionUnreadable -> R.string.export_problem_saved_section_unreadable
+        ExportProblem.Reason.SectionsNotWhole -> R.string.export_problem_sections_not_whole
+        ExportProblem.Reason.PausedNotRemoved -> R.string.export_problem_paused_not_removed
+    }

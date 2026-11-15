@@ -741,4 +741,17 @@
     <string name="export_share_latest">Condividi l\'ultima esportazione</string>
     <string name="export_share_previous">Condividi il filmato precedente</string>
     <string name="export_save_previous">Salva il filmato precedente in galleria</string>
+    <string name="export_problem_wrong_length">Il filmato esportato ha una durata sbagliata.</string>
+    <string name="export_problem_incomplete">Il filmato esportato non è completo.</string>
+    <string name="export_problem_first_picture">Non è possibile leggere la prima immagine del filmato esportato.</string>
+    <string name="export_problem_last_picture">Non è possibile leggere l\'ultima immagine del filmato esportato.</string>
+    <string name="export_problem_unreadable">Non è possibile leggere il filmato esportato.</string>
+    <string name="export_problem_not_prepared">Non è stato possibile preparare l\'esportazione.</string>
+    <string name="export_problem_sound_not_rendered">Non è stato possibile produrre l\'audio del filmato.</string>
+    <string name="export_problem_section_incomplete">Una sezione del filmato è risultata incompleta.</string>
+    <string name="export_problem_sections_mismatch">Le sezioni salvate del filmato non combaciano.</string>
+    <string name="export_problem_saved_sound_unreadable">Non è possibile leggere l\'audio salvato dell\'esportazione.</string>
+    <string name="export_problem_saved_section_unreadable">Non è possibile leggere una sezione salvata dell\'esportazione.</string>
+    <string name="export_problem_sections_not_whole">Le sezioni salvate dell\'esportazione non contengono tutto il filmato.</string>
+    <string name="export_problem_paused_not_removed">Non è stato possibile rimuovere l\'esportazione in pausa.</string>
 </resources>

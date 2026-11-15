@@ -1,5 +1,6 @@
 package app.takes
 
+import app.takes.core.ExportProblem
 import android.graphics.Bitmap
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -111,24 +112,24 @@ object ExportCheck {
         try {
             retriever.setDataSource(movie.path)
             val actual = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { it / 1000.0 }
-            if (actual == null || !ExportSections.durationMatches(actual, expected, framesPerSecond, soundPacket(movie))) throw IOException("The exported movie has the wrong length.")
+            if (actual == null || !ExportSections.durationMatches(actual, expected, framesPerSecond, soundPacket(movie))) throw ExportProblem(ExportProblem.Reason.WrongLength)
             if (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) != "yes" || retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) != "yes") {
-                throw IOException("The exported movie is not complete.")
+                throw ExportProblem(ExportProblem.Reason.Incomplete)
             }
             fun picture(seconds: Double): Bitmap? {
                 val micros = Math.round(seconds * 1e6)
                 return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) retriever.getScaledFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST, 96, 96)
                 else retriever.getFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST)
             }
-            (picture(0.0) ?: throw IOException("The first picture of the exported movie cannot be read.")).recycle()
+            (picture(0.0) ?: throw ExportProblem(ExportProblem.Reason.FirstPicture)).recycle()
             halfway()
             ExportSections.lastPictureTime(actual, expected, framesPerSecond)?.let { last ->
-                (picture(last) ?: throw IOException("The last picture of the exported movie cannot be read.")).recycle()
+                (picture(last) ?: throw ExportProblem(ExportProblem.Reason.LastPicture)).recycle()
             }
         } catch (problem: IOException) {
             throw problem
         } catch (problem: Exception) {
-            throw IOException("The exported movie cannot be read.", problem)
+            throw ExportProblem(ExportProblem.Reason.Unreadable, problem)
         } finally {
             runCatching { retriever.release() }
         }

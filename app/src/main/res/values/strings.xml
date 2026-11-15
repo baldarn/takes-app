@@ -732,4 +732,17 @@
     <string name="export_share_latest">Share latest export</string>
     <string name="export_share_previous">Share previous movie</string>
     <string name="export_save_previous">Save previous movie to gallery</string>
+    <string name="export_problem_wrong_length">The exported movie has the wrong length.</string>
+    <string name="export_problem_incomplete">The exported movie is not complete.</string>
+    <string name="export_problem_first_picture">The first picture of the exported movie cannot be read.</string>
+    <string name="export_problem_last_picture">The last picture of the exported movie cannot be read.</string>
+    <string name="export_problem_unreadable">The exported movie cannot be read.</string>
+    <string name="export_problem_not_prepared">The export could not be prepared.</string>
+    <string name="export_problem_sound_not_rendered">The sound of the movie could not be rendered.</string>
+    <string name="export_problem_section_incomplete">A section of the movie came out incomplete.</string>
+    <string name="export_problem_sections_mismatch">The saved sections of the movie do not fit together.</string>
+    <string name="export_problem_saved_sound_unreadable">The saved sound of the export cannot be read.</string>
+    <string name="export_problem_saved_section_unreadable">A saved section of the export cannot be read.</string>
+    <string name="export_problem_sections_not_whole">The saved sections of the export do not hold the whole movie.</string>
+    <string name="export_problem_paused_not_removed">The paused export could not be removed.</string>
 </resources>
