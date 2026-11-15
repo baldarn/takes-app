@@ -74,6 +74,9 @@ import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.ImportedLUT
 import app.takes.core.CropSettings
+import app.takes.core.CropGestures
+import app.takes.core.PictureFrame
+import app.takes.core.PictureFraming
 import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
 import androidx.compose.foundation.Image
@@ -809,12 +812,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
     val deckColors = deckClips.map { index -> index?.let { clips[it].color } }
-    // The framing each deck shows, with the size of the recording it applies to.
+    // The framing each deck shows at this moment, for a frame of the size it is drawn in: a crop is sampled at the
+    // source second its clip shows, so one that moves between two poses moves as the footage plays or is scrubbed.
     val deckFrames = deckClips.map { index ->
         val clip = index?.let { clips[it] }
         val crop = clip?.let { cropping?.takeIf { (id, _) -> id == clip.id }?.second ?: clip.crop }
         val size = clip?.let { sizes[it.sourceID] }
-        if (crop != null && size != null) crop to size else null
+        if (clip == null || crop == null || size == null) null else {
+            val shows = PictureFraming.motionTime(clip, (playhead - TimelineEditing.clipStart(clips, index)).coerceIn(0.0, clip.duration))
+            val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame) }
+            framing
+        }
     }
     SideEffect {
         deckSounds.forEachIndexed(editor::setSound)
@@ -1871,6 +1879,7 @@ private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSetti
         Level(stringResource(R.string.crop_zoom), "%.1f×".format(crop.zoom), crop.zoom, 1f..CropSettings.MAXIMUM_ZOOM.toFloat()) { change(crop.copy(zoom = (it * 10).roundToInt() / 10.0)) }
         Level(stringResource(R.string.crop_left_right), "${(crop.x * 100).roundToInt()}", crop.x, 0f..1f) { change(crop.copy(x = (it * 100).roundToInt() / 100.0)) }
         Level(stringResource(R.string.crop_up_down), "${(crop.y * 100).roundToInt()}", crop.y, 0f..1f) { change(crop.copy(y = (it * 100).roundToInt() / 100.0)) }
+        Level(stringResource(R.string.crop_rotation), "%.1f°".format(crop.rotation), crop.rotation, -180f..180f) { change(CropGestures.rotated(crop, (it * 10).roundToInt() / 10.0)) }
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
             TextButton(onClick = cancel) { Text(stringResource(R.string.common_cancel)) }
             if (removable) TextButton(onClick = { done(null) }) { Text(stringResource(R.string.crop_remove), color = RecordRed) }

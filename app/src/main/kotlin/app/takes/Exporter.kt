@@ -21,13 +21,16 @@ import androidx.media3.common.util.Size
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SpeedProvider
-import androidx.media3.effect.Crop
+import androidx.media3.effect.MatrixTransformation
 import androidx.media3.common.GlObjectsProvider
 import androidx.media3.common.GlTextureInfo
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
 import androidx.media3.effect.PassthroughShaderProgram
 import app.takes.core.FrameCeiling
+import app.takes.core.PictureFraming
+import app.takes.core.matrixValues
+import app.takes.core.normalized
 import androidx.media3.effect.OverlayEffect
 import app.takes.core.AudioItem
 import app.takes.core.ExportSettings
@@ -122,6 +125,30 @@ class FrameCeilingEffect(private val framesPerSecond: Int) : GlEffect {
             super.flush()
             ceiling.reset()
         }
+    }
+}
+
+/**
+ * A cropped clip's picture in the export: the footage zoomed, turned and
+ * moved into the movie's frame, which it fills. The framing is worked out
+ * for each frame by [PictureFraming.frame], the function the preview draws
+ * from, so a crop that moves between two poses moves here as it does there.
+ *
+ * [begins] is where the clip starts in the movie: Media3 times a clip's
+ * frames from the start of its sequence, after its speed, and the sequences
+ * are filled with gaps so that their time is the movie's. [source] is the
+ * upright size of the recording and [canvas] the size of the movie's frame.
+ */
+class FramingEffect(private val clip: TimelineClip, private val begins: Double, private val source: FrameSize, private val canvas: FrameSize) : MatrixTransformation {
+    private val matrix = android.graphics.Matrix()
+
+    override fun configure(inputWidth: Int, inputHeight: Int): Size = Size(canvas.width.toInt(), canvas.height.toInt())
+
+    override fun getMatrix(presentationTimeUs: Long): android.graphics.Matrix {
+        val frame = PictureFraming.frame(clip, presentationTimeUs / 1e6 - begins, source, canvas)
+        // Media3 moves the corners of the picture in −1…1 coordinates, y upward, and draws what stays inside the frame.
+        matrix.setValues(frame.transform.normalized(source, canvas).matrixValues())
+        return matrix
     }
 }
 
@@ -245,14 +272,12 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     if (settings.frameRate <= 30) add(FrameCeilingEffect(settings.frameRate))
                     // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
                     clip.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, folder.parentFile!!))) }
-                    // A crop cuts the window out of the footage; fitting then fills the frame with it.
+                    // A crop fills the frame with part of the footage, frame by frame; fitting then has nothing left to do.
                     val source = sizes[clip.sourceID]
                     if (clip.crop != null && source != null) {
-                        val window = clip.crop!!.rect(FrameSize(source.first.toDouble(), source.second.toDouble()), FrameSize(canvas.first.toDouble(), canvas.second.toDouble()))
-                        // Media3 wants the window in its −1…1 coordinates, y upward.
-                        add(Crop(
-                            (2 * window.x / source.first - 1).toFloat(), (2 * (window.x + window.width) / source.first - 1).toFloat(),
-                            (1 - 2 * (window.y + window.height) / source.second).toFloat(), (1 - 2 * window.y / source.second).toFloat(),
+                        add(FramingEffect(
+                            clip, TimelineEditing.clipStart(clips, index),
+                            FrameSize(source.first.toDouble(), source.second.toDouble()), FrameSize(canvas.first.toDouble(), canvas.second.toDouble()),
                         ))
                     }
                     add(fit)

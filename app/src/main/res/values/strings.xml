@@ -643,4 +643,5 @@
     <string name="editor_snap_on">On</string>
     <string name="editor_snap_off">Off</string>
     <string name="editor_snap_note">Snap aligns the playhead with nearby clip edges and bookmarks. Turn the magnet off for free positioning.</string>
+    <string name="crop_rotation">Rotation</string>
 </resources>

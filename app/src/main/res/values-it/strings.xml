@@ -651,4 +651,5 @@
     <string name="editor_snap_on">Attivo</string>
     <string name="editor_snap_off">Non attivo</string>
     <string name="editor_snap_note">L\'aggancio allinea il cursore ai bordi delle clip e ai segnalibri vicini. Spegni la calamita per posizionarlo liberamente.</string>
+    <string name="crop_rotation">Rotazione</string>
 </resources>

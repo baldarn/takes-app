@@ -32,7 +32,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import app.takes.core.CropSettings
+import app.takes.core.PictureFrame
+import app.takes.core.Point
 import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
 import app.takes.core.TransitionFrame
@@ -95,8 +96,9 @@ internal class HeldPictures {
 
 /**
  * The picture of the preview: the two decks and what the moment makes of
- * them. [effects] is each deck's color and [frames] its crop, with the size
- * of the recording; [moment] gives the moment for a frame of the size drawn,
+ * them. [effects] is each deck's color and [frames] its framing at this
+ * moment for a frame of the size drawn, null for a clip that is not cropped;
+ * [moment] gives the moment for a frame of the size drawn,
  * and [content] where a clip's own picture lies in that frame. [held] has the
  * frame a deck holds while its clip plays on, drawn in place of its picture.
  *
@@ -112,22 +114,26 @@ internal class HeldPictures {
  */
 @Composable
 internal fun DeckPictures(
-    decks: List<Player>, effects: List<RenderEffect?>, frames: List<Pair<CropSettings, FrameSize>?>,
+    decks: List<Player>, effects: List<RenderEffect?>, frames: List<((FrameSize) -> PictureFrame)?>,
     moment: (FrameSize) -> TransitionScene.Moment, content: (Int, FrameSize) -> Rect, held: HeldPictures,
 ) {
     val deck: @Composable (Int, Modifier) -> Unit = { index, modifier ->
         val placed = modifier.fillMaxSize().graphicsLayer {
             renderEffect = effects[index]
-            // The player fits the whole picture in this view. Enlarge and shift the
-            // view so the crop window fills it, as the export will.
-            frames[index]?.let { (crop, source) ->
-                val window = crop.rect(source, FrameSize(size.width.toDouble(), size.height.toDouble()))
+            // The player fits the whole picture in this view. Enlarge, turn and shift the
+            // view so the picture lies where the framing puts it, as the export draws it.
+            frames[index]?.let { framing ->
+                val frame = framing(FrameSize(size.width.toDouble(), size.height.toDouble()))
+                val source = frame.source
                 val fitted = minOf(size.width / source.width, size.height / source.height)
-                val enlarge = (size.width / (window.width * fitted)).toFloat()
+                val enlarge = (frame.scale / fitted).toFloat()
+                // The layer scales and turns around the middle of the view, where the middle of the picture is, then moves.
+                val middle = Point(source.width / 2, source.height / 2).applying(frame.transform)
                 scaleX = enlarge
                 scaleY = enlarge
-                translationX = (-(window.midX - source.width / 2) * fitted * enlarge).toFloat()
-                translationY = (-(window.midY - source.height / 2) * fitted * enlarge).toFloat()
+                rotationZ = frame.rotation.toFloat()
+                translationX = (middle.x - size.width / 2).toFloat()
+                translationY = (middle.y - size.height / 2).toFloat()
             }
         }
         AndroidView(
