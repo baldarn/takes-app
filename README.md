@@ -33,6 +33,8 @@ The port is still in progress. What works today is listed under
 - Per-camera zoom memory, zoom presets, timed zoom transitions (tap: saved time,
   double tap: one second), pinch to zoom.
 - Recordings stay outside editor undo/redo, as in the original model.
+- Unused takes: footage that is in the project but no longer in the edit can be put
+  back at the playhead, in a chosen order, as one Undo step.
 - Record here: from the editor, new takes go into the edit at the playhead instead of
   at the end, and one Undo takes the whole run back out.
 - Microphone choice on Android 12 or newer: automatic, the phone, or a Bluetooth, wired

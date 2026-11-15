@@ -24,6 +24,7 @@ import app.takes.core.ProjectRestore
 import app.takes.core.ProjectRestoreException
 import app.takes.core.SourceMedia
 import app.takes.core.TimelineEditing
+import app.takes.core.UnusedTakes
 import app.takes.core.newID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -304,6 +305,17 @@ class ProjectStore(context: Context) {
 
     /** Takes go to the end of the project again. */
     fun recordAtEnd(projectID: String) = change(projectID) { it.endRecordingInsertion() }
+
+    /**
+     * Puts takes that are in the project but not in the edit back at timeline
+     * second [at], in the order given, as one Undo step. Returns where the
+     * first one begins, or null when nothing was added.
+     */
+    fun addUnused(projectID: String, takes: List<SourceMedia>, at: Double): Double? {
+        val project = projects.firstOrNull { it.id == projectID } ?: return null
+        val added = UnusedTakes.add(project, takes, at) ?: return null
+        return if (update(added.project)) added.start else null
+    }
 
     fun undo(projectID: String) = change(projectID) { it.undo() }
 

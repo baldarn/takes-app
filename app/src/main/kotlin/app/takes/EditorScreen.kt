@@ -21,6 +21,12 @@ import app.takes.core.WaveformBuilder
 import kotlin.math.sqrt
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.semantics.Role
+import java.util.Date
+import java.text.DateFormat
+import app.takes.core.UnusedTakes
+import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Bookmark
@@ -518,6 +524,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // Reframing in progress: the clip being framed and the framing not saved yet, shown live.
     var cropping by remember { mutableStateOf<Pair<String, CropSettings>?>(null) }
     var pacing by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
+    val unusedFailed = stringResource(R.string.unused_failed)
+    // The unused takes chosen so far, in the order they will play; null while the list is closed.
+    var choosing by remember { mutableStateOf<List<String>?>(null) }
     val current = location?.let { clips[it.index] }
     val sourceTime = if (location != null && current != null) current.sourceTime(location.offset) else 0.0
     val titles = current?.let { TimelineEditing.textsAt(it, sourceTime) }.orEmpty()
@@ -729,6 +739,66 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     Icon(Icons.Outlined.Subtitles, stringResource(R.string.editor_subtitles), tint = if (edit.subtitles != null) TitleColor else LocalContentColor.current)
                 }
             }
+            if (adding) {
+                val unused = UnusedTakes.of(project)
+                AlertDialog(
+                    onDismissRequest = { adding = false },
+                    title = { Text(stringResource(R.string.add_video_title, timeLabel(playhead))) },
+                    text = {
+                        Column {
+                            TextButton(onClick = { adding = false; store.recordHere(project.id, playhead); record() }) {
+                                Icon(Icons.Filled.FiberManualRecord, null, Modifier.size(18.dp), tint = RecordRed)
+                                Text(stringResource(R.string.editor_record_here), Modifier.padding(start = 8.dp))
+                            }
+                            if (unused.isNotEmpty()) TextButton(onClick = { adding = false; choosing = emptyList() }) {
+                                Icon(Icons.Outlined.VideoLibrary, null, Modifier.size(18.dp))
+                                Text(stringResource(R.string.add_video_unused, unused.size), Modifier.padding(start = 8.dp))
+                            }
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = { adding = false }) { Text(stringResource(R.string.common_cancel)) } },
+                )
+            }
+            choosing?.let { chosen ->
+                val unused = UnusedTakes.of(project)
+                AlertDialog(
+                    onDismissRequest = { choosing = null },
+                    title = { Text(stringResource(R.string.unused_title)) },
+                    text = {
+                        // Tap to add a take to the playback order, tap again to take it out.
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            Text(stringResource(R.string.unused_note), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                            for (take in unused) {
+                                val place = chosen.indexOf(take.id)
+                                val file = store.file(project, take)
+                                val image by produceState<Bitmap?>(null, file) { value = Thumbnails.frame(file, 0.0) }
+                                Row(
+                                    Modifier.fillMaxWidth().clickable(role = Role.Checkbox) { choosing = if (place >= 0) chosen - take.id else chosen + take.id }.padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(Modifier.size(56.dp).background(Color(0xFF2A2D33), RoundedCornerShape(6.dp)).clipToBounds()) {
+                                        image?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                                    }
+                                    Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                                        Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(take.recordedAt)), maxLines = 2)
+                                        Text(preciseLabel(take.duration), color = Muted, fontSize = 13.sp)
+                                    }
+                                    if (place >= 0) Text("${place + 1}", fontWeight = FontWeight.Bold, color = BookmarkColor, modifier = Modifier.padding(horizontal = 8.dp))
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(enabled = chosen.isNotEmpty(), onClick = {
+                            val takes = chosen.mapNotNull { id -> unused.firstOrNull { it.id == id } }
+                            choosing = null
+                            store.addUnused(project.id, takes, playhead)?.let { start -> playhead = start; editor.seek(start) }
+                                ?: run { store.error = unusedFailed }
+                        }) { Text(if (chosen.isEmpty()) stringResource(R.string.unused_insert) else stringResource(R.string.unused_insert_count, chosen.size)) }
+                    },
+                    dismissButton = { TextButton(onClick = { choosing = null }) { Text(stringResource(R.string.common_cancel)) } },
+                )
+            }
             if (pacing && location != null && current != null) {
                 AlertDialog(
                     onDismissRequest = { pacing = false },
@@ -767,7 +837,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     ) { Text(label) }
                 }
                 // New takes go in at the playhead; Stop in the recorder ends the run.
-                TextButton(onClick = { editor.pause(); store.recordHere(project.id, playhead); record() }, compact, contentPadding = tight) { Text(stringResource(R.string.editor_record_here)) }
+                TextButton(onClick = { editor.pause(); adding = true }, compact, contentPadding = tight) { Text(stringResource(R.string.editor_add_video)) }
                 TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
                     enabled = location != null, contentPadding = tight) { Icon(Icons.Outlined.Delete, stringResource(R.string.common_delete), tint = if (location != null) RecordRed else LocalContentColor.current) }
             }

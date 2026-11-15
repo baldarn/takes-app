@@ -398,4 +398,12 @@
     <string name="subtitles_remove_model_title">Rimuovere il modello vocale scaricato?</string>
     <string name="subtitles_remove_model_message">I sottotitoli esistenti restano. Per generarne altri servirà un download di %1$d MB.</string>
     <string name="subtitles_remove_model_confirm">Rimuovi il modello</string>
+    <string name="editor_add_video">Aggiungi video</string>
+    <string name="add_video_title">Aggiungi a %1$s</string>
+    <string name="add_video_unused">Riprese non usate (%1$d)</string>
+    <string name="unused_title">Riprese non usate</string>
+    <string name="unused_note">Tocca le riprese nell\'ordine in cui devono comparire; tocca di nuovo per toglierle.</string>
+    <string name="unused_insert">Inserisci</string>
+    <string name="unused_insert_count">Inserisci %1$d</string>
+    <string name="unused_failed">Non è stato possibile inserire le riprese scelte.</string>
 </resources>
