@@ -416,11 +416,11 @@ class CaptureController(private val context: Context, private val store: Project
 
     // MARK: Zoom. Each camera remembers its own last applied value.
 
-    private fun applyZoom(value: Double) {
+    private fun applyZoom(value: Double, remember: Boolean = true) {
         val bounded = value.coerceIn(zoomRange)
         zoom = bounded
         camera?.cameraControl?.setZoomRatio(bounded.toFloat())
-        cameraID?.let { prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply() }
+        if (remember) cameraID?.let { prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply() }
     }
 
     fun zoomTo(target: Double, seconds: Double = zoomDuration) {
@@ -439,10 +439,26 @@ class CaptureController(private val context: Context, private val store: Project
         }
     }
 
-    fun pinch(scale: Float) {
-        if (scale == 1f || camera == null) return
+    /** Whether the picture can be pinched: a camera with a zoom range, and nothing being saved. */
+    val canPinch: Boolean get() = ready && phase != Phase.Saving && zoomRange.endInclusive > zoomRange.start
+
+    /**
+     * A pinch beginning with the fingers [span] apart, measured from here on as the original measures it.
+     * A move that is running stops where it is.
+     */
+    fun beginPinch(span: Double): PinchZoom? {
+        if (!canPinch) return null
         zoomRamp?.cancel()
-        applyZoom(zoom * scale)
+        return PinchZoom.begin(zoom, span, zoomDuration, zoomRange.start, zoomRange.endInclusive)
+    }
+
+    /** A zoom the fingers are passing through: shown at once, remembered only when they lift. */
+    fun pinchZoom(value: Double) = applyZoom(value, remember = false)
+
+    /** The fingers lifted at [target]: an instant pinch is remembered there, a timed one now runs. */
+    fun endPinch(pinch: PinchZoom) {
+        val target = pinch.released() ?: return
+        if (pinch.timed) zoomTo(target, pinch.seconds) else applyZoom(target)
     }
 
     fun chooseZoomDuration(seconds: Double) {
