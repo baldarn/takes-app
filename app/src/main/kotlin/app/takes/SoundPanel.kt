@@ -194,9 +194,9 @@ internal fun SoundDialog(
         volumeChosen = true
     }
 
-    val shown = if (unset) stringResource(R.string.sound_mixed_levels) else if (muted) stringResource(R.string.sound_muted) else AudioLevels.format(volume)
+    val shown = if (unset) stringResource(R.string.sound_mixed_levels) else if (muted) stringResource(R.string.sound_muted) else levelLabel(volume)
     val sliderLabel = stringResource(R.string.sound_volume_decibels)
-    val sliderValue = (if (unset) stringResource(R.string.sound_mixed_choose) else AudioLevels.format(volume)) + if (clipping) ", " + stringResource(R.string.sound_clipping_short) else ""
+    val sliderValue = (if (unset) stringResource(R.string.sound_mixed_choose) else levelLabel(volume)) + if (clipping) ", " + stringResource(R.string.sound_clipping_short) else ""
     val lowerLabel = stringResource(R.string.sound_step_down)
     val raiseLabel = stringResource(R.string.sound_step_up)
     val muteLabel = stringResource(R.string.sound_mute)
@@ -411,7 +411,13 @@ internal data class Leveling(
 
     /** What is shown beside the finger. */
     fun readout(mixed: String, cancel: String): LevelReadout = LevelReadout(
-        if (cancelling) cancel else adjustment.value?.let(AudioLevels::format) ?: mixed,
+        if (cancelling) cancel else adjustment.value?.let(::levelLabel) ?: mixed,
         clipping = !cancelling && adjustment.value?.let { headroom?.clips(it) } == true, at,
     )
 }
+
+/**
+ * A level as the person reads it: a sign, one decimal written the way their language writes it, "+0,5 dB" in
+ * Italian. The core's own text is for files and tests and always uses a point.
+ */
+internal fun levelLabel(decibels: Double): String = String.format(java.util.Locale.getDefault(), "%+.1f dB", decibels)

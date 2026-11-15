@@ -130,4 +130,6 @@
     <string name="recorder_mark_label">Add recording bookmark</string>
     <string name="recorder_mark_added">Bookmark added</string>
     <string name="recorder_mark_moment">Mark this moment</string>
+    <!-- The zoom time badge is narrow: the word for "no time" has to fit it. -->
+    <string name="recorder_zoom_instant_short">Instant</string>
 </resources>

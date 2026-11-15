@@ -1118,7 +1118,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             commit(next, playhead)
                             // As in the original, what was changed is what is selected afterwards.
                             marks = RangeMarks(selected = EditTargets(current.targets.filter { it.clip }.map { it.id }.toSet(), current.targets.filter { !it.clip }.map { it.id }.toSet()))
-                            feedback = levelChanged.format(AudioLevels.format(level))
+                            feedback = levelChanged.format(levelLabel(level))
                         }
                     }
                 }
@@ -1801,7 +1801,7 @@ private fun Timeline(
                     for (item in sounds) {
                         if (item.track != track) continue
                         key(item.id) {
-                            val note = item.audio?.let { if (it.muted) " · $mutedNote" else if (it.volumeDB != 0.0) " · ${AudioLevels.format(it.volumeDB)}" else "" } ?: ""
+                            val note = item.audio?.let { if (it.muted) " · $mutedNote" else if (it.volumeDB != 0.0) " · ${levelLabel(it.volumeDB)}" else "" } ?: ""
                             Text(
                                 (names[item.sourceID] ?: soundName) + note, color = Color.Black, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt(), 0) }
@@ -1928,7 +1928,7 @@ private fun ClipStrip(
         // What has been done to the sound, where the waveform is.
         clip.audio?.let { audio ->
             val note = listOfNotNull(
-                if (audio.muted) stringResource(R.string.sound_muted) else audio.volumeDB.takeIf { it != 0.0 }?.let(AudioLevels::format),
+                if (audio.muted) stringResource(R.string.sound_muted) else audio.volumeDB.takeIf { it != 0.0 }?.let(::levelLabel),
                 stringResource(R.string.editor_tag_fade).takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
                 stringResource(R.string.editor_tag_clean).takeIf { audio.denoise > 0 },
             ).joinToString(" · ")
