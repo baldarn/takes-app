@@ -29,6 +29,7 @@ import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.core.featuregroup.GroupableFeature
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.lifecycle.awaitInstance
+import androidx.camera.video.GroupableFeatures
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
@@ -324,6 +325,10 @@ private class CameraReportReader(private val context: Context, private val label
      * with HDR, stabilisation and 60 frames per second, in every mix of the
      * three. The camera library answers by working out the session without
      * opening it.
+     *
+     * The quality is asked for as one more feature of the group, on a
+     * recorder left at its defaults: the library refuses a session that has
+     * a feature group and a recorder with a quality selector of its own.
      */
     private fun combinations(info: CameraInfo, qualities: List<CameraReport.Quality>): List<CameraReport.Combination> {
         val features = listOf(
@@ -331,15 +336,14 @@ private class CameraReportReader(private val context: Context, private val label
             "preview stabilisation" to GroupableFeature.PREVIEW_STABILIZATION,
             "60 fps" to GroupableFeature.FPS_60,
         )
-        return listOf(CameraReport.FHD to Quality.FHD, CameraReport.UHD to Quality.UHD)
+        return listOf(CameraReport.FHD to GroupableFeatures.FHD_RECORDING, CameraReport.UHD to GroupableFeatures.UHD_RECORDING)
             .filter { (name, _) -> qualities.any { it.name == name } }
             .flatMap { (name, quality) ->
                 (0 until (1 shl features.size)).map { mix ->
                     val chosen = features.filterIndexed { index, _ -> (mix and (1 shl index)) != 0 }
                     try {
-                        val recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(quality)).build()
-                        val session = SessionConfig.Builder(Preview.Builder().build(), VideoCapture.withOutput(recorder))
-                        if (chosen.isNotEmpty()) session.setRequiredFeatureGroup(*chosen.map { it.second }.toTypedArray())
+                        val session = SessionConfig.Builder(Preview.Builder().build(), VideoCapture.withOutput(Recorder.Builder().build()))
+                            .setRequiredFeatureGroup(quality, *chosen.map { it.second }.toTypedArray())
                         CameraReport.Combination(name, chosen.map { it.first }, info.isSessionConfigSupported(session.build()))
                     } catch (error: Exception) {
                         CameraReport.Combination(name, chosen.map { it.first }, null, describe(error))
