@@ -184,9 +184,16 @@ class LayersProbe : Instrumentation() {
             EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)).apply {
                 if (lead(lane) > 0) addItem(still(lead(lane), listOf(fit())))
                 val from = lane * 1_000_000L
-                val item = MediaItem.Builder().setUri(Uri.fromFile(clip))
-                    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(from).setEndPositionUs(from + movie - lead(lane) - tail(lane)).build()).build()
-                addItem(EditedMediaItem.Builder(item).setRemoveAudio(true).setEffects(Effects(emptyList(), listOf(fit()))).build())
+                // `-e loop <seconds>`: the clip's stretch from its second k, that long, again and again (a movie longer than the clip); else once.
+                val piece = arguments.getString("loop")?.toLong()?.times(1_000_000L) ?: (movie - lead(lane) - tail(lane))
+                var left = movie - lead(lane) - tail(lane)
+                while (left > 0) {
+                    val length = minOf(piece, left)
+                    val item = MediaItem.Builder().setUri(Uri.fromFile(clip))
+                        .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(from).setEndPositionUs(from + length).build()).build()
+                    addItem(EditedMediaItem.Builder(item).setRemoveAudio(true).setEffects(Effects(emptyList(), listOf(fit()))).build())
+                    left -= length
+                }
                 if (tail(lane) > 0) addItem(still(tail(lane), listOf(fit())))
             }.build()
         }
@@ -287,6 +294,7 @@ class LayersProbe : Instrumentation() {
         // Media3's own decoder factory, asked to say which codec it took; `-e fallback yes` lets it try the next codec when one fails.
         val decoders = DefaultDecoderFactory.Builder(targetContext)
             .setEnableDecoderFallback(text("fallback", "no") == "yes")
+            .apply { if (text("realtime", "no") == "yes") { setCodecPriority(0); setShouldConfigureOperatingRate(true) } }
             .apply {
                 // `-e decoders software` keeps to the platform's software decoders, `hardware` to the others.
                 when (text("decoders", "any")) {
@@ -354,7 +362,7 @@ class LayersProbe : Instrumentation() {
         lateinit var players: List<ExoPlayer>
         runOnMainSync {
             players = List(count) { index ->
-                ExoPlayer.Builder(targetContext).build().apply {
+                ExoPlayer.Builder(targetContext, ProbeRenderers(targetContext, text("realtime", "yes") == "yes") { if (index == 0 || it.contains("priority=0").not()) say("  player $index $it") }).build().apply {
                     setVideoTextureView(activity.views[index])
                     setMediaItem(MediaItem.fromUri(Uri.fromFile(clip)))
                     repeatMode = Player.REPEAT_MODE_ONE
@@ -362,12 +370,17 @@ class LayersProbe : Instrumentation() {
                     addAnalyticsListener(object : AnalyticsListener {
                         override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) { decoders[index] = decoderName }
                         override fun onRenderedFirstFrame(eventTime: AnalyticsListener.EventTime, output: Any, renderTimeMs: Long) { firstFrames[index].offer(SystemClock.elapsedRealtime()) }
+                        override fun onPlayerError(eventTime: AnalyticsListener.EventTime, error: androidx.media3.common.PlaybackException) {
+                            say("  player $index ERROR ${error.errorCodeName}: ${error.message}" + generateSequence(error.cause) { it.cause }.joinToString("") { " <- ${it.javaClass.simpleName}: ${it.message?.take(160)}" })
+                        }
+                        override fun onVideoCodecError(eventTime: AnalyticsListener.EventTime, videoCodecError: Exception) { say("  player $index codec error: $videoCodecError") }
                         override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) { dropped[index].addAndGet(droppedFrames.toLong()) }
                     })
-                    prepare()
+                    if (text("stagger", "no") != "yes") prepare()
                 }
             }
         }
+        if (text("stagger", "no") == "yes") for (index in 0 until count) { runOnMainSync { players[index].prepare() }; firstFrames[index].poll(10, TimeUnit.SECONDS)?.let { firstFrames[index].offer(it) } }
         // All ready, then playing together for a while.
         repeat(count) { firstFrames[it].poll(10, TimeUnit.SECONDS) }
         say("  decoders: ${decoders.joinToString()}")
