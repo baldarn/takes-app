@@ -130,6 +130,11 @@ for the `rnnoise` module.
   take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
   Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
 
+## Contributing
+
+Issues and pull requests are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) says how to
+build, test and pick work, and what a pull request needs.
+
 ## License
 
 MIT, like the original: see [LICENSE](LICENSE). The licenses of the bundled libraries
