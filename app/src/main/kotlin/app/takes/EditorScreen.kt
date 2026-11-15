@@ -958,7 +958,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             // A new title starts at the playhead and stays three seconds of the movie, or as long as the clip lasts.
                             val end = minOf(clip.end, sourceTime + 3 * clip.rate)
                             val start = if (end - sourceTime < 0.1) maxOf(clip.start, end - 0.5 * clip.rate) else sourceTime
-                            titling = Titling(clip.id, existing ?: TextOverlay(text = "", start = start, end = end), existing)
+                            titling = Titling(clip.id, existing ?: TextOverlay.fresh().copy(start = start, end = end), existing)
                         }
                     },
                     compact, enabled = location != null, contentPadding = tight,

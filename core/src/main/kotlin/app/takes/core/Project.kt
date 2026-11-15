@@ -64,7 +64,10 @@ data class TextOverlay(
     val y: Double = 0.5,
     // Font size relative to the shorter canvas dimension; consistent on rotation.
     val size: Double = 0.065,
-    /** Null draws the title as before designs existed: bold white letters with a dark outline. */
+    /**
+     * Null draws the title as before designs existed: bold white letters with a dark outline.
+     * Only titles of older projects have none; a new one is made by [fresh] with the default design.
+     */
     val appearance: TitleDesign? = null,
     /** How it arrives and leaves. Null stays still. */
     val motion: TitleMotion? = null,
@@ -79,6 +82,16 @@ data class TextOverlay(
 
     /** What the design tools start from: the title's own design, or the look of a title without one. */
     val design: TitleDesign get() = appearance ?: TitleDesign.plain
+
+    companion object {
+        /**
+         * A title as the tools make one: nothing written yet, in the original's
+         * default design. The design is saved with it, which is what tells it
+         * from a title of an older project: that one has none, keeps its
+         * outlined look and is written back exactly as it was read.
+         */
+        fun fresh(): TextOverlay = TextOverlay(text = "", appearance = TitleDesign())
+    }
 }
 
 /** A mark on the footage, at a source second. It follows its clip through trims, splits and moves. */

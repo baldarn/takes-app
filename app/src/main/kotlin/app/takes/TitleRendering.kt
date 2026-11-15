@@ -101,7 +101,8 @@ object TitleRaster {
     fun art(assets: AssetManager, title: TextOverlay, width: Float, height: Float): Art? {
         if (title.text.isBlank() || width < 1 || height < 1) return null
         val design = title.appearance ?: return plain(title, width, height)
-        val bitmap = styled(assets, title.text, design, title.size, Size(width.toDouble(), height.toDouble())) ?: return null
+        val picture = Size(width.toDouble(), height.toDouble())
+        val bitmap = (if (design == TitleDesign()) untouched(assets, title.text, title.size, picture) else styled(assets, title.text, design, title.size, picture)) ?: return null
         // Centered on its anchor, kept inside the frame.
         val left = (title.x * width - bitmap.width / 2f).toFloat().coerceIn(0f, maxOf(0f, width - bitmap.width))
         val top = (title.y * height - bitmap.height / 2f).toFloat().coerceIn(0f, maxOf(0f, height - bitmap.height))
@@ -141,12 +142,33 @@ object TitleRaster {
         return Art(bitmap, left + (layout.width - boxWidth) / 2f, top - pad)
     }
 
+    /** The room around the letters of a title nobody has styled, in em, and the share of the picture's width it may take. */
+    private const val UNTOUCHED_PADDING = 0.35
+    private const val UNTOUCHED_WIDTH = 0.84
+
+    /** The shadow of a title nobody has styled: 0.04 em down, black at nine tenths. Its blur is the default design's, 0.12 em. */
+    private val untouchedDesign = TitleDesign(shadowOffset = 0.04, shade = TitleInk(0x000000, alpha = 230))
+
+    /**
+     * A new title whose design is still the default one, as the original draws
+     * a title that has no design yet: bold white letters with a soft shadow and
+     * no outline, in lines at most 0.84 of the picture wide less 0.35 em on
+     * each side. Once anything of the design is changed the title is drawn by
+     * [styled], as in the original.
+     */
+    fun untouched(assets: AssetManager, text: String, size: Double, picture: Size): Bitmap? =
+        drawn(assets, text, untouchedDesign, size, picture, UNTOUCHED_PADDING, UNTOUCHED_WIDTH)
+
     /**
      * [text] in [design] for a picture of [picture] pixels, with letters
      * [size] of its short side tall. Null when there is nothing to draw.
      * Also used, with a small made-up picture, for the specimens in the title tools.
      */
-    fun styled(assets: AssetManager, text: String, design: TitleDesign, size: Double, picture: Size): Bitmap? {
+    fun styled(assets: AssetManager, text: String, design: TitleDesign, size: Double, picture: Size): Bitmap? =
+        drawn(assets, text, design, size, picture, null, 0.94)
+
+    /** [padding], in em, replaces the room a design leaves around its letters; [share] is how much of the picture's width the title may take. */
+    private fun drawn(assets: AssetManager, text: String, design: TitleDesign, size: Double, picture: Size, padding: Double?, share: Double): Bitmap? {
         if (text.isEmpty() || picture.width < 1 || picture.height < 1) return null
         // Everything below is in reference units until the last step.
         val unit = minOf(picture.width, picture.height) / REFERENCE
@@ -160,7 +182,8 @@ object TitleRaster {
             color = Color.WHITE
         }
         val effectPad = (if (design.outlined) design.borderWidth else 0.0) + (if (design.shadow) 2 * design.shadowBlur + abs(design.shadowOffset) else 0.0)
-        val inset = ceil(fontSize * (maxOf(effectPad, if (design.plate == TitlePlate.Off) 0.0 else design.padding) + 0.14).toFloat()) + 2
+        val inset = if (padding != null) fontSize * padding.toFloat()
+        else ceil(fontSize * (maxOf(effectPad, if (design.plate == TitlePlate.Off) 0.0 else design.padding) + 0.14).toFloat()) + 2
         val alignment = when (design.alignment) {
             TitleAlignment.Left -> Layout.Alignment.ALIGN_NORMAL
             TitleAlignment.Right -> Layout.Alignment.ALIGN_OPPOSITE
@@ -168,7 +191,7 @@ object TitleRaster {
         }
         fun lines(room: Int) = StaticLayout.Builder.obtain(text, 0, text.length, paint, room.coerceAtLeast(1))
             .setAlignment(alignment).setIncludePad(false).setLineSpacing((design.lineSpacing * fontSize).toFloat(), 1f).build()
-        val room = floor(maxOf(fontSize, canvasWidth * 0.94f - 2 * inset)).toInt()
+        val room = floor(maxOf(fontSize, canvasWidth * share.toFloat() - 2 * inset)).toInt()
         val measured = lines(room)
         val widest = (0 until measured.lineCount).maxOfOrNull { measured.getLineMax(it) } ?: 0f
         // The box hugs the widest line, so left and right alignment are about the lines, not the picture.

@@ -326,6 +326,26 @@ class TitleProjectTest {
         assertNull(TimelineEditing.setText(state, 0, title.copy(appearance = TitleDesign(weight = 5))))
     }
 
+    @Test fun aNewTitleCarriesTheDefaultDesignWhichTellsItFromAnOlderOne() {
+        val fresh = TextOverlay.fresh()
+        // The original's default: bold white, a soft shadow, no outline.
+        assertEquals(TitleDesign(), fresh.appearance)
+        assertEquals(TitleDesign(), fresh.design)
+        assertTrue(fresh.design.shadow && !fresh.design.outlined)
+        assertEquals(0.045, fresh.design.borderWidth, 0.0)
+        assertEquals("", fresh.text)
+        assertTrue(fresh.valid && fresh.styled)
+        // Saved, the design is written out, so the project is one older versions refuse instead of drawing an outline.
+        val project = project(fresh.copy(id = "N", text = "New", start = 1.0, end = 4.0))
+        assertEquals(12, project.schemaVersion)
+        assertTrue(project.snapshots[1].data().decodeToString().contains(""""id":"N","text":"New","start":1.0,"end":4.0,"x":0.5,"y":0.5,"size":0.065,"appearance":{"face":"system","weight":700,"""))
+        // A title of an older project has no design and still starts the tools from its outlined look.
+        val older = TextOverlay(id = "T", text = "Hello", start = 1.0, end = 3.0)
+        assertNull(older.appearance)
+        assertEquals(TitleDesign.plain, older.design)
+        assertFalse(older.styled)
+    }
+
     @Test fun plainLookIsWhatAnUndesignedTitleShows() {
         val plain = TitleDesign.plain
         assertTrue(plain.valid && plain.outlined && !plain.shadow)

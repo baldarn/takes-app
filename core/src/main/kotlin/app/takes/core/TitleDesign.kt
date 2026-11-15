@@ -166,8 +166,9 @@ data class TitleDesign(
 
     companion object {
         /**
-         * The look of a title saved without a design, as this app has always
-         * drawn it: bold white system letters with a dark outline and no shadow.
+         * The look of a title saved without a design, as this app drew every
+         * title before designs existed: bold white system letters with a dark
+         * outline and no shadow. A new title starts from `TitleDesign()` instead.
          */
         val plain = TitleDesign(outlined = true, borderWidth = 0.06, shadow = false)
 
