@@ -78,4 +78,6 @@
     <string name="recorder_focus_far">Far</string>
     <string name="recorder_focus_note_fixed">This lens has fixed focus.</string>
     <string name="recorder_focus_note_manual">In the recorder, swipe up on MF for farther focus or down for nearer focus.</string>
+    <!-- Picture format: quality, colour, stabilisation and the two mirror switches. Each shows only where a camera has it. -->
+    <string name="recorder_format_reduced">This camera could not start with every setting asked for. Recording without HDR or stabilization.</string>
 </resources>
