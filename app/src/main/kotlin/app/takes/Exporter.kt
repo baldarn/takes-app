@@ -4,6 +4,8 @@ package app.takes
 
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
@@ -15,6 +17,7 @@ import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.graphics.createBitmap
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.util.Size
@@ -164,6 +167,25 @@ fun clippedItem(item: AudioItem, file: File, seconds: Double = item.duration): M
             .build(),
     ).build()
 
+/** A black picture for the stretches of an export that have no clip, made once and kept with the app's temporary files. */
+fun blackStill(context: Context): File = File(context.cacheDir, "export-black.png").also { file ->
+    if (file.length() == 0L) {
+        val bitmap = createBitmap(16, 16).apply { eraseColor(Color.BLACK) }
+        val writing = File(file.parentFile, ".${file.name}")
+        writing.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        writing.renameTo(file)
+    }
+}
+
+/** The picture in [file] shown for [micros] microseconds as an export item, [framesPerSecond] frames of it a second. */
+fun still(file: File, micros: Long, framesPerSecond: Int, effects: List<Effect>): EditedMediaItem =
+    EditedMediaItem.Builder(MediaItem.Builder().setUri(Uri.fromFile(file)).setImageDurationMs(maxOf(1, micros / 1000)).build())
+        .setDurationUs(micros)
+        .setFrameRate(framesPerSecond)
+        .setEffects(Effects(emptyList(), effects))
+        .build()
+
 /** Upright picture size with even dimensions, or null when the file has no readable video. */
 fun displaySize(file: File): Pair<Int, Int>? {
     val retriever = MediaMetadataRetriever()
@@ -179,6 +201,19 @@ fun displaySize(file: File): Pair<Int, Int>? {
         null
     } finally {
         runCatching { retriever.release() }
+    }
+}
+
+/** Whether the file has sound, as its container states it. */
+fun hasSound(file: File): Boolean {
+    val extractor = MediaExtractor()
+    return try {
+        extractor.setDataSource(file.path)
+        (0 until extractor.trackCount).any { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+    } catch (_: Exception) {
+        false
+    } finally {
+        runCatching { extractor.release() }
     }
 }
 
@@ -265,6 +300,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val rates = withContext(Dispatchers.IO) { clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::frameRate) } }
             val footage = clips.map { rates[it.sourceID] }
             val frames = { join: TransitionLayout.Join -> TransitionScene.frameRate(clips, join, footage, settings.frameRate) }
+            val chains = TimelineEditing.chains(clips)
+            // Clips that play at once are on two sequences, which carry the picture alone.
+            val decked = chains.size > 1
             // One for every item: a Presentation keeps the matrix it worked out for the size of its last input, and
             // two items of different shapes that play at once, one in each sequence, would be drawn with each other's.
             fun fit() = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
@@ -290,7 +328,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 val sound = listOf<AudioProcessor>(SoundProcessor(SoundEnvelope.clip(clips, index), TimelineEditing.clipStart(clips, index)))
                 // Speed comes first in Media3, so the effects after it are timed in movie seconds.
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
-                    .setRemoveAudio(index in clean) // its cleaned sound plays from a sequence of its own
+                    .setRemoveAudio(decked || index in clean) // its sound plays from a sequence of its own
                     .setEffects(Effects(sound, picture))
                     .apply { steadySpeed(clip)?.let(::setSpeed) }
                     .build()
@@ -320,11 +358,18 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 gap(total)
                 sequence.build()
             }
-            val chains = TimelineEditing.chains(clips)
-            // Cleaned clip sound, in place of the recorded one: audio-only sequences at the
-            // clips' own times. Clips that dissolve into each other overlap, so chains alternate.
+            // Clip sound on sequences of its own, audio only, at the clips' own times: the cleaned sound of a clip
+            // that has it, in place of the recorded one, and with two picture sequences the sound of every clip.
+            // Clips that dissolve into each other overlap, so chains alternate.
+            //
+            // The two picture sequences carry the picture alone. One that carries sound and opens on a still asks
+            // Media3 for its silence the moment its picture is taken, and Media3 has none to give until the first
+            // sequence with sound has given its own: the export then stopped with "Asset loader error", whenever
+            // that sequence was the quicker of the two. A sequence of sound alone waits instead.
+            val voiced = if (!decked) emptyMap() else withContext(Dispatchers.IO) { clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::hasSound) == true } }
+            val apart = clips.indices.filter { it in clean || voiced[clips[it].sourceID] == true }
             val cleaned = (0..1).mapNotNull { parity ->
-                val indices = clean.keys.sorted().filter { index -> chains.indexOfFirst { index in it.first..it.last } % 2 == parity }
+                val indices = apart.filter { index -> chains.indexOfFirst { index in it.first..it.last } % 2 == parity }
                 if (indices.isEmpty()) return@mapNotNull null
                 val sequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO))
                 var filled = 0.0
@@ -337,7 +382,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     val begins = TimelineEditing.clipStart(clips, index)
                     gap(begins)
                     sequence.addItem(
-                        EditedMediaItem.Builder(clippedItem(clip, clean.getValue(index)))
+                        EditedMediaItem.Builder(clippedItem(clip, clean[index] ?: files.getValue(clip.sourceID))).setRemoveVideo(true)
                             .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor(SoundEnvelope.clip(clips, index), begins)), emptyList()))
                             .apply { steadySpeed(clip)?.let(::setSpeed) }
                             .build(),
@@ -347,7 +392,11 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 gap(total)
                 sequence.build()
             }
-            val extra = soundtracks + cleaned
+            // A movie on two picture sequences with no sound anywhere still has a sound track, silent, as it has
+            // when its clips carry their sound themselves.
+            val extra = (soundtracks + cleaned).ifEmpty {
+                if (decked) listOf(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addGap((total * 1e6).roundToLong()).build()) else emptyList()
+            }
             // Titles and subtitles are drawn once, over the finished picture; subtitles on top.
             val captions = SubtitleEditing.cues(project.edit)
             val written = listOfNotNull(
@@ -387,11 +436,16 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 // Chains alternate between two sequences, since neighbors play at once or
                 // with a pause between them. The two are laid side by side and the
                 // transition effect makes each frame from them.
-                val sequences = List(2) { EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO)) }
+                val sequences = List(2) { EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_VIDEO)) }
                 val filled = DoubleArray(2)
+                // Where a deck has no clip it shows a black still, fitted like a clip. Media3's own gap
+                // gives frames of 16 by 16 pixels: at every change between those and a clip's frames the deck's
+                // textures were made again while the compositor still held frames in the old ones, which came out
+                // black (a clip's last frame) or were drawn over too soon (a clip two frames ahead of its time).
+                val black = withContext(Dispatchers.IO) { blackStill(context) }
                 fun gap(deck: Int, until: Double) {
                     val micros = ((until - filled[deck]) * 1e6).roundToLong()
-                    if (micros > 0) sequences[deck].addGap(micros)
+                    if (micros > 0) sequences[deck].addItem(still(black, micros, TransitionScene.FRAMES_PER_SECOND.toInt(), listOf(fit())))
                 }
                 chains.forEachIndexed { index, chain ->
                     gap(index % 2, chain.start)
