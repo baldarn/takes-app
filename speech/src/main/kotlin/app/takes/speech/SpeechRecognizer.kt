@@ -28,9 +28,10 @@ data class Transcript(val text: String, val words: List<Word>?, val language: St
 /**
  * Speech to text with Whisper, on the device, through sherpa-onnx.
  *
- * Lifetime and memory: creating one reads the whole model into memory, which takes about a
- * second and roughly twice the size of the model files (measured figures are in the
- * README). Create it when a transcription starts, use it for all the audio of that job and
+ * Lifetime and memory: creating one reads the whole model into memory (under half a second
+ * on a desktop), and recognizing needs more than loading: with the base model about 100 MB
+ * loaded and 280 MB while working on 12 s pieces, on a desktop; the figures are in the
+ * README. Create it when a transcription starts, use it for all the audio of that job and
  * [close] it afterwards; it holds native memory that the garbage collector does not see.
  *
  * Threads: every call blocks until done, so never call from the main thread. One call runs
