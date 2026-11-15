@@ -404,7 +404,7 @@ data class TrackTimeline(
          * nothing saves a timeline; it is here so the number is in one place
          * when something does, and it moves if another format step lands first.
          */
-        const val SCHEMA = 15
+        const val SCHEMA = 16
 
         const val COUNTERPART_SUFFIX = "~sound"
         const val ALIAS_SUFFIX = "~item"
