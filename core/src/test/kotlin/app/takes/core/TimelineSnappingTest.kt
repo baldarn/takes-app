@@ -55,7 +55,7 @@ class TimelineSnappingTest {
     @Test fun aBookmarkFollowsTheSpeedOfItsClipAndADissolveGivesBothEdges() {
         val fast = EditState(listOf(clip(0.0, 8.0, listOf(4.0)).copy(speed = SpeedSettings(rate = 2.0))))
         assertEquals(listOf(0.0, 2.0, 4.0), TimelineSnapping.points(fast))
-        val dissolved = TimelineEditing.setTransition(EditState(listOf(clip(0.0, 8.0), clip(8.0, 18.0))), 0, 2.0, ClipTransition.Style.Dissolve)!!
+        val dissolved = TimelineEditing.setTransition(EditState(listOf(clip(0.0, 8.0), clip(8.0, 18.0))), 0, 2.0, TransitionStyle.Dissolve)!!
         assertEquals(listOf(0.0, 6.0, 8.0, 16.0), TimelineSnapping.points(dissolved))
     }
 

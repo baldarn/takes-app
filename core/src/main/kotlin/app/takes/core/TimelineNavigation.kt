@@ -210,14 +210,9 @@ class TimelineNavigation private constructor(
                     if (b > a) builder.change(recipe("text", TextOverlay.serializer(), text, setOf("start", "end")), start + clip.offset(a), start + clip.offset(b))
                 }
                 sound(clip.audio, start, end)
-                val transition = TimelineEditing.transition(clips, index) ?: return@forEachIndexed
-                val fade = TimelineEditing.fadeLength(clips, index)
-                val overlap = TimelineEditing.overlap(clips, index)
-                // Sound fades and blends with the picture, over the same stretch.
-                val range = if (fade > 0) (end - fade) to (end + fade) else if (overlap > 0) (end - overlap) to end else return@forEachIndexed
-                builder.change(recipe("transition.picture", ClipTransition.serializer(), transition), range.first, range.second)
-                builder.change(recipe("transition.sound", ClipTransition.serializer(), transition), range.first, range.second)
             }
+            // Every join with a transition, the opening and the close of the timeline included.
+            for (index in 0..clips.size) TimelineEditing.join(clips, index)?.let(builder::transition)
             for (item in state.audio.orEmpty()) {
                 builder.cut(item.start).cut(item.end)
                 sound(item.audio, item.start, item.end)

@@ -154,7 +154,7 @@ class InsertionSitesTest {
 
     /** With a dissolve the movie is shorter than its clips together; the end is the end of the movie. */
     @Test fun theEndFollowsADissolve() {
-        val dissolved = TimelineEditing.setTransition(state, 0, 2.0, ClipTransition.Style.Dissolve)!!
+        val dissolved = TimelineEditing.setTransition(state, 0, 2.0, TransitionStyle.Dissolve)!!
         assertEquals(8.0, InsertionSites.time(dissolved, 0.0, VideoInsertionSite.End)!!, 0.0)
         assertEquals(8.0, InsertionSites.time(dissolved, 9.0)!!, 0.0)
     }
