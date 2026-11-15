@@ -210,4 +210,32 @@ class ProjectFormatTest {
         val step = saved(cropped(plainCrop.copy(motion = motion))).second[1]
         assertEquals(true, step.contains(""""motion":{"a":{"values":{"x":0.25,"y":0.5,"zoom":2.0,"rotation":0.0}},"b":{"values":{"x":0.6,"y":0.5,"zoom":3.0,"rotation":0.0}},"timing":{"curve":"linear","rise":1.0,"release":1.0,"ramp":"linear"},"duration":10.0,"frame":"""))
     }
+
+    // MARK: The track timeline
+
+    /** Every edit committed since schema 17 is the original's track timeline alone; the first, empty step stays readable by every version. */
+    @Test fun aCommittedStepIsWrittenAsATimeline() {
+        val project = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
+        val clip = project.edit.clips[0].copy(id = "C1")
+        val cut = project.copy(captureLedger = listOf(clip)).let { it.commit(TimelineEditing.split(it.edit, 4.0)!!.let { state -> state.copy(clips = listOf(state.clips[0], state.clips[1].copy(id = "C2"))) }, now = 3) }
+        val (manifest, snapshots) = saved(cut)
+        assertEquals(TrackTimeline.SCHEMA, cut.schemaVersion)
+        assertEquals(true, manifest.startsWith("""{"schemaVersion":17,"id":"P","""))
+        assertEquals("""{"state":{"clips":[]},"captureCursor":0}""", snapshots[0])
+        assertEquals(
+            """{"state":{"timeline":{"video":[{"occurrenceID":"C1","start":{"ticks":0},"content":{"id":"C1","sourceID":"S1","start":0.0,"end":4.0},"layer":0,"localOrigin":{"ticks":0},"mapping":{"runs":[{"duration":{"ticks":960000},"sourceStart":0.0,"sourceEnd":4.0,"silent":false}]}},""" +
+                """{"occurrenceID":"C2","start":{"ticks":960000},"content":{"id":"C2","sourceID":"S1","start":4.0,"end":10.0},"layer":1,"localOrigin":{"ticks":0},"mapping":{"runs":[{"duration":{"ticks":1440000},"sourceStart":4.0,"sourceEnd":10.0,"silent":false}]}}],""" +
+                """"audio":[{"id":"C1~sound","occurrenceID":"C1","sourceID":"S1","start":{"ticks":0},"mapping":{"runs":[{"duration":{"ticks":960000},"sourceStart":0.0,"sourceEnd":4.0,"silent":false}]},"localOrigin":{"ticks":0},"followsVideo":"C1","volumeDB":0.0,"muted":false,"enhancements":[]},""" +
+                """{"id":"C2~sound","occurrenceID":"C2","sourceID":"S1","start":{"ticks":960000},"mapping":{"runs":[{"duration":{"ticks":1440000},"sourceStart":4.0,"sourceEnd":10.0,"silent":false}]},"localOrigin":{"ticks":0},"followsVideo":"C2","volumeDB":0.0,"muted":false,"enhancements":[]}],""" +
+                """"links":[{"id":"C1","members":["C1","C1~sound"]},{"id":"C2","members":["C2","C2~sound"]}],"bookmarks":[],"placements":[],"transitions":[],"generated":[]}},"captureCursor":1}""",
+            snapshots[1],
+        )
+        // Read back, it is the edit committed, and it is written again with the same bytes under the same name.
+        val files = mutableMapOf<String, ByteArray>()
+        val bytes = cut.manifest { name, data -> files[name] = data }
+        val read = Project.readManifest(bytes) { files.getValue(it) }
+        assertEquals(cut, read)
+        assertEquals(bytes.decodeToString(), read.manifest { _, _ -> }.decodeToString())
+        assertEquals(listOf("C1", "C2"), read.edit.clips.map { it.id })
+    }
 }
