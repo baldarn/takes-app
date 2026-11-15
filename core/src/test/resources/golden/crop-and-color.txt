@@ -1,0 +1,54 @@
+== project.json
+{"schemaVersion":14,"id":"P-crop-and-color","title":"Golden crop-and-color","createdAt":1700000000000,"updatedAt":1700000000008,"sources":[{"id":"S1","filename":"take-1.mp4","duration":5.0,"recordedAt":1700000001000},{"id":"S2","filename":"take-2.mp4","duration":5.0,"recordedAt":1700000002000},{"id":"S3","filename":"take-3.mp4","duration":5.0,"recordedAt":1700000003000}],"historyCursor":5,"captureLedger":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":5.0},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":5.0},{"id":"ID-00003","sourceID":"S3","start":0.0,"end":5.0}],"snapshotFiles":["baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json","c39afc37d3814b00011ff123802736429b2799da96f12e5464cb487d400dc057.json","22558318a425ceb3ebd594b31ffe7c3c6d7372a3b4fd61b34d9538c58a847063.json","c6e408233be7c62274bab4573b5b4acce4bb1ca68641113561298f06136b2963.json","be8ac73ac74f8996fea504344d03a6003f7d95dd9e413b8ae0e0d0790c6f3862.json","115bf62d8011b100268bb657952819630e4a6cdf663f9c1a9e4b8ccb376e4a06.json"],"exportSettings":{"codec":"H.264","resolution":"Project size","frameRate":30}}
+== history
+baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json
+c39afc37d3814b00011ff123802736429b2799da96f12e5464cb487d400dc057.json
+22558318a425ceb3ebd594b31ffe7c3c6d7372a3b4fd61b34d9538c58a847063.json
+c6e408233be7c62274bab4573b5b4acce4bb1ca68641113561298f06136b2963.json
+be8ac73ac74f8996fea504344d03a6003f7d95dd9e413b8ae0e0d0790c6f3862.json
+115bf62d8011b100268bb657952819630e4a6cdf663f9c1a9e4b8ccb376e4a06.json
+== step 5 of 6
+{"state":{"clips":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":5.0,"transition":{"id":"T-1","nextClipID":"ID-00002","style":"split","duration":2.0},"color":{"id":"COLOR-1","look":"cinema","amount":0.8},"crop":{"id":"CROP-1","x":0.4,"y":0.55,"zoom":1.6,"rotation":3.0},"transitionFit":{"factor":1.0}},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":5.0,"color":{"id":"COLOR-2","look":"natural","amount":1.0,"exposure":0.5,"highlights":-0.3,"warmth":0.2,"tint":-0.1}},{"id":"ID-00003","sourceID":"S3","start":0.0,"end":5.0,"color":{"id":"COLOR-3","look":"natural","amount":0.65,"imported":{"filename":"effect-lut-0123456789abcdef.cube","name":"Teal and orange","input":"rec709"}}}]},"captureCursor":3}
+== layout
+duration 13.000000000
+clip 0 ID-00001 from 0.000000000 for 5.000000000 overlaps 0.000000000 2.000000000 owns 0.000000000..4.000000000
+clip 1 ID-00002 from 3.000000000 for 5.000000000 overlaps 2.000000000 0.000000000 owns 4.000000000..8.000000000
+clip 2 ID-00003 from 8.000000000 for 5.000000000 overlaps 0.000000000 0.000000000 owns 8.000000000..13.000000000
+join 0 at 0.000000000 over 0.000000000..0.000000000 origin 0.000000000 factor 1.000000000 edge -1 from null to 0 maximum 3.000000000 | cut
+join 1 at 4.000000000 over 3.000000000..5.000000000 origin 3.000000000 factor 1.000000000 edge 0 from 0 to 1 maximum 5.000000000 | Split T-1 motion 2.000000000 hold 0.000000000 picture 2.000000000 in 0.000000000..2.000000000 out 0.000000000..2.000000000 leftEnd 2.000000000 rightStart 0.000000000 lower 0.000000000 upper 2.000000000 cut 1.000000000 costs 2.000000000 2.000000000
+join 2 at 8.000000000 over 8.000000000..8.000000000 origin 8.000000000 factor 1.000000000 edge 0 from 1 to 2 maximum 3.000000000 | cut
+join 3 at 13.000000000 over 13.000000000..13.000000000 origin 13.000000000 factor 1.000000000 edge 1 from 2 to null maximum 5.000000000 | cut
+== plan
+duration 13.000000000 stacked true transitions drawn true
+chain 0 clips 0..0 over 0.000000000..5.000000000
+chain 1 clips 1..2 over 3.000000000..13.000000000
+picture 0 ID-00001 of S1 at 0.000000000 for 5.000000000 footage 0.000000000..5.000000000 cut 0..5000000us rate 1.000000000 chain 0 deck 0 color COLOR-1 crop CROP-1 shaped true sound removed false
+  level 1.000000000 1.000000000 1.000000000 0.625000000 0.000000000
+picture 1 ID-00002 of S2 at 3.000000000 for 5.000000000 footage 0.000000000..5.000000000 cut 0..5000000us rate 1.000000000 chain 1 deck 1 color COLOR-2 crop null shaped true sound removed false
+  level 0.000000000 0.625000000 1.000000000 1.000000000 1.000000000
+picture 2 ID-00003 of S3 at 8.000000000 for 5.000000000 footage 0.000000000..5.000000000 cut 0..5000000us rate 1.000000000 chain 1 deck 1 color COLOR-3 crop null shaped false sound removed false
+  level 1.000000000 1.000000000 1.000000000 1.000000000 1.000000000
+deck 0 clips [0] chains [0]
+deck 1 clips [1, 2] chains [1]
+sequence Picture 0: clip 0, gap@5.000000000:8000000us
+sequence Picture 1: gap@0.000000000:3000000us, clip 1, clip 2
+transition 1 Split picture 3.000000000..5.000000000 sound in 3.000000000..5.000000000 out 3.000000000..5.000000000
+ending on deck 0 at 5.000000000
+ending on deck 1 at 13.000000000
+moment 0.000000000: the first picture | first clip 0 on deck 0 at 0.000000000 | second clip 0 on deck 0 at 0.000000000 | titles 1.000000000 0.000000000
+moment 0.812500000: the first picture | first clip 0 on deck 0 at 0.812500000 | second clip 0 on deck 0 at 0.812500000 | titles 1.000000000 0.000000000
+moment 1.625000000: the first picture | first clip 0 on deck 0 at 1.625000000 | second clip 0 on deck 0 at 1.625000000 | titles 1.000000000 0.000000000
+moment 2.437500000: the first picture | first clip 0 on deck 0 at 2.437500000 | second clip 0 on deck 0 at 2.437500000 | titles 1.000000000 0.000000000
+moment 3.250000000: split, first in 0.000000000,0.000000000 960.000000000x1080.000000000 second in 960.000000000,0.000000000 960.000000000x1080.000000000 line 958.920000000,0.000000000 2.160000000x1080.000000000 mix 0.166666667 0.833333333 0.000000000 | first clip 0 on deck 0 at 3.250000000 | second clip 1 on deck 1 at 0.250000000 | titles 1.000000000 1.000000000
+moment 4.062500000: split, first in 0.000000000,0.000000000 960.000000000x1080.000000000 second in 960.000000000,0.000000000 960.000000000x1080.000000000 line 958.920000000,0.000000000 2.160000000x1080.000000000 mix 0.000000000 1.000000000 0.000000000 | first clip 0 on deck 0 at 4.062500000 | second clip 1 on deck 1 at 1.062500000 | titles 1.000000000 1.000000000
+moment 4.875000000: split, first in 0.000000000,0.000000000 960.000000000x1080.000000000 second in 960.000000000,0.000000000 960.000000000x1080.000000000 line 958.920000000,0.000000000 2.160000000x1080.000000000 mix 0.000000000 0.416666667 0.583333333 | first clip 0 on deck 0 at 4.875000000 | second clip 1 on deck 1 at 1.875000000 | titles 1.000000000 1.000000000
+moment 5.687500000: the first picture | first clip 1 on deck 1 at 2.687500000 | second clip 1 on deck 1 at 2.687500000 | titles 1.000000000 0.000000000
+moment 6.500000000: the first picture | first clip 1 on deck 1 at 3.500000000 | second clip 1 on deck 1 at 3.500000000 | titles 1.000000000 0.000000000
+moment 7.312500000: the first picture | first clip 1 on deck 1 at 4.312500000 | second clip 1 on deck 1 at 4.312500000 | titles 1.000000000 0.000000000
+moment 8.125000000: the first picture | first clip 2 on deck 1 at 0.125000000 | second clip 2 on deck 1 at 0.125000000 | titles 1.000000000 0.000000000
+moment 8.937500000: the first picture | first clip 2 on deck 1 at 0.937500000 | second clip 2 on deck 1 at 0.937500000 | titles 1.000000000 0.000000000
+moment 9.750000000: the first picture | first clip 2 on deck 1 at 1.750000000 | second clip 2 on deck 1 at 1.750000000 | titles 1.000000000 0.000000000
+moment 10.562500000: the first picture | first clip 2 on deck 1 at 2.562500000 | second clip 2 on deck 1 at 2.562500000 | titles 1.000000000 0.000000000
+moment 11.375000000: the first picture | first clip 2 on deck 1 at 3.375000000 | second clip 2 on deck 1 at 3.375000000 | titles 1.000000000 0.000000000
+moment 12.187500000: the first picture | first clip 2 on deck 1 at 4.187500000 | second clip 2 on deck 1 at 4.187500000 | titles 1.000000000 0.000000000
+moment 13.000000000: the first picture | first clip 2 on deck 1 at 5.000000000 | second clip 2 on deck 1 at 5.000000000 | titles 1.000000000 0.000000000
