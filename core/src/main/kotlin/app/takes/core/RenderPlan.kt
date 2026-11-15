@@ -1,0 +1,310 @@
+package app.takes.core
+
+import kotlin.math.floor
+import kotlin.math.roundToLong
+
+/**
+ * What the preview and the export draw and play, and when: everything the
+ * two decide from an edit, as plain values. The app makes players and
+ * compositions from a plan and decides nothing itself; two edits that give
+ * equal plans look and sound the same.
+ *
+ * It holds the arrangement both renderers use today:
+ *
+ *  - [pictures]: each clip as a piece of footage with its place, speed, color
+ *    and crop, and what becomes of its own sound;
+ *  - [decks]: the two players of the preview, each with the clips of every
+ *    other chain as its playlist;
+ *  - [sequences]: the picture sequences of an export, one when the clips
+ *    follow one another and two, drawn from a frame holding both, when clips
+ *    play at once or time lies between them, with their gaps;
+ *  - [transitions], [freezes] and [endings]: what the transition effect draws
+ *    and which frames it has to keep;
+ *  - [titles] and [captions]: what is written over the finished frame;
+ *  - [soundtracks] and [cleaned]: the sequences of sound alone, for the two
+ *    sound tracks and for the cleaned sound of clips with noise reduction.
+ *
+ * Levels are functions of time ([clipLevel], [soundLevel]) and the picture of
+ * a moment is [moment]; both answer from the same edit the plan was made of.
+ */
+data class RenderPlan(
+    val clips: List<TimelineClip>,
+    val sounds: List<AudioItem>,
+    /** The length of the movie: that of its picture. */
+    val duration: Double,
+    val pictures: List<Picture>,
+    val chains: List<TimelineEditing.Chain>,
+    val decks: List<Deck>,
+    val sequences: List<Sequence>,
+    val transitions: List<TransitionLayout.Join>,
+    val freezes: List<Freeze>,
+    val endings: List<Ending>,
+    val titles: List<TitleSpan>,
+    /** How the captions look; null when the movie has none. */
+    val subtitles: SubtitleSettings?,
+    val captions: List<SubtitleCue>,
+    val soundtracks: List<Sequence>,
+    val cleaned: List<Sequence>,
+) {
+    /** One clip as something to play. Times of the movie are in seconds; the cuts in the footage also in the microseconds a player is given. */
+    data class Picture(
+        val index: Int,
+        val id: String,
+        val sourceID: String,
+        /** Where it plays in the movie, and for how long. */
+        val start: Double,
+        val duration: Double,
+        /** The footage it plays, in source seconds. */
+        val sourceStart: Double,
+        val sourceEnd: Double,
+        /** The same cuts as a player takes them: never later than the second they stand for ([cutMicros]). */
+        val sourceStartUs: Long,
+        val sourceEndUs: Long,
+        /** How fast it plays, picture and sound, with the pitch kept. */
+        val rate: Double,
+        /** The chain it belongs to and the deck that shows it. */
+        val chain: Int,
+        val deck: Int,
+        val color: ColorSettings?,
+        val crop: CropSettings?,
+        /** Whether its sound is shaped over time ([clipLevel]): it has sound settings of its own, or a transition at one of its ends. */
+        val shaped: Boolean,
+        /** Whether its recorded sound is left out because its cleaned sound plays instead, from a sequence of [RenderPlan.cleaned]. */
+        val soundRemoved: Boolean,
+    ) {
+        val end: Double get() = start + duration
+    }
+
+    /** One player of the preview: the clips it holds, in order, and the chains they form. */
+    data class Deck(val number: Int, val clips: List<Int>, val chains: List<Int>)
+
+    /** What a sequence holds, one after another. */
+    sealed interface Entry {
+        /** Time with nothing in it: black, and silence. [start] is where it begins in the movie. */
+        data class Gap(val start: Double, val micros: Long) : Entry
+
+        /** The clip at [index] of [pictures]: its picture and sound in a picture sequence, its cleaned sound in a cleaned one. */
+        data class Clip(val index: Int) : Entry
+
+        /**
+         * A sound of the sound tracks, from [start] for [seconds]: the part of
+         * it the movie plays, which ends with the picture. The cuts in its file
+         * are in microseconds, to the nearest.
+         */
+        data class Sound(val item: AudioItem, val start: Double, val seconds: Double, val sourceStartUs: Long, val sourceEndUs: Long) : Entry
+    }
+
+    enum class Role { Picture, Soundtrack, Cleaned }
+
+    /** One sequence of an export. [number] is the deck of a picture sequence, the track of a soundtrack, the deck whose clips a cleaned one carries. */
+    data class Sequence(val role: Role, val number: Int, val entries: List<Entry>)
+
+    /**
+     * A frame a still holds. From [from] to [until] the clip at [clip] shows
+     * the frame it showed at [shown], which is [offset] seconds into it and
+     * second [sourceTime] of its footage. An export keeps the last frame
+     * drawn before [from]; the preview seeks to it. [sounding] says the clip
+     * plays on under the freeze for its sound, so the preview has to draw the
+     * frame over a deck that is moving.
+     */
+    data class Freeze(
+        val join: Int, val clip: Int, val deck: Int, val from: Double, val until: Double,
+        val shown: Double, val offset: Double, val sourceTime: Double, val sounding: Boolean,
+    )
+
+    /** The end of a chain on [deck] at second [at]: a sequence may end a frame early, and the last frame that came is kept for a transition still showing it. */
+    data class Ending(val deck: Int, val at: Double)
+
+    /** A title over the seconds of the movie its clip shows it. Pieces of one clip carry the same title one after another. */
+    data class TitleSpan(val clip: Int, val title: TextOverlay, val start: Double, val end: Double)
+
+    // MARK: The picture of a moment
+
+    /** The deck showing each clip. */
+    val deckOf: List<Int> get() = pictures.map { it.deck }
+
+    /** Whether the picture sequences are two, laid one above the other in a frame twice as tall for the transition effect. */
+    val stacked: Boolean get() = sequences.size > 1
+
+    /** Whether the transition effect draws the frames at all: there are two sequences, or a transition in the only one. */
+    val drawsTransitions: Boolean get() = stacked || transitions.isNotEmpty()
+
+    /** Whether a frame [width] by [height] can be drawn on a GPU whose largest texture is [largestSide] pixels a side. */
+    fun fits(width: Int, height: Int, largestSide: Int): Boolean = !stacked || (width <= largestSide && height * sequences.size <= largestSide)
+
+    /** What the movie shows at [time], for both renderers ([TransitionScene.moment]). */
+    fun moment(
+        time: Double, canvas: Size = Size(1920.0, 1080.0),
+        frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND },
+    ): TransitionScene.Moment = TransitionScene.moment(clips, time, canvas, deckOf, frames)
+
+    /** The frames per second of the movie while the transition of [join] plays ([TransitionScene.frameRate]). */
+    fun frameRate(join: TransitionLayout.Join, footage: List<Double?>, ceiling: Int): Double = TransitionScene.frameRate(clips, join, footage, ceiling, deckOf)
+
+    /** The titles showing at [time], each with its opacity. */
+    fun titlesAt(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Pair<TextOverlay, Double>> =
+        TimelineEditing.titlesAt(clips, time, frames)
+
+    /** The captions showing at [time]. */
+    fun captionsAt(time: Double): List<SubtitleCue> = SubtitleEditing.active(captions, time)
+
+    /** The clip [deck] is playing at [time], and its chain; null where the deck plays nothing. */
+    fun playing(deck: Int, time: Double): Pair<Int, Int>? {
+        val chain = chains.indices.lastOrNull { it % DECKS == deck && time >= chains[it].start && time < chains[it].end } ?: return null
+        val clip = (chains[chain].first..chains[chain].last).lastOrNull { pictures[it].start <= time } ?: chains[chain].first
+        return chain to clip
+    }
+
+    // MARK: Sound
+
+    /** How loud the clip at [index] is [offset] seconds into it: its own level and fades, and what its transitions leave of it. */
+    fun clipLevel(index: Int, offset: Double): Double = TimelineEditing.soundLevel(clips, index, offset)
+
+    /** How loud a sound of the sound tracks is [offset] seconds into it. */
+    fun soundLevel(item: AudioItem, offset: Double): Double = TimelineEditing.soundLevel(item, offset)
+
+    /** How loud [deck] is at [time] in the preview, where a player has one volume: the level of the clip it plays, 0 where it plays none. */
+    fun deckLevel(deck: Int, time: Double): Double {
+        val clip = pictures.lastOrNull { it.deck == deck && time >= it.start && time < it.end } ?: return 0.0
+        return clipLevel(clip.index, time - clip.start)
+    }
+
+    /** How loud sound track [track] is at [time] in the preview. */
+    fun trackLevel(track: Int, time: Double): Double = TimelineEditing.audioAt(sounds, track, time)?.let { soundLevel(it, time - it.start) } ?: 0.0
+
+    /** The sound the preview's player of [track] holds at [time]: the one playing, or the next to come. */
+    fun cued(track: Int, time: Double): AudioItem? =
+        TimelineEditing.audioAt(sounds, track, time) ?: sounds.filter { it.track == track && it.start > time }.minByOrNull { it.start }
+
+    companion object {
+        /** The players of the preview, and the most picture sequences of an export. */
+        const val DECKS = 2
+
+        /** A sound beginning later than this before the end of the picture is left out of the movie. */
+        const val SOUND_MARGIN = 0.01
+
+        /** A chain beginning or ending nearer than this to the ends of the movie needs no gap around it. */
+        const val GAP_MARGIN = 0.0005
+
+        /**
+         * The microsecond a clip is cut at, for a source second: never later
+         * than it. A file gives each frame its time rounded down to the
+         * microsecond; a cut rounded to the nearest one would fall just after
+         * its frame one time in three.
+         */
+        fun cutMicros(seconds: Double): Long = floor(seconds * 1e6).toLong()
+
+        /**
+         * Where a clip's own picture lies in a frame of [canvas] pixels, from
+         * the top left: all of it when the clip is cropped or the size of its
+         * footage is not known, else the footage fitted inside it.
+         */
+        fun content(canvas: Size, source: Size?, cropped: Boolean): Rect {
+            if (cropped || source == null) return Rect(0.0, 0.0, canvas.width, canvas.height)
+            val scale = minOf(canvas.width / source.width, canvas.height / source.height)
+            return Rect((canvas.width - source.width * scale) / 2, (canvas.height - source.height * scale) / 2, source.width * scale, source.height * scale)
+        }
+
+        /** The entries of a sequence that plays [pieces] at their times and nothing between them, up to [total]. */
+        private fun <T> spaced(pieces: List<T>, total: Double, start: (T) -> Double, end: (T) -> Double, entry: (T) -> List<Entry>): List<Entry> {
+            val entries = mutableListOf<Entry>()
+            var filled = 0.0
+            fun gap(until: Double) {
+                val micros = ((until - filled) * 1e6).roundToLong()
+                if (micros > 0) entries += Entry.Gap(filled, micros)
+            }
+            for (piece in pieces) {
+                gap(start(piece))
+                entries += entry(piece)
+                filled = end(piece)
+            }
+            gap(total)
+            return entries
+        }
+
+        /**
+         * The plan of [state]. [cleaned] are the clips whose cleaned sound is
+         * at hand; null takes every clip that asks for noise reduction. A
+         * clip that asks and is not among them plays its recorded sound.
+         */
+        fun of(state: EditState, cleaned: Set<Int>? = null): RenderPlan {
+            val clips = state.clips
+            val sounds = state.audio.orEmpty()
+            val layout = TimelineEditing.layout(clips)
+            val total = layout.duration
+            val chains = TimelineEditing.chains(clips)
+            val deckOf = TransitionScene.decks(clips)
+            val chainOf = MutableList(clips.size) { 0 }
+            chains.forEachIndexed { chain, run -> for (index in run.first..run.last) chainOf[index] = chain }
+            val clean = clips.indices.filter { (clips[it].audio?.denoise ?: 0.0) > 0 && (cleaned == null || it in cleaned) }.toSet()
+
+            val pictures = clips.mapIndexed { index, clip ->
+                Picture(
+                    index, clip.id, clip.sourceID, layout.placements[index].start, clip.duration,
+                    clip.start, clip.end, cutMicros(clip.start), cutMicros(clip.end), clip.rate, chainOf[index], deckOf[index], clip.color, clip.crop,
+                    shaped = clip.audio != null || TimelineEditing.entering(clips, index) != null || TimelineEditing.leaving(clips, index) != null,
+                    soundRemoved = index in clean,
+                )
+            }
+            val decks = List(DECKS) { deck ->
+                val own = chains.indices.filter { it % DECKS == deck }
+                Deck(deck, own.flatMap { chains[it].first..chains[it].last }, own)
+            }
+            fun run(chain: TimelineEditing.Chain): List<Entry> = (chain.first..chain.last).map { Entry.Clip(it) }
+            val sequences = when {
+                chains.isEmpty() -> emptyList()
+                chains.size == 1 -> {
+                    val chain = chains[0]
+                    // A freeze before the first clip or after the last one is time with no clip in it.
+                    val entries = if (chain.start < GAP_MARGIN && total - chain.end < GAP_MARGIN) run(chain) else buildList {
+                        ((chain.start * 1e6).roundToLong()).takeIf { it > 0 }?.let { add(Entry.Gap(0.0, it)) }
+                        addAll(run(chain))
+                        (((total - chain.end) * 1e6).roundToLong()).takeIf { it > 0 }?.let { add(Entry.Gap(chain.end, it)) }
+                    }
+                    listOf(Sequence(Role.Picture, 0, entries))
+                }
+                // Chains alternate between two sequences, since neighbors play at once or with a pause between them.
+                else -> List(DECKS) { deck ->
+                    Sequence(Role.Picture, deck, spaced(chains.filterIndexed { index, _ -> index % DECKS == deck }, total, { it.start }, { it.end }, ::run))
+                }
+            }
+
+            val joins = layout.all.filter { it.transition != null && TransitionLayout.longEnough(it.timing) }
+            val freezes = joins.filter { it.outgoing != null }.mapNotNull { join ->
+                val placement = layout.placements[join.outgoing!!]
+                TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)?.let { held ->
+                    Freeze(
+                        join.index, placement.index, deckOf[placement.index], held.from, held.until, held.shown, held.offset,
+                        clips[placement.index].sourceTime(held.offset), sounding = placement.end > held.from + 0.001,
+                    )
+                }
+            }
+            val endings = chains.mapIndexed { index, chain -> Ending(index % DECKS, chain.end) }
+
+            val titles = clips.flatMapIndexed { index, clip ->
+                clip.texts.orEmpty().mapNotNull { title -> TimelineEditing.titleRange(clips, index, title)?.let { TitleSpan(index, title, it.start, it.endInclusive) } }
+            }
+            val captions = SubtitleEditing.cues(state)
+
+            // Sound on its own tracks: one sequence a track, silent between its sounds. The movie ends with its picture.
+            val soundtracks = (0 until AudioItem.TRACKS).mapNotNull { track ->
+                val items = sounds.filter { it.track == track && it.start < total - SOUND_MARGIN }.sortedBy { it.start }
+                if (items.isEmpty()) return@mapNotNull null
+                Sequence(Role.Soundtrack, track, spaced(items, total, { it.start }, { minOf(it.end, total) }) { item ->
+                    val seconds = minOf(item.end, total) - item.start
+                    listOf(Entry.Sound(item, item.start, seconds, (item.sourceStart * 1e6).roundToLong(), ((item.sourceStart + seconds) * 1e6).roundToLong()))
+                })
+            }
+            // Cleaned sound in place of the recorded one, at the clips' own times: chains overlap, so they alternate here too.
+            val cleanedSound = (0 until DECKS).mapNotNull { deck ->
+                val indices = clean.sorted().filter { chainOf[it] % DECKS == deck }
+                if (indices.isEmpty()) return@mapNotNull null
+                Sequence(Role.Cleaned, deck, spaced(indices, total, { pictures[it].start }, { pictures[it].end }) { listOf(Entry.Clip(it)) })
+            }
+            return RenderPlan(
+                clips, sounds, total, pictures, chains, decks, sequences, TimelineEditing.transitions(clips), freezes, endings,
+                titles, state.subtitles?.takeIf { captions.isNotEmpty() }, captions, soundtracks, cleanedSound,
+            )
+        }
+    }
+}
