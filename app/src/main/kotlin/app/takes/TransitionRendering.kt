@@ -48,9 +48,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val SPLIT = 4
         const val HITCHCOCK = 5
         const val WHIP = 6
+        const val DEFOCUS = 7
 
-        /** The styles the shader draws. The editor offers these; any other is shown as a dissolve, and cannot be made here. */
-        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.Hitchcock, TransitionStyle.Whip, TransitionStyle.FlashCut, TransitionStyle.Still)
+        /** The styles the shader draws, which are the ones the editor offers: all nine of the original. */
+        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.Hitchcock, TransitionStyle.Whip, TransitionStyle.FlashCut, TransitionStyle.Still, TransitionStyle.Defocus)
 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
@@ -108,8 +109,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
                     put(1, if (frame.vertical) 0.0 else 1.0, if (frame.vertical) 1.0 else 0.0, frame.blurRadius, frame.mix)
                     SceneDrawing(WHIP, first, second, fill, values)
                 }
-                // A style this version cannot draw: a plain dissolve by its share of the incoming picture.
-                else -> { put(0, moment.secondShare / maxOf(1e-9, moment.firstShare + moment.secondShare)); SceneDrawing(DISSOLVE, first, second, fill, values) }
+                is TransitionFrame.Defocus -> {
+                    put(0, frame.blurRadius, frame.mix, frame.ringAmount, frame.ringSize)
+                    SceneDrawing(DEFOCUS, first, second, fill, values)
+                }
             }
         }
     }
@@ -142,6 +145,23 @@ object TransitionShader {
             }
             return sum / 32.0;
         }
+        // One side through an aperture: the even disc a lens out of focus makes of every point, a little brighter
+        // at its rim, in linear light so highlights spread as discs. The points lie on a sunflower spiral.
+        vec3 disc(float kind, vec2 q, float radius, float ring, float rim) {
+            if (radius < 0.5) return lin(side(kind, q));
+            vec3 sum = vec3(0.0);
+            float total = 0.0;
+            vec2 turn = vec2(1.0, 0.0);
+            for (int i = 0; i < 48; i++) {
+                float r = sqrt((float(i) + 0.5) / 48.0);
+                float weight = 1.0 + ring * step(1.0 - rim, r);
+                sum += weight * lin(side(kind, q + turn * (r * radius)));
+                total += weight;
+                // The golden angle on from the last point.
+                turn = vec2(turn.x * -0.737369 - turn.y * 0.675490, turn.x * 0.675490 + turn.y * -0.737369);
+            }
+            return sum / total;
+        }
         // Whether a pixel is in a rectangle given as left, top, width, height.
         bool within(vec2 p, vec4 r) { return p.x >= r.x && p.y >= r.y && p.x < r.x + r.z && p.y < r.y + r.w; }
         vec3 scene(vec2 q) {
@@ -152,6 +172,12 @@ object TransitionShader {
                 // A wipe: the second picture behind the edge, the first ahead of it, a ramp across its band.
                 float share = clamp(1.0 - dot(q - uA.xy, uA.zw) / uB.x, 0.0, 1.0);
                 return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), share));
+            }
+            if (uMode > 6.5) {
+                // Defocus: both pictures out of focus; one replaces the other inside the blur. Only the one showing is worked out.
+                if (uA.y <= 0.0) return enc(disc(uKind.x, q, uA.x, uA.z, uA.w));
+                if (uA.y >= 1.0) return enc(disc(uKind.y, q, uA.x, uA.z, uA.w));
+                return enc(mix(disc(uKind.x, q, uA.x, uA.z, uA.w), disc(uKind.y, q, uA.x, uA.z, uA.w), uA.y));
             }
             if (uMode > 5.5) {
                 // A whip pan: both pictures slide along one axis, smeared along it, and change over on the way.
