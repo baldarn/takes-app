@@ -16,4 +16,9 @@
     <string name="recorder_paused_microphone_taken">Another app is using the microphone. Recording is paused; resume when the microphone is free.</string>
     <string name="recorder_storage_short">Free about %1$s more space to record.</string>
     <string name="recorder_paused_storage">Recording is paused so that it can be saved safely. Free some storage before resuming.</string>
+
+    <!-- The bottom row: what the big button and the round one beside it do, for the screen reader. -->
+    <string name="recorder_stop_recording">Stop recording</string>
+    <string name="recorder_pause_recording">Pause recording</string>
+    <string name="recorder_finish_paused">Finish paused recording</string>
 </resources>

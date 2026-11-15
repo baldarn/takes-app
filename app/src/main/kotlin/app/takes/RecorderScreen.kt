@@ -37,13 +37,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -77,9 +83,12 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.CaptureController.Phase
 import app.takes.core.ZoomTransition
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 private val Scrim = Color(0x99000000)
+/** The plate under a control that sits on the picture, as in the original. */
+private val ControlPlate = Color(0x85000000)
 
 private fun granted(context: Context, permission: String) =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -339,44 +348,79 @@ private fun CameraRow(capture: CaptureController) {
     }
 }
 
+/**
+ * The bottom row, as in the original. The big button starts a take, stops the one being recorded and resumes
+ * a paused one; the round button on its right pauses, and finishes a paused take; Mark is on the left.
+ */
 @Composable
 private fun Controls(capture: CaptureController) {
     val phase = capture.phase
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
-        Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
-            if (phase == Phase.Recording || phase == Phase.Paused) {
-                TextButton(onClick = capture::finishTake) { Text(stringResource(R.string.recorder_stop), fontSize = 17.sp) }
-            }
+    val recording = phase == Phase.Recording
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            // In place from the first Record to Stop; it marks only while a segment is being written.
+            if (phase != Phase.Idle) MarkButton(capture)
         }
-        val pausing = phase == Phase.Recording
         val recordLabel = stringResource(when (phase) {
-            Phase.Recording -> R.string.recorder_pause
+            Phase.Recording -> R.string.recorder_stop_recording
             Phase.Paused -> R.string.recorder_resume
             else -> R.string.recorder_record
         })
         Box(
-            Modifier.size(76.dp).border(4.dp, Color.White, CircleShape)
-                .clickable(enabled = phase != Phase.Saving, role = Role.Button) { if (pausing) capture.pause() else capture.record() }
+            Modifier.size(88.dp).clip(CircleShape)
+                .clickable(enabled = phase != Phase.Saving, role = Role.Button) { if (recording) capture.finishTake() else capture.record() }
                 .semantics {
                     role = Role.Button
                     contentDescription = recordLabel
                 },
             contentAlignment = Alignment.Center,
         ) {
-            if (pausing) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    repeat(2) { Box(Modifier.size(10.dp, 28.dp).background(Color.White, RoundedCornerShape(2.dp))) }
+            Box(Modifier.size(80.dp).border(3.dp, Color.White, CircleShape))
+            when (phase) {
+                Phase.Saving -> CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 3.dp)
+                Phase.Recording -> Box(Modifier.size(30.dp).background(RecordRed, RoundedCornerShape(7.dp)))
+                Phase.Paused -> {
+                    Box(Modifier.size(66.dp).background(RecordRed, CircleShape))
+                    Icon(Icons.Filled.PlayArrow, null, Modifier.size(34.dp), tint = Color.White)
                 }
-            } else {
-                Box(Modifier.size(58.dp).background(if (phase == Phase.Saving) Color.Gray else RecordRed, CircleShape))
+                Phase.Idle -> Box(Modifier.size(66.dp).background(RecordRed, CircleShape))
             }
         }
-        Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
-            // One tap marks the moment without interrupting the take. It stays in place, disabled, while the take is paused.
-            if (phase == Phase.Recording || phase == Phase.Paused) {
-                TextButton(onClick = capture::bookmark, enabled = phase == Phase.Recording) { Text(if (capture.marks == 0) stringResource(R.string.recorder_mark) else stringResource(R.string.recorder_mark_count, capture.marks), fontSize = 17.sp) }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            when (phase) {
+                Phase.Recording -> SideButton(Icons.Filled.Pause, R.string.recorder_pause_recording, capture::pause)
+                Phase.Paused -> SideButton(Icons.Filled.Stop, R.string.recorder_finish_paused, capture::finishTake)
+                else -> Unit
             }
         }
+    }
+}
+
+/** One tap marks the moment without interrupting the take. The icon fills for a moment after each mark. */
+@Composable
+private fun MarkButton(capture: CaptureController) {
+    val enabled = capture.phase == Phase.Recording
+    var acknowledged by remember { mutableStateOf(false) }
+    LaunchedEffect(capture.marks) {
+        if (capture.marks > 0) { acknowledged = true; delay(700); acknowledged = false }
+    }
+    Column(
+        Modifier.size(52.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(15.dp)).background(ControlPlate)
+            .clickable(enabled = enabled, role = Role.Button, onClick = capture::bookmark),
+        Arrangement.Center, Alignment.CenterHorizontally,
+    ) {
+        Icon(if (acknowledged) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, null, Modifier.size(22.dp), tint = Color.White)
+        Text(stringResource(R.string.recorder_mark), color = Color.White, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+@Composable
+private fun SideButton(icon: ImageVector, label: Int, action: () -> Unit) {
+    Box(
+        Modifier.size(52.dp).clip(CircleShape).background(ControlPlate).clickable(role = Role.Button, onClick = action),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, stringResource(label), Modifier.size(24.dp), tint = Color.White)
     }
 }
 
