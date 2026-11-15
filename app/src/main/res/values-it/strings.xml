@@ -63,6 +63,16 @@
     <string name="projects_zip_saved">Il progetto è stato salvato come ZIP.</string>
     <string name="projects_zip_failed">Non è stato possibile creare lo ZIP del progetto: %1$s</string>
     <string name="projects_delete_failed">Non è stato possibile eliminare il progetto: %1$s</string>
+    <string name="projects_open_zip">Apri uno ZIP di progetto</string>
+    <string name="projects_unzipping">Apertura dello ZIP…</string>
+    <string name="projects_unzipping_percent">Apertura dello ZIP… %1$d%%</string>
+    <string name="projects_unzip_done">Il progetto dello ZIP è stato aggiunto ai tuoi progetti.</string>
+    <string name="projects_unzip_failed">Non è stato possibile aprire lo ZIP: %1$s</string>
+    <string name="unzip_not_a_backup">Questo file non è uno ZIP di progetto creato da Takes.</string>
+    <string name="unzip_damaged">Lo ZIP è danneggiato o incompleto. Esporta di nuovo il progetto e apri quel file.</string>
+    <string name="unzip_damaged_media">Una ripresa nello ZIP è danneggiata. Esporta di nuovo il progetto e apri quel file.</string>
+    <string name="unzip_no_space">Non c\'è abbastanza spazio libero per questo progetto.</string>
+    <string name="unzip_too_large">Lo ZIP contiene più cronologia di montaggio di quanta l\'app possa aprire.</string>
     <string name="projects_restore_failed">Non è stato possibile ripristinare il progetto: %1$s</string>
     <string name="projects_erase_failed">Non è stato possibile eliminare definitivamente il progetto: %1$s</string>
     <string name="projects_save_failed">Modifiche non salvate: %1$s</string>

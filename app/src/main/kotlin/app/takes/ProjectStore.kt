@@ -18,6 +18,8 @@ import app.takes.core.Project
 import app.takes.core.ProjectArchive
 import app.takes.core.ProjectException
 import app.takes.core.ProjectDisk
+import app.takes.core.ProjectRestore
+import app.takes.core.ProjectRestoreException
 import app.takes.core.SourceMedia
 import app.takes.core.TimelineEditing
 import app.takes.core.newID
@@ -310,6 +312,40 @@ class ProjectStore(context: Context) {
         if (selectedID == project.id) select(null)
     }
 
+    /**
+     * Brings back a project from a ZIP made by "Zip project". It always
+     * arrives as a new project, so nothing already in the library is replaced.
+     */
+    fun openArchive(source: Uri) {
+        if (importing != null) return
+        scope.launch {
+            importing = context.getString(R.string.projects_unzipping)
+            val problem = withContext(Dispatchers.IO) {
+                try {
+                    val size = resolver.query(source, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { row ->
+                        if (row.moveToFirst() && !row.isNull(0)) row.getLong(0) else 0L
+                    } ?: 0L
+                    disk.root.mkdirs()
+                    // Keep some room free, as the original does, so the phone is not filled to the brim.
+                    val room = (disk.root.usableSpace - 256_000_000L).coerceAtLeast(0)
+                    var shown = -1
+                    resolver.openInputStream(source)!!.use { stream ->
+                        ProjectRestore.restore(stream, disk.root, room) { read ->
+                            val percent = if (size > 0) (read * 100 / size).toInt().coerceIn(0, 100) else -1
+                            if (percent != shown && percent >= 0) { shown = percent; importing = context.getString(R.string.projects_unzipping_percent, percent) }
+                        }
+                    }
+                    null
+                } catch (failure: Exception) {
+                    (failure as? ProjectRestoreException)?.let { context.getString(it.reason.label) } ?: describe(failure)
+                }
+            }
+            importing = null
+            reload()
+            error = if (problem == null) context.getString(R.string.projects_unzip_done) else context.getString(R.string.projects_unzip_failed, problem)
+        }
+    }
+
     fun restore(project: Project) = attempt(R.string.projects_restore_failed) { disk.restoreDeleted(project.id) }
 
     fun erase(project: Project) = attempt(R.string.projects_erase_failed) { disk.eraseDeleted(project.id) }
@@ -352,3 +388,13 @@ class ProjectStore(context: Context) {
         }
     }
 }
+
+/** Why a ZIP could not be opened as a project, in the person's language. */
+val ProjectRestoreException.Reason.label: Int
+    get() = when (this) {
+        ProjectRestoreException.Reason.NotABackup -> R.string.unzip_not_a_backup
+        ProjectRestoreException.Reason.Damaged -> R.string.unzip_damaged
+        ProjectRestoreException.Reason.DamagedMedia -> R.string.unzip_damaged_media
+        ProjectRestoreException.Reason.NotEnoughSpace -> R.string.unzip_no_space
+        ProjectRestoreException.Reason.TooLarge -> R.string.unzip_too_large
+    }

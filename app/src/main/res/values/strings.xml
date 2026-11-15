@@ -61,6 +61,16 @@
     <string name="projects_zip_saved">The project was saved as a ZIP.</string>
     <string name="projects_zip_failed">The project could not be zipped: %1$s</string>
     <string name="projects_delete_failed">The project could not be deleted: %1$s</string>
+    <string name="projects_open_zip">Open a project ZIP</string>
+    <string name="projects_unzipping">Opening the ZIP…</string>
+    <string name="projects_unzipping_percent">Opening the ZIP… %1$d%%</string>
+    <string name="projects_unzip_done">The project from the ZIP was added to your projects.</string>
+    <string name="projects_unzip_failed">The ZIP could not be opened: %1$s</string>
+    <string name="unzip_not_a_backup">This file is not a project ZIP made by Takes.</string>
+    <string name="unzip_damaged">The ZIP is damaged or incomplete. Zip the project again and open that file.</string>
+    <string name="unzip_damaged_media">A recording in the ZIP is damaged. Zip the project again and open that file.</string>
+    <string name="unzip_no_space">There is not enough free space for this project.</string>
+    <string name="unzip_too_large">The ZIP holds more editing history than the app can open.</string>
     <string name="projects_restore_failed">The project could not be restored: %1$s</string>
     <string name="projects_erase_failed">The project could not be erased: %1$s</string>
     <string name="projects_save_failed">Changes not saved: %1$s</string>

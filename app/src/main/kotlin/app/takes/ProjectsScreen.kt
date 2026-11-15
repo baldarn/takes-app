@@ -92,6 +92,9 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
         if (destination != null && project != null) store.archive(project, destination)
     }
     val zipName = stringResource(R.string.projects_zip_fallback_name)
+    val openZip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { archive ->
+        if (archive != null) store.openArchive(archive)
+    }
     val pickVideos = { projectID: String ->
         importInto = projectID
         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
@@ -134,6 +137,12 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
                         TextButton(onClick = { erasing = entry.project }) { Text(stringResource(R.string.projects_delete_permanently), color = RecordRed) }
                     }
                 }
+            }
+        }
+        item {
+            // Some file managers label a ZIP as generic data, so both kinds are offered.
+            TextButton(onClick = { openZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) }) {
+                Text(stringResource(R.string.projects_open_zip), color = Muted)
             }
         }
         item { TextButton(onClick = { showingCredits = true }) { Text(stringResource(R.string.credits_title), color = Muted) } }

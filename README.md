@@ -61,6 +61,7 @@ The port is still in progress. What works today is listed under
   the timeline, steps between them, and adds or removes them with undo.
 - Zip project: the recordings, sounds, imported LUTs, editing history and the current
   edit as an OpenTimelineIO file, saved wherever the system file picker allows.
+  Opening such a ZIP brings the project back as a new one, after checking every file.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
   the previous revision; finished takes missing from a manifest are indexed at launch.
 
@@ -70,7 +71,7 @@ More than one video layer, unlinking a clip's sound from its picture, the other
 transitions (wipe, split screen and so on), title fonts, colors and motion, Log footage
 and highlight recovery, subtitles, clip speed, rotated and animated crops, video
 effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log
-capture, microphone selection, manual focus, restoring a project from its ZIP.
+capture, microphone selection, manual focus.
 
 The project file format is this port's own and is not interchangeable with the iPhone
 app.
