@@ -733,4 +733,6 @@
     <string name="export_paused_saved">Video salvato fino a %1$s</string>
     <string name="export_resume">Riprendi esportazione</string>
     <string name="export_discard">Elimina esportazione</string>
+    <string name="export_audio_warning_title">L\'audio potrebbe distorcere</string>
+    <string name="export_audio_warning">I picchi superano il fondo scala di %1$s dB. Abbassa il Volume nell\'editor ed esporta di nuovo.</string>
 </resources>

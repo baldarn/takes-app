@@ -724,4 +724,6 @@
     <string name="export_paused_saved">Video saved through %1$s</string>
     <string name="export_resume">Resume export</string>
     <string name="export_discard">Discard export</string>
+    <string name="export_audio_warning_title">Audio may distort</string>
+    <string name="export_audio_warning">Peaks are %1$s dB above full scale. Lower Volume in the editor and export again.</string>
 </resources>
