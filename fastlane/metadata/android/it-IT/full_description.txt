@@ -1,9 +1,11 @@
 Takes è una videocamera e un editor video in una sola app, pensata per come si girano davvero i video: una ripresa alla volta.
 
 REGISTRA A RIPRESE
-• Registra, metti in pausa, riprendi e ferma. Ogni pausa chiude una ripresa, e puoi tornare sullo stesso progetto più tardi, anche dopo aver chiuso l'app.
+• Registra, metti in pausa, riprendi e ferma: il pulsante grande ferma, quello tondo accanto mette in pausa. Ogni pausa chiude una ripresa, e puoi tornare sullo stesso progetto più tardi, anche dopo aver chiuso l'app.
 • Passa dalla camera frontale a quella posteriore mentre registri.
 • Zoom predefiniti, pizzico per zoomare e transizioni di zoom fluide e temporizzate. Ogni camera ricorda il proprio zoom.
+• Tocco per il fuoco, blocco del fuoco e fuoco manuale, 4K, selfie a specchio e luce frontale, ognuno dove la camera del telefono lo offre.
+• Impostazioni del registratore e un pannello rapido.
 • Scegli il microfono, anche delle cuffie Bluetooth, e controllane il livello in tempo reale.
 • Segnalibri: segna un momento mentre registri e ritrovalo nel montaggio.
 
@@ -15,15 +17,15 @@ MONTA SULLA TIMELINE
 • Titoli che seguono le immagini, con look, font, gradienti, contorno, ombra, sfondo, animazioni di entrata e uscita, e stili che puoi salvare.
 • Nove transizioni tra le clip, in apertura e in chiusura: dissolvenza, fade su colore, wipe, split screen, Hitchcock, whip pan, flash cut, fermo immagine e defocus, ognuna con i suoi tempi per l'audio.
 • Importa nel progetto i video già presenti sul telefono.
-• Audio per ogni clip: volume, mute e dissolvenze.
+• Audio per ogni clip: volume a passi di mezzo decibel con un avviso quando il mix satura, mute e dissolvenze di lunghezza libera. Trascina la forma d'onda per regolare il livello.
 • Due tracce audio separate per musica o voce, importate dai tuoi file.
 • Riduzione del rumore per l'audio registrato.
 • Rimuovi le pause: trova i silenzi in una clip e li taglia.
 • Colore: look, esposizione, calore e tinta per ogni clip, oppure importa una tua LUT .cube.
-• Ritaglia e reinquadra l'immagine.
+• Ritaglia e reinquadra l'immagine, ruotala o animala tra due inquadrature.
 • Aggiungi video sul cursore: registra lì una nuova ripresa, o inserisci quelle che non hai ancora usato.
 • Sottotitoli: il parlato viene trascritto sul telefono, poi puoi correggere il testo e sceglierne lo stile.
-• Velocità della clip da 0,25× a 4×.
+• Velocità della clip da 0,25× a 4×, con l'intonazione mantenuta.
 • Annulla e ripristina che restano anche dopo aver chiuso l'app.
 • Le registrazioni originali non vengono mai modificate.
 

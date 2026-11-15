@@ -1,9 +1,11 @@
 Takes is a camera and a video editor in one app, built around the way videos are actually made: one take at a time.
 
 RECORD IN TAKES
-• Record, pause, resume and stop. Every pause closes a take, and you can come back to the same project later, even after closing the app.
+• Record, pause, resume and stop: the large button stops, the round one beside it pauses. Every pause closes a take, and you can come back to the same project later, even after closing the app.
 • Switch between front and rear camera while recording.
 • Zoom presets, pinch to zoom, and smooth timed zoom transitions. Each camera remembers its own zoom.
+• Tap to focus, focus lock and manual focus, 4K, mirrored selfies and a front light, each where your phone's camera offers it.
+• Recorder settings and a quick panel.
 • Choose the microphone, including a Bluetooth headset, and watch its live level.
 • Bookmarks: mark a moment while recording and jump back to it in the editor.
 
@@ -15,15 +17,15 @@ EDIT ON A TIMELINE
 • Titles that follow the footage, with looks, fonts, gradients, outline, shadow, background, entrance and exit motion, and styles you can save.
 • Nine transitions between clips and at the start and end: dissolve, fade through a color, wipe, split screen, Hitchcock, whip pan, flash cut, still and defocus, each with its own sound timing.
 • Import videos from your device into a project.
-• Sound for each clip: volume, mute and fades.
+• Sound for each clip: volume in half decibels with a warning when the mix would clip, mute, and fades of any length. Drag the waveform to set the level.
 • Two separate audio tracks for music or voice, imported from your files.
 • Noise reduction for recorded sound.
 • Remove pauses: find the silences in a clip and cut them out.
 • Color: looks, exposure, warmth and tint for each clip, or import your own .cube LUT.
-• Crop and reframe the picture.
+• Crop and reframe the picture, rotate it, or animate between two framings.
 • Add video at the playhead: record a new take there, or drop in takes you have not used yet.
 • Subtitles: speech is transcribed on your phone, then you can edit the text and choose its style.
-• Clip speed from 0.25× to 4×.
+• Clip speed from 0.25× to 4×, with the pitch kept.
 • Undo and redo that survive closing the app.
 • Your original recordings are never modified.
 
