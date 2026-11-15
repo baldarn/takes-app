@@ -434,8 +434,6 @@
     <string name="recorder_lens_ultrawide">%1$s ultrawide</string>
     <string name="recorder_lens_tele">%1$s tele</string>
     <string name="recorder_camera_failed">Non è stato possibile aprire la camera %1$s.</string>
-    <string name="recorder_mic_not_selected">Non è stato possibile selezionare %1$s. Il microfono lo sceglie il sistema.</string>
-    <string name="recorder_mic_disconnected">%1$s si è scollegato. Il microfono lo sceglie il sistema.</string>
     <string name="recorder_camera_not_ready">Nessuna camera è pronta.</string>
     <string name="recorder_storage_low">La memoria è quasi piena. Libera un po\' di spazio prima di registrare.</string>
     <string name="recorder_mic_off">L\'accesso al microfono è disattivato. Si registra senza audio.</string>
@@ -459,12 +457,7 @@
     <string name="recorder_paused">IN PAUSA  %1$s</string>
     <string name="recorder_saving">SALVATAGGIO…</string>
     <string name="recorder_new_project">Nuovo progetto</string>
-    <string name="recorder_landscape">Orizzontale</string>
-    <string name="recorder_portrait">Verticale</string>
     <string name="recorder_mic_level">Livello del microfono</string>
-    <string name="recorder_mic_automatic_using">Automatico: %1$s</string>
-    <string name="recorder_mic_automatic">Automatico</string>
-    <string name="recorder_mic_chip">Mic: %1$s</string>
     <string name="recorder_mic_change">Cambia microfono</string>
     <string name="recorder_zoom_instant">Immediato</string>
     <string name="recorder_switch_camera">Cambia camera</string>
