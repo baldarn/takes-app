@@ -306,7 +306,7 @@ fun TransitionPanel(
                 Segments(stringResource(R.string.transition_audio), TransitionAudio.entries.map { stringResource(it.label) to it }, settings.audio) {
                     change(settings.copy(audio = it, audioOffset = null, audioBlend = null))
                 }
-                TextButton(onClick = { change(settings.copy(first = TransitionFraming(), second = TransitionFraming())) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                TextButton(onClick = { change(settings.copy(first = TransitionFraming(), second = TransitionFraming(), divider = 0.5)) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
                     Text(stringResource(R.string.transition_reset_framing))
                 }
             }
@@ -483,12 +483,14 @@ private fun FadeColor(color: TransitionColor, choose: (TransitionColor) -> Unit)
 private fun AudioTiming(settings: TransitionSettings, edge: Int, join: TransitionLayout.Join?, maximum: Double, lengthNote: String?, change: (TransitionSettings) -> Unit) {
     val offset = settings.audioOffset ?: 0.0
     val blend = TransitionDefaults.displayedAudioBlend(settings, edge)
+    // The step as the person's language writes it, as the original formats it (TransitionEditor.swift:367-371).
+    val step = " " + stringResource(R.string.transition_duration_seconds, plain(0.1))
     @Composable
     fun Steps(earlier: String, middle: String, middleName: String, later: String, back: () -> Unit, reset: () -> Unit, forward: () -> Unit) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            OutlinedButton(onClick = back, modifier = Modifier.semantics { contentDescription = earlier }) { Icon(Icons.Filled.Remove, null, Modifier.size(16.dp)); Text(" 0.1 s") }
+            OutlinedButton(onClick = back, modifier = Modifier.semantics { contentDescription = earlier }) { Icon(Icons.Filled.Remove, null, Modifier.size(16.dp)); Text(step) }
             OutlinedButton(onClick = reset, modifier = Modifier.semantics { contentDescription = middleName }) { Text(middle) }
-            OutlinedButton(onClick = forward, modifier = Modifier.semantics { contentDescription = later }) { Icon(Icons.Filled.Add, null, Modifier.size(16.dp)); Text(" 0.1 s") }
+            OutlinedButton(onClick = forward, modifier = Modifier.semantics { contentDescription = later }) { Icon(Icons.Filled.Add, null, Modifier.size(16.dp)); Text(step) }
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -500,7 +502,7 @@ private fun AudioTiming(settings: TransitionSettings, edge: Int, join: Transitio
         }
         Seconds(stringResource(R.string.transition_audio_offset), offset, -maximum..maximum) { change(settings.copy(audioOffset = it, audio = TransitionAudio.Crossfade)) }
         Steps(
-            stringResource(R.string.transition_audio_earlier), "0 s", stringResource(R.string.transition_audio_align), stringResource(R.string.transition_audio_later),
+            stringResource(R.string.transition_audio_earlier), stringResource(R.string.transition_duration_seconds, plain(0.0)), stringResource(R.string.transition_audio_align), stringResource(R.string.transition_audio_later),
             back = { change(settings.copy(audioOffset = maxOf(-maximum, offset - 0.1), audio = TransitionAudio.Crossfade)) },
             reset = { change(settings.copy(audioOffset = 0.0, audio = TransitionAudio.Crossfade)) },
             forward = { change(settings.copy(audioOffset = minOf(maximum, offset + 0.1), audio = TransitionAudio.Crossfade)) },

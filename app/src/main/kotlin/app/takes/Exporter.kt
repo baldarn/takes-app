@@ -207,6 +207,16 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 progress = null
                 return@launch
             }
+            // Two clips playing at once are drawn from a frame that holds both, twice as tall as the movie
+            // (DecksCompositor). A GPU that cannot hold it would fail halfway: say so before any work is done.
+            if (TimelineEditing.chains(clips).size > 1) {
+                val side = withContext(Dispatchers.Default) { largestTextureSide() }
+                if (side != null && (canvas.first > side || canvas.second * 2 > side)) {
+                    store.error = context.getString(R.string.export_transitions_too_large, canvas.first, canvas.second)
+                    progress = null
+                    return@launch
+                }
+            }
             val folder = File(store.disk.folder(project.id), "Exports").apply { mkdirs() }
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
             val name = project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifEmpty { context.getString(R.string.export_fallback_name) } + " $stamp.mp4"

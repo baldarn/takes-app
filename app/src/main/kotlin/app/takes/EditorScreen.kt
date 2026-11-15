@@ -599,6 +599,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var titling by remember { mutableStateOf<Titling?>(null) }
     // Where a preview of a title's motion stops by itself.
     var auditionEnd by remember { mutableStateOf<Double?>(null) }
+    // Where the picture goes back to when it has stopped there: the start of a transition played by itself, as in the original.
+    var auditionReturn by remember { mutableStateOf<Double?>(null) }
     val busy = editor.playing || exporter.progress != null || subtitleWork
     DisposableEffect(busy) {
         view.keepScreenOn = busy
@@ -634,7 +636,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             withFrameNanos { }
             playhead = editor.tick().coerceIn(0.0, duration)
             scroll.scrollTo((playhead * pixelsPerSecond).roundToInt())
-            auditionEnd?.let { if (playhead >= it) { auditionEnd = null; editor.pause() } }
+            auditionEnd?.let {
+                if (playhead >= it) {
+                    auditionEnd = null
+                    editor.pause()
+                    auditionReturn?.let { back ->
+                        auditionReturn = null
+                        playhead = back
+                        editor.seek(back)
+                        scroll.scrollTo((back * pixelsPerSecond).roundToInt())
+                    }
+                }
+            }
         }
     }
     LaunchedEffect(clips, pixelsPerSecond) {
@@ -653,6 +666,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val audition = auditioning ?: return@LaunchedEffect
         try {
             auditionEnd = audition.review.end
+            auditionReturn = null
             playhead = audition.review.start
             editor.play(audition.review.start)
             snapshotFlow { editor.playing }.first { !it }
@@ -1057,6 +1071,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         val to = (run.start + window.endInclusive).coerceIn(0.0, duration)
                         if (to > from) {
                             auditionEnd = to
+                            auditionReturn = null
                             playhead = from
                             editor.play(from)
                         }
@@ -1102,9 +1117,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 playing = editor.playing,
                 play = {
                     if (editor.playing) { auditionEnd = null; editor.pause() } else join?.let {
-                        // A little of each clip around it, as the original plays it.
+                        // A little of each clip around it, as the original plays it: to one frame before the end, and then back to the start.
                         val from = (it.range.start - 0.65).coerceAtLeast(0.0)
-                        auditionEnd = (it.range.endInclusive + 0.65).coerceAtMost(duration)
+                        auditionEnd = ((it.range.endInclusive + 0.65).coerceAtMost(duration) - PauseDetector.FRAME).coerceAtLeast(from)
+                        auditionReturn = from
                         playhead = from
                         editor.play(from)
                     }

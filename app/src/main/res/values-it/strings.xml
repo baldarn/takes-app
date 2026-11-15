@@ -636,4 +636,5 @@
     <string name="selection_select">Seleziona</string>
     <string name="selection_toggle">Aggiungi o togli dalla selezione</string>
     <string name="project_error_newer_version">Questo progetto è stato salvato da una versione più recente di Takes. Aggiorna l\'app per aprirlo. I suoi file sono stati conservati.</string>
+    <string name="export_transitions_too_large">Su questo dispositivo le transizioni di questo filmato non si possono disegnare a %1$d × %2$d. Scegli una dimensione di esportazione più piccola, oppure togli le transizioni tra le clip.</string>
 </resources>

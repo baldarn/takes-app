@@ -273,6 +273,29 @@ class TransitionPreviewShader {
 }
 
 /**
+ * The longest side of a texture the device's GPU takes, in pixels; null when
+ * it cannot be asked. Asked on a graphics context of its own, made and let go here.
+ */
+fun largestTextureSide(): Int? = try {
+    val display = GlUtil.getDefaultEglDisplay()
+    val context = GlUtil.createEglContext(display)
+    try {
+        val surface = GlUtil.createFocusedPlaceholderEglSurface(context, display)
+        try {
+            val side = IntArray(1)
+            GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, side, 0)
+            side[0].takeIf { it > 0 }
+        } finally {
+            GlUtil.destroyEglSurface(display, surface)
+        }
+    } finally {
+        GlUtil.destroyEglContext(display, context)
+    }
+} catch (_: Exception) {
+    null
+}
+
+/**
  * Lays the two sequences of an export one above the other in a frame twice
  * as tall, untouched, the first on top. [TransitionEffect] then makes the
  * movie's frame from the two, which Media3's own blend of sequences could not:
@@ -332,6 +355,7 @@ class TransitionEffect(
 
         private var program = 0
         private var position = 0
+        private var drawnAt = Double.NaN  // the time of the frame drawn before this one
         private val gone = BooleanArray(2)
         private val pixel = java.nio.ByteBuffer.allocateDirect(4)
         private val quad = GlUtil.createBuffer(floatArrayOf(-1f, -1f, 0f, 1f, 1f, -1f, 0f, 1f, -1f, 1f, 0f, 1f, 1f, 1f, 0f, 1f))
@@ -423,11 +447,15 @@ class TransitionEffect(
             // Frame times arrive cut to whole microseconds, a hair before the thirtieths they stand for;
             // a flash cut counts frames from them, so they are taken a microsecond later.
             val time = (presentationTimeUs + 1) / 1e6
+            // Footage whose frames come further apart than the window (a few frames a second, or slowed down)
+            // would keep nothing: the window reaches back over the last interval between frames as well.
+            val window = maxOf(KEEP_WINDOW, if (time > drawnAt) KEEP_FRAMES * (time - drawnAt) else 0.0)
+            drawnAt = time
             gone.fill(false)
             for (deck in 0 until decks) {
                 // While a still is holding a deck's frame, that frame stays.
                 if (freezes.any { it.deck == deck && time >= it.at && time < it.until }) continue
-                val coming = (freezes + endings).firstOrNull { it.deck == deck && time < it.at - 0.0001 && time >= it.at - KEEP_WINDOW } ?: continue
+                val coming = (freezes + endings).firstOrNull { it.deck == deck && time < it.at - 0.0001 && time >= it.at - window } ?: continue
                 if (keep(deck, inputTexId)) keptFor[deck] = coming.at else gone[deck] = keptFor[deck] == coming.at
             }
             val moment = TransitionScene.moment(clips, time, size, deckOf, frames)
@@ -448,8 +476,11 @@ class TransitionEffect(
     }
 
     private companion object {
-        /** How long before a freeze or the end of a chain the frames are kept, in seconds. */
+        /** How long before a freeze or the end of a chain the frames are kept, in seconds; longer when frames come further apart ([KEEP_FRAMES]). */
         const val KEEP_WINDOW = 0.2
+
+        /** The frames are kept at least this many frame intervals before a freeze, so the last one is among them however far apart they come. */
+        const val KEEP_FRAMES = 2.5
 
         /** Where a frame is looked at to tell a picture from the black of an empty sequence, as shares of its size. */
         val SAMPLES = listOf(0.5f to 0.5f, 0.21f to 0.27f, 0.83f to 0.31f, 0.29f to 0.77f, 0.71f to 0.69f)
