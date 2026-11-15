@@ -33,6 +33,7 @@ import app.takes.core.matrixValues
 import app.takes.core.normalized
 import androidx.media3.effect.OverlayEffect
 import app.takes.core.AudioItem
+import app.takes.core.SoundEnvelope
 import app.takes.core.ExportSettings
 import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
@@ -282,9 +283,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     }
                     add(fit)
                 }
-                // Sound follows the clip's own level and fades, and any transition at its ends.
-                val shaped = clip.audio != null || TimelineEditing.entering(clips, index) != null || TimelineEditing.leaving(clips, index) != null
-                val sound = if (shaped) listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(clips, index, it) }) else emptyList()
+                // Sound follows the clip's own level and fades and any transition at its ends, sample by sample, and fades for a
+                // few milliseconds at every cut.
+                val sound = listOf<AudioProcessor>(SoundProcessor(SoundEnvelope.clip(clips, index), TimelineEditing.clipStart(clips, index)))
                 // Speed comes first in Media3, so the effects after it are timed in movie seconds.
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
                     .setRemoveAudio(index in clean) // its cleaned sound plays from a sequence of its own
@@ -309,7 +310,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     val seconds = minOf(item.end, total) - item.start
                     sequence.addItem(
                         EditedMediaItem.Builder(clippedItem(item, files.getValue(item.sourceID), seconds)).setRemoveVideo(true)
-                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(item, it) }), emptyList()))
+                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor(SoundEnvelope.item(sounds, item, total), item.start)), emptyList()))
                             .build(),
                     )
                     filled = item.start + seconds
@@ -335,7 +336,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     gap(begins)
                     sequence.addItem(
                         EditedMediaItem.Builder(clippedItem(clip, clean.getValue(index)))
-                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(clips, index, it) }), emptyList()))
+                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor(SoundEnvelope.clip(clips, index), begins)), emptyList()))
                             .apply { steadySpeed(clip)?.let(::setSpeed) }
                             .build(),
                     )

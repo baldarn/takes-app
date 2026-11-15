@@ -636,15 +636,13 @@ object TimelineEditing {
      * How loud the clip at [index] is at [offset] seconds into it, as a factor
      * of the recorded sound: its level and mute, its own fades, and what the
      * transitions at its two ends leave of it ([TransitionSound]). Above 1
-     * for a boosted clip.
+     * for a boosted clip. This is [SoundEnvelope.clip] without the few
+     * milliseconds of fade at a cut, which the export adds sample by sample.
      */
     fun soundLevel(clips: List<TimelineClip>, index: Int, offset: Double): Double {
-        val clip = clips.getOrNull(index) ?: return 0.0
-        val audio = clip.audio ?: ClipAudio()
-        // Each fade may be as long as the clip; where they cross, the lower of the two counts.
-        val own = audio.fades.gain(offset, clip.duration)
-        val time = clipStart(clips, index) + offset
-        return audio.gain * own * TransitionSound.clipLevel(time, entering(clips, index)?.audioIn, leaving(clips, index)?.audioOut)
+        val segment = SoundEnvelope.clip(clips, index, cutFades = false) ?: return 0.0
+        // Asked about its very end, the clip is still the one playing.
+        return segment.copy(end = Double.POSITIVE_INFINITY).gain(segment.start + offset)
     }
 
     // MARK: Sound on its own tracks
@@ -707,10 +705,10 @@ object TimelineEditing {
     fun audioAt(items: List<AudioItem>, track: Int, time: Double): AudioItem? =
         items.firstOrNull { it.track == track && time >= it.start && time < it.end }
 
-    /** How loud an item is at [offset] seconds into it: its level, mute and fades. */
+    /** How loud an item is at [offset] seconds into it: its level, mute and fades; [SoundEnvelope.item] without the fades of a cut. */
     fun soundLevel(item: AudioItem, offset: Double): Double {
-        val audio = item.audio ?: ClipAudio()
-        return audio.gain * audio.fades.gain(offset, item.duration)
+        val segment = SoundEnvelope.item(listOf(item), item, cutFades = false) ?: return 0.0
+        return segment.copy(end = Double.POSITIVE_INFINITY).gain(segment.start + offset)
     }
 
     // MARK: Color
