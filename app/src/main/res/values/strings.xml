@@ -679,4 +679,26 @@
     <string name="motion_step_less">%1$s: shorter</string>
     <string name="motion_step_more">%1$s: longer</string>
     <string name="motion_hold">Hold B for %1$s</string>
+    <string name="sound_mixed_levels">Mixed levels</string>
+    <string name="sound_mixed_choose">Mixed, choose a level</string>
+    <string name="sound_volume_decibels">Volume in decibels</string>
+    <string name="sound_step_down">Lower by 0.5 dB</string>
+    <string name="sound_step_up">Raise by 0.5 dB</string>
+    <string name="sound_clipping">Clipping at this level</string>
+    <string name="sound_clipping_short">Clipping</string>
+    <string name="sound_headroom_checking">Checking headroom…</string>
+    <string name="sound_headroom_silent">Selection is silent or muted</string>
+    <string name="sound_headroom_unavailable">Headroom unavailable</string>
+    <string name="sound_choose_level">Choose a level to set all selected parts to the same gain.</string>
+    <string name="sound_mixed_mute">Some selected parts are muted. Gain preserves their mute settings.</string>
+    <string name="sound_reset_zero">Reset to 0 dB</string>
+    <string name="sound_mute_switch">Mute</string>
+    <string name="sound_target_clip">Clip %1$d</string>
+    <string name="sound_fade_target">%1$s · %2$s</string>
+    <string name="sound_fade_off">Off</string>
+    <string name="sound_fade_seconds">%1$s s</string>
+    <string name="sound_fade_duration">%1$s duration</string>
+    <string name="sound_fade_enter">Enter 0 to %1$s seconds. Zero turns the fade off.</string>
+    <string name="sound_fade_field">Seconds</string>
+    <string name="sound_fade_set">Set</string>
 </resources>
