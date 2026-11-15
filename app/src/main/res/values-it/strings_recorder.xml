@@ -78,4 +78,6 @@
     <string name="recorder_focus_far">Lontano</string>
     <string name="recorder_focus_note_fixed">Questo obiettivo ha il fuoco fisso.</string>
     <string name="recorder_focus_note_manual">Nel registratore, scorri verso l\'alto su MF per mettere a fuoco più lontano o verso il basso per mettere a fuoco più vicino.</string>
+    <!-- Picture format: quality, colour, stabilisation and the two mirror switches. Each shows only where a camera has it. -->
+    <string name="recorder_format_reduced">Questa camera non è riuscita a partire con tutte le impostazioni richieste. Si registra senza HDR o senza stabilizzazione.</string>
 </resources>

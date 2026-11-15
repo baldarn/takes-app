@@ -35,6 +35,21 @@ class RecorderSettings(private val prefs: SharedPreferences) {
         prefs.edit().putBoolean("focusLocked.$camera", locked).putFloat("focusLens.$camera", lens.toFloat()).apply()
     }
 
+    /** Record in 4K where the camera has it (the original's `captureQuality`); 1080p until chosen. */
+    var ultraHD: Boolean by flag("captureUltraHD", false)
+
+    /** Record HDR, as HLG 10 bit, where the camera has it (the original's `captureHDR`). Off until chosen: the export is SDR. */
+    var hdr: Boolean by flag("captureHDR", false)
+
+    /** Steady the picture where the camera can (the original's `dualStabilization`). */
+    var stabilization: Boolean by flag("stabilization", false)
+
+    /** The front preview behaves like a mirror (the original's `mirrorFrontPreview`). */
+    var mirrorPreview: Boolean by flag("mirrorFrontPreview", true)
+
+    /** The front camera's takes are saved mirrored (the original's `mirrorFrontRecording`). */
+    var mirrorRecording: Boolean by flag("mirrorFrontRecording", false)
+
     private fun text(key: String) = stored(prefs.getString(key, null)) { putString(key, it) }
 
     private fun flag(key: String, default: Boolean) = stored(prefs.getBoolean(key, default)) { putBoolean(key, it) }
