@@ -91,7 +91,6 @@ class CaptureController(private val context: Context, private val store: Project
     private var camera: Camera? = null
     private var recording: Recording? = null
     private var segment: Segment? = null
-    private var finished = 0.0
     private var zoomRamp: Job? = null
 
     var phase by mutableStateOf(Phase.Idle); private set
@@ -103,6 +102,7 @@ class CaptureController(private val context: Context, private val store: Project
     var zoomRange by mutableStateOf(1.0..1.0); private set
     /** Seconds a zoom preset takes. Instant until the person chooses a time, as in the original. */
     var zoomDuration by mutableStateOf(ZoomTransition.boundedDuration(prefs.getFloat("zoomDuration", 0f).toDouble())); private set
+    /** Seconds written to the segment being recorded; zero when there is none. The clock adds them to the length of the edit. */
     var elapsed by mutableStateOf(0.0); private set
     var level by mutableStateOf(0f); private set
     var audioWarning by mutableStateOf<String?>(null); private set
@@ -524,7 +524,6 @@ class CaptureController(private val context: Context, private val store: Project
         followDevice()
         marks = 0
         segmentProject = null
-        finished = 0.0
         elapsed = 0.0
         level = 0f
         if (inserted) onInsertionEnded?.invoke()
@@ -538,7 +537,7 @@ class CaptureController(private val context: Context, private val store: Project
                 if (second != current.nanos / 1_000_000_000) showActiveMicrophone(audioManager.activeRecordingConfigurations)
                 current.nanos = event.recordingStats.recordedDurationNanos
                 current.reportedAt = SystemClock.elapsedRealtimeNanos()
-                elapsed = finished + current.nanos / 1e9
+                elapsed = current.nanos / 1e9
                 val audio = event.recordingStats.audioStats
                 level = audio.audioAmplitude.toFloat().coerceIn(0f, 1f)
                 audioWarning = when (audio.audioState) {
@@ -572,12 +571,11 @@ class CaptureController(private val context: Context, private val store: Project
             // A mark made as the take stops can fall a moment past what was written: it belongs to the last frame.
             val last = maxOf(0.0, seconds - 1.0 / 30)
             val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
-            if (store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events))) {
-                finished += seconds
-            }
+            store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events))
         }
         val requested = current.requested
-        if (requested == Phase.Idle) reset() else { phase = Phase.Paused; elapsed = finished; level = 0f }
+        // The segment is in the edit now, and the clock counts it there.
+        if (requested == Phase.Idle) reset() else { phase = Phase.Paused; elapsed = 0.0; level = 0f }
         dropLostMicrophone()
         message = when {
             requested == null -> context.getString(if (seconds != null) R.string.recorder_stopped_saved else R.string.recorder_stopped_lost, reason(event))

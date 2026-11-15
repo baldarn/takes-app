@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,9 +71,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,6 +86,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.CaptureController.Phase
+import app.takes.core.Project
 import app.takes.core.ZoomTransition
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -89,6 +94,7 @@ import kotlin.math.abs
 private val Scrim = Color(0x99000000)
 /** The plate under a control that sits on the picture, as in the original. */
 private val ControlPlate = Color(0x85000000)
+private val PausedYellow = Color(0xFFFFD60A)
 
 private fun granted(context: Context, permission: String) =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -173,7 +179,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
 private fun TakeFrame(phase: Phase, modifier: Modifier) {
     val color = when (phase) {
         Phase.Recording -> RecordRed.copy(alpha = 0.85f)
-        Phase.Paused -> Color(0xBFFFD60A)
+        Phase.Paused -> PausedYellow.copy(alpha = 0.75f)
         else -> return
     }
     // The line follows the corners of the display where the system tells them; over the tabs it is square.
@@ -191,26 +197,12 @@ private fun TakeFrame(phase: Phase, modifier: Modifier) {
 private fun Status(capture: CaptureController, store: ProjectStore, modifier: Modifier) {
     Column(modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         val recording = capture.phase == Phase.Recording
-        Row(
-            Modifier.background(if (recording) RecordRed else Scrim, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                when (capture.phase) {
-                    Phase.Idle -> stringResource(R.string.recorder_ready)
-                    Phase.Recording -> stringResource(R.string.recorder_rec, timeLabel(capture.elapsed))
-                    Phase.Paused -> stringResource(R.string.recorder_paused, timeLabel(capture.elapsed))
-                    Phase.Saving -> stringResource(R.string.recorder_saving)
-                },
-                color = Color.White, fontWeight = FontWeight.Bold,
-            )
-        }
+        Clock(capture, store.selected)
         val micLevel = stringResource(R.string.recorder_mic_level)
-        val project = store.selected
+        // The interface stays upright, so the frame the take will have is named here.
         Text(
-            (project?.let { "${it.title} · ${timeLabel(it.capturedDuration)}" } ?: stringResource(R.string.recorder_new_project)) +
-                " · " + if (capture.landscape) stringResource(R.string.recorder_landscape) else stringResource(R.string.recorder_portrait),
-            color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            if (capture.landscape) stringResource(R.string.recorder_landscape) else stringResource(R.string.recorder_portrait),
+            color = Color.White, fontSize = 12.sp, maxLines = 1,
             modifier = Modifier.padding(top = 6.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
         )
         if (recording && capture.audioWarning == null) {
@@ -236,6 +228,46 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
             Text(it, color = Color.White, fontSize = 13.sp,
                 modifier = Modifier.padding(top = 8.dp).background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
         }
+    }
+}
+
+/**
+ * The one clock of the recorder, as in the original: the length of the edit plus the segment being written.
+ * Red while recording, dark red when the project already has footage, a yellow word while the take is paused.
+ */
+@Composable
+private fun Clock(capture: CaptureController, project: Project?) {
+    val phase = capture.phase
+    val edited = remember(project) { project?.edit?.duration ?: 0.0 }
+    val seconds by remember(edited) { derivedStateOf { (edited + capture.elapsed).toLong().coerceAtLeast(0) } }
+    val time = "%02d:%02d".format(seconds / 60, seconds % 60)
+    val plate = when {
+        phase == Phase.Recording -> RecordRed.copy(alpha = 0.8f)
+        project?.sources?.isNotEmpty() == true && phase != Phase.Saving -> Color(0xFF961C29)
+        phase == Phase.Paused -> Color(0xA6000000)
+        else -> ControlPlate
+    }
+    val spoken = when (phase) {
+        Phase.Idle -> stringResource(R.string.recorder_ready) + " " + time
+        Phase.Recording -> stringResource(R.string.recorder_rec, time)
+        Phase.Paused -> stringResource(R.string.recorder_paused, time)
+        Phase.Saving -> stringResource(R.string.recorder_saving)
+    }
+    Row(
+        Modifier.widthIn(min = 80.dp).heightIn(min = 38.dp).background(plate, RoundedCornerShape(50)).padding(horizontal = 12.dp)
+            .clearAndSetSemantics { contentDescription = spoken },
+        Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally), Alignment.CenterVertically,
+    ) {
+        when (phase) {
+            Phase.Saving -> CircularProgressIndicator(Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+            Phase.Recording -> Text(stringResource(R.string.recorder_clock_rec), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Phase.Paused -> Text(stringResource(R.string.recorder_clock_paused), color = PausedYellow, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Phase.Idle -> Unit
+        }
+        Text(
+            if (phase == Phase.Saving) stringResource(R.string.recorder_saving) else time,
+            color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, maxLines = 1,
+        )
     }
 }
 

@@ -21,4 +21,8 @@
     <string name="recorder_stop_recording">Stop recording</string>
     <string name="recorder_pause_recording">Pause recording</string>
     <string name="recorder_finish_paused">Finish paused recording</string>
+
+    <!-- The clock: the word beside the time. -->
+    <string name="recorder_clock_rec">REC</string>
+    <string name="recorder_clock_paused">PAUSED</string>
 </resources>
