@@ -1,0 +1,241 @@
+<resources>
+
+    <!-- Shared -->
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">Annulla</string>
+    <string name="common_save">Salva</string>
+    <string name="common_done">Fine</string>
+    <string name="common_remove">Rimuovi</string>
+    <string name="common_reset">Ripristina</string>
+    <string name="common_delete">Elimina</string>
+    <string name="common_play">Play</string>
+    <string name="common_importing">Importazione</string>
+    <string name="common_unknown_error">errore sconosciuto</string>
+
+    <!-- Tabs -->
+    <string name="tab_recorder">Registra</string>
+    <string name="tab_projects">Progetti</string>
+    <string name="tab_editor">Editor</string>
+
+    <!-- Projects -->
+    <string name="projects_title">Progetti</string>
+    <string name="projects_import">Importa</string>
+    <string name="projects_new_recording">Nuova ripresa</string>
+    <string name="projects_empty">Qui non c\'è ancora niente. Registra qualcosa o importa dei video: ognuno diventa un progetto che puoi continuare più tardi.</string>
+    <string name="projects_unavailable_title">Progetto che non si può aprire</string>
+    <string name="projects_recently_deleted">Eliminati di recente</string>
+    <string name="projects_deleted_summary">%1$s · eliminato il %2$s</string>
+    <string name="projects_restore">Ripristina</string>
+    <string name="projects_delete_permanently">Elimina definitivamente</string>
+    <string name="projects_rename_title">Rinomina progetto</string>
+    <string name="projects_rename">Rinomina</string>
+    <string name="projects_erase_title">Eliminare definitivamente “%1$s”?</string>
+    <plurals name="projects_erase_message">
+        <item quantity="one">La sua ripresa verrà cancellata. L\'operazione non si può annullare.</item>
+        <item quantity="many">Le sue %1$d riprese verranno cancellate. L\'operazione non si può annullare.</item>
+        <item quantity="other">Le sue %1$d riprese verranno cancellate. L\'operazione non si può annullare.</item>
+    </plurals>
+    <string name="projects_summary_empty">Nessuna ripresa</string>
+    <plurals name="projects_summary">
+        <item quantity="one">%1$d ripresa · %2$s</item>
+        <item quantity="many">%1$d riprese · %2$s</item>
+        <item quantity="other">%1$d riprese · %2$s</item>
+    </plurals>
+    <string name="projects_continue_recording">Continua ripresa</string>
+    <string name="projects_edit">Modifica</string>
+    <string name="projects_originals">Originali</string>
+    <string name="projects_hide_originals">Nascondi originali</string>
+    <string name="projects_add_videos">Aggiungi video</string>
+    <string name="projects_zip">Esporta ZIP</string>
+    <string name="projects_zip_fallback_name">Progetto</string>
+    <plurals name="projects_camera_switches">
+        <item quantity="one">%1$d cambio camera</item>
+        <item quantity="many">%1$d cambi camera</item>
+        <item quantity="other">%1$d cambi camera</item>
+    </plurals>
+    <string name="projects_play_failed">Nessuna app su questo dispositivo può riprodurre la ripresa.</string>
+    <string name="projects_default_name">Ripresa %1$s</string>
+    <string name="projects_importing_progress">Importazione %1$d di %2$d…</string>
+    <string name="projects_import_failed_one">Non è stato possibile importare il video. Forse non è un filmato riproducibile.</string>
+    <string name="projects_import_failed_some">Non è stato possibile importare %1$d video su %2$d.</string>
+    <string name="projects_zipping">Creazione dello ZIP…</string>
+    <string name="projects_zipping_percent">Creazione dello ZIP… %1$d%%</string>
+    <string name="projects_zip_saved">Il progetto è stato salvato come ZIP.</string>
+    <string name="projects_zip_failed">Non è stato possibile creare lo ZIP del progetto: %1$s</string>
+    <string name="projects_delete_failed">Non è stato possibile eliminare il progetto: %1$s</string>
+    <string name="projects_restore_failed">Non è stato possibile ripristinare il progetto: %1$s</string>
+    <string name="projects_erase_failed">Non è stato possibile eliminare definitivamente il progetto: %1$s</string>
+    <string name="projects_save_failed">Modifiche non salvate: %1$s</string>
+
+    <!-- Project problems (texts of the core module's ProjectException.Reason) -->
+    <string name="project_error_invalid_document">Questo progetto contiene dati di montaggio non supportati o non validi. I suoi file sono stati conservati.</string>
+    <string name="project_error_missing_media">Manca un file sorgente. Il progetto è stato conservato.</string>
+    <string name="project_error_invalid_media">Non è stato possibile aprire la ripresa come video valido. Il file è stato conservato.</string>
+
+    <!-- Editor -->
+    <string name="editor_no_project">Scegli un progetto in Progetti per modificarlo.</string>
+    <string name="editor_no_recordings">Registra qualcosa in questo progetto prima di modificarlo.</string>
+    <string name="editor_undo">Annulla</string>
+    <string name="editor_redo">Ripeti</string>
+    <string name="editor_export">Esporta</string>
+    <string name="editor_timeline_empty">La timeline è vuota. Annulla per riportare le clip.</string>
+    <string name="editor_bookmark_previous">Segnalibro precedente</string>
+    <string name="editor_bookmark_next">Segnalibro successivo</string>
+    <string name="editor_bookmark_add">Aggiungi segnalibro</string>
+    <string name="editor_bookmark_remove">Rimuovi segnalibro</string>
+    <string name="editor_pause">Pausa</string>
+    <string name="editor_zoom_timeline_out">Riduci la timeline</string>
+    <string name="editor_zoom_timeline_in">Ingrandisci la timeline</string>
+    <string name="editor_reducing_noise">Riduzione del rumore… %1$d%%</string>
+    <string name="editor_split">Dividi</string>
+    <string name="editor_sound">Audio</string>
+    <string name="editor_color">Colore</string>
+    <string name="editor_crop">Ritaglia</string>
+    <string name="editor_title">Titolo</string>
+    <string name="editor_transition">Transizione</string>
+    <string name="editor_pauses">Pause</string>
+    <string name="editor_add_audio">Aggiungi audio</string>
+    <string name="editor_move_earlier">◀ Sposta</string>
+    <string name="editor_move_later">Sposta ▶</string>
+    <string name="editor_move_clip_earlier">Sposta la clip prima</string>
+    <string name="editor_move_clip_later">Sposta la clip dopo</string>
+    <string name="editor_sound_default_name">Audio</string>
+    <string name="editor_edit_sound">Modifica audio</string>
+    <string name="editor_clip_duration">Clip %1$d: %2$s</string>
+    <string name="editor_clip_position">Clip %1$d di %2$d</string>
+    <string name="editor_tag_crop">Ritaglio</string>
+    <string name="editor_tag_fade">Fade</string>
+    <string name="editor_tag_clean">Pulito</string>
+
+    <!-- Crop -->
+    <string name="crop_zoom">Zoom</string>
+    <string name="crop_left_right">Sinistra–destra</string>
+    <string name="crop_up_down">Su–giù</string>
+    <string name="crop_remove">Rimuovi ritaglio</string>
+
+    <!-- Color -->
+    <string name="color_dialog_title">Colore della clip</string>
+    <string name="color_look">Look</string>
+    <string name="color_lut_name">LUT: %1$s</string>
+    <string name="color_import_lut">Importa una LUT .cube</string>
+    <string name="color_choose_another_lut">Scegli un\'altra LUT</string>
+    <string name="color_use_look">Usa un Look</string>
+    <string name="color_strength">Intensità</string>
+    <string name="color_exposure">Esposizione</string>
+    <string name="color_warmth">Calore</string>
+    <string name="color_tint">Tinta</string>
+    <string name="color_balance">Bilanciamento colore</string>
+    <string name="color_lut_default_name">LUT importata</string>
+    <string name="color_lut_unreadable">Non è stato possibile leggere il file LUT.</string>
+    <string name="color_lut_rejected">Questa LUT non si può usare: %1$s</string>
+    <string name="color_look_natural">Naturale</string>
+    <string name="color_look_warm">Caldo</string>
+    <string name="color_look_cool">Ombre fredde</string>
+    <string name="color_look_cinema">Cinema</string>
+    <string name="color_look_mono">Mono</string>
+    <string name="color_look_portrait">Ritratto</string>
+    <string name="color_look_daylight">Luce diurna</string>
+    <string name="color_look_golden_hour">Golden hour</string>
+    <string name="color_look_muted_film">Pellicola tenue</string>
+    <string name="color_look_rich_contrast">Contrasto ricco</string>
+    <string name="color_look_pastel">Pastello</string>
+    <string name="color_look_night">Notte</string>
+    <string name="color_look_silver">Argento</string>
+    <string name="color_look_ink">Inchiostro</string>
+
+    <!-- Pauses -->
+    <string name="pauses_title">Rimuovi pause</string>
+    <string name="pauses_listening">Ascolto della clip…</string>
+    <string name="pauses_no_sound">Questa clip non ha audio da analizzare.</string>
+    <string name="pauses_none_found">Nessuna pausa così lunga.</string>
+    <plurals name="pauses_found">
+        <item quantity="one">%1$d pausa trovata. La clip si accorcerebbe di %2$s.</item>
+        <item quantity="many">%1$d pause trovate. La clip si accorcerebbe di %2$s.</item>
+        <item quantity="other">%1$d pause trovate. La clip si accorcerebbe di %2$s.</item>
+    </plurals>
+    <string name="pauses_silence_level">Livello del silenzio: %1$d dB, stimato dalla ripresa.</string>
+    <string name="pauses_shortest">Pausa più breve da rimuovere</string>
+    <string name="pauses_note">Intorno a ogni taglio resta un po\' di silenzio, così le parole non vengono troncate. Con un solo Annulla le pause tornano.</string>
+
+    <!-- Sound -->
+    <string name="sound_dialog_title">Audio della clip</string>
+    <string name="sound_volume">Volume</string>
+    <string name="sound_volume_value">Volume: %1$s</string>
+    <string name="sound_muted">Muto</string>
+    <string name="sound_silent">Silenzio</string>
+    <string name="sound_mute">Disattiva audio</string>
+    <string name="sound_mute_clip">Disattiva l\'audio di questa clip</string>
+    <string name="sound_fade_in">Fade in</string>
+    <string name="sound_fade_out">Fade out</string>
+    <string name="sound_fade_none">Nessuno</string>
+    <string name="sound_noise_reduction">Riduzione del rumore</string>
+    <string name="sound_noise_off">No</string>
+    <string name="sound_noise_light">Leggera</string>
+    <string name="sound_noise_full">Completa</string>
+    <string name="sound_noise_note">Attenua il rumore di fondo costante, soprattutto nelle pause del parlato.</string>
+    <string name="sound_item_range">Da %1$s a %2$s · traccia %3$d</string>
+    <string name="sound_volume_and_fades">Volume e fade</string>
+    <string name="sound_move_to_playhead">Sposta l\'inizio sul cursore</string>
+    <string name="sound_cut_before">Taglia ciò che precede il cursore</string>
+    <string name="sound_cut_after">Taglia ciò che segue il cursore</string>
+    <string name="sound_importing">Importazione dell\'audio…</string>
+    <string name="sound_import_failed">Non è stato possibile importare l\'audio. Forse non è un file audio riproducibile.</string>
+    <string name="sound_tracks_busy">Qui le due tracce audio sono già occupate. Sposta il cursore o rimuovi prima un audio.</string>
+
+    <!-- Title -->
+    <string name="title_add">Aggiungi titolo</string>
+    <string name="title_edit">Modifica titolo</string>
+    <string name="title_text">Testo</string>
+    <string name="title_position">Posizione</string>
+    <string name="title_position_top">In alto</string>
+    <string name="title_position_center">Al centro</string>
+    <string name="title_position_bottom">In basso</string>
+    <string name="title_size">Dimensione</string>
+    <string name="title_size_small">Piccolo</string>
+    <string name="title_size_medium">Medio</string>
+    <string name="title_size_large">Grande</string>
+    <string name="title_on_screen">Sullo schermo</string>
+    <string name="title_as_is">Invariato</string>
+    <string name="title_whole_clip">Tutta la clip</string>
+
+    <!-- Transition -->
+    <string name="transition_title">Transizione verso la clip successiva</string>
+    <string name="transition_style">Stile</string>
+    <string name="transition_cross_dissolve">Dissolvenza incrociata</string>
+    <string name="transition_fade_black">Dissolvenza al nero</string>
+    <string name="transition_dissolve_note">Le clip si sovrappongono e si fondono, quindi il filmato si accorcia della durata della transizione.</string>
+    <string name="transition_fade_note">Immagine e audio sfumano e poi ritornano. La durata del filmato non cambia.</string>
+    <string name="transition_none">Nessuna</string>
+    <string name="transition_tag_dissolve">Dissolvenza</string>
+    <string name="transition_tag_fade">Al nero</string>
+
+    <!-- Export -->
+    <string name="export_title">Esporta filmato</string>
+    <string name="export_size">Dimensione</string>
+    <string name="export_size_original">Originale</string>
+    <string name="export_pixels">%1$d × %2$d pixel</string>
+    <string name="export_frame_rate">Fotogrammi al secondo</string>
+    <string name="export_up_to">Fino a %1$d</string>
+    <string name="export_frame_rate_note">Le riprese con più fotogrammi vengono ridotte. Non vengono mai aggiunti fotogrammi.</string>
+    <string name="export_format">Formato</string>
+    <string name="export_h265_smaller">H.265 (file più piccolo)</string>
+    <string name="export_progress">Esportazione… %1$d%%</string>
+    <string name="export_done_title">Filmato esportato</string>
+    <string name="export_share">Condividi</string>
+    <string name="export_save_to_gallery">Salva in galleria</string>
+    <string name="export_open_failed">Nessuna app su questo dispositivo può aprire il filmato.</string>
+    <string name="export_no_clips">Aggiungi una ripresa prima di esportare.</string>
+    <string name="export_source_missing">Un file sorgente manca o non è leggibile. Il progetto è stato conservato.</string>
+    <string name="export_fallback_name">Filmato</string>
+    <string name="export_save_failed">Non è stato possibile salvare il filmato esportato.</string>
+    <string name="export_failed">Esportazione non riuscita: %1$s</string>
+    <string name="export_gallery_saved">Salvato in Movies/Takes nella galleria.</string>
+    <string name="export_gallery_failed">Non è stato possibile salvare il filmato nella galleria.</string>
+
+    <!-- Credits -->
+    <string name="credits_title">Crediti e licenze</string>
+    <string name="credits_original">YouRec, l\'app originale</string>
+    <string name="credits_privacy">Informativa sulla privacy</string>
+    <string name="credits_open_failed">Nessuna app su questo dispositivo può aprire %1$s</string>
+    <string name="credits_intro">Takes è un port Android non ufficiale di YouRec, la videocamera e l\'editor video per iPhone di Salvatore Sanfilippo (antirez). Non è realizzato né approvato da lui. Il nome e l\'icona di YouRec appartengono al loro autore e sono citati qui solo per riconoscere il lavoro originale. I testi che seguono, licenze comprese, sono in inglese.</string>
+</resources>
