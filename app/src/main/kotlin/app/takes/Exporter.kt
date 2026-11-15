@@ -248,7 +248,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             // Titles and subtitles are drawn once, over the finished picture; subtitles on top.
             val captions = SubtitleEditing.cues(project.edit)
             val written = listOfNotNull(
-                if (clips.any { !it.texts.isNullOrEmpty() }) TitleOverlay(clips, canvas.first, canvas.second) else null,
+                if (clips.any { !it.texts.isNullOrEmpty() }) TitleOverlay(clips, canvas.first, canvas.second, context.assets) else null,
                 project.edit.subtitles?.takeIf { captions.isNotEmpty() }?.let { SubtitleOverlay(captions, it, canvas.first, canvas.second) },
             )
             val titles = if (written.isNotEmpty()) Effects(emptyList(), listOf<Effect>(OverlayEffect(written))) else Effects.EMPTY

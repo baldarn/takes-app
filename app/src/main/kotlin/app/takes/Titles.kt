@@ -2,6 +2,7 @@
 
 package app.takes
 
+import android.content.res.AssetManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -25,6 +26,7 @@ import androidx.media3.effect.RgbMatrix
 import app.takes.core.TextOverlay
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
+import app.takes.core.TitleMotionRanges
 
 /** Draws a title the same way in the editor preview and in the exported movie. */
 object TitleRenderer {
@@ -60,26 +62,50 @@ object TitleRenderer {
 /**
  * Export overlay for the whole movie: a frame-sized bitmap holding the titles
  * visible at each moment. It is applied once, after the clips are blended, so
- * a title dissolves and fades with the clip it belongs to.
+ * a title dissolves and fades with the clip it belongs to. The drawing is
+ * [TitlePainter]'s, the same as the preview's.
  */
-class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int, private val height: Int) : BitmapOverlay() {
+class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int, private val height: Int, assets: AssetManager) : BitmapOverlay() {
     private val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-    private var shown: List<Pair<TextOverlay, Int>> = emptyList()
+    private val ranges = TitleMotionRanges(clips)
+    private val painter = TitlePainter(assets)
+    private var frame: Bitmap? = null
+    private var shown: List<TitleMotionRanges.Shown> = emptyList()
     private var bitmap = empty
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         val time = presentationTimeUs / 1e6
         val level = TimelineEditing.locate(clips, time)?.let { TimelineEditing.level(clips, it.index, it.offset) } ?: 1.0
-        // Opacity in steps, so a steady title is drawn once.
-        val visible = TimelineEditing.titlesAt(clips, time).map { (title, share) -> title to (share * level * 64).toInt() }.filter { it.second > 0 }
+        // Opacity in steps, so a steady title is drawn once. A title on its way in or out is drawn for every frame.
+        val visible = ranges.shown(clips, time).map { it.copy(share = (it.share * level * 64).toInt() / 64.0) }.filter { it.share > 0 }
         if (visible != shown) {
             shown = visible
-            bitmap = if (visible.isEmpty()) empty else Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame ->
-                val canvas = Canvas(frame)
-                visible.forEach { (title, steps) -> TitleRenderer.draw(canvas, width.toFloat(), height.toFloat(), title, steps / 64f) }
+            bitmap = if (visible.isEmpty()) empty else (frame ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame = it }).let {
+                it.eraseColor(Color.TRANSPARENT)
+                painter.draw(Canvas(it), width.toFloat(), height.toFloat(), visible)
+                // Titles without a design are handed over as they always were, so their movies do not change.
+                if (visible.any { shown -> shown.title.styled }) straightened(it) else it
             }
         }
         return bitmap
+    }
+
+    private var straight: Bitmap? = null
+    private var pixels: IntArray? = null
+
+    /**
+     * Android keeps a bitmap's colors already multiplied by their opacity;
+     * Media3 multiplies an overlay's colors by its opacity again when it lays
+     * it over the picture. Soft shadows, see-through plates and a title that
+     * is fading would all come out darker than in the preview, so they are
+     * handed over with their colors not multiplied.
+     */
+    private fun straightened(drawn: Bitmap): Bitmap {
+        val buffer = pixels ?: IntArray(width * height).also { pixels = it }
+        val result = straight ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { it.isPremultiplied = false; straight = it }
+        drawn.getPixels(buffer, 0, width, 0, 0, width, height) // read as plain colors
+        result.setPixels(buffer, 0, width, 0, 0, width, height) // and stored as they are
+        return result
     }
 }
 

@@ -87,6 +87,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import android.app.Activity
+import android.content.ContextWrapper
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -157,6 +167,7 @@ import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
+import app.takes.core.TitleMotionRanges
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.withContext
@@ -419,6 +430,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The Subtitles tool: the edit it is working on, shown in the preview and not saved until applied.
     var subtitling by remember { mutableStateOf<EditState?>(null) }
     var subtitleWork by remember { mutableStateOf(false) } // downloading the model or transcribing
+    // The Title tool: the title it is working on, shown in the preview and not saved until confirmed.
+    var titling by remember { mutableStateOf<Titling?>(null) }
+    // Where a preview of a title's motion stops by itself.
+    var auditionEnd by remember { mutableStateOf<Double?>(null) }
     val busy = editor.playing || exporter.progress != null || subtitleWork
     DisposableEffect(busy) {
         view.keepScreenOn = busy
@@ -454,6 +469,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             withFrameNanos { }
             playhead = editor.tick().coerceIn(0.0, duration)
             scroll.scrollTo((playhead * pixelsPerSecond).roundToInt())
+            auditionEnd?.let { if (playhead >= it) { auditionEnd = null; editor.pause() } }
         }
     }
     LaunchedEffect(clips, pixelsPerSecond) {
@@ -575,7 +591,34 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             editor.setTrackSound(track, TimelineEditing.audioAt(sounds, track, playhead)?.let { TimelineEditing.soundLevel(it, playhead - it.start) } ?: 0.0)
         }
     }
-    val shownTitles = TimelineEditing.titlesAt(clips, playhead)
+    // The titles under the playhead, with the one being worked on as it is now.
+    val titled = titling?.let { work -> TimelineEditing.setTitle(edit, clips.indexOfFirst { it.id == work.clipID }, work.title)?.clips } ?: clips
+    val titleRanges = remember(titled) { TitleMotionRanges(titled) }
+    val shownTitles = titleRanges.shown(titled, playhead)
+    val titlePainter = remember { TitlePainter(context.assets) }
+    // Taking a color from the picture: the preview as it is on screen, without the titles over it.
+    var previewBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var sampling by remember { mutableStateOf(false) }
+    val samplePicture: suspend () -> Bitmap? = sample@{
+        val window = generateSequence(view.context) { (it as? ContextWrapper)?.baseContext }.filterIsInstance<Activity>().firstOrNull()?.window
+        val area = previewBounds
+        if (window == null || area == null || area.width < 2 || area.height < 2) return@sample null
+        sampling = true
+        try {
+            repeat(2) { withFrameNanos { } } // let the titles leave the screen
+            suspendCancellableCoroutine { waiting ->
+                val picture = Bitmap.createBitmap(area.width.toInt(), area.height.toInt(), Bitmap.Config.ARGB_8888)
+                val part = android.graphics.Rect(area.left.toInt(), area.top.toInt(), area.left.toInt() + picture.width, area.top.toInt() + picture.height)
+                try {
+                    PixelCopy.request(window, part, picture, { result -> waiting.resume(picture.takeIf { result == PixelCopy.SUCCESS }) }, Handler(Looper.getMainLooper()))
+                } catch (_: IllegalArgumentException) {
+                    waiting.resume(null)
+                }
+            }
+        } finally {
+            sampling = false
+        }
+    }
     // Subtitles, laid out once for the movie's shape and drawn by the code the export uses.
     val captioned = subtitling ?: edit
     val captions = remember(captioned.clips, captioned.subtitles == null) { SubtitleEditing.cues(captioned) }
@@ -603,19 +646,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     val soundName = stringResource(R.string.editor_sound_default_name)
     val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
-    var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
-            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
-            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty() && subtitling == null) { Text(stringResource(R.string.editor_export)) }
+            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
+            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty() && subtitling == null && titling == null) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
-            Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).clipToBounds()) {
+            Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).clipToBounds().onGloballyPositioned { previewBounds = it.boundsInWindow() }) {
                 val effects = deckColors.map { color ->
                     remember(color, folder) {
                         if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder).asComposeRenderEffect() else null
@@ -642,9 +684,23 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         },
                     )
                 }
-                Canvas(Modifier.fillMaxSize()) {
+                // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
+                val work by rememberUpdatedState(titling)
+                var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle
+                val moving = if (titling == null) Modifier else Modifier.pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        val now = work ?: return@detectTransformGestures
+                        fun snapped(value: Float) = if (abs(value - 0.5f) < 0.015f) 0.5 else value.toDouble()
+                        val from = dragged?.takeIf { snapped(it.x) == now.title.x && snapped(it.y) == now.title.y } ?: Offset(now.title.x.toFloat(), now.title.y.toFloat())
+                        val to = Offset((from.x + pan.x / size.width).coerceIn(0f, 1f), (from.y + pan.y / size.height).coerceIn(0f, 1f))
+                        dragged = to
+                        titling = now.copy(title = now.title.copy(x = snapped(to.x), y = snapped(to.y), size = (now.title.size * zoom).coerceIn(0.02, 0.3)))
+                    }
+                }
+                Canvas(Modifier.fillMaxSize().then(moving)) {
+                    if (sampling) return@Canvas
                     drawIntoCanvas { target ->
-                        shownTitles.forEach { (title, share) -> TitleRenderer.draw(target.nativeCanvas, size.width, size.height, title, share.toFloat()) }
+                        titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
                         captioned.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                     }
                 }
@@ -673,6 +729,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
             TextButton(
                 onClick = {
+                    auditionEnd = null
                     if (editor.playing) editor.pause() else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
                 },
                 enabled = clips.isNotEmpty(), contentPadding = tight,
@@ -688,10 +745,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
         Timeline(
-            shown, files, sounds, names, { editor.pause(); if (subtitling == null) chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
+            shown, files, sounds, names, { editor.pause(); if (subtitling == null && titling == null) chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
             shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
-            beginTrim = { leading -> if (subtitling == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
+            beginTrim = { leading -> if (subtitling == null && titling == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
         )
         val framing = cropping
@@ -705,6 +762,48 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     commit(TimelineEditing.setCrop(edit, index, crop), playhead)
                 },
                 cancel = { cropping = null },
+            )
+        } else if (titling != null) {
+            val work = titling!!
+            val index = clips.indexOfFirst { it.id == work.clipID }
+            val clip = clips.getOrNull(index)
+            if (clip == null) titling = null else TitlePanel(
+                draft = work.title, existing = work.existing, change = { titling = work.copy(title = it) },
+                // An existing title may reach past a clip that was trimmed or split after it was placed.
+                bounds = minOf(clip.start, work.title.start)..maxOf(clip.end, work.title.end), rate = clip.rate,
+                timelineTime = { TimelineEditing.clipStart(clips, index) + clip.offset(it) },
+                replay = { exit, title ->
+                    // On the clips as they would be with the title as it is at this moment.
+                    val moved = TimelineEditing.setTitle(edit, index, title)?.clips ?: titled
+                    val shows = TimelineEditing.clipStart(clips, index) + clip.offset(maxOf(clip.start, title.start))
+                    val run = TitleMotionRanges(moved).range(title, shows)
+                    val motion = title.motion
+                    if (run != null && motion != null && title.text.isNotBlank()) {
+                        val window = motion.previewWindow(exit, run.endInclusive - run.start)
+                        val from = (run.start + window.start).coerceIn(0.0, duration)
+                        val to = (run.start + window.endInclusive).coerceIn(0.0, duration)
+                        if (to > from) {
+                            auditionEnd = to
+                            playhead = from
+                            editor.play(from)
+                        }
+                    }
+                },
+                sample = samplePicture,
+                // One undo step for everything done in the tool. A motion that does nothing is not saved.
+                done = {
+                    val title = work.title.copy(text = work.title.text.trim(), motion = work.title.motion?.takeIf { it.active })
+                    titling = null
+                    auditionEnd = null
+                    commit(TimelineEditing.setTitle(edit, index, title), playhead)
+                },
+                remove = {
+                    titling = null
+                    auditionEnd = null
+                    commit(TimelineEditing.removeTitle(edit, index, work.title.id), playhead)
+                },
+                cancel = { editor.pause(); auditionEnd = null; titling = null },
+                modifier = Modifier.weight(1.5f),
             )
         } else if (subtitling != null) {
             SubtitlesPanel(
@@ -730,7 +829,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
             }
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
-                TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_title)) }
+                TextButton(
+                    onClick = {
+                        editor.pause()
+                        current?.let { clip ->
+                            val existing = titles.firstOrNull()
+                            // A new title starts at the playhead and stays three seconds of the movie, or as long as the clip lasts.
+                            val end = minOf(clip.end, sourceTime + 3 * clip.rate)
+                            val start = if (end - sourceTime < 0.1) maxOf(clip.start, end - 0.5 * clip.rate) else sourceTime
+                            titling = Titling(clip.id, existing ?: TextOverlay(text = "", start = start, end = end), existing)
+                        }
+                    },
+                    compact, enabled = location != null, contentPadding = tight,
+                ) { Text(stringResource(R.string.editor_title)) }
                 TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
                     enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text(stringResource(R.string.editor_transition)) }
                 TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
@@ -902,14 +1013,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 exporter.start(project.copy(exportSettings = settings))
             },
             dismiss = { choosingExport = false },
-        )
-    }
-    if (editingTitle && location != null && current != null) {
-        TitleDialog(
-            existing = titles.firstOrNull(), clip = current, sourceTime = sourceTime, sourceDuration = durations[current.sourceID] ?: current.end,
-            save = { commit(TimelineEditing.setText(edit, location.index, it), playhead); editingTitle = false },
-            remove = { commit(TimelineEditing.removeText(edit, location.index, it), playhead); editingTitle = false },
-            dismiss = { editingTitle = false },
         )
     }
     if (editingTransition && location != null) {
@@ -1367,53 +1470,8 @@ private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAu
     )
 }
 
-/** Adds a title at the playhead, or edits the one showing there. */
-@Composable
-private fun TitleDialog(
-    existing: TextOverlay?, clip: TimelineClip, sourceTime: Double, sourceDuration: Double,
-    save: (TextOverlay) -> Unit, remove: (String) -> Unit, dismiss: () -> Unit,
-) {
-    var text by remember { mutableStateOf(existing?.text ?: "") }
-    var y by remember { mutableDoubleStateOf(existing?.y ?: 0.5) }
-    var size by remember { mutableDoubleStateOf(existing?.size ?: 0.065) }
-    // Seconds on screen; 0 keeps the current range, a negative value means the whole clip.
-    var length by remember { mutableDoubleStateOf(if (existing == null) 3.0 else 0.0) }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(stringResource(if (existing == null) R.string.title_add else R.string.title_edit)) },
-        text = {
-            Column {
-                OutlinedTextField(text, { text = it.take(500) }, label = { Text(stringResource(R.string.title_text)) }, maxLines = 4)
-                Choices(stringResource(R.string.title_position), listOf(stringResource(R.string.title_position_top) to 0.15, stringResource(R.string.title_position_center) to 0.5, stringResource(R.string.title_position_bottom) to 0.85), y) { y = it }
-                Choices(stringResource(R.string.title_size), listOf(stringResource(R.string.title_size_small) to 0.045, stringResource(R.string.title_size_medium) to 0.065, stringResource(R.string.title_size_large) to 0.1), size) { size = it }
-                Choices(stringResource(R.string.title_on_screen), (if (existing == null) emptyList() else listOf(stringResource(R.string.title_as_is) to 0.0)) +
-                    listOf("2 s" to 2.0, "3 s" to 3.0, "5 s" to 5.0, stringResource(R.string.title_whole_clip) to -1.0), length) { length = it }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = text.isNotBlank(),
-                onClick = {
-                    val start = existing?.start ?: sourceTime
-                    val (from, to) = when {
-                        length < 0 -> clip.start to clip.end
-                        length == 0.0 && existing != null -> existing.start to existing.end
-                        else -> start to minOf(start + length, maxOf(sourceDuration, clip.end))
-                    }
-                    // Too close to the end of the recording: show it over the last half second.
-                    val begin = if (to - from < 0.1) maxOf(0.0, to - 0.5) else from
-                    save((existing ?: TextOverlay()).copy(text = text.trim(), start = begin, end = to, y = y, size = size))
-                },
-            ) { Text(stringResource(R.string.common_save)) }
-        },
-        dismissButton = {
-            Row {
-                if (existing != null) TextButton(onClick = { remove(existing.id) }) { Text(stringResource(R.string.common_remove), color = RecordRed) }
-                TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) }
-            }
-        },
-    )
-}
+/** A title being worked on in the Title tool: on which clip, as it is now, and as it was saved (null when new). */
+private data class Titling(val clipID: String, val title: TextOverlay, val existing: TextOverlay?)
 
 /** The choices are remembered in the project. [canvas] is the shape of the first clip. */
 @Composable
