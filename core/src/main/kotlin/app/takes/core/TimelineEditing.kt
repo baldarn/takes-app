@@ -838,6 +838,14 @@ object TimelineEditing {
         return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(color = next) })
     }
 
+    /** Gives the clip [effects] in place of its video effects; null or empty takes them all away. */
+    fun setVideoEffects(state: EditState, index: Int, effects: List<VideoEffectSettings>?): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        val next = effects?.takeIf { it.isNotEmpty() }
+        if (next == clip.videoEffects) return null
+        return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(videoEffects = next) })
+    }
+
     // MARK: Crop
 
     /** Sets the framing of the clip at [index]; null removes it, showing the whole picture again. */
