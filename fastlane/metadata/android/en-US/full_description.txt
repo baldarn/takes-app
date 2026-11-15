@@ -18,7 +18,9 @@ EDIT ON A TIMELINE
 • Remove pauses: find the silences in a clip and cut them out.
 • Color: looks, exposure, warmth and tint for each clip, or import your own .cube LUT.
 • Crop and reframe the picture.
-• Record here: add a new take at the playhead without leaving the editor.
+• Add video at the playhead: record a new take there, or drop in takes you have not used yet.
+• Subtitles: speech is transcribed on your phone, then you can edit the text and choose its style.
+• Clip speed from 0.25× to 4×.
 • Undo and redo that survive closing the app.
 • Your original recordings are never modified.
 
@@ -31,7 +33,7 @@ YOUR VIDEOS STAY YOURS
 • Your recordings and projects never leave your device.
 • The app goes online for one thing only: downloading the speech model for subtitles, and only when you ask.
 • Deleted projects go to Recently Deleted, where you can restore them.
-• Export a whole project as a ZIP and open it again later, or on another phone.
+• Duplicate a project, or export it as a ZIP and open it again later or on another phone.
 • In English and Italian.
 
 Takes is an unofficial, open source Android port of YouRec by Salvatore Sanfilippo (antirez). It is an early release: more editing tools are on the way.

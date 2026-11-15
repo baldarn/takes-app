@@ -18,7 +18,9 @@ MONTA SULLA TIMELINE
 • Rimuovi le pause: trova i silenzi in una clip e li taglia.
 • Colore: look, esposizione, calore e tinta per ogni clip, oppure importa una tua LUT .cube.
 • Ritaglia e reinquadra l'immagine.
-• Registra qui: aggiungi una nuova ripresa sul cursore senza uscire dal montaggio.
+• Aggiungi video sul cursore: registra lì una nuova ripresa, o inserisci quelle che non hai ancora usato.
+• Sottotitoli: il parlato viene trascritto sul telefono, poi puoi correggere il testo e sceglierne lo stile.
+• Velocità della clip da 0,25× a 4×.
 • Annulla e ripristina che restano anche dopo aver chiuso l'app.
 • Le registrazioni originali non vengono mai modificate.
 
@@ -31,7 +33,7 @@ I TUOI VIDEO RESTANO TUOI
 • Registrazioni e progetti non lasciano mai il tuo dispositivo.
 • L'app va su internet per una cosa sola: scaricare il modello vocale per i sottotitoli, e solo quando lo chiedi tu.
 • I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
-• Esporta un intero progetto come ZIP e riaprilo più tardi, o su un altro telefono.
+• Duplica un progetto, oppure esportalo come ZIP e riaprilo più tardi o su un altro telefono.
 • In italiano e in inglese.
 
 Takes è un port Android non ufficiale e open source di YouRec di Salvatore Sanfilippo (antirez). È una prima versione: altri strumenti di montaggio sono in arrivo.

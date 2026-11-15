@@ -1,0 +1,1 @@
+Subtitles transcribed on the phone, editable and styled; clip speed from 0.25x to 4x; Add video at the playhead (record there or use unused takes); duplicate project. The app now goes online only to download the subtitle speech model, when you ask.
