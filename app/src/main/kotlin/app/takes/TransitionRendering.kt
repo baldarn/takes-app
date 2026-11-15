@@ -44,9 +44,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val SINGLE = 0
         const val DISSOLVE = 1
         const val FADE = 2
+        const val WIPE = 3
 
         /** The styles the shader draws. The editor offers these; any other is shown as a dissolve, and cannot be made here. */
-        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor)
+        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe)
 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
@@ -69,6 +70,12 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
                     SceneDrawing(FADE, if (frame.first > 0) first else FILL, if (frame.second > 0) second else FILL, fill, values)
                 }
                 is TransitionFrame.Dissolve -> { put(0, frame.second); SceneDrawing(DISSOLVE, first, second, fill, values) }
+                is TransitionFrame.Wipe -> {
+                    // The band starts at p0, where the second picture ends, and runs along the direction of travel; y turned downward.
+                    put(0, frame.edge.p0.x, height - frame.edge.p0.y, frame.edge.dx, -frame.edge.dy)
+                    put(1, 2 * frame.edge.feather)
+                    SceneDrawing(WIPE, first, second, fill, values)
+                }
                 // A style this version cannot draw: a plain dissolve by its share of the incoming picture.
                 else -> { put(0, moment.secondShare / maxOf(1e-9, moment.firstShare + moment.secondShare)); SceneDrawing(DISSOLVE, first, second, fill, values) }
             }
@@ -97,7 +104,10 @@ object TransitionShader {
         vec3 scene(vec2 q) {
             if (uMode < 0.5) return side(uKind.x, q);
             if (uMode < 1.5) return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), uA.x));
-            return enc(uA.x * lin(side(uKind.x, q)) + uA.y * lin(uFill) + uA.z * lin(side(uKind.y, q)));
+            if (uMode < 2.5) return enc(uA.x * lin(side(uKind.x, q)) + uA.y * lin(uFill) + uA.z * lin(side(uKind.y, q)));
+            // A wipe: the second picture behind the edge, the first ahead of it, a ramp across its band.
+            float share = clamp(1.0 - dot(q - uA.xy, uA.zw) / uB.x, 0.0, 1.0);
+            return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), share));
         }
     """
 
