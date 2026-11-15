@@ -328,4 +328,30 @@ class TrackAudioTest {
         assertEquals(pieces, separate.replacingVideoContents(separate.projectedClips.map { it.copy(speed = SpeedSettings(rate = 0.5)) }).audio[0].censors)
         slower.validate(listOf(video))
     }
+
+    // MARK: With the clipboard and Link
+
+    /** Tests/TrackMediaTests.swift:679-682: "Pasted censor has independent effect identity". */
+    @Test
+    fun aPastedCensorHasAnIdentityOfItsOwn() {
+        val clipboard = censored.copied(scope)
+        assertEquals(ticks(1.0), clipboard.timeline.duration)
+        val pasted = alone.timeline.pasting(clipboard, ticks(2.0)).timeline
+        pasted.validate(listOf(imported))
+        val copy = pasted.audio.last().censors.single()
+        assertNotEquals(effectID, copy.id)
+        assertEquals(settings, copy.settings)
+        assertEquals(censored.audio[0].censors, TrackAudio.censoring(alone.timeline, settings, scope, effectID).audio[0].censors)
+    }
+
+    /** Tests/TrackMediaTests.swift:725-729: "Horizontal linking keeps both split censor regions intact", with Link itself. */
+    @Test
+    fun linkingTheTwoPiecesOfACensoredSoundLeavesBothRegionsAsTheyWere() {
+        val cut = censored.split(ticks(1.5), TrackLinking.entireSelection(censored)).timeline
+        assertEquals(2, cut.audio.size)
+        val joined = cut.joining(TrackLinking.entireSelection(cut)).valueOrNull!!.timeline
+        assertEquals(cut.audio, joined.audio)
+        assertEquals(1, joined.links.size)
+        joined.validate(listOf(imported))
+    }
 }
