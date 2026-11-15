@@ -616,7 +616,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var choosing by remember { mutableStateOf<List<String>?>(null) }
     val current = location?.let { clips[it.index] }
     val sourceTime = if (location != null && current != null) current.sourceTime(location.offset) else 0.0
-    val titles = current?.let { TimelineEditing.textsAt(it, sourceTime) }.orEmpty()
     // Which deck shows each clip, and the clip each deck is playing now or holding the last frame of.
     val deckOf = remember(clips) { TransitionScene.decks(clips) }
     val deckPlaying = List(2) { deck ->
@@ -821,7 +820,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
         Timeline(
-            shown, files, sounds, names, { editor.pause(); if (subtitling == null && titling == null && transitioning == null) chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
+            shown, files, sounds, names, { editor.pause(); if (subtitling == null && titling == null && transitioning == null) chosenSound = it },
+            // A title is opened from its bar, on the piece the bar is on. The picture goes to where that piece shows it.
+            openTitle = { index, title ->
+                val clip = clips.getOrNull(index)
+                if (clip != null && subtitling == null && titling == null && transitioning == null && cropping == null && trim == null) {
+                    editor.pause()
+                    val begins = TimelineEditing.clipStart(clips, index)
+                    val from = begins + clip.offset(maxOf(clip.start, title.start))
+                    val to = begins + clip.offset(minOf(clip.end, title.end))
+                    if (playhead < from || playhead >= to) jump(from.coerceIn(0.0, duration))
+                    titling = Titling(clip.id, title, title)
+                }
+            },
+            trim?.index ?: location?.index, trim, pixelsPerSecond,
             shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
             beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
@@ -954,11 +966,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     onClick = {
                         editor.pause()
                         current?.let { clip ->
-                            val existing = titles.firstOrNull()
-                            // A new title starts at the playhead and stays three seconds of the movie, or as long as the clip lasts.
+                            // Always a new title, also over another one: a title that is there is opened from its bar on the timeline.
+                            // It starts at the playhead and stays three seconds of the movie, or as long as the clip lasts.
                             val end = minOf(clip.end, sourceTime + 3 * clip.rate)
                             val start = if (end - sourceTime < 0.1) maxOf(clip.start, end - 0.5 * clip.rate) else sourceTime
-                            titling = Titling(clip.id, existing ?: TextOverlay.fresh().copy(start = start, end = end), existing)
+                            titling = Titling(clip.id, TextOverlay.fresh().copy(start = start, end = end), null)
                         }
                     },
                     compact, enabled = location != null, contentPadding = tight,
@@ -1149,7 +1161,7 @@ private data class Trim(val index: Int, val leading: Boolean, val clip: Timeline
 @Composable
 private fun Timeline(
     clips: List<TimelineClip>, files: Map<String, File>, sounds: List<AudioItem>, names: Map<String, String>, chooseSound: (String) -> Unit,
-    current: Int?, trim: Trim?,
+    openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
     touched: () -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
 ) {
@@ -1219,7 +1231,7 @@ private fun Timeline(
                             entering = TimelineEditing.join(clips, index)?.takeIf { index == 0 || it.timing.overlap > 0 }?.transition?.style,
                             leaving = TimelineEditing.join(clips, index + 1)?.takeIf { index == clips.lastIndex || it.timing.overlap <= 0 }?.transition?.style,
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
-                            offset, pixelsPerSecond, viewport, scroll,
+                            offset, pixelsPerSecond, viewport, scroll, openTitle = { openTitle(index, it) },
                         )
                     }
                 }
@@ -1258,7 +1270,7 @@ private fun Timeline(
 @Composable
 private fun ClipStrip(
     clip: TimelineClip, file: File, current: Boolean, entering: TransitionStyle?, leaving: TransitionStyle?, dissolve: Float, offset: Float,
-    pixelsPerSecond: Float, viewport: Int, scroll: ScrollState,
+    pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
 ) {
     val density = LocalDensity.current
     val width = (clip.duration * pixelsPerSecond).toFloat()
@@ -1306,16 +1318,23 @@ private fun ClipStrip(
                 }
             }
         }
-        // Titles as labelled bars over the footage they cover.
-        for (title in clip.texts.orEmpty()) {
+        // Titles as labelled bars over the footage they cover; a tap opens the title on this piece.
+        // Only the part the clip shows: a title may reach past a clip that was split or trimmed after it was placed.
+        // Titles showing at the same time go on rows of their own, so each can be read and tapped.
+        val editTitle = stringResource(R.string.title_edit)
+        val rows = mutableListOf<Double>() // where the last bar of each row ends
+        for (title in clip.texts.orEmpty().sortedBy { it.start }) {
             val from = maxOf(title.start, clip.start)
             val to = minOf(title.end, clip.end)
             if (to <= from) continue
+            val row = rows.indexOfFirst { it <= from }.let { if (it >= 0) it else if (rows.size < 4) rows.size else rows.indices.minBy { index -> rows[index] } }
+            if (row == rows.size) rows += to else rows[row] = to
             Text(
                 title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
-                modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), 0) }
+                modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), (row * 14.dp.toPx()).roundToInt()) }
                     .width(with(density) { ((to - from) / clip.rate * pixelsPerSecond).toFloat().toDp() })
                     .background(TitleColor, RoundedCornerShape(3.dp))
+                    .clickable(onClickLabel = editTitle) { openTitle(title) }
                     // Clear of the trim grip when the title starts with the clip.
                     .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
