@@ -82,6 +82,46 @@ class ProjectDisk(val root: File) {
         }.sortedBy { it.name }
     }
 
+    /**
+     * The recordings of [project] that could not be read and were moved aside, as the original keeps
+     * them (YouRec/Project.swift:726-731): the movies in the folders of `Recovery/`, in order of path.
+     */
+    fun recoveryFiles(project: Project): List<File> =
+        File(folder(project.id), RECOVERY).listFiles().orEmpty().flatMap { it.listFiles().orEmpty().toList() }
+            .filter { it.extension.lowercase() in setOf("mp4", "mov") && Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS) }
+            .sortedBy { it.path }
+
+    /**
+     * Moves a recording of [project] that no manifest refers to into a folder of its own under
+     * `Recovery/`, with the files saved beside it, such as its events (YouRec/Project.swift:732-752).
+     * Nothing is deleted: the companions are copied first and removed only once the movie has moved.
+     * A file that is not one of [unindexedRecordings] is left alone.
+     */
+    fun quarantineRecording(requested: File, project: Project) {
+        val file = unindexedRecordings(project).firstOrNull { it.canonicalFile == requested.canonicalFile } ?: return
+        val destination = File(File(folder(project.id), RECOVERY), sha256(file.name.toByteArray()))
+        if (!destination.isDirectory && !destination.mkdirs()) throw java.io.IOException("Cannot create ${destination.path}")
+        val stem = file.nameWithoutExtension + "."
+        val known = project.mediaFiles.toSet()
+        val companions = folder(project.id).listFiles().orEmpty().filter {
+            it.name != file.name && it.name.startsWith(stem) && it.name !in known && Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS)
+        }
+        for (companion in companions) {
+            val target = File(destination, companion.name)
+            if (!target.exists()) Files.copy(companion.toPath(), target.toPath())
+        }
+        Files.move(file.toPath(), File(destination, file.name).toPath())
+        companions.forEach { it.delete() }
+    }
+
+    /** Deletes one of [recoveryFiles] for good, with its folder and what was kept beside it (YouRec/ProjectStore.swift:568-572). */
+    fun removeRecoveryFile(file: File, project: Project) {
+        if (recoveryFiles(project).none { it == file }) return
+        val directory = file.parentFile ?: return
+        directory.listFiles().orEmpty().forEach { if (!it.delete()) throw java.io.IOException("Cannot delete ${it.path}") }
+        if (!directory.delete()) throw java.io.IOException("Cannot delete ${directory.path}")
+    }
+
     fun moveToDeleted(project: Project, now: Long = System.currentTimeMillis()) {
         deletedRoot.mkdirs()
         // A failed receipt write leaves the active project in place. The manifest,
@@ -132,6 +172,8 @@ class ProjectDisk(val root: File) {
 
     companion object {
         private const val KEPT_REVISIONS = 5
+        /** The folder of a project that holds what could not be read, as in the original. */
+        const val RECOVERY = "Recovery"
         private val writeLock = Any()
 
         /** The destination either keeps its old bytes or holds all the new ones. */
