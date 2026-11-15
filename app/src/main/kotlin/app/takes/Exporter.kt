@@ -26,6 +26,7 @@ import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
+import androidx.media3.effect.SingleColorLut
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
@@ -150,6 +151,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     // A ceiling for high frame rate footage; frames are never invented. Media3 only
                     // drops when the source is well above the target, such as 60 to 30.
                     if (settings.frameRate <= 30) add(FrameDropEffect.createDefaultFrameDropEffect(settings.frameRate.toFloat()))
+                    // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
+                    clip.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, folder.parentFile!!))) }
                     add(fit)
                     if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut))
                 }

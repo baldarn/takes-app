@@ -53,6 +53,9 @@ for the `rnnoise` module.
   sound is made once in the background and kept in the project's cache.
 - Remove pauses: the clip under the playhead is measured, its silences are found with
   the original's detector, and they are cut out as one undoable edit.
+- Clip color: the original's fourteen looks or an imported `.cube` LUT at a chosen
+  strength, with exposure, warmth and tint. One lookup table drives both the preview
+  (Android 13 or newer) and the export.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
@@ -61,7 +64,7 @@ for the `rnnoise` module.
 ## Not ported yet
 
 More than one video layer, unlinking a clip's sound from its picture, the other transitions (wipe, split screen and so on), title fonts,
-colors and motion, LUTs, subtitles, speed,
+colors and motion, Log footage and highlight recovery, subtitles, speed,
 crop, video effects, audio restoration models, stabilization, dual camera, follow face,
 HDR/Log capture, microphone selection, manual focus, bookmarks, project ZIP/OTIO.
 The project file format is this port's own and is not interchangeable with iOS.

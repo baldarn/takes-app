@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
-import android.os.Build
 import android.util.LruCache
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
@@ -53,6 +52,13 @@ import app.takes.core.PauseDetector
 import app.takes.core.PauseSettings
 import app.takes.core.SourceInterval
 import app.takes.core.SourceWaveform
+import android.os.Build
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import app.takes.core.ColorLook
+import app.takes.core.ColorSettings
+import app.takes.core.ImportedLUT
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -488,6 +494,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             else -> 0.0
         }
     }
+    // The color each deck shows: the clip under the playhead, and during a dissolve the one leaving.
+    val folder = remember(project.id) { store.disk.folder(project.id) }
+    val deckColors = List(2) { deck ->
+        when {
+            location == null -> null
+            deck == front -> clips[location.index].color
+            weight < 1 && location.index > 0 -> clips[location.index - 1].color
+            else -> null
+        }
+    }
     SideEffect {
         deckSounds.forEachIndexed(editor::setSound)
         for (track in 0 until AudioItem.TRACKS) {
@@ -505,6 +521,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     var choosingExport by remember { mutableStateOf(false) }
     var findingPauses by remember { mutableStateOf(false) }
+    var editingColor by remember { mutableStateOf(false) }
     var editingAudio by remember { mutableStateOf(false) }
     var chosenSound by remember { mutableStateOf<String?>(null) }   // the audio item being edited
     var shapingSound by remember { mutableStateOf(false) }
@@ -525,11 +542,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
             Box(canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()) {
+                val effects = deckColors.map { color ->
+                    remember(color, folder) {
+                        if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder).asComposeRenderEffect() else null
+                    }
+                }
                 // Deck 1 below, opaque whenever it contributes; deck 0 above, as transparent as its share.
                 for (deck in listOf(1, 0)) {
                     AndroidView(
                         { (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = editor.decks[deck] } },
-                        Modifier.fillMaxSize().alpha(if (deck == 0) weights[0].toFloat() else if (weights[1] > 0) 1f else 0f),
+                        Modifier.fillMaxSize().graphicsLayer {
+                            alpha = if (deck == 0) weights[0].toFloat() else if (weights[1] > 0) 1f else 0f
+                            renderEffect = effects[deck]
+                        },
                     )
                 }
                 Canvas(Modifier.fillMaxSize()) {
@@ -585,13 +610,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
                 enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text("Split") }
             TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text("Sound") }
+            TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null, contentPadding = tight) { Text("Color") }
             TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text("Title") }
             TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
                 enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text("Transition") }
-            TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text("Pauses") }
         }
         Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
-            for ((label, step) in listOf("◀ Move" to -1, "Move ▶" to 1)) {
+            TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text("Pauses") }
+            for ((label, step) in listOf("◀" to -1, "▶" to 1)) {
                 val target = location?.let { it.index + step }
                 TextButton(
                     onClick = {
@@ -610,6 +636,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
 
     store.importing?.let { step ->
         AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text("Importing") }, text = { Text(step) })
+    }
+    if (editingColor && location != null && current != null) {
+        ColorDialog(
+            current.color ?: ColorSettings(),
+            importLut = { uri -> store.importLut(project.id, uri) },
+            save = { commit(TimelineEditing.setColor(edit, location.index, it), playhead); editingColor = false },
+            dismiss = { editingColor = false },
+        )
     }
     sounds.firstOrNull { it.id == chosenSound }?.let { item ->
         if (shapingSound) {
@@ -853,6 +887,11 @@ private fun ClipStrip(
                     .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
         }
+        // The clip's color, named over its pictures.
+        clip.color?.let { color ->
+            Text(color.title, color = Color.Black, fontSize = 10.sp, maxLines = 1,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 12.dp).background(Color(0xFFB6C2FF), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
+        }
         // What has been done to the sound, where the waveform is.
         clip.audio?.let { audio ->
             val note = listOfNotNull(
@@ -896,6 +935,55 @@ private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected:
     Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
     }
+}
+
+/** The clip's color: a look or an imported LUT at some strength, over exposure, warmth and tint. */
+@Composable
+private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> ImportedLUT?, save: (ColorSettings) -> Unit, dismiss: () -> Unit) {
+    var color by remember { mutableStateOf(saved) }
+    val scope = rememberCoroutineScope()
+    val pickLut = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch { importLut(uri)?.let { color = color.copy(imported = it) } }
+    }
+    @Composable
+    fun Level(label: String, value: Double, range: ClosedFloatingPointRange<Float>, shown: String, change: (Double) -> Unit) {
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.SpaceBetween) {
+            Text(label, color = Muted, fontSize = 13.sp)
+            Text(shown, color = Color.White, fontSize = 13.sp)
+        }
+        // Steps of a twentieth of the range: fine enough to see, coarse enough to hit zero again.
+        Slider(value = value.toFloat(), onValueChange = { change((it * 20 / (range.endInclusive - range.start)).roundToInt() * (range.endInclusive - range.start) / 20.0) },
+            valueRange = range, modifier = Modifier.semantics { contentDescription = label })
+    }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("Clip color") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                val lut = color.imported
+                if (lut == null) {
+                    Choices("Look", ColorLook.entries.map { it.title to it }, color.look) { color = color.copy(look = it) }
+                } else {
+                    Text("LUT: ${lut.name}", color = Color.White, modifier = Modifier.padding(top = 12.dp))
+                }
+                Row {
+                    TextButton(onClick = { pickLut.launch("*/*") }) { Text(if (lut == null) "Import a .cube LUT" else "Choose another LUT") }
+                    if (lut != null) TextButton(onClick = { color = color.copy(imported = null) }) { Text("Use a look") }
+                }
+                Level("Strength", color.amount, 0f..1f, "${(color.amount * 100).roundToInt()}%") { color = color.copy(amount = it) }
+                Level("Exposure", color.exposure, -2f..2f, "%+.1f".format(color.exposure)) { color = color.copy(exposure = it) }
+                Level("Warmth", color.warmth, -1f..1f, "%+.0f".format(color.warmth * 100)) { color = color.copy(warmth = it) }
+                Level("Tint", color.tint, -1f..1f, "%+.0f".format(color.tint * 100)) { color = color.copy(tint = it) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { save(color) }) { Text("Save") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { color = ColorSettings() }, enabled = !color.isIdentity) { Text("Reset") }
+                TextButton(onClick = dismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 /**

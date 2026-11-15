@@ -8,7 +8,10 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.takes.core.CubeLUT
 import app.takes.core.EditState
+import app.takes.core.ImportedLUT
+import app.takes.core.LUTException
 import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.ProjectDisk
@@ -133,6 +136,41 @@ class ProjectStore(context: Context) {
                 file(project, source).delete()
                 error = "Both audio tracks are busy here. Move the playhead or remove a sound first."
             } else update(added.commit(edit))
+        }
+    }
+
+    /**
+     * Copies a .cube file picked from the device into the project, named by
+     * its content so the same LUT is stored once. Null, with a message for
+     * the person, when the file is not a usable LUT.
+     */
+    suspend fun importLut(projectID: String, uri: Uri): ImportedLUT? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = resolver.openInputStream(uri)?.use { input ->
+                val limited = ByteArray(CubeLUT.MAXIMUM_BYTES + 1)
+                var size = 0
+                while (size < limited.size) {
+                    val read = input.read(limited, size, limited.size - size)
+                    if (read < 0) break
+                    size += read
+                }
+                limited.copyOf(size)
+            } ?: return@withContext null
+            CubeLUT.parse(bytes) // rejects anything that is not a valid, bounded cube
+            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }?.substringBeforeLast('.')?.take(120)?.ifBlank { null } ?: "Imported LUT"
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            val folder = disk.folder(projectID).apply { mkdirs() }
+            val file = File(folder, "effect-$hash.cube")
+            if (!file.isFile) ProjectDisk.writeAtomically(bytes, file)
+            ImportedLUT(file.name, name)
+        } catch (problem: LUTException) {
+            withContext(Dispatchers.Main) { error = problem.message }
+            null
+        } catch (_: Exception) {
+            withContext(Dispatchers.Main) { error = "The LUT file could not be read." }
+            null
         }
     }
 
