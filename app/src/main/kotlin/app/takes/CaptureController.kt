@@ -79,6 +79,8 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
+    /** The settings of the recorder: global, as in the original, and kept with the camera and the zooms. */
+    val settings = RecorderSettings(prefs)
     private val scope = MainScope()
     // Same shape as the recorded movie, so the preview shows the real frame.
     private val preview = Preview.Builder()
@@ -101,7 +103,7 @@ class CaptureController(private val context: Context, private val store: Project
     var zoom by mutableStateOf(1.0); private set
     var zoomRange by mutableStateOf(1.0..1.0); private set
     /** Seconds a zoom preset takes. Instant until the person chooses a time, as in the original. */
-    var zoomDuration by mutableStateOf(ZoomTransition.boundedDuration(prefs.getFloat("zoomDuration", 0f).toDouble())); private set
+    val zoomDuration: Double get() = settings.zoomSeconds
     var level by mutableStateOf(0f); private set
     var audioWarning by mutableStateOf<String?>(null); private set
     var landscape by mutableStateOf(false); private set
@@ -418,8 +420,7 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     fun chooseZoomDuration(seconds: Double) {
-        zoomDuration = ZoomTransition.boundedDuration(seconds)
-        prefs.edit().putFloat("zoomDuration", zoomDuration.toFloat()).apply()
+        settings.zoomSeconds = ZoomTransition.boundedDuration(seconds)
     }
 
     // MARK: Take lifecycle
