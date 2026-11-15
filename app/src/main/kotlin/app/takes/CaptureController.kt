@@ -47,7 +47,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CaptureFormat
@@ -106,6 +108,16 @@ class CaptureController(private val context: Context, private val store: Project
     private var provider: ProcessCameraProvider? = null
     private var owner: LifecycleOwner? = null
     private var camera: Camera? by mutableStateOf(null)
+    private var target: CameraChoice? = null // the camera to show, bound or not
+    private var stale = false // what is bound is to be bound again: it was kept through the background, or is not what is wanted now
+    // The camera is bound to this, which is always resumed, and not to the screen: the camera library takes its
+    // use cases away the moment the screen stops, before the take can be stopped, and gives them back on return
+    // whatever the recorder is doing. Here the camera goes and returns when [background] and [close] say so.
+    private val held = object : LifecycleOwner {
+        val registry = LifecycleRegistry(this).apply { currentState = Lifecycle.State.RESUMED }
+        override val lifecycle: Lifecycle get() = registry
+    }
+    private val inFront: Boolean get() = owner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true
     private var recording: Recording? = null
     private var segment: Segment? = null
     private var zoomRamp: Job? = null
@@ -234,10 +246,34 @@ class CaptureController(private val context: Context, private val store: Project
         releaseMicrophone()
         microphone = null
         microphoneWarning = null
+        release()
+        target = null
+        owner = null
+    }
+
+    /**
+     * Another app is in front: the take is paused, and the camera is let go once its segment is saved.
+     * The recorder is stopped while the camera still feeds it. Stopped after the camera has taken its
+     * surface back, it loses its encoder first and never ends the segment: "Saving…" stays, and the
+     * surface it is given on return finds it still stopping, which kills the app from the recorder's thread.
+     */
+    fun background() {
+        pause()
+        if (phase == Phase.Saving) stale = true else release()
+    }
+
+    /** Back in front. The camera returns now, or as soon as the segment being saved has ended. */
+    fun foreground() = restore()
+
+    /** Binds the camera when none is bound, or when what is bound was only kept for a segment to end. */
+    private fun restore() {
+        if (camera == null || stale) rebind()
+    }
+
+    private fun release() {
         provider?.unbindAll()
         camera = null
         focus.unbound()
-        owner = null
     }
 
     private fun describe(infos: List<CameraInfo>): List<CameraChoice> {
@@ -315,7 +351,7 @@ class CaptureController(private val context: Context, private val store: Project
     fun chooseMirrorPreview(on: Boolean) { if (canChangeFormat && settings.mirrorPreview != on) { settings.mirrorPreview = on; rebind() } }
     fun chooseMirrorRecording(on: Boolean) { if (canChangeTake && settings.mirrorRecording != on) { settings.mirrorRecording = on; rebind() } }
 
-    private fun rebind() { current?.let(::bind) }
+    private fun rebind() { (target ?: current)?.let(::bind) }
 
     /**
      * The preview and the recording for [format]. Each part of the format was asked of the camera before
@@ -358,8 +394,11 @@ class CaptureController(private val context: Context, private val store: Project
     private fun recorder(audioSource: Int) = Recorder.Builder().setAudioSource(audioSource)
 
     private fun bind(choice: CameraChoice) {
+        target = choice
         val provider = provider ?: return
-        val owner = owner ?: return
+        // A recorder is given a new surface only in front and when no segment is being saved: [close] binds then.
+        if (phase == Phase.Saving || !inFront) { stale = true; return }
+        stale = false
         // A persistent recording pauses while nothing is bound and resumes by itself.
         provider.unbindAll()
         // A segment being written keeps its recorder: the format changes between segments.
@@ -372,7 +411,7 @@ class CaptureController(private val context: Context, private val store: Project
                 format = attempt
             }
             bound = try {
-                provider.bindToLifecycle(owner, choice.info.cameraSelector, cases.preview, cases.video)
+                provider.bindToLifecycle(held, choice.info.cameraSelector, cases.preview, cases.video)
             } catch (_: Exception) {
                 provider.unbindAll()
                 null
@@ -725,21 +764,27 @@ class CaptureController(private val context: Context, private val store: Project
         // After the last write of its events, which may still be on its way.
         if (!current.file.exists()) withContext(eventFiles) { CaptureEventsFile.delete(current.file) }
         if (segment === current) { segment = null; recording = null }
+        val requested = current.requested
+        close(current, seconds)
+        message = when {
+            requested == null -> context.getString(if (seconds != null) R.string.recorder_stopped_saved else R.string.recorder_stopped_lost, reason(event))
+            seconds == null -> context.getString(R.string.recorder_nothing_recorded)
+            else -> message
+        }
+    }
+
+    /** The segment has ended: the take is paused or over, as was asked, and the camera returns. */
+    private fun close(current: Segment, seconds: Double?) {
         if (seconds != null) {
             // A mark made as the take stops can fall a moment past what was written: it belongs to the last frame.
             val last = maxOf(0.0, seconds - 1.0 / 30)
             val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
             store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events))
         }
-        val requested = current.requested
         // The segment is in the edit now, and the clock counts it there.
-        if (requested == Phase.Idle) reset() else { phase = Phase.Paused; level = 0f }
+        if (current.requested == Phase.Idle) reset() else { phase = Phase.Paused; level = 0f }
         dropLostMicrophone()
-        message = when {
-            requested == null -> context.getString(if (seconds != null) R.string.recorder_stopped_saved else R.string.recorder_stopped_lost, reason(event))
-            seconds == null -> context.getString(R.string.recorder_nothing_recorded)
-            else -> message
-        }
+        if (inFront) restore() else release()
     }
 
     private companion object {

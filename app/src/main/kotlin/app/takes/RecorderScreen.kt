@@ -200,8 +200,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         // The chosen microphone is a system-wide route: hold it only while the recorder is in front.
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> capture.claimMicrophone()
-                Lifecycle.Event.ON_STOP -> { capture.pause(); capture.releaseMicrophone() }
+                Lifecycle.Event.ON_START -> { capture.claimMicrophone(); capture.foreground() }
+                Lifecycle.Event.ON_STOP -> { capture.background(); capture.releaseMicrophone() }
                 else -> Unit
             }
         }
