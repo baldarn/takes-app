@@ -17,16 +17,18 @@ Status meanings:
 
 Size: S = hours, M = about a day, L = several days. "Emulator?" says whether the result can be verified on an emulator; "phone" means a real camera, microphone or ears are needed.
 
+Brought up to date on 2026-11-15, status only and without a new reading of the original: section 6 (transitions), section 7 (titles), section 9 (subtitles, where no status changed) and, in section 4, the rows on selection, range, tool scope and clipboard, with `main` at `27746ad`; and the rows this change itself delivers (previous/next change, snap to cuts, the transition badge, the opening and the close staying with their clip). The other rows and their line numbers are as they were audited. What still differs inside the transitions is in `docs/TRANSITIONS-REVIEW.md`, inside the subtitles in `docs/SUBTITLES-REVIEW.md`.
+
 Work in flight on other branches, not counted as done here: `agent/titles` (title tool with design, motion, timing, placement), `agent/deepfilter` (DeepFilterNet3 module), `agent/transitions-core`.
 
 ## Summary
 
 | Status | Count |
 |---|---|
-| DONE | 54 |
-| PARTIAL | 45 |
-| CORE ONLY | 17 |
-| MISSING | 87 |
+| DONE | 71 |
+| PARTIAL | 43 |
+| CORE ONLY | 9 |
+| MISSING | 80 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -37,10 +39,10 @@ Per area:
 | 1. App shell and project list | 11 | 6 | 0 | 6 | 0 |
 | 2. Recovery and storage | 2 | 4 | 0 | 1 | 0 |
 | 3. Recorder and camera | 11 | 10 | 0 | 19 | 2 |
-| 4. Editor: timeline, playback, structure | 7 | 8 | 1 | 17 | 1 |
+| 4. Editor: timeline, playback, structure | 12 | 9 | 1 | 11 | 1 |
 | 5. Editor: picture tools | 1 | 4 | 7 | 6 | 0 |
-| 6. Transitions | 2 | 2 | 2 | 1 | 0 |
-| 7. Titles and fonts | 1 | 2 | 7 | 0 | 0 |
+| 6. Transitions | 6 | 1 | 0 | 0 | 0 |
+| 7. Titles and fonts | 9 | 0 | 1 | 0 | 0 |
 | 8. Audio | 2 | 4 | 0 | 15 | 0 |
 | 9. Subtitles | 8 | 3 | 0 | 2 | 0 |
 | 10. Video effects | 0 | 0 | 0 | 14 | 1 |
@@ -149,19 +151,19 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Double-tap play "quick review" with pre/post-roll and return; preview a cut | O/EditorView.swift:526-547, O/EditorController.swift:408-467 | MISSING | — | | M | Yes |
 | Full-screen preview | O/TrackEditors.swift:22-86 | MISSING | — | | M | Yes |
 | Preview inspection zoom (pinch 1–8×) | O/EditorView.swift:1586-1601 | MISSING | — | | S | Yes |
-| Previous/next change (cuts and effects) | O/TimelineNavigation.swift:56-165 | MISSING | Only bookmark stepping | Navigation stops + two buttons | S | Yes |
+| Previous/next change (cuts and effects) | O/TimelineNavigation.swift:56-165 | DONE | A/Transport.kt (`ChangeButton`), C/TimelineNavigation.kt: tap for cuts and changes, hold for changes only | — | | |
 | Split at the playhead | O/TimelineEditing.swift:45-62 | DONE | A/EditorScreen.kt:724, C/TimelineEditing.kt:56 | Not frame-quantised (original snaps to 1/30 s) | | |
 | Trim handles | O/EditorTimeline.swift:583-602, 718-747 | DONE | A/EditorScreen.kt:484-510, 947-988 | No edge auto-scroll | | |
 | Delete a clip | O/TrackTimeline.swift:771-826 | DONE | A/EditorScreen.kt:841 | — | | |
 | Reorder clips | O/EditorView.swift:689-735 (Move mode) | PARTIAL | A/EditorScreen.kt:827-838 (one place earlier/later) | Move mode: drag, scopes "Selected only / With left / With right / Both sides", snapping, Cancel/Done | L | Yes |
-| Select an item; multi-selection by long press | O/EditorTimeline.swift:538-576 | MISSING | Tools act on the clip under the playhead | Selection model | M | Yes |
-| Range selection: Mark start / Mark end / Move end, delete range | O/EditorView.swift:1110-1135 | MISSING | — | | M | Yes |
-| Tool scope: range, selected clips, or whole project | O/EditorView.swift:998-1020, O/VideoTools.swift:631-658 | MISSING | Every tool is per clip | Scope model, applying a tool to many clips, shared effects that survive splits | L | Yes |
-| Copy / Cut / Paste at the playhead | O/TimelinePaste.swift:5-195 | MISSING | — | | M | Yes |
-| Snap to cuts (toggle) | O/EditorView.swift:932-945, O/TrackTimeline.swift:1470-1491 | MISSING | — | | S | Yes |
+| Select an item; multi-selection by long press | O/EditorTimeline.swift:538-576 | DONE | A/EditorScreen.kt, A/SelectionBar.kt, C/RangeEditing.kt (`RangeMarks`) | — | | |
+| Range selection: Mark start / Mark end / Move end, delete range | O/EditorView.swift:1110-1135 | DONE | A/SelectionBar.kt, C/RangeEditing.kt (`markTime`, `delete`), with a preview of the cut | — | | |
+| Tool scope: range, selected clips, or whole project | O/EditorView.swift:998-1020, O/VideoTools.swift:631-658 | PARTIAL | Sound, Color, Crop and Speed apply to the clips of a range or a selection as one edit, and a new title goes over a marked range (A/EditorScreen.kt, C/RangeEditing.kt `scoped`) | The other tools; shared effects that survive splits | M | Yes |
+| Copy / Cut / Paste at the playhead | O/TimelinePaste.swift:5-195 | DONE | A/SelectionBar.kt, C/RangeEditing.kt (`copy`, `cut`, `paste`); a clipboard per project, kept while the app runs | — | | |
+| Snap to cuts (toggle) | O/EditorView.swift:932-945, O/TrackTimeline.swift:1470-1491 | DONE | A/Transport.kt (`SnapToggle`, `SnapSetting`), A/EditorScreen.kt, C/TimelineSnapping.kt: the playhead, when a scroll ends | Snapping of moved parts belongs to Move mode, which is missing (see Reorder clips) | | |
 | Close gap | O/TrackTimeline.swift:1588-1604 | N/A | — | The port's timeline is a gapless sequence; needed only with free placement | | |
 | Undo / redo, persistent | O/Project.swift:305-335 | DONE | A/EditorScreen.kt:612-613, C/Project.kt | Playhead not remembered per step | | |
-| Bookmarks: add/remove, previous/next, shown on the timeline | O/EditorView.swift:1259-1296 | PARTIAL | A/EditorScreen.kt:661-672, 1121-1126 | Bookmark list with thumbnails and labels (`Bookmark.label` exists, C/Project.kt:100) | M | Yes |
+| Bookmarks: add/remove, previous/next, shown on the timeline | O/EditorView.swift:1259-1296 | PARTIAL | A/Transport.kt (`BookmarksMenu`: add or remove, previous, next, and each bookmark by its time), flags on the clips in A/EditorScreen.kt | Bookmark list with thumbnails and labels (`Bookmark.label` exists, C/Project.kt:100) | M | Yes |
 | Add video or photo at the playhead from Photos | O/AddVideoPanel.swift:45-49, O/VideoBatchImport.swift:21-72 | PARTIAL | Videos only into the project from Projects (A/ProjectsScreen.kt:229); they append | Picker inside the editor inserting at the playhead, as one undo step | M | Yes |
 | Photos as 3 s clips | O/PhotoClip.swift:7-65 | MISSING | — | Encode a still to a clip, or model a still source | M | Yes |
 | "+" insertion sites at the start, end and gaps | O/EditorTimeline.swift:318-367, O/TimelineEditing.swift:3-32 | MISSING | — | | S | Yes |
@@ -169,7 +171,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Independent video and audio lanes; any number of layers | O/TrackTimeline.swift:485-502, 1744-1761 | MISSING | One picture sequence + 2 audio tracks (C/Project.kt:195-211) | The track model; see `docs` note in the last section | L | Yes |
 | Unlink / Link sound from picture, sync badge, restore sync | O/EditorView.swift:1136-1161, O/TrackTimeline.swift:575-639 | CORE ONLY | C/AudioUnlinking.kt:72-225 | UI, and playing/exporting the detached item at the clip's place | M | Yes |
 | Overlapping videos: Placement editor (cover, side by side, top/bottom, picture in picture, edge crop, order, A/B motion) | O/TrackEditors.swift:440-839, O/TrackTimeline.swift:360-456 | MISSING | — | Needs video layers, a multi-input preview and compositor | L | Yes |
-| Effect chips on the timeline, tap to edit, hold to remove | O/EditorView.swift:1677-1710 | PARTIAL | Text tags only (A/EditorScreen.kt:1090-1137); sounds are tappable | Tappable chips for titles, colour, crop, speed, transitions | M | Yes |
+| Effect chips on the timeline, tap to edit, hold to remove | O/EditorView.swift:1677-1710 | PARTIAL | Titles open from their bars, sounds from the selection row, transitions from the chip beside Mark (A/EditorScreen.kt, A/SelectionBar.kt) | Chips for colour, crop and speed; hold to remove | M | Yes |
 | Tools sheet with sections and "In this project" list | O/EditorTools.swift:33-106 | PARTIAL | Three button rows (A/EditorScreen.kt:723-843) | Sheet, list of applied tools | M | Yes |
 | Before/After compare inside a tool | O/EditorTools.swift:1072-1151 | MISSING | — | | S | Yes |
 | "?" help on each tool | README "Effect inspectors have a reachable ?" | MISSING | — | Help texts | M | Yes |
@@ -202,28 +204,28 @@ The port goes beyond the original in three places, not counted above: Italian lo
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
-| Dissolve | O/Transitions.swift:7-11, O/TransitionRenderer.swift:189-292 | DONE | A/EditorScreen.kt:1448-1468, A/Titles.kt:139, C/TimelineEditing.kt:198 | — | | |
-| Fade through black | same | DONE | A/Titles.kt:87, C/TimelineEditing.kt:189 | Fade colour (black only) | | |
-| Wipe, Split screen, Hitchcock, Whip pan, Flash cut, Still, Defocus | O/Transitions.swift:7-11, O/TransitionEditor.swift:273-339 | CORE ONLY | C/TransitionSettings.kt:10, C/TransitionPicture.kt:122, C/TransitionGeometry.kt, C/TransitionLayout.kt; plan in docs/TRANSITIONS-SPEC.md and docs/TRANSITIONS-MIGRATION.md | Saved-model migration, GL renderer for preview and export, editor | L | Yes |
-| Duration: any value from one frame, presets up to 60 s | O/TransitionEditor.swift:283-296 | PARTIAL | A/EditorScreen.kt:1460 (0.3, 0.5, 1, 2 s) | Free duration, fitting to neighbours | S | Yes |
-| Sound of a transition: offset, blend length, cut; first/second clip for split | O/TransitionEditor.swift:338, 364-381 | CORE ONLY | C/TransitionSound.kt:19 | UI and use in preview/export | M | Yes |
-| Opening and closing transitions of the timeline | O/Project.swift:56, O/Transitions.swift:207 | MISSING | Planned in docs/TRANSITIONS-MIGRATION.md §4.1 | | M | Yes |
-| Transition badge on the timeline, tap to edit; preview play inside the editor | O/EditorTimeline.swift:561, O/TransitionEditor.swift | PARTIAL | Labels only (A/EditorScreen.kt:1128-1137) | Tappable badge, in-tool preview | S | Yes |
+| Dissolve | O/Transitions.swift:7-11, O/TransitionRenderer.swift:189-292 | DONE | A/TransitionPanel.kt, A/TransitionRendering.kt, C/TransitionPicture.kt | — | | |
+| Fade through color | same | DONE | same; the color from ten swatches or six hex digits | The system color picker | | |
+| Wipe, Split screen, Hitchcock, Whip pan, Flash cut, Still, Defocus | O/Transitions.swift:7-11, O/TransitionEditor.swift:273-339 | PARTIAL | A/TransitionPanel.kt, A/TransitionRendering.kt (one shader for preview and export), A/TransitionPreview.kt, C/TransitionScene.kt, C/TransitionGeometry.kt | Titles drawn inside each side of a transition; the blur of whip pan and defocus is an approximation; below Android 13 the preview shows five styles as cross-fades (docs/TRANSITIONS-REVIEW.md F1-F4) | L | Yes |
+| Duration: any value from one frame, presets up to 60 s | O/TransitionEditor.swift:283-296 | DONE | A/TransitionPanel.kt, C/TimelineEditing.kt (`setJoin`, `joinMaximum`): up to the shorter clip's length, shortened to fit the neighbors | — | | |
+| Sound of a transition: offset, blend length, cut; first/second clip for split | O/TransitionEditor.swift:338, 364-381 | DONE | A/TransitionPanel.kt (`AudioTiming`), C/TransitionSound.kt, C/TimelineEditing.kt (`soundLevel`) | — | | |
+| Opening and closing transitions of the timeline | O/Project.swift:56, O/Transitions.swift:207 | DONE | C/TransitionLayout.kt (`sequence`, `fades`), C/TimelineEditing.kt: they stay with their clip when it is no longer first or last | — | | |
+| Transition badge on the timeline, tap to edit; preview play inside the editor | O/EditorTimeline.swift:561, O/TransitionEditor.swift | DONE | The name on the clip puts the playhead on the join; the chip beside Mark adds or opens (A/SelectionBar.kt, A/EditorScreen.kt); the tool plays the transition on the editor's own picture | The tool's own still and scrubber; hold to remove | | |
 
 ## 7. Titles and fonts
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
-| Add, edit, remove a title; follows its footage | O/EditorTools.swift:1334-1352, O/VideoTools.swift:218-232 | DONE | A/EditorScreen.kt:1372-1416, A/Titles.kt:30-85 | — | | |
-| Duration presets, "To end", start/end sliders | O/EditorTools.swift:1353-1394, O/VideoTools.swift:170-216 | PARTIAL | A/EditorScreen.kt:1389-1390 (2/3/5 s, whole clip) | Presets and sliders; `OverlayTiming`, `EditorDurationPresets` are in C/TitleMotion.kt:132-146 | S | Yes |
-| Position by drag, size by pinch, sliders, centre snap | O/EditorTools.swift:1180-1203 | PARTIAL | Three positions, three sizes (A/EditorScreen.kt:1387-1388) | Free placement | M | Yes |
-| Looks (8 built in), saved channel styles | O/TitleInspector.swift:123-197, O/TitleDesign.swift:99-136 | CORE ONLY | C/TitleDesign.kt:130 | Inspector and renderer (in flight on `agent/titles`) | L | Yes |
-| Fonts: 7 bundled families, weights, italic, system fonts, favourites | O/TitleInspector.swift:216-276 | CORE ONLY | C/TitleDesign.kt:203 (`TitleTypeface`) | Bundled font files, chooser | M | Yes |
-| Imported fonts library (TTF/OTF/TTC/OTC), kept in the project and ZIP | O/FontLibraryView.swift:27-174, O/ImportedFonts.swift:34-188 | CORE ONLY | C/TitleDesign.kt:247 (`ImportedFontReference`) | Library, project copies, archive entries | M | Yes |
-| Alignment, letter spacing, line spacing | O/TitleInspector.swift:236-240 | CORE ONLY | C/TitleDesign.kt:109-200 | UI and drawing | S | Yes |
-| Fill: solid or gradient (12 presets), colour picker, hex, recents, eyedropper | O/TitleInspector.swift:280-342, 450-594 | CORE ONLY | C/TitleDesign.kt:55-106 | UI and drawing; eyedropper on the frame | M | Yes |
-| Outline, shadow, background box (one box / each line) | O/TitleInspector.swift:80-103, O/StyledTextRenderer.swift:73-101 | CORE ONLY | C/TitleDesign.kt:117-200 | UI and drawing | M | Yes |
-| Motion: entrance and exit (fade, drift, scale, wipe), direction, duration | O/TitleInspector.swift:343-389, O/TitleDesign.swift:222-300 | CORE ONLY | C/TitleMotion.kt:27-130 | UI and drawing | M | Yes |
+| Add, edit, remove a title; follows its footage | O/EditorTools.swift:1334-1352, O/VideoTools.swift:218-232 | DONE | A/TitlePanel.kt, A/EditorScreen.kt, A/Titles.kt, C/TimelineEditing.kt (`placeTitle`) | — | | |
+| Duration presets, "To end", start/end sliders | O/EditorTools.swift:1353-1394, O/VideoTools.swift:170-216 | DONE | A/TitlePanel.kt, C/TitleMotion.kt (`OverlayTiming`, `EditorDurationPresets`) | — | | |
+| Position by drag, size by pinch, sliders, centre snap | O/EditorTools.swift:1180-1203 | DONE | A/EditorScreen.kt (drag and pinch on the picture), A/TitlePanel.kt | — | | |
+| Looks (8 built in), saved channel styles | O/TitleInspector.swift:123-197, O/TitleDesign.swift:99-136 | DONE | A/TitlePanel.kt, A/TitleRendering.kt, C/TitleDesign.kt | — | | |
+| Fonts: 7 bundled families, weights, italic, system fonts, favourites | O/TitleInspector.swift:216-276 | DONE | A/TitlePanel.kt (`Fonts`), A/TitleRendering.kt (`TitleFonts`), `app/src/main/assets` | — | | |
+| Imported fonts library (TTF/OTF/TTC/OTC), kept in the project and ZIP | O/FontLibraryView.swift:27-174, O/ImportedFonts.swift:34-188 | CORE ONLY | C/TitleDesign.kt (`ImportedFontReference`) | Library, project copies, archive entries | M | Yes |
+| Alignment, letter spacing, line spacing | O/TitleInspector.swift:236-240 | DONE | A/TitlePanel.kt, A/TitleRendering.kt | — | | |
+| Fill: solid or gradient (12 presets), colour picker, hex, recents, eyedropper | O/TitleInspector.swift:280-342, 450-594 | DONE | A/TitlePanel.kt; the eyedropper samples the editor's picture | — | | |
+| Outline, shadow, background box (one box / each line) | O/TitleInspector.swift:80-103, O/StyledTextRenderer.swift:73-101 | DONE | A/TitlePanel.kt, A/TitleRendering.kt | — | | |
+| Motion: entrance and exit (fade, drift, scale, wipe), direction, duration | O/TitleInspector.swift:343-389, O/TitleDesign.swift:222-300 | DONE | A/TitlePanel.kt, A/TitleRendering.kt, C/TitleMotion.kt | — | | |
 
 ## 8. Audio
 
