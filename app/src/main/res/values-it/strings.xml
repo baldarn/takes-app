@@ -401,7 +401,6 @@
     <string name="export_frame_rate_note">Le riprese con più fotogrammi vengono ridotte. Il filmato ha la frequenza della ripresa più veloce, e le più lente ripetono fotogrammi.</string>
     <string name="export_format">Formato</string>
     <string name="export_h265_smaller">H.265 (file più piccolo)</string>
-    <string name="export_progress">Esportazione… %1$d%%</string>
     <string name="export_done_title">Filmato esportato</string>
     <string name="export_share">Condividi</string>
     <string name="export_save_to_gallery">Salva in galleria</string>
