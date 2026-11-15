@@ -27,19 +27,20 @@ object TrackConversion {
     /** The model the app's noise reduction runs, which a clip's `denoise` stands for. */
     private val noiseReduction = AudioEffectKind.VoiceIsolation
 
-    // How a fade of the sequence form (seconds on `ClipAudio`) and a fade of the timeline stand for each other.
+    // How the fades of the sequence form (on `ClipAudio`) and the fades of the timeline stand for each other.
     // These two functions are the only place that knows; a change to how a clip's sound stores its fades changes them alone.
 
     /**
-     * The timeline's fade for [seconds] of fade on a clip or a sound item
-     * [length] seconds long, as it is heard today: each fade takes at most
-     * its half of the item (the lower of the two ramps). Null for none.
+     * The timeline's fades for those of a clip or a sound item. Both forms
+     * keep the original's fade, its whole length and how much of it a cut
+     * has left behind the edge ([ClipAudio.fades]), so nothing is worked out:
+     * a fade longer than its item, or cut by a split, is the same fade there.
      */
-    internal fun fade(seconds: Double, length: Double): AudioEdgeFade? =
-        minOf(seconds, length / 2).takeIf { it > 0 }?.let { AudioEdgeFade(it) }
+    internal fun fades(sound: ClipAudio): AudioEdgeFades = sound.fades
 
-    /** The seconds the sequence form saves for a timeline's [fade]; none is 0. */
-    internal fun fadeSeconds(fade: AudioEdgeFade?): Double = fade?.seconds ?: 0.0
+    /** [sound] with a timeline's fades, as the sequence form saves them: the way back from [fades], without loss. */
+    internal fun withFades(sound: ClipAudio, fadeIn: AudioEdgeFade?, fadeOut: AudioEdgeFade?): ClipAudio =
+        sound.withFades(AudioEdgeFades(fadeIn, fadeOut))
 
     fun timeline(state: EditState): TrackTimeline {
         val clips = state.clips
@@ -103,7 +104,7 @@ object TrackConversion {
             audio += AudioTimelineItem(
                 id = id, occurrenceID = clip.id, sourceID = clip.sourceID, start = video[index].start, mapping = video[index].mapping,
                 followsVideo = clip.id, volumeDB = sound.volumeDB, muted = sound.muted,
-                fadeIn = fade(sound.fadeIn, clip.duration), fadeOut = fade(sound.fadeOut, clip.duration),
+                fadeIn = fades(sound).fadeIn, fadeOut = fades(sound).fadeOut,
                 // The shape the original gives a chain for the whole project: one region over the whole item, under the item's id.
                 enhancements = if (sound.denoise > 0) {
                     listOf(AudioEnhancementRegion(id, EditInterval(EditTime.ZERO, video[index].mapping.duration), listOf(AudioEffect.make(noiseReduction, id).copy(amount = sound.denoise))))
@@ -148,7 +149,7 @@ object TrackConversion {
             id = id, occurrenceID = occurrence, sourceID = item.sourceID, start = start,
             mapping = SourcePlaybackMap.single(EditTime.of(item.end) - start, item.sourceStart, item.sourceEnd),
             volumeDB = sound.volumeDB, muted = sound.muted,
-            fadeIn = fade(sound.fadeIn, item.duration), fadeOut = fade(sound.fadeOut, item.duration),
+            fadeIn = fades(sound).fadeIn, fadeOut = fades(sound).fadeOut,
         )
     }
 

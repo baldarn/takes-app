@@ -223,15 +223,35 @@ class TrackConversionTest {
     }
 
     @Test
-    fun aFadeIsAsLongAsItIsHeardToday() {
-        // Each fade takes at most its half of the clip (TimelineEditing.soundLevel).
+    fun aFadeGoesOverAsItIsSaved() {
+        // Both forms keep the original's fade: its whole length, which may be the item's or more, and the lower of the two where they cross.
         val sound = EditState(listOf(a.copy(audio = ClipAudio(fadeIn = 10.0, fadeOut = 6.25)), b)).toTimeline().audio[0]
-        assertEquals(AudioEdgeFade(6.25), sound.fadeIn)
+        assertEquals(AudioEdgeFade(10.0), sound.fadeIn)
         assertEquals(AudioEdgeFade(6.25), sound.fadeOut)
+        assertEquals(10.0, sound.fadeSeconds(AudioFadeEdge.FadeIn), 0.0)
         val state = EditState(listOf(a.copy(audio = ClipAudio(fadeIn = 10.0, fadeOut = 3.0))))
         val fades = state.toTimeline().audio[0].let { AudioEdgeFades(it.fadeIn, it.fadeOut) }
         for (offset in listOf(0.0, 1.0, 3.0, 6.25, 9.0, 11.0, 12.5)) {
             assertEquals(TimelineEditing.soundLevel(state.clips, 0, offset), fades.gain(offset, 12.5), 1e-12)
+        }
+    }
+
+    @Test
+    fun aFadeCutByASplitKeepsWhatIsBehindItsEdge() {
+        // The piece after the cut goes on from the level and with the slope the fade had there, in the timeline as in the clips.
+        val whole = EditState(listOf(a.copy(audio = ClipAudio(fadeIn = 4.0, fadeOut = 3.0)), b))
+        val split = TimelineEditing.split(whole, 1.0)!!
+        val (first, second) = split.toTimeline().audio
+        assertEquals(AudioEdgeFade(4.0), first.fadeIn)
+        assertNull(first.fadeOut)
+        assertEquals(AudioEdgeFade(4.0, 1.0), second.fadeIn)
+        assertEquals(AudioEdgeFade(3.0), second.fadeOut)
+        // The same pieces the timeline's own cut leaves of the whole sound (TrackTimeline.swift:196-202).
+        val sound = whole.toTimeline().audio[0]
+        assertEquals(second.fadeIn, sound.sliced(EditInterval(ticks(1.0), sound.mapping.duration), "later").fadeIn)
+        assertEquals(first.fadeIn to first.fadeOut, sound.sliced(EditInterval(EditTime.ZERO, ticks(1.0)), sound.id).let { it.fadeIn to it.fadeOut })
+        for (offset in listOf(0.0, 0.5, 2.0, 2.999, 11.0)) {
+            assertEquals(TimelineEditing.soundLevel(split.clips, 1, offset), AudioEdgeFades(second.fadeIn, second.fadeOut).gain(offset, 11.5), 1e-12)
         }
     }
 
@@ -265,7 +285,7 @@ class TrackConversionTest {
         assertEquals(
             AudioTimelineItem(
                 id = item.id, occurrenceID = item.id, sourceID = music.id, start = ticks(4.5), mapping = SourcePlaybackMap.single(ticks(15.0), 10.0, 25.0),
-                volumeDB = -12.0, fadeIn = AudioEdgeFade(2.0), fadeOut = AudioEdgeFade(7.5),
+                volumeDB = -12.0, fadeIn = AudioEdgeFade(2.0), fadeOut = AudioEdgeFade(20.0),
             ),
             timeline.audio[2],
         )
