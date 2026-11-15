@@ -262,10 +262,12 @@ class TimelineNavigationTest {
         assertEquals(listOf(0.0, 4.0, 8.0), TimelineNavigation.of(denoised).changes)
     }
 
-    /** A fade longer than half its piece is cut to the half, as in [TimelineEditing.soundLevel]. */
-    @Test fun aFadeStopsAtHalfThePiece() {
+    /** A fade lasts as long as it is heard: its length, less what a cut took, and no more than its piece (TimelineNavigation.swift:116-121, TrackTimeline.swift:188-190). */
+    @Test fun aFadeLastsAsLongAsItIsHeard() {
         val faded = EditState(listOf(clip(0.0, 4.0).copy(audio = ClipAudio(fadeIn = 3.0))))
-        assertEquals(listOf(0.0, 2.0, 4.0), TimelineNavigation.of(faded).changes)
+        assertEquals(listOf(0.0, 3.0, 4.0), TimelineNavigation.of(faded).changes)
+        val cut = EditState(listOf(clip(0.0, 4.0).copy(audio = ClipAudio(fadeIn = 3.0, fadeInElapsed = 2.0, fadeOut = 9.0))))
+        assertEquals(listOf(0.0, 1.0, 4.0), TimelineNavigation.of(cut).changes)
     }
 
     /** TRANSLATED TrackTimelineTests.swift:772-776: sound placed on its own has stops on the movie's clock. */

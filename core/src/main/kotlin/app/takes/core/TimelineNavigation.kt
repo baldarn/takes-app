@@ -190,10 +190,10 @@ class TimelineNavigation private constructor(
                 if (audio == null) return
                 if (audio.muted) builder.change("audio.muted", start, end)
                 else if (audio.volumeDB != 0.0) builder.change("audio.volume:${audio.volumeDB}", start, end)
-                // A fade never takes more than its half of the piece.
-                val half = (end - start) / 2
-                if (audio.fadeIn > 0) builder.change("audio.fadeIn:${audio.fadeIn}", start, start + minOf(audio.fadeIn, half))
-                if (audio.fadeOut > 0) builder.change("audio.fadeOut:${audio.fadeOut}", end - minOf(audio.fadeOut, half), end)
+                // Over what is heard of the fade: no more than the piece, and less when a cut took part of it.
+                val fades = audio.fades
+                fades.fadeIn?.let { builder.change("audio.fadeIn:${audio.fadeIn}", start, start + it.remaining(end - start)) }
+                fades.fadeOut?.let { builder.change("audio.fadeOut:${audio.fadeOut}", end - it.remaining(end - start), end) }
                 if (audio.denoise > 0) builder.change("audio.enhancement:denoise=${audio.denoise}", start, end)
             }
 
