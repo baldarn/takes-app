@@ -513,4 +513,23 @@ class TrackTransitionsTest {
             }
         }
     }
+
+    // MARK: With Unlink
+
+    /** Tests/TransitionTests.swift:270-277: "Re-editing an opening J-cut stays anchored without gaps or detached audio drift". */
+    @Test
+    fun anOpeningWhoseSoundLeadsIsSetAgainAndAgainWithoutMovingAnything() {
+        var opening = TrackLinking.unlinked(original, TrackLinking.selection(original, original.video[0].id))
+        val starts = opening.video.map { it.start }
+        val soundStarts = opening.audio.map { it.start }
+        val duration = opening.duration
+        for (offset in listOf(-0.5, -0.2, 0.0, -0.5)) {
+            opening = opening.settingTransition(TransitionSettings(duration = 1.0, audioOffset = offset, audioBlend = 0.0), 0)
+            assertEquals("$offset", starts, opening.video.map { it.start })
+            assertEquals("$offset", soundStarts, opening.audio.map { it.start })
+            assertEquals("$offset", duration, opening.duration)
+            assertEquals(1, opening.transitions.size)
+            assertAtRest("opening $offset", opening, sources)
+        }
+    }
 }
