@@ -164,3 +164,13 @@ Everything about the encoder:
 - that the first frame of every section is a key frame and that a hardware encoder keeps exactly n frames when it is given n (some drop the last on end of stream; `isComplete` catches it and the original has the same guard);
 - the time: starting a hardware codec four or forty times, the join on real storage, the compositor at 1080p and 4K, HDR footage tone-mapped;
 - quality at the joins at the bitrate Media3 picks for the phone's encoder.
+
+## 8. As carried out in the app's one pass
+
+Added when the clock and the stills went into `Exporter.kt` (`docs/EXPORT-TWO-SEQUENCES.md`, section 9). Sections are still not built. What was found there bears on the design of section 3:
+
+- **A deck carries the picture alone.** A deck with sound that opens on a still stops the export with "Asset loader error" whenever it takes its picture before the first sequence with sound has given its own (`SequenceAssetLoader.java:341-348`). The app's decks are now video only and the clips' sound plays from sequences of sound alone. A section, which is picture only, never had the fault; the one pass of sound over the whole movie (point 3.2) is those sound sequences and nothing else.
+- **The clock's times are not on the grid.** They drift a microsecond every thousand frames at 30 a second (`ConstantRateTimestampIterator`). The app puts the composed frame's time on the grid before any effect reads it (`FrameTimeEffect`). In a section the same effect has to add where the section begins before it rounds, and the join already numbers the frames itself (point 3.6).
+- **The frame rate** (point 3.1) is not the setting but `TransitionScene.frameRate(footage, ceiling)`: the fastest footage under the ceiling, one of 24, 25, 30, 50, 60, all of which `ExportSections.frameTicks` takes. The clock's length is `ExportSections.pictures` of the movie.
+- **A movie of plain cuts has no clock** and keeps the frame times of its footage. Sections need the clock for every movie; such a movie would then change its frames where its footage is not all of one rate, which is to be decided when sections are built.
+- **The held frame of a still** is kept from the frame on screen at the moment the model names. A section that begins inside a freeze still has not drawn it (section 4).
