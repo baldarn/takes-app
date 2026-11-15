@@ -47,9 +47,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val WIPE = 3
         const val SPLIT = 4
         const val HITCHCOCK = 5
+        const val WHIP = 6
 
         /** The styles the shader draws. The editor offers these; any other is shown as a dissolve, and cannot be made here. */
-        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.Hitchcock, TransitionStyle.FlashCut, TransitionStyle.Still)
+        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.Hitchcock, TransitionStyle.Whip, TransitionStyle.FlashCut, TransitionStyle.Still)
 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
@@ -101,6 +102,12 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
                     SceneDrawing(SPLIT, first, second, fill, values)
                 }
                 is TransitionFrame.Hitchcock -> { put(0, frame.key.scale, frame.key.bias); SceneDrawing(HITCHCOCK, first, second, fill, values) }
+                is TransitionFrame.Whip -> {
+                    // Offsets are along the travel: to the right, or down the screen.
+                    if (frame.vertical) put(0, 0.0, frame.firstOffset, 0.0, frame.secondOffset) else put(0, frame.firstOffset, 0.0, frame.secondOffset, 0.0)
+                    put(1, if (frame.vertical) 0.0 else 1.0, if (frame.vertical) 1.0 else 0.0, frame.blurRadius, frame.mix)
+                    SceneDrawing(WHIP, first, second, fill, values)
+                }
                 // A style this version cannot draw: a plain dissolve by its share of the incoming picture.
                 else -> { put(0, moment.secondShare / maxOf(1e-9, moment.firstShare + moment.secondShare)); SceneDrawing(DISSOLVE, first, second, fill, values) }
             }
@@ -126,6 +133,15 @@ object TransitionShader {
             if (kind > 1.5) return uFill;
             return deck(kind, clamp(p, vec2(0.5), uSize - 0.5));
         }
+        // One side moved by an offset and blurred evenly along an axis, a radius to each side: in linear light.
+        vec3 pan(float kind, vec2 q, vec2 offset, vec2 axis, float radius) {
+            if (radius < 0.5) return lin(side(kind, q - offset));
+            vec3 sum = vec3(0.0);
+            for (int i = 0; i < 32; i++) {
+                sum += lin(side(kind, q - offset + axis * radius * ((float(i) + 0.5) / 16.0 - 1.0)));
+            }
+            return sum / 32.0;
+        }
         // Whether a pixel is in a rectangle given as left, top, width, height.
         bool within(vec2 p, vec4 r) { return p.x >= r.x && p.y >= r.y && p.x < r.x + r.z && p.y < r.y + r.w; }
         vec3 scene(vec2 q) {
@@ -136,6 +152,10 @@ object TransitionShader {
                 // A wipe: the second picture behind the edge, the first ahead of it, a ramp across its band.
                 float share = clamp(1.0 - dot(q - uA.xy, uA.zw) / uB.x, 0.0, 1.0);
                 return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), share));
+            }
+            if (uMode > 5.5) {
+                // A whip pan: both pictures slide along one axis, smeared along it, and change over on the way.
+                return enc(mix(pan(uKind.x, q, uA.xy, uB.xy, uB.z), pan(uKind.y, q, uA.zw, uB.xy, uB.z), uB.w));
             }
             if (uMode > 4.5) {
                 // Hitchcock: the second picture comes through the first by the first's own brightness, as it is encoded.
