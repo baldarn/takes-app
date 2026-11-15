@@ -275,6 +275,11 @@ fun SubtitlesPanel(
     val leave = { if (busy || draft != saved) askDiscard = true else close() }
 
     val current = cues.indexOfLast { it.start <= playhead && playhead < it.end }
+    // Once the playhead leaves the chosen caption it is no longer chosen: a tap on its row goes to it again rather than editing.
+    LaunchedEffect(playhead) {
+        val chosen = selected ?: return@LaunchedEffect
+        if (cues.none { it.id == chosen && it.start <= playhead && playhead < it.end }) selected = null
+    }
     val list = rememberLazyListState()
     // While the movie plays the list follows it.
     LaunchedEffect(current, playing) {
@@ -402,6 +407,11 @@ fun SubtitlesPanel(
                                 }
                             }
                         }
+                        // Before the list, as in the original, where it stays in reach above a long transcript.
+                        TextButton(onClick = { askRemoveAll = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                            Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = if (busy) Soft else RecordRed)
+                            Text(stringResource(R.string.subtitles_remove_all), color = if (busy) Soft else RecordRed, modifier = Modifier.padding(start = 6.dp))
+                        }
                         Text(
                             if (cues.isEmpty()) stringResource(R.string.subtitles_none) else stringResource(R.string.subtitles_all, cues.size),
                             color = if (cues.isEmpty()) Soft else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
@@ -430,12 +440,6 @@ fun SubtitlesPanel(
             }
             item(key = "footer") {
                 Column {
-                    if (settings != null) {
-                        TextButton(onClick = { askRemoveAll = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
-                            Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = if (busy) Soft else RecordRed)
-                            Text(stringResource(R.string.subtitles_remove_all), color = if (busy) Soft else RecordRed, modifier = Modifier.padding(start = 6.dp))
-                        }
-                    }
                     Text(stringResource(R.string.subtitles_note), color = Soft, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                     // The choice of model: out of the way of someone who only wants subtitles.
                     TextButton(onClick = { choosingModel = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
