@@ -21,6 +21,12 @@ class RecorderSettings(private val prefs: SharedPreferences) {
     /** Show the whole recorded frame, or fill the screen with it (the original's `fitRecordedFrame`). */
     var fitFrame: Boolean by flag("fitRecordedFrame", true)
 
+    /** The camera used last on each side of the phone, for the flip button (the original's `lastFrontCamera`, `lastRearCamera`). */
+    var lastFrontCamera: String? by text("lastFrontCamera")
+    var lastRearCamera: String? by text("lastRearCamera")
+
+    private fun text(key: String) = stored(prefs.getString(key, null)) { putString(key, it) }
+
     private fun flag(key: String, default: Boolean) = stored(prefs.getBoolean(key, default)) { putBoolean(key, it) }
 
     /** A value the interface observes, written to the preferences at each change. */

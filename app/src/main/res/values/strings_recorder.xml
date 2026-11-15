@@ -41,4 +41,18 @@
     <string name="recorder_settings_fit_note">The full-screen view fills the display. Fit shows the complete recorded frame.</string>
     <string name="recorder_settings_about">About</string>
     <string name="recorder_settings_credits">Credits</string>
+    <!-- The camera strip: flip, the camera menu, the zoom and its presets. -->
+    <string name="recorder_flip_front">Switch to front camera</string>
+    <string name="recorder_flip_back">Switch to back camera</string>
+    <string name="recorder_camera">Camera</string>
+    <string name="recorder_zoom_times">Zoom, %1$s times</string>
+    <string name="recorder_zoom_preset">%1$s times zoom</string>
+    <string name="recorder_zoom_preset_main">1 times zoom, Main camera</string>
+    <string name="recorder_zoom_main">Main</string>
+    <string name="recorder_zoom_one_second">One-second transition</string>
+    <string name="recorder_zoom_time">Zoom transition duration</string>
+    <string name="recorder_zoom_time_longer">Lengthen</string>
+    <string name="recorder_zoom_time_shorter">Shorten</string>
+    <string name="recorder_zoom_time_hint">Swipe up/down to change zoom time</string>
+    <string name="recorder_pinch_on_release">%1$s  ·  %2$s on release</string>
 </resources>
