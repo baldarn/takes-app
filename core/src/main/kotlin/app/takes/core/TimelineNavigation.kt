@@ -169,14 +169,17 @@ class TimelineNavigation private constructor(
          * The stops of [state] as this port stores an edit.
          *
          * Cuts: the start and the end of every clip and of every sound on the
-         * audio tracks. Treatments, each over the stretch it applies to:
+         * audio tracks, and every join with a transition. A clip's start or
+         * end strictly inside one of its own transitions is not a cut: the
+         * join stands for it. Treatments, each over the stretch it applies to:
          *  - a clip's crop, its speed when not 1, its color when it has a look
          *    with an amount above zero;
          *  - each title with text, over the part of it the clip shows;
          *  - a clip's or a sound's mute, or else its level when not 0 dB; its
          *    fade in and its fade out, each over the fade; its noise reduction;
-         *  - each transition, over the fade on both sides of the cut or over
-         *    the stretch the two clips dissolve.
+         *  - each transition, the opening and the close included: its picture
+         *    over the picture effect, its sound over the sound ramps, which
+         *    may begin or end elsewhere.
          * And the start of the first caption.
          */
         fun of(state: EditState): TimelineNavigation {
@@ -197,7 +200,9 @@ class TimelineNavigation private constructor(
             clips.forEachIndexed { index, clip ->
                 val start = TimelineEditing.clipStart(clips, index)
                 val end = start + clip.duration
-                builder.cut(start).cut(end)
+                // The footage a transition borrows past its join is not a cut the person made.
+                val borrowed = listOfNotNull(TimelineEditing.join(clips, index)?.range, TimelineEditing.join(clips, index + 1)?.range)
+                builder.cut(start, borrowed).cut(end, borrowed)
                 clip.crop?.let { builder.change(recipe("crop", CropSettings.serializer(), it), start, end) }
                 clip.speed?.takeIf { it.rate != 1.0 }?.let { builder.change(recipe("speed", SpeedSettings.serializer(), it), start, end) }
                 clip.color?.takeIf { it.look != ColorLook.Natural && it.amount > 0 }

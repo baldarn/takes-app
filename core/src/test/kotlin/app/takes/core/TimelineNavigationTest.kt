@@ -297,19 +297,162 @@ class TimelineNavigationTest {
         assertEquals(listOf(0.0, 7.0, 8.0, 9.0, 18.0), navigation.cutsAndChanges)
     }
 
-    @org.junit.Ignore("Pinned to the transition model used before the move to the original's layout; to be derived again from the original")
-    @Test fun aDissolveHasTheEdgesOfItsOverlap() {
+    /**
+     * A 2 s dissolve out of 8 s into 10 s. Transitions.swift:124-153: the
+     * outgoing clip needs all 2 s, the incoming none, so the effect starts at
+     * 8 − 2 = 6 (Transitions.swift:373), where the second clip also starts,
+     * and the movie is 16 s. Stops: the clips' edges 6 and 8, which sit on the
+     * edges of the transition and so are not hidden (TimelineNavigation.swift:56-67);
+     * the join at 6 + 2 / 2 = 7 (Transitions.swift:155 and 291), a cut for
+     * every style (TimelineNavigation.swift:144); picture and sound from 6 to
+     * 8 as changes (TimelineNavigation.swift:145-150). The join is not a change.
+     */
+    @Test fun aDissolveHasTheEdgesOfItsOverlapAndItsJoin() {
         val state = TimelineEditing.setTransition(pair(), 0, 2.0, TransitionStyle.Dissolve)!!
         assertEquals(16.0, state.duration, 0.0)
         val navigation = TimelineNavigation.of(state)
         assertEquals(listOf(0.0, 6.0, 8.0, 16.0), navigation.changes)
-        assertEquals(listOf(0.0, 6.0, 8.0, 16.0), navigation.cutsAndChanges)
+        assertEquals(listOf(0.0, 6.0, 7.0, 8.0, 16.0), navigation.cutsAndChanges)
     }
 
-    @org.junit.Ignore("Pinned to the transition model used before the move to the original's layout; to be derived again from the original")
-    @Test fun aFadeIsShortenedToHalfOfAShortClip() {
+    /** Every style but the fade through color and the freeze takes its footage as a dissolve does (Transitions.swift:124-126), so its stops are the same. */
+    @Test fun aWipeHasTheStopsOfADissolve() {
+        val navigation = TimelineNavigation.of(TimelineEditing.setTransition(pair(), 0, 2.0, TransitionStyle.Wipe)!!)
+        assertEquals(listOf(0.0, 6.0, 8.0, 16.0), navigation.changes)
+        assertEquals(listOf(0.0, 6.0, 7.0, 8.0, 16.0), navigation.cutsAndChanges)
+    }
+
+    /**
+     * A 1 s freeze: the last frame of the first clip is held from 8 to 9 and
+     * the second clip starts after it (Transitions.swift:120, 126, 145-153),
+     * so the movie is 19 s. The join is the end of the freeze
+     * (Transitions.swift:155), where the second clip starts.
+     */
+    @Test fun aFreezeHasItsTwoEnds() {
+        val state = TimelineEditing.setTransition(pair(), 0, 1.0, TransitionStyle.Still)!!
+        assertEquals(19.0, state.duration, 0.0)
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 8.0, 9.0, 19.0), navigation.changes)
+        assertEquals(listOf(0.0, 8.0, 9.0, 19.0), navigation.cutsAndChanges)
+    }
+
+    /**
+     * A 2 s fade through color holding the color for 1 s. Transitions.swift:121-153:
+     * the first clip gives 1 s and ends at 8, the color holds, the second clip
+     * starts at 9; the effect runs from 7 to 10 and the movie is 19 s. Both
+     * clip edges are strictly inside the transition, so they are not stops
+     * (TimelineNavigation.swift:56-67); the join at 7 + 3 / 2 = 8.5
+     * (Transitions.swift:155) is the one a tap reaches. The sound goes down
+     * from 7 to 8 and comes up from 9 to 10: one treatment from 7 to 10, the
+     * silence in it is no stop (TimelineNavigation.swift:146-150).
+     */
+    @Test fun aFadeHoldingItsColorHidesTheClipEdgesInsideIt() {
+        val state = TimelineEditing.setJoin(pair(), 1, TransitionSettings(style = TransitionStyle.FadeColor, duration = 2.0, hold = 1.0))!!
+        assertEquals(19.0, state.duration, 0.0)
+        assertEquals(9.0, TimelineEditing.clipStart(state.clips, 1), 0.0)
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 7.0, 10.0, 19.0), navigation.changes)
+        assertEquals(listOf(0.0, 7.0, 8.5, 10.0, 19.0), navigation.cutsAndChanges)
+    }
+
+    /** A treatment of a clip still ends where the clip does, also inside a transition (TimelineNavigation.swift:94-95): only the cut is hidden. */
+    @Test fun aTreatmentEndingInsideATransitionIsStillAChange() {
+        val cropped = with(pair(), 0) { it.copy(crop = CropSettings(zoom = 2.0)) }
+        val state = TimelineEditing.setJoin(cropped, 1, TransitionSettings(style = TransitionStyle.FadeColor, duration = 2.0, hold = 1.0))!!
+        assertEquals(listOf(0.0, 7.0, 8.0, 10.0, 19.0), TimelineNavigation.of(state).changes)
+    }
+
+    /**
+     * A 2 s fade out of a 1 s clip into a 10 s one. Between two clips a fade
+     * takes half its length from each (Transitions.swift:125), 1 s here, which
+     * the short clip has: it fits as entered (Transitions.swift:359-368). The
+     * effect starts at 1 − 1 = 0 and ends at 2; the movie stays 11 s. The
+     * start of the effect is the start of the movie; the join is at 1.
+     */
+    @Test fun aFadeTakesAllOfAShortClip() {
         val state = TimelineEditing.setTransition(EditState(listOf(clip(0.0, 1.0), clip(1.0, 11.0))), 0, 2.0, TransitionStyle.FadeColor)!!
-        assertEquals(listOf(0.0, 0.5, 1.5, 11.0), TimelineNavigation.of(state).changes)
+        assertEquals(11.0, state.duration, 0.0)
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 2.0, 11.0), navigation.changes)
+        assertEquals(listOf(0.0, 1.0, 2.0, 11.0), navigation.cutsAndChanges)
+    }
+
+    /**
+     * A 2 s dissolve out of a 1 s clip does not fit: it needs 2 s of the
+     * first clip (Transitions.swift:124, 153). The largest factor that fits is
+     * one half (Transitions.swift:213-222 and 359-368), so it lasts 1 s, from
+     * 0 to 1 with its join at 0.5, and the movie is 10 s.
+     */
+    @Test fun aDissolveShortenedToFitHasTheStopsOfWhatIsLeft() {
+        val state = TimelineEditing.setTransition(EditState(listOf(clip(0.0, 1.0), clip(1.0, 11.0))), 0, 2.0, TransitionStyle.Dissolve)!!
+        assertEquals(10.0, state.duration, 0.0)
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 1.0, 10.0), navigation.changes)
+        assertEquals(listOf(0.0, 0.5, 1.0, 10.0), navigation.cutsAndChanges)
+    }
+
+    /**
+     * TRANSLATED TrackTimelineTests.swift:801-804: an opening whose sound comes
+     * up later than its picture. Transitions.swift:133-138: the picture changes
+     * from 0 to 2, the sound from 3 to 5, and only the incoming ramp counts
+     * (TimelineNavigation.swift:148-149). The join is the start of the movie.
+     */
+    @Test fun anOpeningHasItsPictureAndItsOwnSoundEdges() {
+        val state = TimelineEditing.setJoin(EditState(listOf(clip(0.0, 18.0))), 0, TransitionSettings(duration = 2.0, audioOffset = 3.0, audioBlend = 2.0))!!
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 2.0, 3.0, 5.0, 18.0), navigation.changes)
+        assertEquals(navigation.changes, navigation.cutsAndChanges)
+        val plain = TimelineEditing.setJoin(EditState(listOf(clip(0.0, 18.0))), 0, TransitionSettings(style = TransitionStyle.FadeColor, duration = 2.0))!!
+        assertEquals(listOf(0.0, 2.0, 18.0), TimelineNavigation.of(plain).cutsAndChanges)
+    }
+
+    /** A 2 s fade closing the movie. Transitions.swift:139-143: it takes the last 2 s of the last clip, so it starts at 18 − 2 = 16 and the movie is no longer. */
+    @Test fun aCloseHasTheStartOfItsFade() {
+        val state = TimelineEditing.setJoin(EditState(listOf(clip(0.0, 18.0))), 1, TransitionSettings(style = TransitionStyle.FadeColor, duration = 2.0))!!
+        assertEquals(18.0, state.duration, 0.0)
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 16.0, 18.0), navigation.changes)
+        assertEquals(listOf(0.0, 16.0, 18.0), navigation.cutsAndChanges)
+    }
+
+    /**
+     * The transition of TrackTimelineTests.swift:794: a 2 s dissolve whose
+     * sound starts 1 s before the picture and blends for 3 s. Transitions.swift:148-153:
+     * the second clip starts with its sound, at 5; the picture changes from 6
+     * to 8 with its join at 7; the movie is 15 s. The sound's start is a stop
+     * of its own (TimelineNavigation.swift:146-150).
+     */
+    @Test fun soundLeadingThePictureHasItsOwnStop() {
+        val state = TimelineEditing.setJoin(pair(), 1, TransitionSettings(duration = 2.0, audioOffset = -1.0, audioBlend = 3.0))!!
+        assertEquals(15.0, state.duration, 0.0)
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 5.0, 6.0, 8.0, 15.0), navigation.changes)
+        assertEquals(listOf(0.0, 5.0, 6.0, 7.0, 8.0, 15.0), navigation.cutsAndChanges)
+    }
+
+    /**
+     * The same with the sound 1 s after the picture: the first clip plays on
+     * under the second until its sound is gone, at 8, so the picture changes
+     * from 4 to 6 and the sound from 5 to 8 (Transitions.swift:148-153). The
+     * join at 5 is also where the sound begins to change.
+     */
+    @Test fun soundFollowingThePictureHasItsOwnStops() {
+        val state = TimelineEditing.setJoin(pair(), 1, TransitionSettings(duration = 2.0, audioOffset = 1.0, audioBlend = 3.0))!!
+        assertEquals(14.0, state.duration, 0.0)
+        val navigation = TimelineNavigation.of(state)
+        assertEquals(listOf(0.0, 4.0, 5.0, 6.0, 8.0, 14.0), navigation.changes)
+        assertEquals(listOf(0.0, 4.0, 5.0, 6.0, 8.0, 14.0), navigation.cutsAndChanges)
+    }
+
+    /** TimelineNavigation.swift:144 and 152-156: the join is a cut, so a long press goes from one edge of a transition to the other. */
+    @Test fun aLongPressPassesOverTheJoinOfATransition() {
+        val navigation = TimelineNavigation.of(TimelineEditing.setTransition(pair(), 0, 2.0, TransitionStyle.Dissolve)!!)
+        assertEquals(6.0, navigation.next(0.0, effectsOnly = true)!!, 0.0)
+        assertEquals(8.0, navigation.next(6.0, effectsOnly = true)!!, 0.0)
+        assertEquals(6.0, navigation.previous(8.0, effectsOnly = true)!!, 0.0)
+        assertEquals(7.0, navigation.next(6.0)!!, 0.0)
+        assertEquals(7.0, navigation.previous(8.0)!!, 0.0)
+        assertEquals(16.0, navigation.next(8.0, effectsOnly = true)!!, 0.0)
     }
 
     /**
