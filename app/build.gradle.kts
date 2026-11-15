@@ -35,6 +35,11 @@ android {
         }
     }
     buildTypes {
+        // The development build installs beside the store one and is told apart by its name and icon.
+        debug {
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
