@@ -52,8 +52,37 @@ object TransitionScene {
             }
     }
 
-    /** The frame rate flash cuts count their frames in, for the preview and the export alike. */
+    /**
+     * The frame rate taken for footage whose own is not known, the one of the
+     * frames an export puts where its first sequence has no clip, and the one
+     * a still's held frame is counted in.
+     */
     const val FRAMES_PER_SECOND = 30.0
+
+    /** An export thins footage only under a ceiling up to this; above it every frame of the footage stays. */
+    const val HIGHEST_CEILING = 30
+
+    /**
+     * The frames per second of the movie while the transition of [join]
+     * plays: what a flash cut counts its frames in, as the original counts
+     * them in the frame rate of its export, so that a flash is one frame of
+     * the movie.
+     *
+     * An export here has no frame rate of its own: every frame of the movie
+     * takes the time of a frame of the footage. While two clips play at once
+     * the frames are those of the clip on the first deck, whose sequence
+     * leads the export. That clip's [footage] frames per second (one entry
+     * per clip; null when not known), times its speed, are thinned by the
+     * [ceiling] of the export settings when that is [HIGHEST_CEILING] or
+     * less ([FrameCeiling.rate]). Where the first deck shows neither clip of
+     * the join, its sequence is empty there and gives [FRAMES_PER_SECOND].
+     */
+    fun frameRate(clips: List<TimelineClip>, join: TransitionLayout.Join, footage: List<Double?>, ceiling: Int, decks: List<Int> = decks(clips)): Double {
+        val sides = listOfNotNull((join.index - 1).takeIf { join.edge != -1 }, join.index.takeIf { join.edge != 1 })
+        val leading = sides.firstOrNull { decks.getOrNull(it) == 0 } ?: return FRAMES_PER_SECOND
+        val own = (footage.getOrNull(leading)?.takeIf { it.isFinite() && it > 0 } ?: FRAMES_PER_SECOND) * clips[leading].rate
+        return if (ceiling <= HIGHEST_CEILING) FrameCeiling.rate(own, ceiling.toDouble()) else own
+    }
 
     /** The deck showing each clip: chains alternate. */
     fun decks(clips: List<TimelineClip>): List<Int> {
@@ -77,9 +106,13 @@ object TransitionScene {
     /**
      * The moment at timeline second [time]. [canvas] is the size of the
      * picture in pixels; the geometry of a wipe, a split screen, a whip pan
-     * and a defocus is given in it.
+     * and a defocus is given in it. [frames] is the frame rate of the movie
+     * during a join's transition ([frameRate]); a flash cut counts in it.
      */
-    fun moment(clips: List<TimelineClip>, time: Double, canvas: Size = Size(1920.0, 1080.0), decks: List<Int> = decks(clips)): Moment {
+    fun moment(
+        clips: List<TimelineClip>, time: Double, canvas: Size = Size(1920.0, 1080.0), decks: List<Int> = decks(clips),
+        frames: (TransitionLayout.Join) -> Double = { FRAMES_PER_SECOND },
+    ): Moment {
         val black = Source.Fill(TransitionColor.BLACK)
         if (clips.isEmpty() || !time.isFinite()) return Moment(black, black, TransitionFrame.First, 0.0, 0.0)
         val layout = TimelineEditing.layout(clips)
@@ -94,7 +127,7 @@ object TransitionScene {
         }
         val settings = join.transition!!
         val progress = join.progress(at)
-        val frame = TransitionPicture.frame(settings, progress, canvas, join.edge, join.timing.videoDuration, FRAMES_PER_SECOND)
+        val frame = TransitionPicture.frame(settings, progress, canvas, join.edge, join.timing.videoDuration, if (settings.style == TransitionStyle.FlashCut) frames(join) else FRAMES_PER_SECOND)
         val fill = Source.Fill(TransitionPicture.fill(settings))
         fun running(index: Int): Source.Clip {
             val placement = layout.placements[index]

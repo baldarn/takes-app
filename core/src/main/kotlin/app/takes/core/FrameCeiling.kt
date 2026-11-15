@@ -38,7 +38,16 @@ class FrameCeiling(framesPerSecond: Double) {
         previous = UNSET
     }
 
-    private companion object {
-        const val UNSET = Long.MIN_VALUE
+    companion object {
+        private const val UNSET = Long.MIN_VALUE
+
+        /**
+         * The frames per second left of footage at [footage] frames per
+         * second under a ceiling of [ceiling]: every frame when the footage
+         * is at or below it, else one frame in as many as bring it nearest to
+         * the ceiling (60 under 30 leaves 30, 50 under 30 leaves 25).
+         */
+        fun rate(footage: Double, ceiling: Double): Double =
+            if (!(footage > 0) || !(ceiling > 0)) footage else footage / maxOf(1.0, Math.rint(footage / ceiling))
     }
 }

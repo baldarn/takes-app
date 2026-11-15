@@ -164,13 +164,14 @@ private fun TransitionColor.hex() = String.format(Locale.US, "%02X%02X%02X", (re
  * @param maximum the longest duration the footage around the join allows.
  * @param lengthChange seconds the project gets longer (or, negative, shorter) with this transition.
  * @param audioMaximum how far the sound may be offset or blended.
+ * @param framesPerSecond the frame rate of the movie during this transition, which a flash cut counts its frames in.
  * @param step moves the tool to the join before (−1) or after (+1) this one.
  */
 @Composable
 fun TransitionPanel(
     settings: TransitionSettings, existing: Boolean, change: (TransitionSettings) -> Unit,
     index: Int, count: Int, join: TransitionLayout.Join?, maximum: Double, projectDuration: Double, lengthChange: Double, audioMaximum: Double,
-    playing: Boolean, play: () -> Unit, step: (Int) -> Unit,
+    framesPerSecond: Double, playing: Boolean, play: () -> Unit, step: (Int) -> Unit,
     apply: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val edge = TransitionLayout.edge(index, count)
@@ -276,7 +277,7 @@ fun TransitionPanel(
                 Note(stringResource(R.string.transition_flashes_note))
                 val acceleration = settings.flashAcceleration ?: 2.0
                 Amount(stringResource(R.string.transition_acceleration), acceleration, 0.25..4.0, 0.05, String.format(Locale.getDefault(), "%.1f×", acceleration)) { change(settings.copy(flashAcceleration = it)) }
-                val fit = settings.flashFrames(fitted).size
+                val fit = settings.flashFrames(fitted, framesPerSecond).size
                 if (join != null && fit < flashes) Note(pluralStringResource(R.plurals.transition_flashes_fit, fit, fit), warning = true)
             }
             if (style == TransitionStyle.Still) {

@@ -22,6 +22,8 @@ import androidx.media3.effect.BitmapOverlay
 import app.takes.core.TextOverlay
 import app.takes.core.TimelineClip
 import app.takes.core.TitleMotionRanges
+import app.takes.core.TransitionLayout
+import app.takes.core.TransitionScene
 
 /** Draws a title the same way in the editor preview and in the exported movie. */
 object TitleRenderer {
@@ -61,7 +63,10 @@ object TitleRenderer {
  * the clip it belongs to. The drawing is
  * [TitlePainter]'s, the same as the preview's.
  */
-class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int, private val height: Int, assets: AssetManager) : BitmapOverlay() {
+class TitleOverlay(
+    private val clips: List<TimelineClip>, private val width: Int, private val height: Int, assets: AssetManager,
+    private val frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND },
+) : BitmapOverlay() {
     private val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
     private val ranges = TitleMotionRanges(clips)
     private val painter = TitlePainter(assets)
@@ -72,7 +77,7 @@ class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         val time = presentationTimeUs / 1e6
         // Opacity in steps, so a steady title is drawn once. A title on its way in or out is drawn for every frame.
-        val visible = ranges.shown(clips, time).map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
+        val visible = ranges.shown(clips, time, frames).map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
         if (visible != shown) {
             shown = visible
             bitmap = if (visible.isEmpty()) empty else (frame ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame = it }).let {

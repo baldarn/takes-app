@@ -54,4 +54,19 @@ class FrameCeilingTest {
         frames.reset()
         assertEquals(listOf(true, false, true), listOf(5_000_000L, 5_016_666, 5_033_333).map { frames.keeps(it) })
     }
+
+    @Test fun theRateLeftUnderACeilingIsAWholeShareOfTheFootage() {
+        assertEquals(30.0, FrameCeiling.rate(60.0, 30.0), 1e-9)
+        assertEquals(25.0, FrameCeiling.rate(50.0, 30.0), 1e-9)
+        assertEquals(30.0, FrameCeiling.rate(120.0, 30.0), 1e-9)
+        assertEquals(25.0, FrameCeiling.rate(25.0, 30.0), 1e-9)
+        assertEquals(24.0, FrameCeiling.rate(24.0, 30.0), 1e-9)
+        assertEquals(30.0, FrameCeiling.rate(30.0, 30.0), 1e-9)
+        // What the ceiling itself keeps of evenly spaced frames, counted.
+        for ((footage, ceiling) in listOf(60.0 to 30.0, 50.0 to 30.0, 120.0 to 30.0, 25.0 to 30.0, 100.0 to 30.0, 48.0 to 30.0)) {
+            val keeper = FrameCeiling(ceiling)
+            val kept = (0 until (footage * 10).toInt()).count { keeper.keeps((it * 1_000_000 / footage).toLong()) }
+            assertEquals("$footage under $ceiling", FrameCeiling.rate(footage, ceiling), kept / 10.0, 0.11)
+        }
+    }
 }

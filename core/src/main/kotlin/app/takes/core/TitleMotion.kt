@@ -247,8 +247,8 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
      * the two clips carry it over different footage seconds, so it is the
      * same title when everything but those is the same.
      */
-    fun shown(clips: List<TimelineClip>, time: Double): List<Shown> {
-        val listed = TimelineEditing.titlesAt(clips, time)
+    fun shown(clips: List<TimelineClip>, time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Shown> {
+        val listed = TimelineEditing.titlesAt(clips, time, frames)
         fun drawing(title: TextOverlay) = title.copy(start = 0.0, end = 0.0)
         return listed.distinctBy { drawing(it.first) }.map { (title, _) ->
             Shown(title, minOf(1.0, listed.filter { drawing(it.first) == drawing(title) }.sumOf { it.second }), pose(title, time))

@@ -4,6 +4,8 @@ package app.takes
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -32,6 +34,7 @@ import app.takes.core.ExportSettings
 import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
 import app.takes.core.TransitionLayout
+import app.takes.core.TransitionScene
 import app.takes.core.SubtitleEditing
 import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
@@ -151,6 +154,22 @@ fun displaySize(file: File): Pair<Int, Int>? {
     }
 }
 
+/** The frames per second of the file's picture as its container states them, or null when it does not say. */
+fun frameRate(file: File): Double? {
+    val extractor = MediaExtractor()
+    return try {
+        extractor.setDataSource(file.path)
+        (0 until extractor.trackCount).map(extractor::getTrackFormat).firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true }?.let { format ->
+            if (!format.containsKey(MediaFormat.KEY_FRAME_RATE)) null
+            else runCatching { format.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() }.getOrElse { format.getFloat(MediaFormat.KEY_FRAME_RATE).toDouble() }
+        }?.takeIf { it.isFinite() && it > 0 }
+    } catch (_: Exception) {
+        null
+    } finally {
+        runCatching { extractor.release() }
+    }
+}
+
 /**
  * Renders the current edit to a new movie in the project's `Exports` folder.
  * Sources are never modified. The picture takes the size of the first clip;
@@ -204,6 +223,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val sizes = withContext(Dispatchers.IO) {
                 clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::displaySize) }
             }
+            // A flash cut counts its frames in the frame rate the movie has while it plays, which follows the footage.
+            val rates = withContext(Dispatchers.IO) { clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::frameRate) } }
+            val footage = clips.map { rates[it.sourceID] }
+            val frames = { join: TransitionLayout.Join -> TransitionScene.frameRate(clips, join, footage, settings.frameRate) }
             val fit = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
             val items = clips.mapIndexed { index, clip ->
                 val picture = buildList<Effect> {
@@ -290,7 +313,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             // Titles and subtitles are drawn once, over the finished picture; subtitles on top.
             val captions = SubtitleEditing.cues(project.edit)
             val written = listOfNotNull(
-                if (clips.any { !it.texts.isNullOrEmpty() }) TitleOverlay(clips, canvas.first, canvas.second, context.assets) else null,
+                if (clips.any { !it.texts.isNullOrEmpty() }) TitleOverlay(clips, canvas.first, canvas.second, context.assets, frames) else null,
                 project.edit.subtitles?.takeIf { captions.isNotEmpty() }?.let { SubtitleOverlay(captions, it, canvas.first, canvas.second) },
             )
             val titles = if (written.isNotEmpty()) Effects(emptyList(), listOf<Effect>(OverlayEffect(written))) else Effects.EMPTY
@@ -305,7 +328,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             }
             // Transitions are drawn on the finished frame, from one sequence or from two.
             val joined = TimelineEditing.layout(clips).joins.any { it.transition != null && TransitionLayout.longEnough(it.timing) }
-            fun drawn(decks: Int) = TransitionEffect(clips, Size(canvas.first, canvas.second), decks, content)
+            fun drawn(decks: Int) = TransitionEffect(clips, Size(canvas.first, canvas.second), decks, frames, content)
             // Titles and subtitles go over the frame the transition effect has finished, in the same
             // pass. (While Media3 itself blended the two sequences, an overlay in the same composition
             // corrupted the blend, and such a movie took a second pass and a second encoding.)

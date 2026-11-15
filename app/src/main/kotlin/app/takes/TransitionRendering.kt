@@ -290,9 +290,14 @@ class DecksCompositor(private val canvas: Size) : VideoCompositorSettings {
  * Draws every frame of an export as [TransitionScene] describes it: the
  * clip that is showing, or the two sides of a transition combined. With
  * [decks] 2 the input is the frame [DecksCompositor] makes; with 1 it is the
- * only sequence. [content] is where a clip's picture lies in the frame.
+ * only sequence. [frames] is the frame rate of the movie during a join's
+ * transition ([TransitionScene.frameRate]) and [content] where a clip's
+ * picture lies in the frame.
  */
-class TransitionEffect(private val clips: List<TimelineClip>, private val canvas: Size, private val decks: Int, private val content: (Int) -> Rect) : GlEffect {
+class TransitionEffect(
+    private val clips: List<TimelineClip>, private val canvas: Size, private val decks: Int,
+    private val frames: (TransitionLayout.Join) -> Double, private val content: (Int) -> Rect,
+) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program()
 
     /** A moment whose last frame before it is kept: the start of a freeze, or the end of a chain. */
@@ -425,7 +430,7 @@ class TransitionEffect(private val clips: List<TimelineClip>, private val canvas
                 val coming = (freezes + endings).firstOrNull { it.deck == deck && time < it.at - 0.0001 && time >= it.at - KEEP_WINDOW } ?: continue
                 if (keep(deck, inputTexId)) keptFor[deck] = coming.at else gone[deck] = keptFor[deck] == coming.at
             }
-            val moment = TransitionScene.moment(clips, time, size, deckOf)
+            val moment = TransitionScene.moment(clips, time, size, deckOf, frames)
             val drawing = SceneDrawing.of(moment, canvas.width.toFloat(), canvas.height.toFloat(), { source ->
                 when (source) {
                     is TransitionScene.Source.Clip -> if (gone[source.deck]) SceneDrawing.HELD + source.deck else source.deck.toFloat()

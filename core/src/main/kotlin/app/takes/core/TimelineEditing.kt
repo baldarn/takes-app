@@ -407,10 +407,11 @@ object TimelineEditing {
     /**
      * Every title showing at timeline second [time], with its opacity: a
      * title shows as much as its clip's picture does. During a transition the
-     * titles of both clips show, the outgoing clip's first.
+     * titles of both clips show, the outgoing clip's first. [frames] is the
+     * movie's frame rate during a join's transition, as [TransitionScene.moment] takes it.
      */
-    fun titlesAt(clips: List<TimelineClip>, time: Double): List<Pair<TextOverlay, Double>> =
-        TransitionScene.titles(clips, TransitionScene.moment(clips, time))
+    fun titlesAt(clips: List<TimelineClip>, time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Pair<TextOverlay, Double>> =
+        TransitionScene.titles(clips, TransitionScene.moment(clips, time, frames = frames))
 
     /**
      * Adds the title to the clip, or replaces the one with the same id, on

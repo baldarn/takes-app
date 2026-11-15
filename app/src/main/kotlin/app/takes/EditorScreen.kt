@@ -180,6 +180,7 @@ import app.takes.core.TransitionAxis
 import app.takes.core.TransitionDefaults
 import app.takes.core.TransitionFraming
 import app.takes.core.TransitionGeometry
+import app.takes.core.TransitionLayout
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionTiming
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -675,6 +676,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }.toMap()
         }
     }
+    // The frames per second of each recording, and from them the frame rate the movie will have during a join's
+    // transition with the export settings as they are: a flash cut counts its frames in it, here as in the export.
+    val rates by produceState(emptyMap<String, Double>(), project.sources) {
+        value = withContext(Dispatchers.IO) { project.recordings.mapNotNull { source -> frameRate(store.file(project, source))?.let { source.id to it } }.toMap() }
+    }
+    val ceiling = project.exportSettings.frameRate
+    val frames = remember(clips, rates, ceiling) {
+        val footage = clips.map { rates[it.sourceID] }
+        val decks = TransitionScene.decks(clips)
+        val rate: (TransitionLayout.Join) -> Double = { TransitionScene.frameRate(clips, it, footage, ceiling, decks) }
+        rate
+    }
     // Reframing in progress: the clip being framed and the framing not saved yet, shown live.
     var cropping by remember { mutableStateOf<Pair<String, CropSettings>?>(null) }
     var pacing by remember { mutableStateOf(false) }
@@ -717,7 +730,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The titles under the playhead, with the one being worked on as it is now.
     val titled = titling?.applied(edit)?.clips ?: clips
     val titleRanges = remember(titled) { TitleMotionRanges(titled) }
-    val shownTitles = titleRanges.shown(titled, playhead)
+    val shownTitles = titleRanges.shown(titled, playhead, frames)
     val titlePainter = remember { TitlePainter(context.assets) }
     // Taking a color from the picture: the preview as it is on screen, without the titles over it.
     var previewBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
@@ -794,7 +807,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         FrameRect((frame.width - source.width * fitted) / 2, (frame.height - source.height * fitted) / 2, source.width * fitted, source.height * fitted)
                     }
                 }
-                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf) }, content = content)
+                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf, frames) }, content = content)
                 // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
                 val work by rememberUpdatedState(titling)
                 var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle
@@ -1000,6 +1013,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 maximum = TimelineEditing.layout(clips).joins.getOrNull(work.join)?.maximum ?: 0.0, projectDuration = duration,
                 lengthChange = duration - (TimelineEditing.setJoin(saved, work.join, null) ?: saved).duration,
                 audioMaximum = TransitionDefaults.audioMaximum(clips.maxOfOrNull { it.duration }),
+                framesPerSecond = TimelineEditing.layout(clips).joins.getOrNull(work.join)?.let(frames) ?: TransitionScene.FRAMES_PER_SECOND,
                 playing = editor.playing,
                 play = {
                     if (editor.playing) { auditionEnd = null; editor.pause() } else join?.let {

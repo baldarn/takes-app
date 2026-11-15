@@ -274,4 +274,51 @@ class TransitionSceneTest {
         assertEquals(Source.Clip(1, 1, 0.5), middle.second)
         assertEquals(1.0, clips[1].sourceTime((middle.second as Source.Clip).offset), tiny)
     }
+
+    // MARK: The frame rate a flash cut counts in
+
+    @Test fun aFlashCutCountsItsFramesInTheFrameRateOfTheMovie() {
+        // The original counts in the frame rate of its composition (VideoToolCompositor.swift:296-297, TransitionRenderer.swift:235-238):
+        // each flash is one frame of the movie, whatever its rate.
+        val flash = TransitionSettings(style = TransitionStyle.FlashCut, duration = 0.5)
+        val clips = joined(flash)
+        val origin = TimelineEditing.join(clips, 1)!!.origin
+        assertEquals(3.5, origin, tiny)
+        fun shown(rate: Double) = (0 until (0.5 * rate).toInt()).filter { frame ->
+            TransitionScene.moment(clips, origin + (frame + 0.5) / rate, frames = { rate }).frame == TransitionFrame.Second
+        }
+        assertEquals(listOf(6, 11, 13), shown(30.0))
+        assertEquals(listOf(13, 22, 27), shown(60.0))
+        assertEquals(listOf(5, 8, 10), shown(24.0))
+        assertEquals(flash.flashFrames(0.5, 25.0), shown(25.0))
+        assertEquals(listOf(5, 9, 11), shown(25.0))
+        // Without a rate, thirty frames a second, as the original's editor.
+        assertEquals(TransitionFrame.Second, TransitionScene.moment(clips, origin + 6.5 / 30).frame)
+        // The titles change hands on the same frames.
+        val titled = clips.mapIndexed { index, clip -> clip.copy(texts = listOf(TextOverlay(text = "T$index", start = 0.0, end = 4.0))) }
+        assertEquals(listOf("T1"), TimelineEditing.titlesAt(titled, origin + 13.5 / 60) { 60.0 }.map { it.first.text })
+        assertEquals(listOf("T0"), TimelineEditing.titlesAt(titled, origin + 12.5 / 60) { 60.0 }.map { it.first.text })
+    }
+
+    @Test fun theMovieHasTheFrameRateOfTheFootageOnTheFirstDeck() {
+        val clips = joined(TransitionSettings(style = TransitionStyle.FlashCut, duration = 0.5))
+        val join = TimelineEditing.join(clips, 1)!!
+        assertEquals(listOf(0, 1), TransitionScene.decks(clips))
+        // The first deck leads: its clip's frames are the movie's while both play.
+        assertEquals(25.0, TransitionScene.frameRate(clips, join, listOf(25.0, 60.0), 60), tiny)
+        assertEquals(60.0, TransitionScene.frameRate(clips, join, listOf(60.0, 25.0), 60), tiny)
+        // A ceiling of 30 leaves every other frame of 60 and of 50, and all of 25.
+        assertEquals(30.0, TransitionScene.frameRate(clips, join, listOf(60.0, 25.0), 30), tiny)
+        assertEquals(25.0, TransitionScene.frameRate(clips, join, listOf(50.0, 25.0), 30), tiny)
+        assertEquals(25.0, TransitionScene.frameRate(clips, join, listOf(25.0, 25.0), 30), tiny)
+        // Footage that does not say counts as 30; a clip at double speed brings its frames twice as fast.
+        assertEquals(30.0, TransitionScene.frameRate(clips, join, listOf(null, 25.0), 60), tiny)
+        val fast = joined(TransitionSettings(style = TransitionStyle.FlashCut, duration = 0.5), state = EditState(listOf(a.copy(speed = SpeedSettings(rate = 2.0)), b)))
+        assertEquals(50.0, TransitionScene.frameRate(fast, TimelineEditing.join(fast, 1)!!, listOf(25.0, 25.0), 60), tiny)
+        assertEquals(25.0, TransitionScene.frameRate(fast, TimelineEditing.join(fast, 1)!!, listOf(25.0, 25.0), 30), tiny)
+        // A second transition: its outgoing clip is on the second deck and the incoming one on the first.
+        val three = TimelineEditing.setJoin(EditState(clips + TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 4.0)), 2, TransitionSettings(style = TransitionStyle.FlashCut, duration = 0.5))!!.clips
+        assertEquals(listOf(0, 1, 0), TransitionScene.decks(three))
+        assertEquals(24.0, TransitionScene.frameRate(three, TimelineEditing.join(three, 2)!!, listOf(25.0, 60.0, 24.0), 60), tiny)
+    }
 }
