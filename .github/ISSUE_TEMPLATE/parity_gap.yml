@@ -1,0 +1,44 @@
+name: Parity gap
+description: Takes lacks something the original iPhone app (YouRec) has, or does it differently.
+labels: ["parity"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The original app's behaviour is the reference for this port. Known gaps are listed in [docs/PARITY.md](https://github.com/baldarn/takes-app/blob/main/docs/PARITY.md); please look there and in the open issues first.
+  - type: textarea
+    id: original
+    attributes:
+      label: What the original does
+      description: The behaviour in YouRec, as exactly as you can - controls, ranges, defaults, words on screen.
+    validations:
+      required: true
+  - type: textarea
+    id: takes
+    attributes:
+      label: What Takes does
+      description: The behaviour in Takes, and the version you saw it in.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where in the original, if known
+      description: A file and lines in the original's repository, as a path relative to it.
+      placeholder: "YouRec/EditorView.swift:454-465"
+    validations:
+      required: false
+  - type: input
+    id: row
+    attributes:
+      label: Row of docs/PARITY.md, if there is one
+      placeholder: "4. Editor - Review speed 1-3x with pitch kept"
+    validations:
+      required: false
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots of both apps, or why this gap matters to you.
+    validations:
+      required: false

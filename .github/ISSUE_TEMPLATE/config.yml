@@ -1,0 +1,10 @@
+# Blank issues stay allowed: questions, build problems and documentation fixes do not
+# fit the three forms, and the repository has no Discussions.
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/baldarn/takes-app/security/advisories/new
+    about: Report it privately, not in a public issue. See SECURITY.md.
+  - name: Privacy policy
+    url: https://github.com/baldarn/takes-app/blob/main/PRIVACY.md
+    about: What the app does with your data, and the contact for questions about it.
