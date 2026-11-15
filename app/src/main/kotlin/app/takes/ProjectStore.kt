@@ -26,6 +26,7 @@ import app.takes.core.ProjectDuplicateException
 import app.takes.core.ProjectRestore
 import app.takes.core.ProjectRestoreException
 import app.takes.core.SourceMedia
+import app.takes.core.SubtitleScratch
 import app.takes.core.TimelineEditing
 import app.takes.core.UnusedTakes
 import app.takes.core.newID
@@ -36,11 +37,18 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import kotlin.concurrent.thread
 
 class TakesApp : Application() {
     val store by lazy { ProjectStore(this) }
     val capture by lazy { CaptureController(this, store) }
     val exporter by lazy { Exporter(this, store) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // The decoded sound of a transcription that was running when the app was last closed.
+        thread(name = "subtitle-scratch") { runCatching { SubtitleScratch.clear(cacheDir) } }
+    }
 }
 
 /** Seconds of playable media, or null when the file is not a valid movie. */

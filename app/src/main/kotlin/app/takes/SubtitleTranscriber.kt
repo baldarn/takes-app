@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import app.takes.core.SourceInterval
 import app.takes.core.SubtitleEditing
+import app.takes.core.SubtitleScratch
 import app.takes.core.SubtitleSpeechAudio
 import app.takes.core.SubtitleSpeechPlan
 import app.takes.core.SubtitleTiming
@@ -21,7 +22,6 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.UUID
 import kotlin.coroutines.coroutineContext
 import kotlin.math.sqrt
 
@@ -29,7 +29,7 @@ import kotlin.math.sqrt
  * Turns the speech of an edit into words with times, on the device.
  *
  * Each recording the edit plays is decoded once to 16 kHz mono in a temporary
- * file, never held whole in memory. An energy gate finds where someone speaks;
+ * file ([SubtitleScratch]), never held whole in memory. An energy gate finds where someone speaks;
  * the recognizer gets those stretches in pieces of at most twelve seconds and
  * returns their text, and the words are placed inside the voiced parts of each
  * piece. Times are in the recording's own seconds, so the words stay with the
@@ -80,7 +80,9 @@ object SubtitleTranscriber {
     ): Result = withContext(working) {
         val job = coroutineContext
         val stretches = SubtitleEditing.stretches(clips)
-        val scratch = File(context.cacheDir, "subtitles-${UUID.randomUUID()}").apply { mkdirs() }
+        // What a job that died with the app left behind goes first; a job that is running keeps its own.
+        SubtitleScratch.clear(context.cacheDir)
+        val scratch = SubtitleScratch.open(context.cacheDir)
         try {
             progress(0f, Step.Reading)
             val sources = stretches.map { it.sourceID }.distinct()
@@ -159,7 +161,7 @@ object SubtitleTranscriber {
             progress(1f, Step.Section(pieces.size, pieces.size, 0.0))
             Result(words, written, total, loaded, elapsed())
         } finally {
-            scratch.deleteRecursively()
+            SubtitleScratch.close(scratch)
         }
     }
 
