@@ -25,4 +25,17 @@
     <!-- The clock: the word beside the time. -->
     <string name="recorder_clock_rec">REC</string>
     <string name="recorder_clock_paused">PAUSED</string>
+    <!-- Camera settings: the panel over the picture, and "More settings" behind it. -->
+    <string name="recorder_settings_title">Camera settings</string>
+    <string name="recorder_settings_more">More settings</string>
+    <string name="recorder_settings_project">This project</string>
+    <string name="recorder_settings_captured">%1$s captured</string>
+    <string name="recorder_settings_zoom">Zoom</string>
+    <string name="recorder_settings_transition">Transition</string>
+    <string name="recorder_settings_zoom_note">Swipe the time beside the zoom presets up or down to adjust by half a second. Double-tap a zoom preset to reach it in one second. Each camera remembers its own zoom.</string>
+    <string name="recorder_settings_microphone">Microphone</string>
+    <string name="recorder_settings_microphone_note">The choice is used from the next segment on and lasts until the app is closed.</string>
+    <string name="recorder_settings_microphone_busy">Pause the take to change the microphone.</string>
+    <string name="recorder_settings_about">About</string>
+    <string name="recorder_settings_credits">Credits</string>
 </resources>

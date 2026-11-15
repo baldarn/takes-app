@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -138,6 +139,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         // Show the whole recorded frame, never a crop of it.
         PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER }
     }
+    var settingsOpen by remember { mutableStateOf(false) }
     LaunchedEffect(owner) { capture.attach(owner, previewView.surfaceProvider) }
     DisposableEffect(owner) {
         // In the background the take is paused and its segment saved, as in the original: the take, and a run
@@ -175,6 +177,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         AndroidView({ previewView }, Modifier.fillMaxSize())
         // Clear of the camera cutout, which stays when the status bar is hidden.
         Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+        SettingsButton(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))) { settingsOpen = true }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             ProjectChip(capture, store, openEditor)
             ZoomRow(capture)
@@ -182,7 +185,19 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             Controls(capture)
         }
         TakeFrame(capture.phase, Modifier.matchParentSize())
+        if (settingsOpen) CameraSettings(capture, store.selected) { settingsOpen = false }
         Notice(capture.message, Modifier.align(Alignment.Center)) { capture.message = null }
+    }
+}
+
+/** The way into "Camera settings", at the end of the top bar as in the original. */
+@Composable
+private fun SettingsButton(modifier: Modifier, open: () -> Unit) {
+    Box(
+        modifier.padding(top = 9.dp, end = 12.dp).size(44.dp).clip(CircleShape).background(ControlPlate).clickable(role = Role.Button, onClick = open),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.Tune, stringResource(R.string.recorder_settings_title), Modifier.size(22.dp), tint = Color.White)
     }
 }
 
