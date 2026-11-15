@@ -440,6 +440,88 @@ class TitleProjectTest {
         assertEquals(4.0..6.0, TitleMotionRanges(removed.clips).range(title, 5.0))
     }
 
+    @Test fun aNewTitleRunsThreeSecondsFromThePlayheadAcrossCuts() {
+        // 4 s of one take, then 6 s of another at double speed (3 s of movie), then 5 s.
+        val clips = listOf(clip("A", 0.0, 4.0, null), clip("B", 2.0, 8.0, null, rate = 2.0).copy(sourceID = "S2"), clip("C", 0.0, 5.0, null))
+        val state = EditState(clips)
+        assertEquals(12.0, state.duration, 1e-9)
+        assertEquals(3.0..6.0, TimelineEditing.newTitleRange(clips, 3.0))
+        // Near the end it stops with the movie; at the very end it keeps a frame.
+        assertEquals(11.0..12.0, TimelineEditing.newTitleRange(clips, 11.0))
+        assertEquals(12.0 - 1.0 / 30..12.0, TimelineEditing.newTitleRange(clips, 12.0))
+
+        val title = TextOverlay.fresh().copy(id = "N", text = "Across", motion = fade)
+        val placed = TimelineEditing.placeTitle(state, title, 3.0..6.0)!!
+        // One second at the end of the first clip, two seconds of movie at the start of the second: four of its footage.
+        assertEquals(listOf(title.copy(start = 3.0, end = 4.0)), placed.clips[0].texts)
+        assertEquals(listOf(title.copy(start = 2.0, end = 6.0)), placed.clips[1].texts)
+        assertNull(placed.clips[2].texts)
+        assertEquals(3.0..4.0, TimelineEditing.titleRange(placed.clips, 0, placed.clips[0].texts!![0]))
+        assertEquals(4.0..6.0, TimelineEditing.titleRange(placed.clips, 1, placed.clips[1].texts!![0]))
+        // The same id and motion on both: one entrance at 3 s, one exit at 6 s, nothing at the cut.
+        val ranges = TitleMotionRanges(placed.clips)
+        assertEquals(3.0..6.0, ranges.range(title, 3.5))
+        assertEquals(3.0..6.0, ranges.range(title, 5.0))
+        assertEquals(0.5, ranges.shown(placed.clips, 3.25).single().pose.opacity, 1e-9)
+        assertEquals(1.0, ranges.shown(placed.clips, 4.0).single().pose.opacity, 0.0)
+        assertEquals(0.5, ranges.shown(placed.clips, 5.75).single().pose.opacity, 1e-9)
+        assertTrue(ranges.shown(placed.clips, 6.1).isEmpty())
+        // Another title over it is a second title, not a replacement.
+        val second = TimelineEditing.placeTitle(placed, TextOverlay.fresh().copy(id = "M", text = "Over"), 3.5..4.5)!!
+        assertEquals(listOf("N", "M"), second.clips[0].texts!!.map { it.id })
+        assertEquals(listOf("N", "M"), second.clips[1].texts!!.map { it.id })
+        assertEquals(2, TitleMotionRanges(second.clips).shown(second.clips, 3.75).size)
+        // While it is being placed, a longer or shorter length rewrites every clip it reaches.
+        val longer = TimelineEditing.placeTitle(placed, title, 3.0..9.0)!!
+        assertEquals(listOf(1, 1, 1), longer.clips.map { it.texts!!.size })
+        assertEquals(title.copy(start = 0.0, end = 2.0), longer.clips[2].texts!![0])
+        val shorter = TimelineEditing.placeTitle(longer, title, 3.0..3.5)!!
+        assertEquals(listOf(listOf(title.copy(start = 3.0, end = 3.5)), null, null), shorter.clips.map { it.texts })
+        // Nothing to write, nothing changed, or a title that cannot be saved.
+        assertNull(TimelineEditing.placeTitle(placed, title, 3.0..6.0))
+        assertNull(TimelineEditing.placeTitle(state, title, 20.0..23.0))
+        assertNull(TimelineEditing.placeTitle(state, title.copy(size = 9.0), 3.0..6.0))
+        assertNull(TimelineEditing.placeTitle(state, title, Double.NaN..6.0))
+    }
+
+    @Test fun anOpenedTitleIsRewrittenOnItsPieceOnly() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 2.0, end = 6.0)
+        val split = TimelineEditing.split(EditState(listOf(clip("A", 0.0, 10.0, title))), 4.0)!!
+        val first = setOf(split.clips[0].id)
+        val opened = TimelineEditing.titleRange(split.clips, 0, title)!!
+        assertEquals(2.0..4.0, opened)
+        assertEquals(0.0..4.0, TimelineEditing.clipRange(split.clips, 0))
+        assertEquals(4.0..10.0, TimelineEditing.clipRange(split.clips, 1))
+        // New words and the same length: the piece keeps the footage seconds it had, past its end too.
+        val worded = TimelineEditing.placeTitle(split, title.copy(text = "Edited"), opened, first, opened)!!
+        assertEquals(listOf(title.copy(text = "Edited")), worded.clips[0].texts)
+        assertEquals(split.clips[1], worded.clips[1])
+        assertNull(TimelineEditing.placeTitle(split, title, opened, first, opened))
+        // A new length is written as what the piece shows, and the other piece is not touched.
+        val shortened = TimelineEditing.placeTitle(split, title, 2.0..3.0, first, opened)!!
+        assertEquals(listOf(title.copy(start = 2.0, end = 3.0)), shortened.clips[0].texts)
+        assertEquals(split.clips[1], shortened.clips[1])
+        // It stays where it was among the titles of its clip.
+        val under = EditState(listOf(clip("A", 0.0, 10.0, title).let { it.copy(texts = it.texts!! + title.copy(id = "U", text = "Over")) }))
+        assertEquals(listOf("T", "U"), TimelineEditing.placeTitle(under, title.copy(text = "Below"), 2.0..5.0, setOf("A"), 2.0..6.0)!!.clips[0].texts!!.map { it.id })
+        // A piece that shows none of the title has no range to open.
+        assertNull(TimelineEditing.titleRange(split.clips, 1, title.copy(start = 0.0, end = 3.0)))
+        assertNull(TimelineEditing.clipRange(split.clips, 5))
+    }
+
+    @Test fun aTitleWrittenAcrossADissolveIsDrawnOnceAndWhole() {
+        val first = clip("A", 0.0, 4.0, null, join = TransitionSettings(nextClipID = "B", style = TransitionStyle.Dissolve, duration = 1.0))
+        val state = EditState(listOf(first, clip("B", 0.0, 6.0, null).copy(sourceID = "S2")))
+        val title = TextOverlay.fresh().copy(id = "N", text = "Across")
+        val placed = TimelineEditing.placeTitle(state, title, 2.0..5.0)!!.clips
+        // The two clips play at once from 3 s to 4 s and each carries the title over its own footage.
+        assertEquals(listOf(title.copy(start = 2.0, end = 4.0)), placed[0].texts)
+        assertEquals(listOf(title.copy(start = 0.0, end = 2.0)), placed[1].texts)
+        val during = TitleMotionRanges(placed).shown(placed, 3.25)
+        assertEquals(1, during.size)
+        assertEquals(1.0, during[0].share, 1e-9)
+    }
+
     @Test fun aTitleOnBothSidesOfADissolveIsDrawnOnce() {
         val title = TextOverlay(id = "T", text = "Hi", start = 0.0, end = 10.0, motion = fade)
         val first = clip("A", 0.0, 4.0, title, join = TransitionSettings(nextClipID = "B", style = TransitionStyle.Dissolve, duration = 1.0))

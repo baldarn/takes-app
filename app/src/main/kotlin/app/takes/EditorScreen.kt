@@ -647,7 +647,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     // The titles under the playhead, with the one being worked on as it is now.
-    val titled = titling?.let { work -> TimelineEditing.setText(edit, clips.indexOfFirst { it.id == work.clipID }, work.title)?.clips } ?: clips
+    val titled = titling?.applied(edit)?.clips ?: clips
     val titleRanges = remember(titled) { TitleMotionRanges(titled) }
     val shownTitles = titleRanges.shown(titled, playhead)
     val titlePainter = remember { TitlePainter(context.assets) }
@@ -826,11 +826,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val clip = clips.getOrNull(index)
                 if (clip != null && subtitling == null && titling == null && transitioning == null && cropping == null && trim == null) {
                     editor.pause()
-                    val begins = TimelineEditing.clipStart(clips, index)
-                    val from = begins + clip.offset(maxOf(clip.start, title.start))
-                    val to = begins + clip.offset(minOf(clip.end, title.end))
-                    if (playhead < from || playhead >= to) jump(from.coerceIn(0.0, duration))
-                    titling = Titling(clip.id, title, title)
+                    TimelineEditing.titleRange(clips, index, title)?.let { range ->
+                        if (playhead < range.start || playhead >= range.endInclusive) jump(range.start.coerceIn(0.0, duration))
+                        titling = Titling(title, range, clip.id, title, range)
+                    }
                 }
             },
             trim?.index ?: location?.index, trim, pixelsPerSecond,
@@ -853,18 +852,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             )
         } else if (titling != null) {
             val work = titling!!
-            val index = clips.indexOfFirst { it.id == work.clipID }
-            val clip = clips.getOrNull(index)
-            if (clip == null) titling = null else TitlePanel(
+            // A new title may go anywhere in the movie; an existing one is worked on inside the clip of the piece that was opened.
+            val index = work.clipID?.let { id -> clips.indexOfFirst { it.id == id } }
+            val bounds = if (index == null) 0.0..duration else TimelineEditing.clipRange(clips, index)
+            if (bounds == null) titling = null else TitlePanel(
                 draft = work.title, existing = work.existing, change = { titling = work.copy(title = it) },
-                // An existing title may reach past a clip that was trimmed or split after it was placed.
-                bounds = minOf(clip.start, work.title.start)..maxOf(clip.end, work.title.end), rate = clip.rate,
-                timelineTime = { TimelineEditing.clipStart(clips, index) + clip.offset(it) },
+                range = work.range, bounds = bounds, setRange = { titling = work.copy(range = it) },
                 replay = { exit, title ->
                     // On the clips as they would be with the title as it is at this moment.
-                    val moved = TimelineEditing.setText(edit, index, title)?.clips ?: titled
-                    val shows = TimelineEditing.clipStart(clips, index) + clip.offset(maxOf(clip.start, title.start))
-                    val run = TitleMotionRanges(moved).range(title, shows)
+                    val moved = work.copy(title = title).applied(edit)?.clips ?: titled
+                    val run = TitleMotionRanges(moved).range(title, work.range.start)
                     val motion = title.motion
                     if (run != null && motion != null && title.text.isNotBlank()) {
                         val window = motion.previewWindow(exit, run.endInclusive - run.start)
@@ -883,12 +880,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val title = work.title.copy(text = work.title.text.trim(), motion = work.title.motion?.takeIf { it.active })
                     titling = null
                     auditionEnd = null
-                    commit(TimelineEditing.setText(edit, index, title), playhead)
+                    commit(work.copy(title = title).applied(edit), playhead)
                 },
+                // From the piece that was opened only; another piece carrying the title keeps it.
                 remove = {
                     titling = null
                     auditionEnd = null
-                    commit(TimelineEditing.removeText(edit, index, work.title.id), playhead)
+                    if (index != null) commit(TimelineEditing.removeText(edit, index, work.title.id), playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; titling = null },
                 modifier = Modifier.weight(1.5f),
@@ -965,13 +963,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 TextButton(
                     onClick = {
                         editor.pause()
-                        current?.let { clip ->
-                            // Always a new title, also over another one: a title that is there is opened from its bar on the timeline.
-                            // It starts at the playhead and stays three seconds of the movie, or as long as the clip lasts.
-                            val end = minOf(clip.end, sourceTime + 3 * clip.rate)
-                            val start = if (end - sourceTime < 0.1) maxOf(clip.start, end - 0.5 * clip.rate) else sourceTime
-                            titling = Titling(clip.id, TextOverlay.fresh().copy(start = start, end = end), null)
-                        }
+                        // Always a new title, also over another one: a title that is there is opened from its bar on the timeline.
+                        // It starts at the playhead and stays three seconds of the movie, on every clip those seconds cover.
+                        if (clips.isNotEmpty()) titling = Titling(TextOverlay.fresh(), TimelineEditing.newTitleRange(clips, playhead), null, null, null)
                     },
                     compact, enabled = location != null, contentPadding = tight,
                 ) { Text(stringResource(R.string.editor_title)) }
@@ -1630,8 +1624,19 @@ private fun drafted(state: EditState, join: Int, settings: TransitionSettings): 
     TimelineEditing.setJoin(state, join, settings)
         ?: if (TimelineEditing.joinSettings(state.clips, join) == settings.copy(nextClipID = state.clips.getOrNull(join)?.id)) state else TimelineEditing.setJoin(state, join, null) ?: state
 
-/** A title being worked on in the Title tool: on which clip, as it is now, and as it was saved (null when new). */
-private data class Titling(val clipID: String, val title: TextOverlay, val existing: TextOverlay?)
+/**
+ * A title being worked on in the Title tool: as it is now and the seconds of
+ * the movie it shows over. A new one ([clipID] and [existing] null) goes on
+ * every clip those seconds cover; one opened from its bar is worked on on
+ * that clip only, and [opened] is what it showed over then.
+ */
+private data class Titling(
+    val title: TextOverlay, val range: ClosedFloatingPointRange<Double>, val clipID: String?, val existing: TextOverlay?,
+    val opened: ClosedFloatingPointRange<Double>?,
+) {
+    /** The edit with the title as it is now; null when that changes nothing. */
+    fun applied(edit: EditState): EditState? = TimelineEditing.placeTitle(edit, title, range, clipID?.let { setOf(it) }, opened)
+}
 
 /** The choices are remembered in the project. [canvas] is the shape of the first clip. */
 @Composable

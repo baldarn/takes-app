@@ -243,12 +243,15 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
 
     /**
      * Every title to draw at timeline second [time], as [TimelineEditing.titlesAt]
-     * lists them. A title on both clips of a dissolve is drawn once, whole.
+     * lists them. A title on both clips of a dissolve is drawn once, whole:
+     * the two clips carry it over different footage seconds, so it is the
+     * same title when everything but those is the same.
      */
     fun shown(clips: List<TimelineClip>, time: Double): List<Shown> {
         val listed = TimelineEditing.titlesAt(clips, time)
-        return listed.distinctBy { it.first }.map { (title, _) ->
-            Shown(title, minOf(1.0, listed.filter { it.first == title }.sumOf { it.second }), pose(title, time))
+        fun drawing(title: TextOverlay) = title.copy(start = 0.0, end = 0.0)
+        return listed.distinctBy { drawing(it.first) }.map { (title, _) ->
+            Shown(title, minOf(1.0, listed.filter { drawing(it.first) == drawing(title) }.sumOf { it.second }), pose(title, time))
         }
     }
 

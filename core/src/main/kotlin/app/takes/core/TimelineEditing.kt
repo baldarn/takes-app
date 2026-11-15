@@ -280,6 +280,80 @@ object TimelineEditing {
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(texts = texts.filter { it.id != id }.ifEmpty { null }) })
     }
 
+    /** How long a new title stays, in seconds of the movie. */
+    const val NEW_TITLE = 3.0
+
+    /**
+     * Where a new title goes: from the playhead at [time] for [NEW_TITLE]
+     * seconds of the movie, across whatever cuts that covers, and no further
+     * than the end. At the very end it still gets the last frame.
+     */
+    fun newTitleRange(clips: List<TimelineClip>, time: Double): ClosedFloatingPointRange<Double> {
+        val duration = duration(clips)
+        return minOf(time, maxOf(0.0, duration - PauseDetector.FRAME))..minOf(duration, time + NEW_TITLE)
+    }
+
+    /** The seconds of the movie in which the clip at [index] plays. */
+    fun clipRange(clips: List<TimelineClip>, index: Int): ClosedFloatingPointRange<Double>? =
+        layout(clips).placements.getOrNull(index)?.let { it.start..it.end }
+
+    /**
+     * The seconds of the movie in which the clip at [index] shows [title]:
+     * the part of the title's footage the clip plays. Null when it shows none
+     * of it, as a piece does whose title lies in footage cut away from it.
+     */
+    fun titleRange(clips: List<TimelineClip>, index: Int, title: TextOverlay): ClosedFloatingPointRange<Double>? {
+        val clip = clips.getOrNull(index) ?: return null
+        val from = maxOf(clip.start, title.start)
+        val to = minOf(clip.end, title.end)
+        if (to <= from) return null
+        val begins = clipStart(clips, index)
+        return begins + clip.offset(from)..begins + clip.offset(to)
+    }
+
+    /**
+     * Writes [title] over the seconds [range] of the movie. Each clip in
+     * [scope] that plays during them gets the title with the same id over the
+     * footage it shows then, so a title runs across cuts and still arrives
+     * once and leaves once; a copy the clip had is replaced, and one on a
+     * clip the range no longer reaches is removed. [scope] is the clips an
+     * edit may touch: all of them (null) for a new title, the one piece that
+     * was opened for an existing one. The title's own [TextOverlay.start] and
+     * [TextOverlay.end] are not read.
+     *
+     * [opened] is the range the title had when it was opened. While [range]
+     * is still that, each clip keeps the footage seconds it has saved, which
+     * may reach past the clip, and only the rest of the title changes.
+     *
+     * Null when nothing would change or the title cannot be saved.
+     */
+    fun placeTitle(
+        state: EditState, title: TextOverlay, range: ClosedFloatingPointRange<Double>,
+        scope: Set<String>? = null, opened: ClosedFloatingPointRange<Double>? = null,
+    ): EditState? {
+        if (!title.copy(start = 0.0, end = 1.0).valid || !range.start.isFinite() || !range.endInclusive.isFinite()) return null
+        val placements = layout(state.clips).placements
+        val clips = state.clips.mapIndexed { index, clip ->
+            if (scope != null && clip.id !in scope) return@mapIndexed clip
+            val texts = clip.texts.orEmpty()
+            val previous = texts.firstOrNull { it.id == title.id }
+            val others = texts.filter { it.id != title.id }
+            val placed = if (opened != null && range == opened) {
+                previous?.let { title.copy(start = it.start, end = it.end) }
+            } else {
+                val begins = placements[index].start
+                val from = maxOf(range.start, begins)
+                val to = minOf(range.endInclusive, begins + clip.duration)
+                if (to > from + 0.000001) title.copy(start = maxOf(0.0, clip.sourceTime(from - begins)), end = clip.sourceTime(to - begins)) else null
+            }
+            if (placed == previous) return@mapIndexed clip
+            // A changed title stays where it was among the clip's titles; a new one goes on top.
+            val next = if (placed == null) others else if (previous == null) texts + placed else texts.map { if (it.id == title.id) placed else it }
+            clip.copy(texts = next.ifEmpty { null })
+        }
+        return if (clips == state.clips) null else state.copy(clips = clips)
+    }
+
     // MARK: Bookmarks
 
     /** Marks closer than this to the playhead count as being under it. */

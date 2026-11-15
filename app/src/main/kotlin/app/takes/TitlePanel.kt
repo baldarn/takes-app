@@ -181,16 +181,15 @@ private class TitleMemory(context: Context) {
  * [done] makes it one undo step and [cancel] drops it.
  *
  * @param existing the title as saved, null for a new one.
- * @param bounds the source seconds the title may cover.
- * @param rate the clip's speed: lengths are shown in seconds of the movie.
- * @param timelineTime the movie second at which a source second of this clip shows.
+ * @param range the seconds of the movie the title shows over.
+ * @param bounds the seconds of the movie it may cover: all of it for a new title, the clip of the piece that was opened for an existing one.
  * @param replay plays one end of the title's motion; the title is passed as it is at that moment.
  * @param sample a picture of the frame under the playhead to take a color from, or null when it cannot be read.
  */
 @Composable
 fun TitlePanel(
     draft: TextOverlay, existing: TextOverlay?, change: (TextOverlay) -> Unit,
-    bounds: ClosedFloatingPointRange<Double>, rate: Double, timelineTime: (Double) -> Double,
+    range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, setRange: (ClosedFloatingPointRange<Double>) -> Unit,
     replay: (exit: Boolean, title: TextOverlay) -> Unit, sample: suspend () -> Bitmap?,
     done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
@@ -215,7 +214,7 @@ fun TitlePanel(
                 draft.text, { change(draft.copy(text = it.take(500))) }, Modifier.fillMaxWidth().semantics { contentDescription = write },
                 placeholder = { Text(write) }, maxLines = 4,
             )
-            DurationPicker(draft, bounds, rate, timelineTime, change)
+            DurationPicker(range, bounds, setRange)
             for (row in TitleTab.entries.chunked(4)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (value in row) {
@@ -339,12 +338,13 @@ private fun Amount(
 
 /** How long the title stays: a row that opens the original's presets and its start and end sliders. */
 @Composable
-private fun DurationPicker(draft: TextOverlay, bounds: ClosedFloatingPointRange<Double>, rate: Double, timelineTime: (Double) -> Double, change: (TextOverlay) -> Unit) {
+private fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, change: (ClosedFloatingPointRange<Double>) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    val timing = OverlayTiming(draft.start..draft.end, bounds)
-    val shown = (draft.end - draft.start) / rate
+    // All in seconds of the movie, as the original: a title may run across cuts and clips of any speed.
+    val timing = OverlayTiming(range, bounds)
+    val shown = timing.duration
     val name = stringResource(R.string.title_duration)
-    val set = { next: OverlayTiming -> change(draft.copy(start = next.range.start, end = next.range.endInclusive)) }
+    val set = { next: OverlayTiming -> change(next.range) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(Rounded).background(Plain).clickable { expanded = !expanded }
@@ -361,15 +361,15 @@ private fun DurationPicker(draft: TextOverlay, bounds: ClosedFloatingPointRange<
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (value in row) {
                         Cell(
-                            abs(shown - value) < 1e-4, { set(timing.setting(OverlayTiming.Edge.End, timing.range.start + value * rate)) }, Modifier.weight(1f),
-                            enabled = EditorDurationPresets.fits(value, timing.available / rate),
+                            abs(shown - value) < 1e-4, { set(timing.setting(OverlayTiming.Edge.End, timing.range.start + value)) }, Modifier.weight(1f),
+                            enabled = EditorDurationPresets.fits(value, timing.available),
                         ) { Text(stringResource(R.string.title_seconds, seconds(value)), fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
                     }
                     repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.title_available, seconds(timing.available / rate)), color = Soft, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.title_available, seconds(timing.available)), color = Soft, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 TextButton(onClick = { set(timing.setting(OverlayTiming.Edge.End, bounds.endInclusive)) }) { Text(stringResource(R.string.title_to_end)) }
             }
             for (edge in OverlayTiming.Edge.entries) {
@@ -379,7 +379,7 @@ private fun DurationPicker(draft: TextOverlay, bounds: ClosedFloatingPointRange<
                 val span = limits.endInclusive - limits.start
                 Row(Modifier.fillMaxWidth()) {
                     Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    Text(seconds(timelineTime(time)) + " s", color = Soft, fontSize = 13.sp)
+                    Text(seconds(time) + " s", color = Soft, fontSize = 13.sp)
                 }
                 Slider(
                     value = if (span > 0) ((time - limits.start) / span).toFloat().coerceIn(0f, 1f) else 0f,
