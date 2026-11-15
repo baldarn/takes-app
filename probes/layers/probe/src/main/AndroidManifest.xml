@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Takes layers probe" android:hasCode="true">
+        <!-- The players of the preview scenario, one picture above the other. -->
+        <activity android:name="app.takes.probe.layers.PreviewActivity" android:exported="false"
+            android:screenOrientation="portrait" android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+    </application>
+
+    <!-- Runs as an instrumentation of itself, one scenario per run. -->
+    <instrumentation
+        android:name="app.takes.probe.layers.LayersProbe"
+        android:targetPackage="app.takes.probe.layers" />
+</manifest>
