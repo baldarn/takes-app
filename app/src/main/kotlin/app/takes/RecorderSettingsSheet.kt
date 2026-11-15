@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -196,11 +197,12 @@ internal fun AssistTile(
 ) {
     val color = if (on) SettingsCyan else Color.White
     val explainLabel = stringResource(R.string.recorder_assist_explain)
+    val view = LocalView.current
     Box(
         modifier.heightIn(min = 62.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(10.dp))
             .background(if (on) SettingsCyan.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.07f))
             // Holding explains the assist also where it cannot be used.
-            .combinedClickable(role = Role.Switch, onLongClick = { explain(details) }) { if (enabled) toggle() }
+            .combinedClickable(role = Role.Switch, onLongClick = { explain(details) }) { if (enabled) { toggle(); view.confirm() } }
             .semantics(mergeDescendants = true) {
                 toggleableState = ToggleableState(on)
                 if (!enabled) disabled()

@@ -1,12 +1,15 @@
 package app.takes
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -205,10 +209,15 @@ private fun ZoomPreset(zoom: Double, selectsMainLens: Boolean, selected: Boolean
     val label = if (selectsMainLens) stringResource(R.string.recorder_zoom_preset_main) else stringResource(R.string.recorder_zoom_preset, times)
     val quickLabel = stringResource(R.string.recorder_zoom_one_second)
     val color = if (selected) ControlYellow else Color.White
+    // The tap waits to see whether it is a double one; the touch is answered at once, as in the original.
+    val view = LocalView.current
+    val touch = remember { MutableInteractionSource() }
+    val pressed by touch.collectIsPressedAsState()
+    LaunchedEffect(pressed) { if (pressed) view.tick() }
     Column(
         Modifier.size(44.dp, 48.dp).clip(RoundedCornerShape(50))
             // The single tap waits for a possible second one, so Instant never fires before a double tap.
-            .combinedClickable(enabled = enabled, role = Role.Button, onDoubleClick = quick, onClick = normal)
+            .combinedClickable(touch, LocalIndication.current, enabled = enabled, role = Role.Button, onDoubleClick = quick, onClick = normal)
             .clearAndSetSemantics {
                 contentDescription = label
                 role = Role.Button
@@ -240,6 +249,9 @@ private fun ZoomDuration(capture: CaptureController, tapped: () -> Unit, dragged
     val value = zoomTimeName(seconds)
     val longer = stringResource(R.string.recorder_zoom_time_longer)
     val shorter = stringResource(R.string.recorder_zoom_time_shorter)
+    // A tick for each half second, as in the original.
+    val view = LocalView.current
+    val change = { next: Double -> if (capture.chooseZoomDuration(next)) view.tick() }
     Box(
         Modifier.size(56.dp, 48.dp).pointerInput(capture) {
             awaitEachGesture {
@@ -258,7 +270,7 @@ private fun ZoomDuration(capture: CaptureController, tapped: () -> Unit, dragged
                     }
                     val from = start ?: continue
                     change.consume()
-                    if (vertical) capture.chooseZoomDuration(PinchZoom.draggedDuration(from, (travel.y / density).toDouble()))
+                    if (vertical) change(PinchZoom.draggedDuration(from, (travel.y / density).toDouble()))
                 }
                 dragging = false
             }
@@ -266,8 +278,8 @@ private fun ZoomDuration(capture: CaptureController, tapped: () -> Unit, dragged
             contentDescription = name
             stateDescription = value
             customActions = listOf(
-                CustomAccessibilityAction(longer) { capture.chooseZoomDuration(capture.zoomDuration + PinchZoom.DURATION_STEP); true },
-                CustomAccessibilityAction(shorter) { capture.chooseZoomDuration(capture.zoomDuration - PinchZoom.DURATION_STEP); true },
+                CustomAccessibilityAction(longer) { change(capture.zoomDuration + PinchZoom.DURATION_STEP); true },
+                CustomAccessibilityAction(shorter) { change(capture.zoomDuration - PinchZoom.DURATION_STEP); true },
             )
         },
         contentAlignment = Alignment.Center,
