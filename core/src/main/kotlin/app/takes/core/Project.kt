@@ -140,6 +140,8 @@ data class TimelineClip(
     val crop: CropSettings? = null,
     /** Null plays at the recorded speed. */
     val speed: SpeedSettings? = null,
+    /** What is said in this clip's sound, in source seconds, so it follows the footage. Null when not transcribed. */
+    val subtitleWords: List<SubtitleWord>? = null,
 ) {
     /** How fast the clip plays: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
@@ -155,6 +157,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        !subtitleWords.isNullOrEmpty() -> 11
         speed != null -> 9
         crop != null -> 8
         color != null -> 7
@@ -176,6 +179,8 @@ data class EditState(
     val captureBase: Int? = null,
     /** Sound placed on its own tracks, such as music or a voice-over. Null when there is none. */
     val audio: List<AudioItem>? = null,
+    /** How the captions look and what was transcribed. Null when the project has no subtitles; the words are on the clips. */
+    val subtitles: SubtitleSettings? = null,
 ) {
     /** The movie is as long as its picture; sound past the last clip is not played. */
     val duration: Double get() = TimelineEditing.duration(clips)
@@ -291,7 +296,7 @@ data class Project(
     private fun materialized(snapshot: EditSnapshot): EditState {
         val later = captureLedger.drop(snapshot.captureCursor)
         val appended = if (captureInsertions.isEmpty()) later else later.filterIndexed { index, _ -> snapshot.captureCursor + index !in captureInsertions }
-        return EditState(snapshot.state.clips + appended, captureLedger.size, snapshot.state.audio)
+        return EditState(snapshot.state.clips + appended, captureLedger.size, snapshot.state.audio, snapshot.state.subtitles)
     }
 
     val edit: EditState get() = materialized(snapshots[historyCursor])
@@ -327,12 +332,12 @@ data class Project(
     fun commit(state: EditState, now: Long = System.currentTimeMillis()): Project {
         if (!canCommit(state)) return this
         val sound = state.audio?.ifEmpty { null }
-        if (state.clips == edit.clips && sound == edit.audio) return this
+        if (state.clips == edit.clips && sound == edit.audio && state.subtitles == edit.subtitles) return this
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
         return copy(
             // Older readers must not silently drop what they do not know.
-            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1, if (sound != null) 5 else 1),
-            snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips, audio = sound), cursor),
+            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1, if (sound != null) 5 else 1, if (state.subtitles != null) 11 else 1),
+            snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips, audio = sound, subtitles = state.subtitles), cursor),
             historyCursor = historyCursor + 1,
             updatedAt = now,
         )
@@ -373,7 +378,7 @@ data class Project(
             val current = edit
             val next = TimelineEditing.insert(current, listOf(clip), recordingInsertion) ?: current.copy(clips = current.clips + clip)
             // Its cursor is past the take: the ledger never replays what the step already holds.
-            val snapshot = EditSnapshot(EditState(next.clips, audio = next.audio), captureLedger.size + 1)
+            val snapshot = EditSnapshot(EditState(next.clips, audio = next.audio, subtitles = next.subtitles), captureLedger.size + 1)
             val step = if (continuing) historyCursor else historyCursor + 1
             return copy(
                 // Older readers would replay the take at the end of every step.
@@ -427,6 +432,7 @@ data class Project(
         for (state in history) {
             if (!state.duration.isFinite() || state.duration > MAX_DURATION) invalid()
             if (state.clips.map { it.id }.toSet().size != state.clips.size) invalid()
+            if (state.subtitles?.valid == false) invalid()
             val sound = state.audio.orEmpty()
             if (sound.map { it.id }.toSet().size != sound.size) invalid()
             for (item in sound) {
@@ -449,6 +455,9 @@ data class Project(
                 val marks = clip.bookmarks.orEmpty()
                 if (marks.map { it.id }.toSet().size != marks.size) invalid()
                 if (marks.any { !it.valid || it.time > source.duration + 0.001 }) invalid()
+                val words = clip.subtitleWords.orEmpty()
+                if (words.map { it.id }.toSet().size != words.size) invalid()
+                if (words.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
             }
         }
     }
@@ -465,7 +474,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 10
+        const val LATEST_READABLE_SCHEMA = 11
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

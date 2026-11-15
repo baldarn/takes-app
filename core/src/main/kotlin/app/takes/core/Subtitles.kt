@@ -19,7 +19,15 @@ data class SubtitleWord(
     val text: String,
     val start: Double,
     val end: Double,
-)
+) {
+    val valid: Boolean
+        get() = start.isFinite() && end.isFinite() && start >= 0 && end > start && text.isNotEmpty() && text.length <= MAXIMUM_TEXT
+
+    companion object {
+        /** The longest text one caption may be retyped to, as in the original's editor. */
+        const val MAXIMUM_TEXT = 4000
+    }
+}
 
 /**
  * How the whole caption series looks, and what was transcribed. One per project.
