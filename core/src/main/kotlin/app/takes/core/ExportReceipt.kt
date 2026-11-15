@@ -126,13 +126,25 @@ object ExportReceipts {
         val ids = sources.map { it.id }.toSet()
         val edit = comparable(project.edit)
         return receipts.firstOrNull { receipt ->
-            (receipt.settings ?: ExportSettings()) == project.exportSettings && comparable(receipt.edit) == edit &&
+            (receipt.settings ?: ExportSettings()) == project.exportSettings && same(comparable(receipt.edit), edit) &&
                 receipt.sources.filter { it.id in ids } == sources && movie(folder, receipt).isFile
         }
     }
 
     // How many takes an edit had seen is bookkeeping of the running app, not part of the movie.
     private fun comparable(edit: EditState) = edit.copy(captureBase = null)
+
+    /**
+     * Whether a receipt's edit is the project's: equal, or the same timeline
+     * ([Project.commit] compares edits so). A receipt written before the
+     * project saved timelines holds the edit as it was saved then, which an
+     * edit committed since shows with its numbers settled
+     * ([TrackSequenceForm]): both sides are compared settled, as a timeline
+     * read back.
+     */
+    private fun same(receipt: EditState, edit: EditState): Boolean = receipt == edit || settled(receipt) == settled(edit)
+
+    private fun settled(edit: EditState): EditState = EditSnapshot.saved(edit).let { it.toTimeline().toSequence() ?: it }
 
     /** The movie the screen offers: the one of the current edit, else the newest, marked as a previous export. */
     data class Selection(val receipt: ExportReceipt, val current: Boolean)

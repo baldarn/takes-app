@@ -415,9 +415,11 @@ class RecordingInsertionTest {
         assertEquals(1, plain.schemaVersion)
         // Choosing a place changes nothing an older reader could misread.
         assertEquals(1, plain.beginRecordingInsertion(10.0).schemaVersion)
-        // An older reader would replay the take at the end of every history step.
-        assertEquals(10, plain.beginRecordingInsertion(10.0).addRecording(b).schemaVersion)
-        assertEquals(15, Project.LATEST_READABLE_SCHEMA) // subtitles, title designs, the nine transitions, turned or moving crops and fades cut by a split came after
+        // An older reader would replay the take at the end of every history step; 0.9.1 wrote 10 for it.
+        assertEquals(10, LegacyProject.addRecording(plain.beginRecordingInsertion(10.0), b, 0).schemaVersion)
+        // Now the step is a timeline, as every edit step is.
+        assertEquals(TrackTimeline.SCHEMA, plain.beginRecordingInsertion(10.0).addRecording(b).schemaVersion)
+        assertEquals(17, Project.LATEST_READABLE_SCHEMA) // subtitles, title designs, the nine transitions, turned or moving crops, fades cut by a split and the timeline came after
     }
 
     @Test fun aProjectWithoutInsertionsIsSavedAsBefore() {

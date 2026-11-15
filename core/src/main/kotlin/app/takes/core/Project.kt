@@ -308,10 +308,81 @@ data class AudioItem(
 /**
  * Immutable edit payload. Capture is journaled independently, so a new take
  * never rewrites a historical snapshot or becomes an accidental Undo step.
+ *
+ * A step is written in the form it has (docs/TRACKS-PLAN.md, 3.1). One read
+ * from an older project, or made before the timeline was saved, has no
+ * [timeline] and is written as a sequence of clips, `{"state":{"clips":…}}`.
+ * One committed since is written as the original's track timeline alone,
+ * `{"state":{"timeline":…}}`, and [state] is that timeline read as the
+ * sequence the rest of the app edits ([TrackSequenceForm.sequence]).
+ *
+ * A step read from disk keeps the bytes it was read from, and one made here
+ * the bytes it was first encoded to: [data] never encodes a step twice, and a
+ * step is saved again under the name it was read from, whatever this version
+ * would write for it.
  */
-@Serializable
-data class EditSnapshot(val state: EditState, val captureCursor: Int) {
-    fun data(): ByteArray = documentJson.encodeToString(serializer(), this).toByteArray()
+@Serializable(with = EditSnapshotSerializer::class)
+data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeline: TrackTimeline? = null) {
+    @Volatile private var encoded: ByteArray? = null
+
+    fun data(): ByteArray = encoded ?: documentJson.encodeToString(serializer(), this).toByteArray().also { encoded = it }
+
+    companion object {
+        /** A step that saves [timeline], or null when the timeline is not one the sequence form can show. */
+        fun of(timeline: TrackTimeline, captureCursor: Int): EditSnapshot? =
+            TrackSequenceForm.sequence(timeline)?.let { EditSnapshot(it, captureCursor, timeline) }
+
+        /**
+         * The step [state] is saved as from now on: [timeline], its conversion,
+         * with [state] as that timeline shows it. A state whose timeline does
+         * not read back as a sequence, which no conversion makes, keeps the
+         * sequence form rather than being refused.
+         */
+        fun committed(state: EditState, captureCursor: Int, timeline: TrackTimeline = saved(state).toTimeline()): EditSnapshot =
+            of(timeline, captureCursor) ?: EditSnapshot(saved(state), captureCursor)
+
+        /** What of [state] a step saves: not the takes it had seen, and no empty list of sound. */
+        internal fun saved(state: EditState): EditState = EditState(state.clips, audio = state.audio?.ifEmpty { null }, subtitles = state.subtitles)
+
+        /** The step saved as [bytes], which it keeps. */
+        internal fun decoded(bytes: ByteArray): EditSnapshot =
+            documentJson.decodeFromString(serializer(), bytes.decodeToString()).also { it.encoded = bytes }
+    }
+}
+
+/** The two forms of a saved step, and the reading of either. */
+internal object EditSnapshotSerializer : kotlinx.serialization.KSerializer<EditSnapshot> {
+    @Serializable private class SequenceStep(val state: EditState, val captureCursor: Int)
+    @Serializable private class TimelineState(val timeline: TrackTimeline)
+    @Serializable private class TimelineStep(val state: TimelineState, val captureCursor: Int)
+
+    /** What either form holds. A reader before the timeline sees a timeline step as an empty edit, which is why its schema is refused there. */
+    @Serializable private class ReadState(
+        val clips: List<TimelineClip> = emptyList(),
+        val captureBase: Int? = null,
+        val audio: List<AudioItem>? = null,
+        val subtitles: SubtitleSettings? = null,
+        val timeline: TrackTimeline? = null,
+    )
+    @Serializable private class ReadStep(val state: ReadState, val captureCursor: Int)
+
+    override val descriptor = ReadStep.serializer().descriptor
+
+    override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: EditSnapshot) {
+        val timeline = value.timeline
+        if (timeline == null) SequenceStep.serializer().serialize(encoder, SequenceStep(value.state, value.captureCursor))
+        else TimelineStep.serializer().serialize(encoder, TimelineStep(TimelineState(timeline), value.captureCursor))
+    }
+
+    override fun deserialize(decoder: kotlinx.serialization.encoding.Decoder): EditSnapshot {
+        val step = ReadStep.serializer().deserialize(decoder)
+        val state = step.state
+        val timeline = state.timeline
+            ?: return EditSnapshot(EditState(state.clips, state.captureBase, state.audio, state.subtitles), step.captureCursor)
+        // A timeline step holds the timeline alone, and one this version can show.
+        if (state.clips.isNotEmpty() || state.audio != null || state.subtitles != null) throw kotlinx.serialization.SerializationException("A step in two forms")
+        return EditSnapshot.of(timeline, step.captureCursor) ?: throw kotlinx.serialization.SerializationException("A timeline that is not a sequence")
+    }
 }
 
 /** How a project is rendered to a movie. Saved with the project, outside undo. */
@@ -426,14 +497,15 @@ data class Project(
      */
     fun commit(state: EditState, now: Long = System.currentTimeMillis()): Project {
         if (!canCommit(state)) return this
-        val sound = state.audio?.ifEmpty { null }
-        if (state.clips == edit.clips && sound == edit.audio && state.subtitles == edit.subtitles) return this
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
+        // Two edits are the same edit when they are the same timeline (docs/TRACKS-PLAN.md, 3.5).
+        val timeline = EditSnapshot.saved(state).toTimeline()
+        if (timeline == edit.toTimeline()) return this
+        val step = EditSnapshot.committed(state, cursor, timeline)
         return copy(
-            // Older readers must not silently drop what they do not know.
-            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1, if (sound != null) 5 else 1, if (state.subtitles != null) 11 else 1,
-                if (sound.orEmpty().any { it.audio?.reshaped(it.duration) == true }) 15 else 1),
-            snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips, audio = sound, subtitles = state.subtitles), cursor),
+            // Older readers must not silently drop what they do not know: from the first timeline step on, none of them reads the project.
+            schemaVersion = maxOf(schemaVersion, TrackTimeline.SCHEMA),
+            snapshots = snapshots.take(historyCursor + 1) + step,
             historyCursor = historyCursor + 1,
             updatedAt = now,
         )
@@ -474,19 +546,18 @@ data class Project(
             val current = edit
             val next = TimelineEditing.insert(current, listOf(clip), recordingInsertion) ?: current.copy(clips = current.clips + clip)
             // Its cursor is past the take: the ledger never replays what the step already holds.
-            val snapshot = EditSnapshot(EditState(next.clips, audio = next.audio, subtitles = next.subtitles), captureLedger.size + 1)
+            val snapshot = EditSnapshot.committed(next, captureLedger.size + 1)
             val step = if (continuing) historyCursor else historyCursor + 1
             return copy(
-                // Older readers would replay the take at the end of every step.
-                // The take may have cut a clip inside a fade, which the piece then carries.
-                schemaVersion = maxOf(schemaVersion, next.clips.maxOf { it.schema }, 10),
+                // An edit step, saved as a timeline like every other.
+                schemaVersion = maxOf(schemaVersion, TrackTimeline.SCHEMA),
                 sources = sources + source,
                 captureLedger = captureLedger + clip,
                 captureInsertions = captureInsertions + captureLedger.size,
                 snapshots = snapshots.take(step) + snapshot,
                 historyCursor = step,
                 // The next take follows this one.
-                recordingInsertion = TimelineEditing.clipStart(next.clips, next.clips.indexOfFirst { it.id == clip.id } + 1),
+                recordingInsertion = snapshot.state.clips.let { TimelineEditing.clipStart(it, it.indexOfFirst { item -> item.id == clip.id } + 1) },
                 recordingInsertionStep = step,
                 updatedAt = now,
             )
@@ -572,7 +643,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 15
+        const val LATEST_READABLE_SCHEMA = TrackTimeline.SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
@@ -586,12 +657,15 @@ data class Project(
          * that says so itself, with a schema number above the ones read here.
          * Anything that cannot be read as that is not newer, it is damaged.
          */
-        fun isNewer(data: ByteArray): Boolean = try {
+        fun isNewer(data: ByteArray): Boolean = (schemaOf(data) ?: 0) > LATEST_READABLE_SCHEMA
+
+        /** The schema number a manifest says it has, or null when [data] is not one that says. */
+        fun schemaOf(data: ByteArray): Int? = try {
             val schema = (documentJson.parseToJsonElement(data.decodeToString()) as? kotlinx.serialization.json.JsonObject)
                 ?.get("schemaVersion") as? kotlinx.serialization.json.JsonPrimitive
-            (schema?.content?.toIntOrNull() ?: 0) > LATEST_READABLE_SCHEMA
+            schema?.content?.toIntOrNull()
         } catch (_: Exception) {
-            false
+            null
         }
 
         fun readManifest(data: ByteArray, load: (name: String) -> ByteArray): Project {
@@ -608,7 +682,7 @@ data class Project(
                 }
                 if (sha256(payload) + ".json" != name) invalid()
                 try {
-                    documentJson.decodeFromString(EditSnapshot.serializer(), payload.decodeToString())
+                    EditSnapshot.decoded(payload)
                 } catch (error: Exception) {
                     throw ProjectException(ProjectException.Reason.InvalidDocument, error)
                 }

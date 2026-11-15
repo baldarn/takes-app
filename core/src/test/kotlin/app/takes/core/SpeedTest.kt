@@ -143,7 +143,7 @@ class SpeedTest {
         val cut = TimelineEditing.removeIntervals(state, 0, listOf(SourceInterval(4.0, 6.0)))!!
         assertEquals(3.0, cut.duration, 0.0)
         var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 10.0))
-        project = project.commit(TimelineEditing.setSpeed(project.edit, 0, 0.5)!!)
+        project = LegacyProject.commit(project, TimelineEditing.setSpeed(project.edit, 0, 0.5)!!)
         assertEquals(9, project.schemaVersion)
         assertEquals(20.0, project.edit.duration, 0.0)
         project.validate()

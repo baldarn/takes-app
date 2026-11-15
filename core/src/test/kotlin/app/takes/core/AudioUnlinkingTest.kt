@@ -427,8 +427,8 @@ class AudioUnlinkingTest {
         val second = SourceMedia(filename = "b.mp4", duration = 6.0)
         var project = Project("Cuts").addRecording(first).addRecording(second)
         val linked = project.edit
-        project = project.commit(TimelineEditing.setAudio(project.edit, 1, ClipAudio(volumeDB = -6.0, fadeOut = 1.0))!!)
-        project = project.commit(AudioUnlinking.unlink(project.edit, 1)!!)
+        project = LegacyProject.commit(project, TimelineEditing.setAudio(project.edit, 1, ClipAudio(volumeDB = -6.0, fadeOut = 1.0))!!)
+        project = LegacyProject.commit(project, AudioUnlinking.unlink(project.edit, 1)!!)
         // Nothing new is saved: a muted clip and a sound item, which schema 5 readers already play correctly.
         assertEquals(5, project.schemaVersion)
         project.validate()
@@ -438,8 +438,8 @@ class AudioUnlinkingTest {
         assertEquals(ClipAudio(volumeDB = -6.0, fadeOut = 1.0), sound.audio)
 
         // A J cut, saved and read back.
-        project = project.commit(TimelineEditing.trim(project.edit, 1, 1.0, 6.0, second.duration)!!)
-        project = project.commit(AudioUnlinking.restoreSync(project.edit, 1)!!)
+        project = LegacyProject.commit(project, TimelineEditing.trim(project.edit, 1, 1.0, 6.0, second.duration)!!)
+        project = LegacyProject.commit(project, AudioUnlinking.restoreSync(project.edit, 1)!!)
         project.validate()
         val files = mutableMapOf<String, ByteArray>()
         val manifest = project.manifest { name, data -> files[name] = data }
@@ -458,7 +458,7 @@ class AudioUnlinkingTest {
         assertEquals(restored.edit.audio, grown.edit.audio)
 
         // Relinking is an ordinary edit, too.
-        val relinked = earlier.commit(AudioUnlinking.relink(earlier.edit, 1)!!)
+        val relinked = LegacyProject.commit(earlier, AudioUnlinking.relink(earlier.edit, 1)!!)
         assertNull(relinked.edit.audio)
         assertEquals(ClipAudio(volumeDB = -6.0, fadeOut = 1.0), relinked.edit.clips[1].audio)
         relinked.validate()

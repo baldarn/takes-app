@@ -82,7 +82,7 @@ class ColorGradeTest {
         assertEquals(listOf(ColorLook.Cinema, ColorLook.Cinema), TimelineEditing.split(graded, 4.0)!!.clips.map { it.color!!.look })
         assertEquals(3, TimelineEditing.removeIntervals(graded, 0, listOf(SourceInterval(2.0, 3.0), SourceInterval(6.0, 7.0)))!!.clips.count { it.color?.look == ColorLook.Cinema })
         var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 10.0))
-        project = project.commit(TimelineEditing.setColor(project.edit, 0, ColorSettings(look = ColorLook.Ink, exposure = -0.5))!!)
+        project = LegacyProject.commit(project, TimelineEditing.setColor(project.edit, 0, ColorSettings(look = ColorLook.Ink, exposure = -0.5))!!)
         assertEquals(7, project.schemaVersion)
         project.validate()
         val files = mutableMapOf<String, ByteArray>()

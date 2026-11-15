@@ -20,7 +20,7 @@ class ProjectFormatTest {
     @Test fun aPlainProjectIsWrittenAsBefore() {
         val project = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
         val clip = project.edit.clips[0].copy(id = "C1")
-        val cut = project.copy(captureLedger = listOf(clip)).let { it.commit(TimelineEditing.split(it.edit, 4.0)!!.let { state -> state.copy(clips = listOf(state.clips[0], state.clips[1].copy(id = "C2"))) }, now = 3) }
+        val cut = project.copy(captureLedger = listOf(clip)).let { LegacyProject.commit(it, TimelineEditing.split(it.edit, 4.0)!!.let { state -> state.copy(clips = listOf(state.clips[0], state.clips[1].copy(id = "C2"))) }, now = 3) }
         val (manifest, snapshots) = saved(cut)
         assertEquals(1, cut.schemaVersion)
         assertEquals(
@@ -40,7 +40,7 @@ class ProjectFormatTest {
             audio = ClipAudio(volumeDB = -6.0), speed = SpeedSettings(id = "V", rate = 2.0),
         )
         val state = EditState(listOf(clip), base.edit.captureBase, listOf(AudioItem(id = "A", sourceID = "S2", start = 0.5, sourceStart = 0.0, sourceEnd = 4.0)))
-        val project = base.commit(state, now = 3)
+        val project = LegacyProject.commit(base, state, now = 3)
         assertEquals(9, project.schemaVersion)
         assertEquals(
             """{"state":{"clips":[{"id":"C1","sourceID":"S1","start":0.0,"end":10.0,"texts":[{"id":"T","text":"Hello","start":1.0,"end":3.0,"x":0.5,"y":0.5,"size":0.065}],""" +
@@ -83,7 +83,7 @@ class ProjectFormatTest {
         val project = oldProject()
         val clips = project.edit.clips
         // A longer dissolve, and the fade turned into a dissolve: both are things the old format says.
-        val edited = project.commit(project.edit.copy(clips = listOf(
+        val edited = LegacyProject.commit(project, project.edit.copy(clips = listOf(
             clips[0].copy(transition = clips[0].transition!!.copy(duration = 2.0)),
             clips[1].copy(transition = clips[1].transition!!.copy(style = TransitionStyle.Dissolve)), clips[2],
         )), now = 4)
@@ -99,7 +99,7 @@ class ProjectFormatTest {
     @Test fun whatTheOldFormatCannotSayTakesSchemaThirteen() {
         val project = oldProject()
         val clips = project.edit.clips
-        fun schemaAfter(change: (List<TimelineClip>) -> List<TimelineClip>) = project.commit(project.edit.copy(clips = change(clips)), now = 4).schemaVersion
+        fun schemaAfter(change: (List<TimelineClip>) -> List<TimelineClip>) = LegacyProject.commit(project, project.edit.copy(clips = change(clips)), now = 4).schemaVersion
         val join = clips[0].transition!!
         fun joined(settings: TransitionSettings) = schemaAfter { listOf(it[0].copy(transition = settings), it[1], it[2]) }
         assertEquals(13, joined(join.copy(style = TransitionStyle.Wipe)))
@@ -112,7 +112,7 @@ class ProjectFormatTest {
         assertEquals(13, schemaAfter { listOf(it[0].copy(openingTransition = TransitionSettings(id = "O", nextClipID = "C1")), it[1], it[2]) })
         assertEquals(13, schemaAfter { listOf(it[0], it[1], it[2].copy(transition = TransitionSettings(id = "E"))) })
         // The earlier step keeps its bytes whatever the later one uses.
-        val wiped = project.commit(project.edit.copy(clips = listOf(clips[0].copy(transition = join.copy(style = TransitionStyle.Wipe, wipeAngle = 45.0)), clips[1], clips[2])), now = 4)
+        val wiped = LegacyProject.commit(project, project.edit.copy(clips = listOf(clips[0].copy(transition = join.copy(style = TransitionStyle.Wipe, wipeAngle = 45.0)), clips[1], clips[2])), now = 4)
         val (_, steps) = saved(wiped)
         assertEquals(oldStep, steps[0])
         assertEquals(true, steps[1].contains(""""transition":{"id":"J1","nextClipID":"C2","style":"wipe","duration":1.0,"wipeAngle":45.0}"""))
@@ -131,7 +131,7 @@ class ProjectFormatTest {
             whole.copy(end = 5.0, transition = full, openingTransition = TransitionSettings(id = "O", nextClipID = "C1", style = TransitionStyle.Still, duration = 1.0)),
             whole.copy(id = "C2", start = 5.0, transition = TransitionSettings(id = "E", style = TransitionStyle.FadeColor, duration = 1.0, hold = 0.5)),
         )
-        val project = base.commit(EditState(clips, base.edit.captureBase), now = 3)
+        val project = LegacyProject.commit(base, EditState(clips, base.edit.captureBase), now = 3)
         assertEquals(13, project.schemaVersion)
         val files = mutableMapOf<String, ByteArray>()
         val manifest = project.manifest { name, data -> files[name] = data }
@@ -148,7 +148,7 @@ class ProjectFormatTest {
             whole.copy(openingTransition = TransitionSettings(divider = 0.05)),
             whole.copy(openingTransition = TransitionSettings(flashCount = 30)),
         )) {
-            val project = base.commit(EditState(listOf(bad), base.edit.captureBase), now = 3)
+            val project = LegacyProject.commit(base, EditState(listOf(bad), base.edit.captureBase), now = 3)
             try { project.validate(); org.junit.Assert.fail("accepted") } catch (_: ProjectException) { }
         }
     }
@@ -160,7 +160,7 @@ class ProjectFormatTest {
 
     private fun cropped(crop: CropSettings): Project {
         val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
-        return base.commit(EditState(listOf(base.edit.clips[0].copy(id = "C1", crop = crop)), base.edit.captureBase), now = 3)
+        return LegacyProject.commit(base, EditState(listOf(base.edit.clips[0].copy(id = "C1", crop = crop)), base.edit.captureBase), now = 3)
     }
 
     /** A crop that is neither turned nor moving is written as versions 0.4 to 0.7 wrote it, and they still open it. */
@@ -177,7 +177,7 @@ class ProjectFormatTest {
         assertEquals(manifest.decodeToString(), read.manifest { name, data -> again[name] = data }.decodeToString())
         assertEquals(files.mapValues { it.value.decodeToString() }, again.mapValues { it.value.decodeToString() })
         // Another plain crop on top leaves the project where older versions read it.
-        assertEquals(8, read.commit(TimelineEditing.setCrop(read.edit, 0, plainCrop.copy(zoom = 3.0))!!, now = 4).schemaVersion)
+        assertEquals(8, LegacyProject.commit(read, TimelineEditing.setCrop(read.edit, 0, plainCrop.copy(zoom = 3.0))!!, now = 4).schemaVersion)
         // A rotation written as −0 is upright all the same.
         assertEquals(8, cropped(plainCrop.copy(rotation = -0.0)).schemaVersion)
     }
@@ -193,7 +193,7 @@ class ProjectFormatTest {
             val project = cropped(crop)
             assertEquals(14, project.edit.clips[0].schema)
             assertEquals(14, project.schemaVersion)
-            assertEquals(15, Project.LATEST_READABLE_SCHEMA) // fades cut by a split came after
+            assertEquals(17, Project.LATEST_READABLE_SCHEMA) // fades cut by a split and the timeline came after
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }

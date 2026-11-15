@@ -35,7 +35,7 @@ class SubtitleEditingTest {
     // MARK: Storage
 
     @Test fun aProjectWithoutSubtitlesKeepsItsSchemaAndWritesNothingNew() {
-        val cut = project.commit(TimelineEditing.split(project.edit, 4.0)!!)
+        val cut = LegacyProject.commit(project, TimelineEditing.split(project.edit, 4.0)!!)
         assertEquals(1, cut.schemaVersion)
         val files = mutableListOf<String>()
         val manifest = cut.manifest { _, data -> files += data.decodeToString() }.decodeToString()
@@ -43,7 +43,7 @@ class SubtitleEditingTest {
     }
 
     @Test fun subtitlesRaiseTheSchemaSoOlderReadersRefuse() {
-        val saved = project.commit(transcribed)
+        val saved = LegacyProject.commit(project, transcribed)
         assertEquals(11, saved.schemaVersion)
         assertTrue(saved.schemaVersion <= Project.LATEST_READABLE_SCHEMA)
         // A reader that stops at 10, as before this feature, refuses it as it refuses any newer schema.
@@ -52,7 +52,7 @@ class SubtitleEditingTest {
         assertEquals(1, transcribed.clips[0].copy(subtitleWords = null).schema)
         // Settings alone, with every caption deleted, are still something an old reader would drop.
         val empty = transcribed.copy(clips = transcribed.clips.map { it.copy(subtitleWords = null) })
-        assertEquals(11, project.commit(empty).schemaVersion)
+        assertEquals(11, LegacyProject.commit(project, empty).schemaVersion)
     }
 
     @Test fun subtitlesSurviveSavingAndReading() {

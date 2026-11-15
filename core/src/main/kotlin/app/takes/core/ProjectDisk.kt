@@ -31,13 +31,59 @@ class ProjectDisk(val root: File) {
         if (!history.isDirectory && !history.mkdirs()) throw java.io.IOException("Cannot create ${history.path}")
         val head = File(directory, "project.json")
         val previous = if (head.isFile) head.readBytes() else null
-        val data = project.manifest { name, bytes ->
-            val file = File(history, name)
-            if (!file.isFile || sha256(file.readBytes()) + ".json" != name) writeAtomically(bytes, file)
+        val data = project.manifest { name, bytes -> ensureSnapshot(bytes, File(history, name)) }
+        if (previous != null && !data.contentEquals(previous)) {
+            // The first save of a timeline leaves nothing an older version could open in its place (docs/TRACKS-PLAN.md, 3.4, guard 2).
+            if (project.schemaVersion >= TrackTimeline.SCHEMA && (Project.schemaOf(previous) ?: 0) < TrackTimeline.SCHEMA) pinOlder(previous, directory)
+            else keepRevision(previous, directory)
         }
-        if (previous != null && !data.contentEquals(previous)) keepRevision(previous, directory)
         if (previous == null || !data.contentEquals(previous)) writeAtomically(data, head)
     }
+
+    /**
+     * Writes a history file unless it already holds [data]. A file found
+     * whole is not read again while its size and time stay what they were,
+     * as the original checks a snapshot once (YouRec/ProjectRecovery.swift:9-23).
+     */
+    private fun ensureSnapshot(data: ByteArray, file: File) {
+        val name = file.name
+        fun stamp() = "${file.length()}-${file.lastModified()}"
+        if (file.isFile) {
+            if (checked[file.path] == stamp()) return
+            if (sha256(file.readBytes()) + ".json" == name) { remember(file.path, stamp()); return }
+        }
+        writeAtomically(data, file)
+        remember(file.path, stamp())
+    }
+
+    /**
+     * Moves [previous], the head being replaced, and every kept revision of a
+     * schema below the timeline's out of `.revisions`, which older versions
+     * scan for a manifest to open when the head is newer than they read, into
+     * `.revisions/pinned`, which none of them looks in and nothing rotates:
+     * `schema-<n>-<sha256>.json`, as the original pins a manifest before its
+     * schema rises (YouRec/ProjectRecovery.swift:123-128). With the history
+     * files, which no save deletes, each is the project as it was.
+     */
+    private fun pinOlder(previous: ByteArray, directory: File) {
+        val pinned = File(File(directory, ".revisions"), PINNED)
+        if (!pinned.isDirectory && !pinned.mkdirs()) throw java.io.IOException("Cannot create ${pinned.path}")
+        fun pin(data: ByteArray) {
+            val file = File(pinned, "schema-${Project.schemaOf(data) ?: 0}-${sha256(data)}.json")
+            if (!file.isFile) writeAtomically(data, file)
+        }
+        pin(previous)
+        for (revision in revisions(directory)) {
+            val data = revision.readBytes()
+            if ((Project.schemaOf(data) ?: 0) >= TrackTimeline.SCHEMA) continue
+            pin(data)
+            if (!revision.delete()) throw java.io.IOException("Cannot move ${revision.path}")
+        }
+    }
+
+    /** The manifests [pinOlder] kept, newest schema first. */
+    fun pinnedManifests(id: String): List<File> =
+        File(File(folder(id), ".revisions"), PINNED).listFiles().orEmpty().filter { it.extension == "json" }.sortedByDescending { it.name }
 
     fun read(directory: File): Project {
         val history = File(directory, "History")
@@ -172,6 +218,15 @@ class ProjectDisk(val root: File) {
 
     companion object {
         private const val KEPT_REVISIONS = 5
+        private const val PINNED = "pinned"
+
+        // History files found whole, by path, with the size and time they had then.
+        private val checked = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+        private fun remember(path: String, stamp: String) {
+            if (checked.size > 200_000) checked.clear()
+            checked[path] = stamp
+        }
         /** The folder of a project that holds what could not be read, as in the original. */
         const val RECOVERY = "Recovery"
         private val writeLock = Any()
