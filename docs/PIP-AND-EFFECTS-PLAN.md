@@ -283,7 +283,7 @@ So effects see the framed, canvas-shaped picture including any bars. They come b
 
 Start with the first. A pixel test (24 fps footage in a 30 fps movie with grain) shows whether the second is needed.
 
-**Noise.** The original's hash uses unsigned integer operations (`.metal:33-34`, `ve_grainNoise` `:554`), which GLSL ES 1.00 does not have. Either the chain runs in an ES 3 context (unverified for Media3's SDR path), or the noise lattice is generated in core and uploaded as a small texture per frame, which makes it bit-exact against core and testable.
+**Noise.** The original's hash uses unsigned integer operations (`.metal:33-34`, `ve_grainNoise` `:554`), which GLSL ES 1.00 does not have. Either the chain runs in an ES 3 context (unverified for Media3's SDR path), or the noise lattice is generated in core and uploaded as a small texture per frame, which makes it bit-exact against core and testable. **Built in E1: the lattice.** Noir's lattice is made by the core (`VideoEffectGrain.lattice`) for each frame that has grain and uploaded as an 8-bit texture; the emulator's GLSL ES 3 gave wrong unsigned products, so the hash stays off the GPU. The preview draws no grain.
 
 **Pixel tests.**
 
