@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
@@ -353,7 +354,8 @@ private fun Disclosure(title: String, open: Boolean, toggle: () -> Unit) {
 /** A slider position on the control's steps. */
 private fun stepped(value: Float, kind: EffectParameterKind.Slider): Double {
     val steps = ((value - kind.min) / kind.step).roundToInt()
-    return (kind.min + steps * kind.step).coerceIn(kind.min, kind.max)
+    // Rounded off at a billionth, so that 39 steps of 0.05 save as 1.95.
+    return (Math.round((kind.min + steps * kind.step) * 1e9) / 1e9).coerceIn(kind.min, kind.max)
 }
 
 /** One control, by the kind of its parameter. VideoEffectsEditor.swift:1236-1317. */
@@ -376,10 +378,16 @@ private fun EffectControl(effect: VideoEffectSettings, parameter: EffectParamete
                     modifier = Modifier.height(36.dp).semantics { contentDescription = title; stateDescription = label },
                 )
             }
-            is EffectParameterKind.Toggle -> Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                Switch((value as? EffectValue.Toggle)?.value ?: kind.defaultValue, onCheckedChange = { set(parameter.id, EffectValue.Toggle(it)) },
-                    modifier = Modifier.semantics { contentDescription = title })
+            is EffectParameterKind.Toggle -> {
+                // The whole row switches, its name as well.
+                val on = (value as? EffectValue.Toggle)?.value ?: kind.defaultValue
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 44.dp).toggleable(on, role = Role.Switch) { set(parameter.id, EffectValue.Toggle(it)) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(title, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Switch(on, onCheckedChange = null)
+                }
             }
             is EffectParameterKind.Picker -> {
                 Text(title, color = Color.White, fontSize = 14.sp)
