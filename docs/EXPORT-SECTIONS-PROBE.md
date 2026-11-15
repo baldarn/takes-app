@@ -174,3 +174,23 @@ Added when the clock and the stills went into `Exporter.kt` (`docs/EXPORT-TWO-SE
 - **The frame rate** (point 3.1) is not the setting but `TransitionScene.frameRate(footage, ceiling)`: the fastest footage under the ceiling, one of 24, 25, 30, 50, 60, all of which `ExportSections.frameTicks` takes. The clock's length is `ExportSections.pictures` of the movie.
 - **A movie of plain cuts has no clock** and keeps the frame times of its footage. Sections need the clock for every movie; such a movie would then change its frames where its footage is not all of one rate, which is to be decided when sections are built.
 - **The held frame of a still** is kept from the frame on screen at the moment the model names. A section that begins inside a freeze still has not drawn it (section 4).
+
+## 9. As built
+
+Added when sections went into the app (`Exporter.kt`, `ExportMovie.kt`, `ExportJoin.kt`, `ExportCheck.kt`, `ExportPanel.kt`). Sections 1 to 8 are as they were written. Run on the emulator of the probe and on a Xiaomi Mi 10T (Android 12, hardware encoders) at 1080p.
+
+**The design of section 3, with these differences.**
+
+- **A section is drawn with half a second of the movie before it and after it, and those frames are left out before the encoder** (`ExportMovie.picture`, `SectionFramesEffect`). The clock runs over the wider stretch, every effect is told the movie's own time, and the last effect lets through the section's frames alone, timed from zero. So the frame nearest to a section's first one may be one that began before the section, and a still that a section begins inside is drawn again from before the frame it holds: the two things section 4 left open. The effects themselves did not change.
+- **The sound and the peak are made beside the picture, not before it.** On the phone the sound of a forty-second movie took 10 s and its picture 10 s; one after the other an export took 25 s where the single pass took 13 s, side by side it takes 12 s.
+- **Every movie goes through the clock**, the ones of plain cuts as well, which are then on one frame grid at `TransitionScene.frameRate`. Footage of one rate comes out frame for frame as before; footage of several rates (25, 30 and 60 in one movie) used to keep each clip's own frame times and now repeats frames of the slower clips, as a movie with a transition does. On the phone a seventy-second movie of plain cuts took 17 s in sections and 23 s in one pass.
+- **The join carries the orientation over** (`Mp4OrientationData`): an upright movie is encoded lying down and marked as turned, and the mark belongs to the file, not to the track's format.
+- **The setup data of the sections is compared when they are joined**, not when each is saved; sections that do not agree are all rendered again, once.
+
+**Measured.** Eleven projects (dissolves at 25, 30 and 60 frames a second, a still across a boundary, a flash cut, a wipe, a turned moving crop with a moving title and subtitles, clips at double and half speed, noise reduction, two sound tracks, plain cuts; 8 to 70 s), each exported by the single pass and in sections, on the emulator and on the phone: the same number of frames at the same times, the same source frame on every frame, and the sound equal sample for sample, in all but the movie of plain cuts at three rates, which differs as said above. The phone's hardware encoder gave every section its whole count of frames, a key frame first and the same setup data.
+
+At 4K on the phone (H.265 and H.264) the forty-second movie with dissolves was again equal frame for frame and sample for sample; it took 18.0 and 16.4 s in sections against 15.9 and 15.8 s in one pass, the sixty-six-second one 27.7 and 25.5 s against 24.1 and 23.8 s, and the seventy seconds of plain cuts 24.9 and 24.2 s against 25.4 and 27.2 s. A section of twelve seconds was 4.1 to 4.9 MB there, of footage that is easy to encode.
+
+**Interrupted.** On the emulator: Home and `am force-stop` in the middle of a section, at a section boundary, during the sound pass and during the join, then back and "Resume export"; Home and then a kill in one export. On the phone at 4K: Home in the middle of a section and during the join, and a kill in the middle of a section. Every resumed movie decoded to the same pictures and the same samples as the uninterrupted one. Nothing unfinished was in `.paused-export` at any of those moments; what a kill leaves in `Processing` is removed when the project's editor opens again.
+
+**Still open.** A device that fills up in the middle of an export was not run. The phone's own camera footage, whose frame times are not on a grid, was not exported in sections.
