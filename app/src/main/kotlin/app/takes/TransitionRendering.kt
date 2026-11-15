@@ -296,26 +296,33 @@ fun largestTextureSide(): Int? = try {
 }
 
 /**
- * Lays the two sequences of an export one above the other in a frame twice
- * as tall, untouched, the first on top. [TransitionEffect] then makes the
- * movie's frame from the two, which Media3's own blend of sequences could not:
- * it only lays one over the other by opacity, on encoded pixels.
+ * Lays the [decks] of an export, one or two, one above the other in a frame
+ * as many times as tall, untouched, the first on top. [TransitionEffect] then
+ * makes the movie's frame from them, which Media3's own blend of sequences
+ * could not: it only lays one over the other by opacity, on encoded pixels.
+ *
+ * The first input is not a deck but the clock, the sequence whose frames
+ * give the movie its frame times: it is not drawn. The decks are the inputs
+ * after it.
  */
-class DecksCompositor(private val canvas: Size) : VideoCompositorSettings {
-    override fun getOutputSize(inputSizes: List<Size>): Size = Size(canvas.width, canvas.height * 2)
+class DecksCompositor(private val canvas: Size, private val decks: Int) : VideoCompositorSettings {
+    override fun getOutputSize(inputSizes: List<Size>): Size = Size(canvas.width, canvas.height * decks)
 
     override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings = object : OverlaySettings {
-        override fun getBackgroundFrameAnchor(): android.util.Pair<Float, Float> = android.util.Pair.create(0f, if (inputId == 0) 0.5f else -0.5f)
+        private val deck = inputId - 1
+
+        override fun getAlphaScale(): Float = if (deck < 0) 0f else 1f
+
+        override fun getBackgroundFrameAnchor(): android.util.Pair<Float, Float> = android.util.Pair.create(0f, if (decks < 2) 0f else if (deck <= 0) 0.5f else -0.5f)
     }
 }
 
 /**
  * Draws every frame of an export as [TransitionScene] describes it: the
- * clip that is showing, or the two sides of a transition combined. With
- * [decks] 2 the input is the frame [DecksCompositor] makes; with 1 it is the
- * only sequence. [frames] is the frame rate of the movie during a join's
- * transition ([TransitionScene.frameRate]) and [content] where a clip's
- * picture lies in the frame.
+ * clip that is showing, or the two sides of a transition combined. The
+ * input is the frame [DecksCompositor] makes of the [decks], one or two.
+ * [frames] is the frame rate of the movie ([TransitionScene.frameRate]) and
+ * [content] where a clip's picture lies in the frame.
  */
 class TransitionEffect(
     private val clips: List<TimelineClip>, private val canvas: Size, private val decks: Int,
@@ -323,12 +330,13 @@ class TransitionEffect(
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program()
 
-    /** A moment whose last frame before it is kept: the start of a freeze, or the end of a chain. */
-    private class Keep(val at: Double, val deck: Int, val until: Double)
+    /**
+     * A moment a frame of [deck] is kept for: the start of a freeze, or the end of a chain, at [at]. The frame
+     * kept is the last one the movie shows by [last]; a freeze holds it until [until].
+     */
+    private class Keep(val at: Double, val deck: Int, val until: Double, val last: Double)
 
-    // The kept frames belong to the export, not to one program: with a single sequence Media3 makes
-    // the program again for every clip and for the empty stretch after the last one, and a freeze
-    // that closes the movie shows a frame kept by the program before. They go with the export's
+    // The kept frames belong to the export, not to one program. They go with the export's
     // graphics context when it ends.
     private val kept = IntArray(2)
     private val keptFramebuffers = IntArray(2)
@@ -341,17 +349,20 @@ class TransitionEffect(
         private val size = FrameSize(canvas.width.toDouble(), canvas.height.toDouble())
         private val layout = TimelineEditing.layout(clips)
 
-        // A still shows the last frame its clip showed, which the sequence does not give again.
+        // A still shows a frame its clip showed, which the sequence does not give again: the one on screen at the
+        // moment the model names (TransitionPicture.heldFrame, its `shown`), which the preview holds as well. That
+        // is the last frame before the freeze in a movie of 30 frames a second, the rate the model counts it in.
         private val freezes = layout.all.filter { it.transition != null && it.outgoing != null && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
             val placement = layout.placements[join.outgoing!!]
             TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)
-                ?.let { Keep(it.from, deckOf[placement.index], it.until) }
+                ?.let { Keep(it.from, deckOf[placement.index], it.until, it.shown + EDGE) }
         }
 
-        // Should a sequence end a clip a frame early, it is black from there. A transition still
-        // showing the clip in those frames gets the last one that came instead. (Media3's own
-        // frame-rate limit did that to every clip; FrameCeilingEffect does not.)
-        private val endings = TimelineEditing.chains(clips).mapIndexed { index, chain -> Keep(chain.end, index % 2, chain.end) }
+        // A deck is black after the last clip of a chain, and can be so a frame early: each frame of the movie
+        // takes the frame of the deck nearest to it in time, and in the last half interval of footage slower than
+        // the movie that is the black one after it. A transition still showing the clip in those frames gets the
+        // last one that came instead.
+        private val endings = TimelineEditing.chains(clips).mapIndexed { index, chain -> Keep(chain.end, index % decks, chain.end, chain.end - EDGE) }
 
         private var program = 0
         private var position = 0
@@ -417,9 +428,10 @@ class TransitionEffect(
 
         /**
          * Keeps the picture [deck] is showing now, unless it is the black of a
-         * sequence with nothing in it. False when it was black.
+         * sequence with nothing in it. False when it was black. With [replace]
+         * false it only looks, and the frame kept before stays.
          */
-        private fun keep(deck: Int, inputTexId: Int): Boolean {
+        private fun keep(deck: Int, inputTexId: Int, replace: Boolean = true): Boolean {
             // Before anything else: making a framebuffer binds it.
             val bound = IntArray(1)
             GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, bound, 0)
@@ -431,7 +443,7 @@ class TransitionEffect(
                 GLES20.glReadPixels((x * (canvas.width - 1)).toInt(), (y * (canvas.height - 1)).toInt(), 1, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixel.rewind())
                 pixel.get(0).toInt() == 0 && pixel.get(1).toInt() == 0 && pixel.get(2).toInt() == 0
             }
-            if (!empty) {
+            if (!empty && replace) {
                 val (texture, framebuffer) = kept[deck] to keptFramebuffers[deck]
                 kept[deck] = spare
                 keptFramebuffers[deck] = spareFramebuffer
@@ -453,9 +465,15 @@ class TransitionEffect(
             drawnAt = time
             gone.fill(false)
             for (deck in 0 until decks) {
-                // While a still is holding a deck's frame, that frame stays.
-                if (freezes.any { it.deck == deck && time >= it.at && time < it.until }) continue
-                val coming = (freezes + endings).firstOrNull { it.deck == deck && time < it.at - 0.0001 && time >= it.at - window } ?: continue
+                // While a still is holding a deck's frame, that frame stays. It stays from the frame after it: in a
+                // movie of more than 30 frames a second the clip shows a frame or two more before the freeze, and
+                // should the deck be black in them already, the frame kept stands in.
+                val holding = freezes.firstOrNull { it.deck == deck && time > it.last && time < it.until }
+                if (holding != null) {
+                    if (time < holding.at && keptFor[deck] == holding.at) gone[deck] = !keep(deck, inputTexId, replace = false)
+                    continue
+                }
+                val coming = (freezes + endings).firstOrNull { it.deck == deck && time <= it.last && time >= it.last - window } ?: continue
                 if (keep(deck, inputTexId)) keptFor[deck] = coming.at else gone[deck] = keptFor[deck] == coming.at
             }
             val moment = TransitionScene.moment(clips, time, size, deckOf, frames)
@@ -476,6 +494,9 @@ class TransitionEffect(
     }
 
     private companion object {
+        /** How near a frame's time may be to a moment and still count as before it or as on it, in seconds. */
+        const val EDGE = 0.0001
+
         /** How long before a freeze or the end of a chain the frames are kept, in seconds; longer when frames come further apart ([KEEP_FRAMES]). */
         const val KEEP_WINDOW = 0.2
 
