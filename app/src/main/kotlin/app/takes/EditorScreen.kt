@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -253,6 +254,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The Crop tool: the framing it is working on and the clips it goes on, shown in the preview and not saved until applied.
     var cropping by remember { mutableStateOf<Cropping?>(null) }
+    // The Video effects tool: the effects it is working on and the clips they go on, not saved until applied.
+    var effecting by remember { mutableStateOf<EffectsWork?>(null) }
     // The timeline scrolls under a fixed playhead. Playback and edits move the
     // scroll position; a drag moves the playhead and seeks.
     LaunchedEffect(clips, pixelsPerSecond, editor.playing) {
@@ -603,7 +606,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // While a clip is being cropped, a drag on the picture moves the footage under the frame and a pinch zooms it.
                 val framed by rememberUpdatedState(cropping)
                 val sized by rememberUpdatedState(sizes to canvas)
-                val reframing = if (cropping == null) Modifier else Modifier.pointerInput(Unit) {
+                val reframing = if (cropping == null && effecting == null) Modifier else Modifier.pointerInput(Unit) {
                     cropGestures(
                         viewport = {
                             val (known, shape) = sized
@@ -674,7 +677,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val levelChanged = stringResource(R.string.sound_level_changed)
         val levelGesture = LevelGesture(
             begin = begin@{ clip, sound, time ->
-                if (subtitling != null || titling != null || transitioning != null || cropping != null || trim != null) return@begin false
+                if (subtitling != null || titling != null || transitioning != null || cropping != null || effecting != null || trim != null) return@begin false
                 // The marked range or the whole selection when the finger goes down inside it; else the one waveform under it,
                 // which becomes what is selected.
                 val ranged = toolScope?.takeIf { marks.range?.let { clip != null && time >= it.start && time < it.end } == true && marks.rangeTargets?.clips?.contains(clip) != false && it.clips.isNotEmpty() }
@@ -734,20 +737,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             leveled?.shown(shown) ?: shown, files, leveled?.shownSounds(sounds) ?: sounds, names,
             // A tap picks one item, or lets go of it when it is all that is picked; a long press adds it or takes it out.
             select = { clip, audio ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null) {
                     val one = EditTargets(setOfNotNull(clip), setOfNotNull(audio))
                     marks = if (marks.range == null && marks.start == null && marks.selected == one) marks.cleared() else marks.selecting(clip, audio)
                 }
             },
             toggle = { clip, audio ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null) {
                     editor.pause()
                     marks = if (clip != null) marks.togglingClip(clip) else if (audio != null) marks.togglingAudio(audio) else marks
                 }
             },
             // A tap beside the clips and sounds goes there and lets go of everything; above them it only goes there.
             seek = { time, deselect ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null) {
                     if (deselect) marks = marks.selecting()
                     jump(time.coerceIn(0.0, duration))
                 }
@@ -755,7 +758,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // A title is opened from its bar, on the piece the bar is on. The picture goes to where that piece shows it.
             openTitle = { index, title ->
                 val clip = clips.getOrNull(index)
-                if (clip != null && subtitling == null && titling == null && transitioning == null && cropping == null && trim == null) {
+                if (clip != null && subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && trim == null) {
                     editor.pause()
                     TimelineEditing.titleRange(clips, index, title)?.let { range ->
                         if (playhead < range.start || playhead >= range.endInclusive) jump(range.start.coerceIn(0.0, duration))
@@ -768,19 +771,34 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             scroll = scroll, touched = { editor.pause() },
             // A tap on the name of a transition puts the playhead on its join, where the row below offers it, as in the original.
             focusTransition = { join ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null) {
                     marks = marks.selecting()
                     jump(join.time.coerceIn(0.0, duration))
                 }
             },
-            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null && cropping == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
+            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
             marked = if (transitioning == null && trim == null && auditioning == null) MarkedView.of(marks, playhead) else null,
             level = levelGesture,
         )
         val framing = cropping
-        if (framing != null) {
+        val effectsWork = effecting
+        if (effectsWork != null) {
+            // The tool closes when the edit changes under it, as with Undo.
+            LaunchedEffect(edit) { if (effecting?.on?.base != edit) effecting = null }
+            EffectsPanel(
+                effectsWork, playhead, change = { effecting = it },
+                // One Undo step for everything done in the tool. Effects that change nothing are not saved.
+                apply = {
+                    val next = effectsWork.applied()
+                    effecting = null
+                    effectsWork.on.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
+                },
+                cancel = { effecting = null },
+                modifier = Modifier.weight(1f), appliesTo = toolScopeLabel,
+            )
+        } else if (framing != null) {
             val shape = canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) }
             // The tool closes when the edit changes under it, as with Undo.
             LaunchedEffect(edit) { if (cropping?.on?.base != edit) cropping = null }
@@ -1041,6 +1059,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (framed != null) cropping = Cropping.opening(edit, toolScope, framed)
                 }, compact, enabled = current != null && sizes[current.sourceID] != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
                 TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
+                TextButton(onClick = {
+                    editor.pause()
+                    val subject = toolSubject ?: current
+                    if (subject != null) effecting = EffectsWork.opening(edit, toolScope, subject)
+                }, compact, enabled = current != null && scopeHasClips, contentPadding = tight) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.editor_effects)) }
             }
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                 TextButton(
