@@ -131,6 +131,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 - **Android.** The opening lives only on the first clip and the close only on the last (`core/TimelineEditing.kt:330-337`).
 - **Difference.** Probe: a clip inserted at 0 before a clip with an opening fade removes the fade; a clip inserted at the end after a closing fade removes the fade, and deleting that clip does not bring it back. (`docs/TRANSITIONS-FIT.md` section 6.1 describes a take recorded later as leaving the close "inactive"; through `TimelineEditing.insert`, which `Project.addRecording` uses when a place is set, it is removed.)
 - **Fix.** Not possible while clips only follow one another without also defining what a fade-out in the middle looks like; record it as a known difference in the panel's text or the ledger.
+- **Status.** Fixed: an opening and a close stay with their clip and play where it is, and the render plan takes them by the picture they belong to (`docs/TRACKS-PLAN.md`, N1 and S4r).
 
 ### F10. Trim: a transition beside the trimmed edge survives, and one never grows — specific cases [R][P]
 
