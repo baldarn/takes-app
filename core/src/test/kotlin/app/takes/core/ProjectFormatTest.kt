@@ -193,7 +193,7 @@ class ProjectFormatTest {
             val project = cropped(crop)
             assertEquals(14, project.edit.clips[0].schema)
             assertEquals(14, project.schemaVersion)
-            assertEquals(14, Project.LATEST_READABLE_SCHEMA)
+            assertEquals(15, Project.LATEST_READABLE_SCHEMA) // fades cut by a split came after
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }

@@ -200,13 +200,13 @@ object TimelineEditing {
         // The join after the clip now follows the second piece. Both pieces keep every title, as in the original: one that
         // lies in the other piece's footage does not show, and shows again when the piece is extended over that footage.
         val (before, after) = clip.bookmarks.orEmpty().partition { it.time < cut }
-        // Each piece keeps the level; the fade in stays at the start, the fade out at the end.
+        // Each piece keeps the level, and of each fade what falls in it: a cut inside a fade leaves both pieces its level and slope there.
         val pieces = listOf(
             clip.copy(end = cut, transition = null, transitionFit = null, bookmarks = before.ifEmpty { null },
-                audio = clip.audio?.copy(fadeOut = 0.0).normalized()),
+                audio = clip.audio?.sliced(0.0, offset, clip.duration).normalized()),
             // A copy, so whatever else a clip carries, such as its color, stays on both pieces.
             clip.copy(id = newID(), start = cut, openingTransition = null, openingTransitionFit = null, bookmarks = after.ifEmpty { null },
-                audio = clip.audio?.copy(fadeIn = 0.0).normalized()),
+                audio = clip.audio?.sliced(offset, clip.duration, clip.duration).normalized()),
         )
         return state.copy(clips = pruned(clips.take(index) + pieces + clips.drop(index + 1)))
     }
@@ -281,6 +281,10 @@ object TimelineEditing {
     /**
      * The clip with new source bounds, kept inside its source and at least
      * [MINIMUM_CLIP] long. Moving one edge never moves the other.
+     *
+     * A fade follows its footage, as in the original, where a trim is a cut
+     * and what is cut off removed: an edge moved into a fade leaves the rest
+     * of it, from the level it had there, and moved back out gives it back.
      */
     fun trimmed(clip: TimelineClip, start: Double, end: Double, sourceDuration: Double): TimelineClip {
         if (!start.isFinite() || !end.isFinite()) return clip
@@ -289,7 +293,16 @@ object TimelineEditing {
         val least = MINIMUM_CLIP * clip.rate
         val newStart = if (start == clip.start) start else start.coerceIn(0.0, maxOf(0.0, clip.end - least))
         val newEnd = if (end == clip.end) end else end.coerceIn(minOf(limit, newStart + least), limit)
-        return clip.copy(start = newStart, end = newEnd)
+        var audio = clip.audio
+        if (audio != null && (newStart != clip.start || newEnd != clip.end)) {
+            val head = (newStart - clip.start) / clip.rate
+            val tail = (clip.end - newEnd) / clip.rate
+            if (head > 0 || tail > 0) audio = audio.sliced(maxOf(0.0, head), clip.duration - maxOf(0.0, tail), clip.duration)
+            if (head < 0) audio = audio.extended(-head, leading = true)
+            if (tail < 0) audio = audio.extended(-tail, leading = false)
+            audio = audio.normalized()
+        }
+        return clip.copy(start = newStart, end = newEnd, audio = audio)
     }
 
     /**
@@ -329,6 +342,10 @@ object TimelineEditing {
         val clip = fitted(state.clips).getOrNull(index) ?: return null
         val kept = PauseDetector.keptIntervals(clip, cuts).filter { it.duration / clip.rate >= MINIMUM_CLIP }
         if (kept.isEmpty() || (kept.size == 1 && kept[0].start == clip.start && kept[0].end == clip.end)) return null
+        // The fades stay those of the whole clip, now shorter, as in the original, where a clip without its pauses is
+        // still one item: squeezed when it has become shorter than they are, and each piece plays its part of them.
+        val lengths = kept.map { it.duration / clip.rate }
+        val sound = clip.audio?.fitted(clip.duration, lengths.sum())
         val pieces = kept.mapIndexed { position, part ->
             val first = position == 0
             val last = position == kept.lastIndex
@@ -342,7 +359,7 @@ object TimelineEditing {
                 openingTransitionFit = if (first) clip.openingTransitionFit else null,
                 // Every piece keeps every title, as the pieces of a split do: a title shows wherever its footage is played.
                 bookmarks = clip.bookmarks?.filter { it.time >= part.start && it.time < part.end }?.ifEmpty { null },
-                audio = clip.audio?.copy(fadeIn = if (first) clip.audio.fadeIn else 0.0, fadeOut = if (last) clip.audio.fadeOut else 0.0).normalized(),
+                audio = sound?.sliced(lengths.take(position).sum(), lengths.take(position + 1).sum(), lengths.sum()).normalized(),
             )
         }
         val before = fitted(state.clips)
@@ -624,8 +641,8 @@ object TimelineEditing {
     fun soundLevel(clips: List<TimelineClip>, index: Int, offset: Double): Double {
         val clip = clips.getOrNull(index) ?: return 0.0
         val audio = clip.audio ?: ClipAudio()
-        // Fades never overlap: each takes at most its half of the clip.
-        val own = level(offset, clip.duration, minOf(audio.fadeIn, clip.duration / 2), minOf(audio.fadeOut, clip.duration / 2))
+        // Each fade may be as long as the clip; where they cross, the lower of the two counts.
+        val own = audio.fades.gain(offset, clip.duration)
         val time = clipStart(clips, index) + offset
         return audio.gain * own * TransitionSound.clipLevel(time, entering(clips, index)?.audioIn, leaving(clips, index)?.audioOut)
     }
@@ -667,7 +684,9 @@ object TimelineEditing {
         val item = items.firstOrNull { it.id == id } ?: return null
         if (!time.isFinite() || time - item.start < MINIMUM_CLIP || item.end - time < MINIMUM_CLIP) return null
         val cut = item.sourceStart + (time - item.start)
-        val trimmed = if (leading) item.copy(start = time, sourceStart = cut) else item.copy(sourceEnd = cut)
+        // A cut inside a fade leaves what is left of it, as on a clip.
+        val sound = (if (leading) item.audio?.sliced(time - item.start, item.duration, item.duration) else item.audio?.sliced(0.0, time - item.start, item.duration)).normalized()
+        val trimmed = if (leading) item.copy(start = time, sourceStart = cut, audio = sound) else item.copy(sourceEnd = cut, audio = sound)
         return state.withAudio(items.map { if (it.id == id) trimmed else it })
     }
 
@@ -691,7 +710,7 @@ object TimelineEditing {
     /** How loud an item is at [offset] seconds into it: its level, mute and fades. */
     fun soundLevel(item: AudioItem, offset: Double): Double {
         val audio = item.audio ?: ClipAudio()
-        return audio.gain * level(offset, item.duration, minOf(audio.fadeIn, item.duration / 2), minOf(audio.fadeOut, item.duration / 2))
+        return audio.gain * audio.fades.gain(offset, item.duration)
     }
 
     // MARK: Color
@@ -727,7 +746,9 @@ object TimelineEditing {
         val clip = state.clips.getOrNull(index) ?: return null
         val speed = if (rate == 1.0) null else (clip.speed ?: SpeedSettings()).copy(rate = rate)
         if (speed?.valid == false || speed == clip.speed) return null
-        val clips = fitted(state.clips).toMutableList().also { it[index] = it[index].copy(speed = speed) }
+        // A fade longer than the clip now lasts is squeezed into it, as in the original; one that fits keeps its length.
+        val sound = clip.audio?.fitted(clip.duration, clip.copy(speed = speed).duration).normalized()
+        val clips = fitted(state.clips).toMutableList().also { it[index] = it[index].copy(speed = speed, audio = sound) }
         return state.copy(clips = pruned(refitted(clips, index)))
     }
 }

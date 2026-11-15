@@ -314,8 +314,11 @@ object RangeEditing {
         )
         val empty = TimelineClip(sourceID = clip.sourceID, start = 0.0, end = 0.0)
         val cut = checkNotNull(TimelineEditing.split(EditState(listOf(empty, lent, empty)), lead + offset)) { "A clip could not be cut $offset s into ${clip.duration} s" }
-        val left = cut.clips[1].copy(start = clip.start, openingTransition = clip.openingTransition, openingTransitionFit = clip.openingTransitionFit)
-        val right = cut.clips[2].copy(end = clip.end, transition = clip.transition, transitionFit = clip.transitionFit)
+        // The fades are cut where the clip is, not where the lent footage put the cut.
+        val left = cut.clips[1].copy(start = clip.start, openingTransition = clip.openingTransition, openingTransitionFit = clip.openingTransitionFit,
+            audio = clip.audio?.sliced(0.0, offset, clip.duration).normalized())
+        val right = cut.clips[2].copy(end = clip.end, transition = clip.transition, transitionFit = clip.transitionFit,
+            audio = clip.audio?.sliced(offset, clip.duration, clip.duration).normalized())
         return listOf(Piece(left, piece.origin, piece.start), Piece(right, piece.origin, piece.start + offset))
     }
 
@@ -376,8 +379,9 @@ object RangeEditing {
 
     /**
      * Cuts an item at the ends of a range. As with clips, an end within a
-     * frame of the item's own edge is that edge. Each side of a cut loses the
-     * fade that was on the other side.
+     * frame of the item's own edge is that edge. Each piece keeps what falls
+     * in it of the item's fades: a cut inside a fade leaves both sides its
+     * level and slope there.
      */
     private fun carve(item: AudioItem, start: Double, end: Double): Carved {
         val from = if (start - item.start < FRAME - EPSILON) item.start else start
@@ -385,10 +389,7 @@ object RangeEditing {
         if (from == item.start && to == item.end) return Carved(null, item, null)
         if (to - from < FRAME - EPSILON) return Carved(item, null, null)
         fun part(a: Double, b: Double, id: String): AudioItem {
-            val sound = item.audio?.copy(
-                fadeIn = if (a > item.start) 0.0 else item.audio.fadeIn,
-                fadeOut = if (b < item.end) 0.0 else item.audio.fadeOut,
-            ).normalized()
+            val sound = item.audio?.sliced(a - item.start, b - item.start, item.duration).normalized()
             return item.copy(id = id, start = a, sourceStart = item.sourceStart + (a - item.start), sourceEnd = item.sourceStart + (b - item.start), audio = sound)
         }
         val before = if (from > item.start) part(item.start, from, item.id) else null

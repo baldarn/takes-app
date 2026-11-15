@@ -391,10 +391,12 @@ class ClipAudioTest {
         assertEquals(gain / 2, TimelineEditing.soundLevel(clips, 0, 3.0), 1e-12)
         assertEquals(1.0, TimelineEditing.soundLevel(clips, 1, 2.0), 0.0)
         assertEquals(0.0, TimelineEditing.soundLevel(clips, 5, 0.0), 0.0)
-        // A fade longer than half the clip is held to its half.
-        val long = TimelineEditing.setAudio(state, 0, ClipAudio(fadeIn = 10.0, fadeOut = 10.0))!!.clips
-        assertEquals(1.0, TimelineEditing.soundLevel(long, 0, 2.0), 1e-12)
-        assertEquals(0.5, TimelineEditing.soundLevel(long, 0, 1.0), 1e-12)
+        // A fade may be as long as the clip, and longer than what is left of it: where two cross, the lower counts
+        // (CutAudioEnvelope.swift:38, TrackTimeline.swift:150).
+        val long = TimelineEditing.setAudio(state, 0, ClipAudio(fadeIn = 4.0, fadeOut = 10.0))!!.clips
+        assertEquals(0.2, TimelineEditing.soundLevel(long, 0, 2.0), 1e-12)
+        assertEquals(0.25, TimelineEditing.soundLevel(long, 0, 1.0), 1e-12)
+        assertEquals(0.1, TimelineEditing.soundLevel(long, 0, 3.0), 1e-12)
     }
 
     @Test fun soundFollowsTransitionsToo() {

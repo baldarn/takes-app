@@ -103,7 +103,22 @@ data class Bookmark(val id: String = newID(), val time: Double, val label: Strin
     val valid: Boolean get() = time.isFinite() && time >= 0 && (label?.length ?: 0) <= 100
 }
 
-/** How a clip's own sound is played: level, mute, and a fade at each end. Named as in the original app. */
+/**
+ * How a clip's own sound is played: level, mute, and a fade at each end. Named as in the original app.
+ *
+ * The level is chosen on the original's grid ([AudioGainGrid]: half decibels
+ * from −40 to +12) and, as there, any level from −60 dB is a valid saved one:
+ * a project made before the grid keeps the level it has until the level is
+ * chosen again.
+ *
+ * A fade is the original's [AudioEdgeFade]: [fadeIn] and [fadeOut] are its
+ * whole length in seconds of the movie, from silence to the full level, and
+ * may be as long as the item; [fadeInElapsed] and [fadeOutElapsed] are how
+ * much of it lies behind the item's edge after a cut inside it, so the piece
+ * goes on from the level and with the slope the fade had there. They are
+ * saved only when a fade has been cut, which keeps every older project's
+ * file as it was.
+ */
 @Serializable
 data class ClipAudio(
     val volumeDB: Double = 0.0,
@@ -112,11 +127,62 @@ data class ClipAudio(
     val fadeOut: Double = 0.0,
     /** Noise reduction: how much of the cleaned sound replaces the recorded one, 0–1. Clips only. */
     val denoise: Double = 0.0,
+    /** Seconds of [fadeIn] already over where the item begins. Null for a fade that starts from silence. */
+    val fadeInElapsed: Double? = null,
+    /** Seconds of [fadeOut] that lie past where the item ends. Null for a fade that reaches silence. */
+    val fadeOutElapsed: Double? = null,
 ) {
     val gain: Double get() = if (muted) 0.0 else Math.pow(10.0, volumeDB / 20)
     val valid: Boolean
         get() = volumeDB.isFinite() && volumeDB in MINIMUM_DB..MAXIMUM_DB && denoise.isFinite() && denoise in 0.0..1.0 &&
-            fadeIn.isFinite() && fadeOut.isFinite() && fadeIn >= 0 && fadeOut >= 0 && fadeIn <= 604800 && fadeOut <= 604800
+            fadeIn.isFinite() && fadeOut.isFinite() && fadeIn >= 0 && fadeOut >= 0 && fadeIn <= 604800 && fadeOut <= 604800 &&
+            (fadeInElapsed == null || fadeInElapsed >= 0 && fadeInElapsed < fadeIn) &&
+            (fadeOutElapsed == null || fadeOutElapsed >= 0 && fadeOutElapsed < fadeOut)
+
+    /** The two fades as the original keeps them. */
+    val fades: AudioEdgeFades
+        get() = AudioEdgeFades(
+            fadeIn.takeIf { it > 0 }?.let { AudioEdgeFade(it, fadeInElapsed ?: 0.0) },
+            fadeOut.takeIf { it > 0 }?.let { AudioEdgeFade(it, fadeOutElapsed ?: 0.0) },
+        )
+
+    /** The same sound with [fades] at its ends. A fade that was never cut is saved as its length alone. */
+    fun withFades(fades: AudioEdgeFades): ClipAudio = copy(
+        fadeIn = fades.fadeIn?.seconds ?: 0.0, fadeInElapsed = fades.fadeIn?.elapsed?.takeIf { it > 0 },
+        fadeOut = fades.fadeOut?.seconds ?: 0.0, fadeOutElapsed = fades.fadeOut?.elapsed?.takeIf { it > 0 },
+    )
+
+    /**
+     * The sound of the piece from [from] to [to] seconds of an item [length]
+     * seconds long: a cut inside a fade leaves the piece the rest of it, at
+     * the level and with the slope it had at the cut, and a cut past a fade
+     * leaves the piece without it (TrackTimeline.swift:196-202).
+     */
+    fun sliced(from: Double, to: Double, length: Double): ClipAudio =
+        if (fadeIn <= 0 && fadeOut <= 0) this else withFades(fades.sliced(EditInterval.of(from, to), EditTime.of(length)))
+
+    /**
+     * The sound after its item was made [amount] seconds longer at its start
+     * ([leading]) or its end: a fade cut there gets that much of itself back
+     * (TrackTimeline.swift:1650-1655).
+     */
+    fun extended(amount: Double, leading: Boolean): ClipAudio {
+        val elapsed = (if (leading) fadeInElapsed else fadeOutElapsed) ?: return this
+        val left = maxOf(0.0, elapsed - amount).takeIf { it > 0 }
+        return if (leading) copy(fadeInElapsed = left) else copy(fadeOutElapsed = left)
+    }
+
+    /** The sound when its item goes from [oldLength] to [newLength] seconds without being cut: a fade is squeezed into a shorter item, never stretched (TrackTimeline.swift:1282-1283). */
+    fun fitted(oldLength: Double, newLength: Double): ClipAudio =
+        if (fadeIn <= 0 && fadeOut <= 0) this else withFades(fades.fitted(EditTime.of(oldLength), EditTime.of(newLength)))
+
+    /**
+     * True when an item [length] seconds long plays these fades in a way
+     * readers before schema 15 would not: they knew nothing of a fade cut by
+     * a split, and held each fade to half its item.
+     */
+    fun reshaped(length: Double): Boolean =
+        fadeInElapsed != null || fadeOutElapsed != null || fadeIn > length / 2 || fadeOut > length / 2
 
     companion object {
         const val MINIMUM_DB = -60.0
@@ -182,6 +248,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        audio?.reshaped(duration) == true -> 15
         crop?.reframed == true -> 14
         openingTransition != null || transition?.legacy == false -> 13
         texts.orEmpty().any { it.styled } -> 12
@@ -364,7 +431,8 @@ data class Project(
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
         return copy(
             // Older readers must not silently drop what they do not know.
-            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1, if (sound != null) 5 else 1, if (state.subtitles != null) 11 else 1),
+            schemaVersion = maxOf(schemaVersion, state.clips.maxOfOrNull { it.schema } ?: 1, if (sound != null) 5 else 1, if (state.subtitles != null) 11 else 1,
+                if (sound.orEmpty().any { it.audio?.reshaped(it.duration) == true }) 15 else 1),
             snapshots = snapshots.take(historyCursor + 1) + EditSnapshot(EditState(state.clips, audio = sound, subtitles = state.subtitles), cursor),
             historyCursor = historyCursor + 1,
             updatedAt = now,
@@ -410,7 +478,8 @@ data class Project(
             val step = if (continuing) historyCursor else historyCursor + 1
             return copy(
                 // Older readers would replay the take at the end of every step.
-                schemaVersion = maxOf(schemaVersion, clip.schema, 10),
+                // The take may have cut a clip inside a fade, which the piece then carries.
+                schemaVersion = maxOf(schemaVersion, next.clips.maxOf { it.schema }, 10),
                 sources = sources + source,
                 captureLedger = captureLedger + clip,
                 captureInsertions = captureInsertions + captureLedger.size,
@@ -503,7 +572,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 14
+        const val LATEST_READABLE_SCHEMA = 15
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
