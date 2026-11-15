@@ -97,3 +97,32 @@ when the two are within 1e-4.
 
 The remaining differences in `docs/TRACKS-PARITY.md` (197 of 91,755 calls) are all on edits
 that contain an unlinked clip and show four kinds marked Unreachable.
+
+## At S3b
+
+S3b saves every committed edit as the original's track timeline (schema 17). The editing
+functions still work on the sequence the timeline reads as, so each kind deferred to S3b
+was read again against the original, with what the new format itself does or does not
+change about it.
+
+| Kind | Decision | Why |
+|---|---|---|
+| split-on-the-grid | Not adopted | The original puts a cut on its 1/30 s clock because its projects are cut on that clock (`TimelineEditing.swift:42-47`). Android's cuts are on no grid (N8), its movies are made at 24 to 60 frames a second, and a picture's place in the saved timeline is already a tick: the cut is kept at the second asked for, as the clip's source bounds, and nothing in the format needs it on a frame. Adopting it would move every new cut by up to half a frame with no gain. |
+| range-end-within-a-frame-of-a-cut | Kept until S4 | Same family as `split-refused-near-an-edge`: the original's editor does snap a range end to a cut (`EditorView.swift:1125-1130`), and slivers a frame long cannot yet be shown or grabbed on this timeline. The format does not change that. |
+| insert-new-identity | Kept until S12 | The original copies every clip it inserts under a new id (`TimelineEditing.swift:92-101`), and finds a take it inserted by its source. Here a take recorded at a place keeps the id of its entry in the capture ledger, and `UnusedTakes.add`, `Project.addRecording` and the editor's selection find the clip they inserted by that id. The saved timeline holds either equally, so nothing forces it now; it moves with the paste targets of S12, where insertion is reworked, together with those callers. |
+| later-piece-new-identity (on `trimAudio`) | Kept until S5 | Invisible, and the editor's selection of a sound item follows its id. It moves with the sound lanes, where sound items are selected as the original selects them. |
+| bookmark-at-the-last-second | Kept until S12 | The saved timeline could hold a mark on the timeline itself, but the editing functions still see the sequence it reads as ([TrackSequenceForm]), which has no place for one, and a step that does not read as a sequence is not committed as a timeline. Bookmarks become the timeline's own at S12. |
+| The fit's last digits | Today's number | A relation's `factor` is the one `TransitionLayout` finds (or the one saved, when the two are within 1e-4), not the track model's, which differs from it by 1e-8 to 1e-6. The render plan and every pinned golden plan are worked out from that number; the original's own conversion of an old project likewise takes the layout's factor (`TrackTimeline.swift:510-534`). S4, where the renderer takes transitions by identity and in ticks, is where the model's own fit can take over. |
+
+What the format does change, and is accepted with it (plan, 3.3 and D4):
+
+- **Sound items are laid on the two tracks by first fit**, in the order they begin: the
+  timeline stores no track. A project whose items were put the other way round shows them
+  on swapped rows after its first edit; the mix is the same. Of the golden projects, one
+  step (`sound-tracks`, step 4) shows it.
+- **A sound item begins on a tick** (at most 1/480,000 s away), or exactly on the edge of
+  a clip or the end of the item before when that is the same tick.
+- **Settings that do not play are dropped and every transition in play has its fit
+  saved**: a relation always has a factor. Nothing is seen or heard of either.
+- **Two edits are the same edit when they are the same timeline**: committing an edit
+  that differs only in one of the above makes no Undo step.
