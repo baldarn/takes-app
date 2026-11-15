@@ -55,4 +55,27 @@
     <string name="recorder_zoom_time_shorter">Accorcia</string>
     <string name="recorder_zoom_time_hint">Scorri su o giù per cambiare il tempo di zoom</string>
     <string name="recorder_pinch_on_release">%1$s  ·  %2$s al rilascio</string>
+    <!-- Focus: the button of the camera strip, its hints, and the section of More settings. -->
+    <string name="recorder_focus_auto">AF</string>
+    <string name="recorder_focus_manual">MF</string>
+    <string name="recorder_focus_locked">Bloccato</string>
+    <string name="recorder_focus_fixed">Fisso</string>
+    <string name="recorder_focus_auto_label">Messa a fuoco automatica</string>
+    <string name="recorder_focus_manual_label">Messa a fuoco manuale</string>
+    <string name="recorder_focus_locked_label">Messa a fuoco bloccata</string>
+    <string name="recorder_focus_fixed_label">Fuoco fisso</string>
+    <string name="recorder_focus_auto_value">Automatica</string>
+    <string name="recorder_focus_locked_value">Bloccata · %1$d%%</string>
+    <string name="recorder_focus_percent">Fuoco %1$d%%</string>
+    <string name="recorder_focus_farther">Metti a fuoco più lontano</string>
+    <string name="recorder_focus_nearer">Metti a fuoco più vicino</string>
+    <string name="recorder_focus_fixed_hint">Questo obiettivo ha il fuoco fisso</string>
+    <string name="recorder_focus_own_point">Questo obiettivo sceglie da solo il punto di fuoco</string>
+    <string name="recorder_settings_focus">Messa a fuoco</string>
+    <string name="recorder_focus_lock">Blocca la messa a fuoco</string>
+    <string name="recorder_focus_position">Posizione manuale dell\'obiettivo</string>
+    <string name="recorder_focus_near">Vicino</string>
+    <string name="recorder_focus_far">Lontano</string>
+    <string name="recorder_focus_note_fixed">Questo obiettivo ha il fuoco fisso.</string>
+    <string name="recorder_focus_note_manual">Nel registratore, scorri verso l\'alto su MF per mettere a fuoco più lontano o verso il basso per mettere a fuoco più vicino.</string>
 </resources>
