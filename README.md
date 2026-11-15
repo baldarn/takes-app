@@ -31,6 +31,11 @@ The port is still in progress. What works today is listed under
 - Per-camera zoom memory, zoom presets, timed zoom transitions (tap: saved time,
   double tap: one second), pinch to zoom.
 - Recordings stay outside editor undo/redo, as in the original model.
+- Record here: from the editor, new takes go into the edit at the playhead instead of
+  at the end, and one Undo takes the whole run back out.
+- Microphone choice on Android 12 or newer: automatic, the phone, or a Bluetooth, wired
+  or USB headset, with a warning when the recording comes from a different input.
+- English and Italian, following the phone's language.
 - Basic editor: preview of the edit, scrolling thumbnail timeline under a fixed
   playhead with audio waveforms, split at the playhead, trim handles on the current
   clip, delete and reorder clips, persistent undo/redo.
@@ -71,7 +76,7 @@ More than one video layer, unlinking a clip's sound from its picture, the other
 transitions (wipe, split screen and so on), title fonts, colors and motion, Log footage
 and highlight recovery, subtitles, clip speed, rotated and animated crops, video
 effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log
-capture, microphone selection, manual focus.
+capture, manual focus.
 
 The project file format is this port's own and is not interchangeable with the iPhone
 app.

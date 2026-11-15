@@ -305,4 +305,7 @@
     <string name="recorder_record">Registra</string>
     <string name="recorder_mark">Segna</string>
     <string name="recorder_mark_count">Segna · %1$d</string>
+    <string name="editor_record_here">Registra qui</string>
+    <string name="recorder_inserting_at">Inserimento a %1$s</string>
+    <string name="recorder_at_end">Registra in coda</string>
 </resources>

@@ -365,7 +365,7 @@ private object Thumbnails {
 }
 
 @Composable
-fun EditorScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier = Modifier) {
+fun EditorScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier = Modifier, record: () -> Unit = {}) {
     val project = store.selected
     if (project == null || project.sources.isEmpty()) {
         Box(modifier.fillMaxSize().padding(32.dp), Alignment.Center) {
@@ -373,11 +373,11 @@ fun EditorScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier = M
         }
         return
     }
-    key(project.id) { Editor(project, store, exporter, modifier) }
+    key(project.id) { Editor(project, store, exporter, modifier, record) }
 }
 
 @Composable
-private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, modifier: Modifier) {
+private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, modifier: Modifier, record: () -> Unit) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val edit = project.edit
@@ -702,6 +702,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         enabled = target != null && target in clips.indices, contentPadding = tight,
                     ) { Text(label) }
                 }
+                // New takes go in at the playhead; Stop in the recorder ends the run.
+                TextButton(onClick = { editor.pause(); store.recordHere(project.id, playhead); record() }, compact, contentPadding = tight) { Text(stringResource(R.string.editor_record_here)) }
                 TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
                     enabled = location != null, contentPadding = tight) { Icon(Icons.Outlined.Delete, stringResource(R.string.common_delete), tint = if (location != null) RecordRed else LocalContentColor.current) }
             }

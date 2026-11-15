@@ -451,6 +451,8 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     private fun reset() {
+        // Stop ends a run of takes recorded into the middle of an edit.
+        (segmentProject ?: store.selectedID)?.let(store::recordAtEnd)
         phase = Phase.Idle
         marks = 0
         segmentProject = null

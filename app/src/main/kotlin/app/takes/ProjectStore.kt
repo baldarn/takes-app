@@ -297,6 +297,12 @@ class ProjectStore(context: Context) {
 
     fun setExportSettings(projectID: String, settings: ExportSettings) = change(projectID) { it.copy(exportSettings = settings) }
 
+    /** The next takes go into the edit at timeline second [at], as one undo step, instead of at the end. */
+    fun recordHere(projectID: String, at: Double) = change(projectID) { it.beginRecordingInsertion(at) }
+
+    /** Takes go to the end of the project again. */
+    fun recordAtEnd(projectID: String) = change(projectID) { it.endRecordingInsertion() }
+
     fun undo(projectID: String) = change(projectID) { it.undo() }
 
     fun redo(projectID: String) = change(projectID) { it.redo() }

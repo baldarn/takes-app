@@ -159,6 +159,7 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
         val project = store.selected
         Text(
             (project?.let { "${it.title} · ${timeLabel(it.capturedDuration)}" } ?: stringResource(R.string.recorder_new_project)) +
+                (project?.recordingInsertion?.let { " · " + stringResource(R.string.recorder_inserting_at, timeLabel(it)) } ?: "") +
                 " · " + if (capture.landscape) stringResource(R.string.recorder_landscape) else stringResource(R.string.recorder_portrait),
             color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
@@ -268,6 +269,13 @@ private fun Controls(capture: CaptureController, store: ProjectStore) {
         Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
             if (phase == Phase.Recording || phase == Phase.Paused) {
                 TextButton(onClick = capture::finishTake) { Text(stringResource(R.string.recorder_stop), fontSize = 17.sp) }
+            }
+            // "Record here" was chosen in the editor: this is the way back to recording at the end.
+            val inserting = store.selected?.takeIf { it.recordingInsertion != null }
+            if (phase == Phase.Idle && inserting != null) {
+                TextButton(onClick = { store.recordAtEnd(inserting.id) }) {
+                    Text(stringResource(R.string.recorder_at_end), fontSize = 15.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
             }
         }
         val pausing = phase == Phase.Recording

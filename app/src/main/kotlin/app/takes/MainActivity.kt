@@ -54,9 +54,11 @@ class MainActivity : ComponentActivity() {
                                 0 -> RecorderScreen(app.capture, app.store)
                                 1 -> ProjectsScreen(app.store, Modifier.statusBarsPadding()) { project, destination ->
                                     app.store.select(project.id)
+                                    // "Continue recording" always means at the end.
+                                    if (destination == 0) app.store.recordAtEnd(project.id)
                                     tab = destination
                                 }
-                                else -> EditorScreen(app.store, app.exporter, Modifier.statusBarsPadding())
+                                else -> EditorScreen(app.store, app.exporter, Modifier.statusBarsPadding()) { tab = 0 }
                             }
                             Notice(app.store.error, Modifier.align(Alignment.Center)) { app.store.error = null }
                         }

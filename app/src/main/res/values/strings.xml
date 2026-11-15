@@ -302,4 +302,7 @@
     <string name="recorder_record">Record</string>
     <string name="recorder_mark">Mark</string>
     <string name="recorder_mark_count">Mark · %1$d</string>
+    <string name="editor_record_here">Record here</string>
+    <string name="recorder_inserting_at">Inserting at %1$s</string>
+    <string name="recorder_at_end">Record at the end</string>
 </resources>
