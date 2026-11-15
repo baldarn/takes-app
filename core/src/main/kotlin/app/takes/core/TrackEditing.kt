@@ -54,6 +54,12 @@ fun TrackTimeline.insertingTime(duration: EditTime, time: EditTime, atPictureGap
 /** The empty stretch around [time]. See [TrackEditing.gap]. */
 fun TrackTimeline.gap(time: EditTime): EditInterval? = TrackEditing.gap(this, time)
 
+/** Every stretch where nothing plays, in order. See [TrackEditing.gaps]. */
+val TrackTimeline.gaps: List<EditInterval> get() = TrackEditing.gaps(this)
+
+/** Every stretch with no picture, in order. See [TrackEditing.pictureGaps]. */
+val TrackTimeline.pictureGaps: List<EditInterval> get() = TrackEditing.pictureGaps(this)
+
 /** Removes the empty time around [time]. See [TrackEditing.closingGap]. */
 fun TrackTimeline.closingGap(time: EditTime): TrackTimeline = TrackEditing.closingGap(this, time)
 
@@ -361,6 +367,32 @@ object TrackEditing {
         val start = occupied.filter { it.end <= time }.maxOfOrNull { it.end } ?: EditTime.ZERO
         val end = occupied.filter { it.start > time }.minOfOrNull { it.start } ?: timeline.duration
         return if (end > start) EditInterval(start, end) else null
+    }
+
+    /**
+     * Every stretch before the end where nothing plays on any lane, in
+     * order: the gaps [gap] finds and [closingGap] removes, one interval
+     * each. Time past the end is not a gap.
+     */
+    fun gaps(timeline: TrackTimeline): List<EditInterval> =
+        holes(union(timeline.video.map { it.interval } + timeline.audio.map { it.interval } + timeline.generated.map { it.interval }), timeline.duration)
+
+    /**
+     * Every stretch before the end with no picture, in order: where the movie
+     * is black, whether or not a sound plays under it. Only those with
+     * nothing under them at all are [gaps] that Close gap can remove.
+     */
+    fun pictureGaps(timeline: TrackTimeline): List<EditInterval> = holes(timeline.videoCoverage, timeline.duration)
+
+    private fun holes(occupied: List<EditInterval>, end: EditTime): List<EditInterval> {
+        val result = ArrayList<EditInterval>()
+        var from = EditTime.ZERO
+        for (range in occupied) {
+            if (range.start > from) result += EditInterval(from, minOf(range.start, end))
+            from = maxOf(from, range.end)
+        }
+        if (end > from) result += EditInterval(from, end)
+        return result.filter { !it.isEmpty }
     }
 
     /**
