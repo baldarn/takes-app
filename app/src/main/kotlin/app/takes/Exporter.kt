@@ -414,36 +414,42 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             } catch (failed: Exception) {
                 problem = failed
             }
-            val published = saved[0]
-            // Nothing half written is ever kept: only whole parts are in the checkpoint.
-            withContext(NonCancellable + Dispatchers.IO) { ExportCheckpoint.reclaim(folder) }
-            val ending = when {
-                published != null -> null
-                problem == null -> if (pausing) ExportCheckpoint.Failure.PausedInBackground else ExportCheckpoint.Failure.Cancelled
-                problem is Refusal -> ExportCheckpoint.Failure.Failed(problem.message.orEmpty())
-                else -> ExportCheckpoint.failure(
-                    context.getString(R.string.export_failed, problem.message ?: (problem as? ExportException)?.errorCodeName ?: context.getString(R.string.common_unknown_error)),
-                    cancelled = false, outOfSpace = outOfSpace(problem), foreground = foreground, paused = pausing,
-                )
-            }
-            val peak = checkpoint.measuredPeak
-            val stays = ending is ExportCheckpoint.Failure.PausedInBackground || ending is ExportCheckpoint.Failure.PausedForSpace
-            when (checkpoint.finish(paused = stays, published = published != null)) {
-                // The saved parts have served.
-                ExportCheckpoint.Ending.Published -> withContext(NonCancellable + Dispatchers.IO) { runCatching { checkpoint.discard() } }
-                ExportCheckpoint.Ending.Paused -> {
-                    val reason = (ending as? ExportCheckpoint.Failure.PausedForSpace)?.reason
-                    checkpoint.pauseReason = reason
-                    paused = PausedExport(project.id, checkpoint.savedSeconds(duration), reason)
-                }
-                ExportCheckpoint.Ending.Abandoned -> if (ending is ExportCheckpoint.Failure.Failed) store.error = ending.message
-            }
-            status = null
+            // What follows runs to its end also when the export was cancelled: a coroutine that has been cancelled
+            // is not given the result of work it hands to another thread, unless that is asked for here.
+            withContext(NonCancellable) { finish(project, folder, checkpoint, saved[0], problem) }
             job = null
-            if (published != null) {
-                warning = ExportReceipt.AudioWarning.of(peak)
-                result = published
+        }
+    }
+
+    /** Ends a run of the export: [published] is its movie, if it made one, and [problem] what stopped it, if something did. */
+    private suspend fun finish(project: Project, folder: File, checkpoint: ExportCheckpoint, published: File?, problem: Exception?) {
+        // Nothing half written is ever kept: only whole parts are in the checkpoint.
+        withContext(Dispatchers.IO) { ExportCheckpoint.reclaim(folder) }
+        val ending = when {
+            published != null -> null
+            problem == null -> if (pausing) ExportCheckpoint.Failure.PausedInBackground else ExportCheckpoint.Failure.Cancelled
+            problem is Refusal -> ExportCheckpoint.Failure.Failed(problem.message.orEmpty())
+            else -> ExportCheckpoint.failure(
+                context.getString(R.string.export_failed, problem.message ?: (problem as? ExportException)?.errorCodeName ?: context.getString(R.string.common_unknown_error)),
+                cancelled = false, outOfSpace = outOfSpace(problem), foreground = foreground, paused = pausing,
+            )
+        }
+        val peak = checkpoint.measuredPeak
+        val stays = ending is ExportCheckpoint.Failure.PausedInBackground || ending is ExportCheckpoint.Failure.PausedForSpace
+        when (checkpoint.finish(paused = stays, published = published != null)) {
+            // The saved parts have served.
+            ExportCheckpoint.Ending.Published -> withContext(Dispatchers.IO) { runCatching { checkpoint.discard() } }
+            ExportCheckpoint.Ending.Paused -> {
+                val reason = (ending as? ExportCheckpoint.Failure.PausedForSpace)?.reason
+                checkpoint.pauseReason = reason
+                paused = PausedExport(project.id, checkpoint.savedSeconds(project.edit.duration), reason)
             }
+            ExportCheckpoint.Ending.Abandoned -> if (ending is ExportCheckpoint.Failure.Failed) store.error = ending.message
+        }
+        status = null
+        if (published != null) {
+            warning = ExportReceipt.AudioWarning.of(peak)
+            result = published
         }
     }
 
