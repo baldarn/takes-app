@@ -48,6 +48,7 @@ import app.takes.core.SoundEnvelope
 import app.takes.core.ExportCheckpoint
 import app.takes.core.ExportProgress
 import app.takes.core.ExportReceipt
+import app.takes.core.ExportReceipts
 import app.takes.core.ExportSections
 import app.takes.core.ExportSpace
 import app.takes.core.ExportSpaceException
@@ -91,8 +92,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -311,6 +311,13 @@ class ClockedEncoders(private val encoders: Codec.EncoderFactory, private val fr
 data class PausedExport(val projectID: String, val savedSeconds: Double, val reason: String?)
 
 /**
+ * A movie of a project that can be played, shared and saved without exporting: the one made from the edit and
+ * the settings as they are now ([current]), or else the newest one, made from an earlier edit or with other
+ * settings. [warning] is set when the sound of a current movie goes over full scale.
+ */
+data class ExportedMovie(val file: File, val current: Boolean, val warning: ExportReceipt.AudioWarning?)
+
+/**
  * Renders the current edit to a new movie in the project's `Exports` folder.
  * Sources are never modified. The picture takes the size of the first clip;
  * other clips are scaled to fit inside it.
@@ -319,6 +326,11 @@ data class PausedExport(val projectID: String, val savedSeconds: Double, val rea
  * ([ExportCheckpoint]): the sound of all of it, then the picture twelve seconds at a time, then both joined
  * without encoding anything again. An export does not go on while the app is not in front: it pauses, and
  * resumes from the parts that are saved, also after the app was closed in the middle of it.
+ *
+ * Beside each movie goes a receipt ([ExportReceipt]): the edit it was made from, the recordings it used and
+ * its format. While the edit and the settings are those of a receipt, its movie is offered in place of a new
+ * export. A new movie replaces the ones before it that have a receipt; movies made before there were receipts
+ * are left where they are.
  */
 class Exporter(private val context: Context, private val store: ProjectStore) {
     /** Something about the project stops the export before it begins; [message] is for the person. */
@@ -333,6 +345,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     private val main = Handler(Looper.getMainLooper())
     private var job: Job? = null
     private var pausing = false
+
+    // The movies being copied to the gallery: a new export does not remove one of them.
+    private val copying = mutableSetOf<File>()
 
     // An exporter is made by the screen that shows it, so the app is in front then.
     private var foreground = true
@@ -379,9 +394,23 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     fun restore(project: Project) {
         if (status != null) return
         val folder = folder(project)
-        val found = ExportCheckpoint(folder).restore(project, exported = false)
+        val exported = ExportReceipts.matching(project, ExportReceipts.list(folder), folder) != null
+        val found = ExportCheckpoint(folder).restore(project, exported)
         ExportCheckpoint.reclaim(folder)
         paused = found?.let { PausedExport(project.id, it.savedSeconds, it.reason) }
+    }
+
+    /**
+     * The movie of [project] that can be offered without exporting, if there is one: the movie of the edit and
+     * the settings as they are, else the newest export, else the newest movie made before exports had receipts.
+     */
+    suspend fun exported(project: Project): ExportedMovie? = withContext(Dispatchers.IO) {
+        val folder = folder(project)
+        ExportReceipts.select(project, ExportReceipts.list(folder), folder)
+            ?.let { ExportedMovie(ExportReceipts.movie(folder, it.receipt), it.current, it.receipt.audioWarning.takeIf { _ -> it.current }) }
+            ?: ExportReceipts.exports(folder).listFiles().orEmpty()
+                .filter { it.isFile && it.extension == "mp4" && !it.name.startsWith(".") && !ExportReceipts.receiptFile(it).exists() }
+                .maxByOrNull { it.lastModified() }?.let { ExportedMovie(it, false, null) }
     }
 
     /** Starts an export of [project], or goes on with the one that is saved for it. */
@@ -406,9 +435,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         job = scope.launch {
             // The movie, from the moment it is in the Exports folder: it counts even if a pause comes in just then.
             val saved = arrayOfNulls<File>(1)
+            var peak: Float? = null
             var problem: Exception? = null
             try {
-                run(project, folder, checkpoint) { saved[0] = it }
+                run(project, folder, checkpoint) { movie, loudest -> saved[0] = movie; peak = loudest }
             } catch (_: CancellationException) {
                 // Paused or cancelled: which of the two is told below.
             } catch (failed: Exception) {
@@ -416,13 +446,13 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             }
             // What follows runs to its end also when the export was cancelled: a coroutine that has been cancelled
             // is not given the result of work it hands to another thread, unless that is asked for here.
-            withContext(NonCancellable) { finish(project, folder, checkpoint, saved[0], problem) }
+            withContext(NonCancellable) { finish(project, folder, checkpoint, saved[0], peak, problem) }
             job = null
         }
     }
 
-    /** Ends a run of the export: [published] is its movie, if it made one, and [problem] what stopped it, if something did. */
-    private suspend fun finish(project: Project, folder: File, checkpoint: ExportCheckpoint, published: File?, problem: Exception?) {
+    /** Ends a run of the export: [published] is its movie, if it made one, with the [peak] of its sound, and [problem] what stopped it, if something did. */
+    private suspend fun finish(project: Project, folder: File, checkpoint: ExportCheckpoint, published: File?, peak: Float?, problem: Exception?) {
         // Nothing half written is ever kept: only whole parts are in the checkpoint.
         withContext(Dispatchers.IO) { ExportCheckpoint.reclaim(folder) }
         val ending = when {
@@ -434,7 +464,6 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 cancelled = false, outOfSpace = outOfSpace(problem), foreground = foreground, paused = pausing,
             )
         }
-        val peak = checkpoint.measuredPeak
         val stays = ending is ExportCheckpoint.Failure.PausedInBackground || ending is ExportCheckpoint.Failure.PausedForSpace
         when (checkpoint.finish(paused = stays, published = published != null)) {
             // The saved parts have served.
@@ -463,8 +492,11 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         status = status?.advanced(next) ?: return
     }
 
-    /** The whole export of [project]; [published] is told the movie once it is saved. Cancelling the coroutine stops it, and what is in [checkpoint] by then stays. */
-    private suspend fun run(project: Project, folder: File, checkpoint: ExportCheckpoint, published: (File) -> Unit): Unit = coroutineScope {
+    /**
+     * The whole export of [project]; [published] is told the movie once it is saved, and the loudest sample of its
+     * sound when that was measured. Cancelling the coroutine stops it, and what is in [checkpoint] by then stays.
+     */
+    private suspend fun run(project: Project, folder: File, checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit): Unit = coroutineScope {
         val clips = project.edit.clips
         val duration = project.edit.duration
         val settings = project.exportSettings
@@ -596,6 +628,15 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             )
         }
 
+        // The recordings the movie was made from, as they are now: their checksums go on the receipt.
+        val used = ExportReceipts.usedSources(project)
+        val checksums = withContext(Dispatchers.IO) {
+            used.mapIndexed { index, source ->
+                val active = coroutineContext
+                source.id to sha256(files.getValue(source.id)) { active.ensureActive(); report(ExportProgress.sourceFiles(index, it, used.size)) }
+            }.toMap()
+        }
+
         // The movie is proved before it is offered: every picture is in it, it is as long as the edit, and its
         // first and last picture decode. One that fails is reported and never published.
         report(ExportProgress.of(ExportProgress.Step.Verifying))
@@ -608,14 +649,38 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val name = project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifEmpty { context.getString(R.string.export_fallback_name) } + " $stamp.mp4"
         val output = File(exports, name)
+        // The movie goes into the Exports folder with its receipt, and the exports before it go: only the newest
+        // is kept. Their files and the saved parts of this one are moved under Processing, which is emptied when
+        // the run ends. A movie that is being copied to the gallery stays.
         withContext(NonCancellable + Dispatchers.IO) {
+            val previous = ExportReceipts.list(folder)
+            val peak = checkpoint.measuredPeak
             try {
-                Files.move(joined.toPath(), output.toPath(), StandardCopyOption.ATOMIC_MOVE)
+                ExportReceipts.publish(ExportReceipts.receipt(project, name, checksums, canvas.first, canvas.second, settings.codec, peak), joined, output)
             } catch (_: Exception) {
                 throw Refusal(context.getString(R.string.export_save_failed))
             }
-            published(output)
+            published(output, peak)
+            ExportReceipts.retire(previous, folder, checkpoint) { movie -> synchronized(copying) { movie in copying } }
         }
+    }
+
+    /** The SHA-256 of [file] in hexadecimal; [progress] is told how much of it has been read, 0 to 1. */
+    private fun sha256(file: File, progress: (Double) -> Unit): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(1 shl 20)
+        val length = maxOf(1L, file.length())
+        var done = 0L
+        file.inputStream().use { input ->
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+                done += read
+                progress(done.toDouble() / length)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /**
@@ -679,6 +744,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     @RequiresApi(Build.VERSION_CODES.Q)
     fun saveToGallery(file: File) {
         scope.launch {
+            synchronized(copying) { copying += file }
             val saved = withContext(Dispatchers.IO) {
                 val resolver = context.contentResolver
                 val values = ContentValues().apply {
@@ -698,6 +764,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     false
                 }
             }
+            synchronized(copying) { copying -= file }
             store.error = context.getString(if (saved) R.string.export_gallery_saved else R.string.export_gallery_failed)
         }
     }
