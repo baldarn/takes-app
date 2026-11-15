@@ -30,6 +30,11 @@ internal object Tag {
     const val INWARDS = "an edge moved inwards"
     const val SOUND_ONLY = "limited to sound items"
     const val SOME_TRANSITION = "the edit has a transition"
+    const val TRANSITION_START = "on the first instant of a transition"
+    const val NEAR_TRANSITION_EDGE = "within a frame of where a transition begins or ends"
+    const val PAST_PICTURE = "after the last clip, where only sound plays"
+    const val SOUND_AFTER_PICTURE = "a sound item of the scope begins after the last clip"
+    const val PLAYHEAD_HELD = "the playhead is in time a transition holds, where no clip plays"
 }
 
 /**
@@ -189,7 +194,8 @@ internal object TrackParityCases {
         val names = state.clips.mapIndexed { index, clip -> clip.id to "clip $index" }.toMap()
         return state.copy(
             clips = state.clips.map { clip -> clip.copy(id = names.getValue(clip.id), transition = clip.transition?.let { it.copy(nextClipID = it.nextClipID?.let { next -> names[next] ?: next }) }) },
-            audio = state.audio?.sortedBy { it.start }?.mapIndexed { index, item -> item.copy(id = names[item.id]?.let { "sound of $it" } ?: "item $index") },
+            // The unlinked sound of a clip keeps the clip's name, which is what makes it that clip's sound.
+            audio = state.audio?.sortedBy { it.start }?.mapIndexed { index, item -> item.copy(id = names[item.id] ?: "item $index") },
         )
     }
 
@@ -204,10 +210,21 @@ internal object TrackParityCases {
             if (offset < TimelineEditing.MINIMUM_CLIP || state.clips[index].duration - offset < TimelineEditing.MINIMUM_CLIP) tags += Tag.NEAR_EDGE
             tags += on(state, index)
         }
-        if (TimelineEditing.transitions(state.clips).any { time > it.range.start && time < it.range.endInclusive }) tags += Tag.IN_TRANSITION
+        val transitions = TimelineEditing.transitions(state.clips)
+        if (transitions.any { time > it.range.start && time < it.range.endInclusive }) tags += Tag.IN_TRANSITION
+        if (transitions.any { abs(time - it.range.start) < INSTANT && it.range.endInclusive > it.range.start }) tags += Tag.TRANSITION_START
+        if (transitions.any { join -> listOf(join.range.start, join.range.endInclusive).any { abs(time - it) >= INSTANT && abs(time - it) < RangeEditing.FRAME } }) tags += Tag.NEAR_TRANSITION_EDGE
+        if (time > state.duration + INSTANT) tags += Tag.PAST_PICTURE
         if (state.audio.orEmpty().any { time > it.start && time < it.end }) tags += Tag.UNDER_SOUND
         return tags
     }
+
+    /** Times this close are one instant. */
+    private const val INSTANT = 0.000001
+
+    /** True where no clip plays at [time] although the picture goes on: a still or a color held by a transition. */
+    private fun held(state: EditState, time: Double): Boolean =
+        time < state.duration && state.clips.indices.none { index -> TimelineEditing.clipStart(state.clips, index).let { time >= it - INSTANT && time < it + state.clips[index].duration } }
 
     private fun on(state: EditState, index: Int): Set<String> {
         val clip = state.clips.getOrNull(index) ?: return emptySet()
@@ -241,6 +258,8 @@ internal object TrackParityCases {
                 for (time in listOf(scope.range.start, scope.range.end)) {
                     val here = at(state, time)
                     if (Tag.IN_TRANSITION in here) tags += Tag.IN_TRANSITION
+                    if (Tag.TRANSITION_START in here) tags += Tag.TRANSITION_START
+                    if (Tag.NEAR_TRANSITION_EDGE in here) tags += Tag.NEAR_TRANSITION_EDGE
                     if (Tag.OFF_GRID in here) tags += Tag.OFF_GRID
                     if (Tag.NEAR_EDGE in here) tags += Tag.NEAR_EDGE
                     if (Tag.UNDER_SOUND in here) tags += Tag.UNDER_SOUND
@@ -250,6 +269,9 @@ internal object TrackParityCases {
             is EditScope.Selected -> state.clips.forEachIndexed { index, clip -> if (clip.id in scope.targets.clips) tags += on(state, index) }.also { if (scope.targets.clips.isEmpty()) tags += Tag.SOUND_ONLY }
             EditScope.Whole -> Unit
         }
+        // Whole items, with clips among them: where each sound goes in a copy depends on what plays before it.
+        val whole = when (scope) { is EditScope.Range -> null; is EditScope.Selected -> scope.targets.audio.takeIf { scope.targets.clips.isNotEmpty() }; EditScope.Whole -> state.audio.orEmpty().map { it.id }.toSet() }
+        if (state.audio.orEmpty().any { whole?.contains(it.id) == true && it.start >= state.duration - INSTANT }) tags += Tag.SOUND_AFTER_PICTURE
         if (state.audio.orEmpty().any { (it.audio?.fadeIn ?: 0.0) > 0 || (it.audio?.fadeOut ?: 0.0) > 0 }) tags += Tag.FADES
         return tags
     }
@@ -321,10 +343,11 @@ internal object TrackParityCases {
             )
             for ((what, range) in bounds) {
                 val (start, end) = range
-                val way = on(state, index) + (if ("out by" in what) Tag.OUTWARDS else Tag.INWARDS)
+                // What the trim comes to: a clip shorter than the shortest there is grows when it is asked to shrink.
+                val next = TimelineEditing.trimmed(clip, start, end, limit)
+                val way = on(state, index) + (if (next.start < clip.start || next.end > clip.end) Tag.OUTWARDS else Tag.INWARDS)
                 add("TimelineEditing.trim", "clip ${index + 1}, $what", way, { today(TimelineEditing.trim(state, index, start, end, limit)) }, { track(TrackSequenceView.trim(state, index, start, end, limit)) })
                 // The same trim as the handle makes it in the original: one edge, by a distance on the timeline.
-                val next = TimelineEditing.trimmed(clip, start, end, limit)
                 val left = next.start != clip.start
                 val delta = if (left) (next.start - clip.start) / clip.rate else (next.end - clip.end) / clip.rate
                 add(
@@ -472,19 +495,26 @@ internal object TrackParityCases {
             val tags = about(state, scope)
             val name = label(scope, state)
             val playhead = time()
+            val moved = tags + setOfNotNull(Tag.PLAYHEAD_HELD.takeIf { held(state, playhead) })
             add(
-                "RangeEditing.delete", "$name, the playhead at ${seconds(playhead)}", tags,
+                "RangeEditing.delete", "$name, the playhead at ${seconds(playhead)}", moved,
                 { RangeEditing.delete(state, scope, playhead)?.let { today(it.state, "playhead" to it.position) } },
                 { TrackSequenceView.delete(state, scope, playhead)?.let { track(it.result, "playhead" to it.position) } },
             )
             // What was copied, as an edit of its own that begins at zero.
             add(
                 "RangeEditing.copy", name, tags,
-                { RangeEditing.copy(state, scope)?.let { today(nameless(EditState(it.clips, audio = it.audio.ifEmpty { null }, subtitles = it.subtitles))) } },
+                // A fragment's sound is placed from where its first clip begins, which an opening that holds time puts later than the fragment's start.
+                {
+                    RangeEditing.copy(state, scope)?.let { fragment ->
+                        val lead = if (fragment.clips.isEmpty()) 0.0 else TimelineEditing.clipStart(fragment.clips, 0)
+                        today(nameless(EditState(fragment.clips, audio = fragment.audio.map { it.copy(start = it.start + lead) }.ifEmpty { null }, subtitles = fragment.subtitles)))
+                    }
+                },
                 { TrackSequenceView.copy(state, scope)?.let { copied -> track(copied.fragment.copy(state = copied.fragment.state?.let(::nameless))) } },
             )
             add(
-                "RangeEditing.cut", "$name, the playhead at ${seconds(playhead)}", tags,
+                "RangeEditing.cut", "$name, the playhead at ${seconds(playhead)}", moved,
                 { RangeEditing.cut(state, scope, playhead)?.let { today(it.state, "playhead" to it.position) } },
                 { TrackSequenceView.cut(state, scope, playhead)?.let { track(it.result, "playhead" to it.position) } },
             )

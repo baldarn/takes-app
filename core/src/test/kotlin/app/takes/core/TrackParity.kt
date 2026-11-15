@@ -106,8 +106,10 @@ internal object TrackParity {
                 if (!near(f?.factor ?: 1.0, g?.factor ?: 1.0, SAME_VALUE)) result += "$word: fit"
             }
             sound(x.audio, y.audio, "clip", result)
-            fun marks(clip: TimelineClip) = clip.bookmarks.orEmpty().sortedBy { it.time }.map { Triple(name(it.id), Math.round(it.time * 10000), it.label) }
-            if (marks(x) != marks(y)) result += "clip: bookmarks"
+            // A bookmark is on a source second; through the track model that second is put on a tick of the timeline.
+            fun marks(clip: TimelineClip) = clip.bookmarks.orEmpty().sortedBy { it.time }
+            val (m, n) = marks(x) to marks(y)
+            if (m.size != n.size || m.zip(n).any { (p, q) -> name(p.id) != name(q.id) || p.label != q.label || !near(p.time, q.time, SAME_TIME * maxOf(1.0, x.rate)) }) result += "clip: bookmarks"
             fun words(clip: TimelineClip): List<Any> {
                 val phrases = clip.subtitleWords.orEmpty().map { it.phraseID }.distinct()
                 return clip.subtitleWords.orEmpty().map { listOf(it.text, Math.round(it.start * 1000), Math.round(it.end * 1000), phrases.indexOf(it.phraseID)) }
@@ -117,7 +119,8 @@ internal object TrackParity {
             if (x.color?.let { it.copy(id = name(it.id)!!) } != y.color?.let { it.copy(id = name(it.id)!!) }) result += "clip: color"
             if (x.crop?.let { it.copy(id = name(it.id)!!) } != y.crop?.let { it.copy(id = name(it.id)!!) }) result += "clip: framing"
         }
-        val order = compareBy<AudioItem> { Math.round(it.start * 1000) }.thenBy { it.sourceID }.thenBy { it.sourceStart }
+        // By what they play before where they are, so that an item that begins a moment later on one side is still compared with itself.
+        val order = compareBy<AudioItem> { it.sourceID }.thenBy { Math.round(it.start * 1000) }.thenBy { it.sourceStart }
         val p = a.audio.orEmpty().sortedWith(order)
         val q = b.audio.orEmpty().sortedWith(order)
         if (p.size != q.size) result += if (p.size > q.size) "sound items: more today" else "sound items: more through the track model"
@@ -138,10 +141,13 @@ internal object TrackParity {
     private fun sound(a: ClipAudio?, b: ClipAudio?, word: String, into: MutableSet<String>) {
         val x = a ?: ClipAudio()
         val y = b ?: ClipAudio()
-        if (!near(x.volumeDB, y.volumeDB, SAME_VALUE) || x.muted != y.muted) into += "$word: level or mute"
-        if (!near(x.fadeIn, y.fadeIn, SAME_VALUE) || !near(x.fadeOut, y.fadeOut, SAME_VALUE)) into += "$word: fades"
-        else if (!near(x.fadeInElapsed ?: 0.0, y.fadeInElapsed ?: 0.0, SAME_VALUE) || !near(x.fadeOutElapsed ?: 0.0, y.fadeOutElapsed ?: 0.0, SAME_VALUE)) into += "$word: how far into a fade it begins"
-        if (!near(x.denoise, y.denoise, SAME_VALUE)) into += "$word: noise reduction"
+        val found = LinkedHashSet<String>()
+        if (!near(x.volumeDB, y.volumeDB, SAME_VALUE) || x.muted != y.muted) found += "$word: level or mute"
+        if (!near(x.fadeIn, y.fadeIn, SAME_VALUE) || !near(x.fadeOut, y.fadeOut, SAME_VALUE)) found += "$word: fades"
+        else if (!near(x.fadeInElapsed ?: 0.0, y.fadeInElapsed ?: 0.0, SAME_VALUE) || !near(x.fadeOutElapsed ?: 0.0, y.fadeOutElapsed ?: 0.0, SAME_VALUE)) found += "$word: how far into a fade it begins"
+        if (!near(x.denoise, y.denoise, SAME_VALUE)) found += "$word: noise reduction"
+        // Where neither is heard, what differs is what would be heard once it is unmuted.
+        if (x.muted && y.muted && found.isNotEmpty()) into += "$word: what a muted sound remembers" else into += found
     }
 
     private fun sameValue(a: Any?, b: Any?): Boolean = when {
@@ -223,7 +229,7 @@ internal object TrackParity {
         val items = state.audio.orEmpty().sortedBy { it.start }.map { item ->
             "${names.item(item.id)} @${seconds(item.start)} ${item.sourceID} ${seconds(item.sourceStart)}–${seconds(item.sourceEnd)}${describe(item.audio)}"
         }
-        return (clips.ifEmpty { listOf("no clips") } + items).joinToString("\n") { "    $it" } + "\n    (${seconds(state.duration)} s of picture)"
+        return (clips.ifEmpty { listOf("no clips") } + items).joinToString("\n") { "    $it" } + "\n    (${seconds(state.duration)} s of picture${if (state.subtitles != null) ", with the look of its captions" else ""})"
     }
 
     fun describe(answer: Answer?, names: Names): String {
