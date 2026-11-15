@@ -66,7 +66,6 @@ import androidx.media3.exoplayer.source.ClippingMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
-import kotlin.math.roundToLong
 import app.takes.core.PauseDetector
 import app.takes.core.PauseSettings
 import app.takes.core.SourceInterval
@@ -236,7 +235,7 @@ private class EditorPlayer(private val context: Context) {
             sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(file))), sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(clean))),
         )
         return ClippingMediaSource.Builder(merged)
-            .setStartPositionUs((clip.start * 1e6).roundToLong()).setEndPositionUs((clip.end * 1e6).roundToLong()).build()
+            .setStartPositionUs(cutMicros(clip.start)).setEndPositionUs(cutMicros(clip.end)).build()
     }
     // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
     private val boosts = decks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }

@@ -62,7 +62,17 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.floor
 import kotlin.math.roundToLong
+
+/**
+ * The microsecond a clip is cut at, for a source second: never later than it.
+ * A file gives each frame its time rounded down to the microsecond. A cut on
+ * the frame grid rounded to the nearest one would fall just after its frame
+ * one time in three, and the piece before the cut would keep that frame while
+ * the piece after it lost it: a piece one frame long would lose its only frame.
+ */
+fun cutMicros(seconds: Double): Long = floor(seconds * 1e6).toLong()
 
 /** One timeline clip as a player or export item, cut to its source range. */
 fun clippedItem(clip: TimelineClip, file: File): MediaItem = MediaItem.Builder()
@@ -70,8 +80,8 @@ fun clippedItem(clip: TimelineClip, file: File): MediaItem = MediaItem.Builder()
     .setMediaId(clip.id)
     .setClippingConfiguration(
         MediaItem.ClippingConfiguration.Builder()
-            .setStartPositionUs((clip.start * 1e6).roundToLong())
-            .setEndPositionUs((clip.end * 1e6).roundToLong())
+            .setStartPositionUs(cutMicros(clip.start))
+            .setEndPositionUs(cutMicros(clip.end))
             .build(),
     ).build()
 
