@@ -221,6 +221,19 @@ class ProjectArchiveTest {
         assertThrows(Cancelled::class.java) { archive(project, folder) { written, _ -> if (written > 1_000_000) throw Cancelled() } }
     }
 
+    @Test fun cancelAtAnyReportStopsTheExportAsItIs() {
+        // Cancel on the Projects screen throws from the progress report; the screen then deletes the partial document.
+        val (project, folder) = saved()
+        var reports = 0
+        archive(project, folder) { _, _ -> reports++ }
+        for (at in reportsToCancelAt(reports)) {
+            var seen = 0
+            assertThrows(java.util.concurrent.CancellationException::class.java) {
+                archive(project, folder) { _, _ -> if (seen++ == at) throw java.util.concurrent.CancellationException() }
+            }
+        }
+    }
+
     @Test fun emptyProjectStillArchives() {
         val disk = disk()
         val project = Project("Empty")

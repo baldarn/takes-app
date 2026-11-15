@@ -37,6 +37,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 class TakesApp : Application() {
@@ -67,6 +70,9 @@ fun mediaDuration(file: File): Double? {
 
 data class DeletedProject(val project: Project, val date: Long?)
 
+/** Thrown at the next step of a piece of work after the person tapped Cancel. */
+private class Cancelled : RuntimeException()
+
 /** The text shown for a project problem; the core module only has it in English. */
 val ProjectException.Reason.label: Int
     get() = when (this) {
@@ -92,6 +98,12 @@ class ProjectStore(context: Context) {
     var error by mutableStateOf<String?>(null)
     /** What an import in progress is doing, for display. */
     var importing by mutableStateOf<String?>(null); private set
+    /** Whether the work in progress offers Cancel: an import of videos, a duplicate, a ZIP made or opened. */
+    var cancellable by mutableStateOf(false); private set
+    /** Whether Cancel was tapped; the work stops at its next step and keeps nothing it made. */
+    var cancelling by mutableStateOf(false); private set
+    // Read by the work on its own thread, at each step.
+    private val cancelRequested = AtomicBoolean(false)
     /**
      * What Copy or Cut last took in each project, by project id. As in the original, a project has its own
      * clipboard, kept while the app runs and never saved: a fragment names the recordings of its project.
@@ -137,15 +149,28 @@ class ProjectStore(context: Context) {
      */
     fun importVideos(projectID: String?, uris: List<Uri>) {
         if (uris.isEmpty() || importing != null) return
+        val previous = selectedID
         val project = projectID?.let { id -> projects.firstOrNull { it.id == id } } ?: create() ?: return
+        begin(cancellable = true)
         scope.launch {
             var failed = 0
-            uris.forEachIndexed { index, uri ->
-                importing = context.getString(R.string.projects_importing_progress, index + 1, uris.size)
-                val source = withContext(Dispatchers.IO) { copyIn(project.id, uri) }
-                if (source == null || !addRecording(project.id, source)) failed++
+            // The videos join the project only once all are copied, so Cancel leaves it as it was.
+            val copied = mutableListOf<SourceMedia>()
+            try {
+                uris.forEachIndexed { index, uri ->
+                    importing = context.getString(R.string.projects_importing_progress, index + 1, uris.size)
+                    val source = withContext(Dispatchers.IO) { copyIn(project.id, uri) }
+                    if (source == null) failed++ else copied += source
+                }
+            } catch (_: Cancelled) {
+                withContext(Dispatchers.IO) { copied.forEach { file(project, it).delete() } }
+                // A project made for this import goes with it.
+                if (projectID == null) discardNew(project, previous)
+                end()
+                return@launch
             }
-            importing = null
+            for (source in copied) if (!addRecording(project.id, source)) failed++
+            end()
             if (failed > 0) {
                 error = if (uris.size == 1) context.getString(R.string.projects_import_failed_one)
                 else context.getString(R.string.projects_import_failed_some, failed, uris.size)
@@ -159,10 +184,11 @@ class ProjectStore(context: Context) {
      */
     fun importAudio(projectID: String, uri: Uri, at: Double) {
         if (importing != null) return
+        begin(cancellable = false)
         scope.launch {
             importing = context.getString(R.string.sound_importing)
             val source = withContext(Dispatchers.IO) { copyInSound(projectID, uri) }
-            importing = null
+            end()
             val project = projects.firstOrNull { it.id == projectID }
             if (source == null || project == null) {
                 error = context.getString(R.string.sound_import_failed)
@@ -184,14 +210,17 @@ class ProjectStore(context: Context) {
      */
     fun archive(project: Project, destination: Uri) {
         if (importing != null) return
+        begin(cancellable = true)
         scope.launch {
             importing = context.getString(R.string.projects_zipping)
+            var stopped = false
             val problem = withContext(Dispatchers.IO) {
                 try {
                     var shown = -1
                     resolver.openOutputStream(destination)!!.use { stream ->
                         // write() flushes; use() closes the document.
                         ProjectArchive.write(disk.folder(project.id), project, stream.buffered(1 shl 16)) { written, total ->
+                            stopIfCancelled()
                             val percent = if (total > 0) (written * 100 / total).toInt() else 100
                             if (percent != shown) { shown = percent; importing = context.getString(R.string.projects_zipping_percent, percent) }
                         }
@@ -200,10 +229,12 @@ class ProjectStore(context: Context) {
                 } catch (failure: Exception) {
                     // A partial archive would look like a backup and not be one.
                     runCatching { DocumentsContract.deleteDocument(resolver, destination) }
+                    stopped = failure is Cancelled
                     describe(failure)
                 }
             }
-            importing = null
+            end()
+            if (stopped) return@launch
             error = if (problem == null) context.getString(R.string.projects_zip_saved) else context.getString(R.string.projects_zip_failed, problem)
         }
     }
@@ -297,18 +328,62 @@ class ProjectStore(context: Context) {
         // Hidden until complete, so an interrupted copy is never mistaken for a recording.
         val partial = File(folder, ".${file.name}.tmp")
         return try {
-            resolver.openInputStream(uri)?.use { input -> partial.outputStream().use { input.copyTo(it) } } ?: return null
+            resolver.openInputStream(uri)?.use { input -> partial.outputStream().use { copyStopping(input, it) } } ?: return null
             val duration = mediaDuration(partial) ?: return null
             if (displaySize(partial) == null || !partial.renameTo(file)) return null
             val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             }
             SourceMedia(id = id, filename = file.name, duration = duration, originalName = name?.take(255))
+        } catch (cancelled: Cancelled) {
+            file.delete()
+            throw cancelled
         } catch (_: Exception) {
             null
         } finally {
             partial.delete()
         }
+    }
+
+    /** Copies [input] to [output], stopping at the next read once Cancel is tapped. */
+    private fun copyStopping(input: InputStream, output: OutputStream) {
+        val buffer = ByteArray(1 shl 16)
+        while (true) {
+            stopIfCancelled()
+            val read = input.read(buffer)
+            if (read < 0) break
+            output.write(buffer, 0, read)
+        }
+    }
+
+    private fun begin(cancellable: Boolean) {
+        cancelRequested.set(false)
+        cancelling = false
+        this.cancellable = cancellable
+    }
+
+    private fun end() {
+        importing = null
+        cancellable = false
+        cancelling = false
+    }
+
+    /** Stops the import, duplicate or ZIP in progress, as the original's Cancel. Nothing it made is kept. */
+    fun cancelOperation() {
+        if (importing == null || !cancellable) return
+        cancelRequested.set(true)
+        cancelling = true
+    }
+
+    private fun stopIfCancelled() {
+        if (cancelRequested.get()) throw Cancelled()
+    }
+
+    /** Removes a project made a moment ago for work that was cancelled, and selects again what was selected. */
+    private suspend fun discardNew(project: Project, previous: String?) {
+        withContext(Dispatchers.IO) { disk.folder(project.id).deleteRecursively() }
+        projects = projects.filter { it.id != project.id }
+        select(previous?.takeIf { id -> projects.any { it.id == id } })
     }
 
     fun addRecording(projectID: String, source: SourceMedia): Boolean {
@@ -358,8 +433,10 @@ class ProjectStore(context: Context) {
      */
     fun openArchive(source: Uri) {
         if (importing != null) return
+        begin(cancellable = true)
         scope.launch {
             importing = context.getString(R.string.projects_unzipping)
+            var stopped = false
             val problem = withContext(Dispatchers.IO) {
                 try {
                     val size = resolver.query(source, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { row ->
@@ -371,17 +448,20 @@ class ProjectStore(context: Context) {
                     var shown = -1
                     resolver.openInputStream(source)!!.use { stream ->
                         ProjectRestore.restore(stream, disk.root, room) { read ->
+                            stopIfCancelled()
                             val percent = if (size > 0) (read * 100 / size).toInt().coerceIn(0, 100) else -1
                             if (percent != shown && percent >= 0) { shown = percent; importing = context.getString(R.string.projects_unzipping_percent, percent) }
                         }
                     }
                     null
                 } catch (failure: Exception) {
+                    stopped = failure is Cancelled
                     (failure as? ProjectRestoreException)?.let { context.getString(it.reason.label) } ?: describe(failure)
                 }
             }
-            importing = null
+            end()
             reload()
+            if (stopped) return@launch
             error = if (problem == null) context.getString(R.string.projects_unzip_done) else context.getString(R.string.projects_unzip_failed, problem)
         }
     }
@@ -389,20 +469,27 @@ class ProjectStore(context: Context) {
     /** Makes an independent copy of the project, with its recordings and editing history. */
     fun duplicate(project: Project) {
         if (importing != null) return
+        begin(cancellable = true)
         scope.launch {
             importing = context.getString(R.string.projects_duplicating)
             val title = ProjectDuplicate.title(project.title, projects.map { it.title }, context.getString(R.string.projects_copy_word))
             val result = withContext(Dispatchers.IO) {
                 try {
                     val room = (disk.root.usableSpace - 256_000_000L).coerceAtLeast(0)
-                    Result.success(ProjectDuplicate.duplicate(project, disk.root, title, room))
+                    var shown = -1
+                    Result.success(ProjectDuplicate.duplicate(project, disk.root, title, room) { copied, total ->
+                        stopIfCancelled()
+                        val percent = if (total > 0) (copied * 100 / total).toInt() else 100
+                        if (percent != shown) { shown = percent; importing = context.getString(R.string.projects_duplicating_percent, percent) }
+                    })
                 } catch (failure: Exception) {
                     Result.failure(failure)
                 }
             }
-            importing = null
+            end()
             reload()
             result.onSuccess { select(it.id) }.onFailure { failure ->
+                if (failure is Cancelled) return@onFailure
                 val problem = if (failure is ProjectDuplicateException) context.getString(R.string.unzip_no_space) else describe(failure as Exception)
                 error = context.getString(R.string.projects_duplicate_failed, problem)
             }

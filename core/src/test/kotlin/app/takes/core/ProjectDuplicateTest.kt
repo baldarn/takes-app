@@ -321,6 +321,20 @@ class ProjectDuplicateTest {
         assertEquals(2, disk().loadAll().projects.size)
     }
 
+    @Test fun cancelAtAnyReportLeavesNothingBehind() {
+        // Cancel on the Projects screen throws from the progress report, as the original's Task.checkCancellation().
+        val project = save(trip().addSource(music))
+        var reports = 0
+        duplicate(project) { _, _ -> reports++ }
+        for (at in reportsToCancelAt(reports)) {
+            var seen = 0
+            refused(java.util.concurrent.CancellationException::class.java, restoring = { ProjectDuplicate.discardInterrupted(root) }) {
+                duplicate(project) { _, _ -> if (seen++ == at) throw java.util.concurrent.CancellationException() }
+            }
+        }
+        assertEquals(2, disk().loadAll().projects.size)
+    }
+
     @Test fun copyNeedsRoomForTheMedia() {
         val project = save(trip())
         val total = project.mediaFiles.sumOf { contents.getValue(it).size.toLong() }

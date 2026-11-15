@@ -75,7 +75,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Original recordings: add a range of a take to the timeline; recover into a new project | O/OriginalRecordingsView.swift:60-88, 110-199; O/ProjectStore.swift:737-805 | MISSING | — | Range picker, "Create recovered project" | M | Yes |
 | Repair media: relink missing takes by duration and SHA; remove missing takes | O/ContentView.swift:437-492, O/ProjectStore.swift:666-703 | MISSING | Export only reports a missing source (A/Exporter.kt:140-144) | Missing-media detection on the card, locate file, undoable removal | M | Yes |
 | Unreadable project card | O/ContentView.swift:680-687 | PARTIAL | A/ProjectsScreen.kt:134-142 | No action on the card (original opens its recordings) | S | Yes |
-| Progress with Cancel for import, duplicate, zip | O/ContentView.swift:693-699 | PARTIAL | A/ProjectsScreen.kt:166-168 (modal text, no Cancel) | Cancel | S | Yes |
+| Progress with Cancel for import, duplicate, zip | O/ContentView.swift:693-699 | DONE | A/ProjectsScreen.kt (progress dialog), A/ProjectStore.kt (`cancelOperation`) | Progress is a percentage in a dialog rather than a bar above the list; opening a ZIP can be cancelled too. Videos picked together join the project only once all are copied | | |
 | Privacy policy | O/ContentView.swift:755-771 | DONE | A/Credits.kt:31 (link) | — | | |
 | Screen kept awake on the camera, while playing and exporting | O/ContentView.swift:102-105 | DONE | A/RecorderScreen.kt:116, A/EditorScreen.kt:422-426 | — | | |
 
