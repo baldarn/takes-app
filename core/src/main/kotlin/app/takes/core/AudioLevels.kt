@@ -12,8 +12,8 @@ import kotlin.math.pow
  * left before the mix clips, the fades at an item's ends and the few
  * milliseconds of fade at every cut.
  *
- * Nothing here is stored by [ClipAudio] or read by [TimelineEditing]; see
- * each type for where the saved project and the current editor differ.
+ * [ClipAudio] saves a level and two fades of these kinds, and
+ * [SoundEnvelope] builds the runs of sound of an edit from them.
  */
 object AudioLevels {
     /**
@@ -64,8 +64,8 @@ object AudioLevels {
  * The levels a gain control can choose: half decibels from −40 to +12. Zero
  * is one of them and never means silence; mute is a separate switch.
  *
- * [ClipAudio] accepts any level from −60 dB, and the current sound panel
- * moves in whole decibels and calls −60 "silent".
+ * [ClipAudio] accepts any level from −60 dB, as the original's saved
+ * project does: one below the grid stays as it is until a level is chosen.
  */
 object AudioGainGrid {
     const val MINIMUM_DB = -40.0
@@ -251,9 +251,8 @@ data class AudioHeadroom(val minimum: Double = 0.0, val maximum: Double = Double
  * split inside a fade leaves the later piece a fade that starts part of the
  * way up, with the same slope.
  *
- * Saved with the original's field names. [ClipAudio] instead holds each fade
- * as a number of seconds, takes at most half the item for each, and a split
- * drops the fade from the piece that loses its edge.
+ * Saved with the original's field names. [ClipAudio] holds the same two
+ * numbers under names of its own ([ClipAudio.fades]).
  */
 @Serializable
 data class AudioEdgeFade(val seconds: Double, val elapsed: Double = 0.0) {
