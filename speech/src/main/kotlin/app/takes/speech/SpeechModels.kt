@@ -16,11 +16,17 @@ object SpeechModels {
     /**
      * The memory a phone must have, as Android reports it in total, for Qwen3-ASR to be the
      * model it gets without asking. Android reports less than the phone is sold with ("8 GB"
-     * is about 7.6 GB, "6 GB" about 5.6 GB), so this admits phones sold with 8 GB or more.
+     * is about 7.6 GB, "6 GB" 5.6 to 5.9 GB), so this admits phones sold with 8 GB or more.
      *
      * Measured on a phone sold with 8 GB: Qwen3-ASR took 2.1 GB beyond the app's own 0.2 GB,
-     * and the memory the phone had left went from 3.6 GB to 1.8 GB. A phone with 2 GB less
-     * would have had less to give than the model takes. The figures are in the README.
+     * and the memory the phone had left went from 3.6 GB to 1.8 GB.
+     *
+     * On a phone sold with 6 GB (5.9 GB reported, a fast processor, 4 GB of compressed swap)
+     * it completed every run and the app was never closed, but Android made the room by
+     * closing background processes 15 to 60 times a run, services among them, and called
+     * its memory low for up to a quarter of the job. That is one phone: one with less swap or a
+     * slower processor was not measured, so such phones keep the lighter model unless the
+     * person picks this one. The figures are in the README.
      */
     const val QWEN_MINIMUM_RAM_BYTES = 7_000_000_000L
 
@@ -49,6 +55,18 @@ object SpeechModels {
     /** The offered model to fall back to when [model] is too much for the phone: the one that takes the most memory among those that take less. */
     fun lighter(model: SpeechModel): SpeechModel? = offered.filter { it.memory < model.memory }.maxByOrNull { it.memory }
 
-    /** Whether [free] bytes of memory, what the phone can give at this moment, are enough to recognize with [model]. */
-    fun fits(model: SpeechModel, free: Long): Boolean = free >= model.memory
+    /**
+     * Whether a phone that reports [free] bytes of available memory can recognize with
+     * [model] now. [low] is Android's own word that memory is short
+     * (`ActivityManager.MemoryInfo.lowMemory`): then nothing large is started.
+     *
+     * Available memory is not all a phone can give: Android makes more by closing apps
+     * nobody is looking at and by compressing memory, so a model can be loaded with less
+     * available than it takes. Qwen3-ASR (2.1 GB) was measured to complete from 1.75 GB
+     * available on a phone sold with 6 GB, where that figure moves between 2.0 and 2.9 GB by
+     * itself and falls under 2.0 after other apps were used; with less at the start Android
+     * closed more and the job took up to an eighth longer. Under 1.75 GB nothing was
+     * measured, so the floor is kept near it: three quarters of what the model takes.
+     */
+    fun fits(model: SpeechModel, free: Long, low: Boolean = false): Boolean = !low && free >= model.memory / 4 * 3
 }
