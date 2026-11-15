@@ -39,6 +39,19 @@ internal object TrackParityReport {
     /** The calls whose answer through the track model is a timeline the invariants refuse. */
     fun refused(cases: List<Case>): List<String> = cases.mapNotNull { case -> case.refused?.let { "${case.function}(${case.label}) on ${case.subject.name}: $it" } }
 
+    /**
+     * What the gate does not let through: every kind that is not accepted with
+     * the calls that show it, most first, then every leftover no kind explains.
+     * Empty when every difference is of an accepted kind.
+     */
+    fun open(cases: List<Case>, accepted: Set<String>): List<String> {
+        val different = cases.filter { it.verdict != Verdict.Identical }
+        val kinds = different.flatMap { it.kinds }.filter { it !in accepted }.groupingBy { it }.eachCount()
+        val leftovers = different.mapNotNull(::leftover).groupingBy { it }.eachCount()
+        return kinds.entries.sortedByDescending { it.value }.map { "${it.value} × ${it.key}" } +
+            leftovers.entries.sortedByDescending { it.value }.map { "${it.value} × not explained: ${it.key}" }
+    }
+
     fun summary(cases: List<Case>): String = buildString {
         appendLine("Parity: ${cases.size} calls, ${cases.count { it.verdict == Verdict.Identical }} identical, ${cases.count { it.verdict == Verdict.Different }} different, ${cases.count { it.verdict == Verdict.NotExpressible }} not expressible")
         for ((kind, found) in cases.filter { it.verdict != Verdict.Identical }.groupBy { it.kind }.entries.sortedByDescending { it.value.size }) appendLine("%6d  %s".format(found.size, kind))
@@ -67,9 +80,14 @@ internal object TrackParityReport {
         appendLine("# Parity of today's editing functions with the track model")
         appendLine()
         appendLine("Written by `TrackParityTest` (`core/src/test/kotlin/app/takes/core/TrackParity*.kt`); do not edit by hand.")
-        appendLine("Run the core tests with `TAKES_RECORD_PARITY=1` in the environment to write it anew, and read what changed.")
-        appendLine("The test fails when this file is not what the suite finds; it does not fail on a difference.")
-        appendLine("With `TAKES_PARITY_GATE=1` it fails on every difference whose kind is not in `TrackParityAccepted.kt`.")
+        appendLine()
+        appendLine("## Running it")
+        appendLine()
+        appendLine("The suite is one test of the core tests: `./gradlew :core:test`, or by itself with `--tests app.takes.core.TrackParityTest`. What it does is chosen in the environment:")
+        appendLine()
+        appendLine("- **Nothing set.** It makes every call and compares what it finds with this file. It fails when the file is not what it finds now, or when the track model answers a timeline its invariants refuse. It does not fail on a difference between today and the track model: a difference that is written down here is expected.")
+        appendLine("- **`TAKES_RECORD_PARITY=1`.** It writes this file anew instead of comparing. Read what changed (`git diff docs/TRACKS-PARITY.md`) and commit the file with the change that caused it.")
+        appendLine("- **`TAKES_PARITY_GATE=1`.** As with nothing set, and it also fails on every call that shows a kind of difference not listed in `TrackParityAccepted.kt`, or a difference no kind explains: the failure names each such kind with the number of calls that show it, then what is not explained. While that list is empty it fails on every kind below. A kind goes into the list once it is decided what the function that shows it does when it runs on the track model.")
         appendLine()
         appendLine("## What is compared")
         appendLine()
