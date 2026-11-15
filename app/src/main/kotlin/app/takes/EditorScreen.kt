@@ -54,6 +54,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import app.takes.core.AudioItem
+import app.takes.core.AudioLevels
 import android.net.Uri
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.media3.common.MediaItem
@@ -207,7 +208,7 @@ private val SoundColor = Color(0xFF7BD389)
 private val TrackHeight = 26.dp
 private val StripTop = 17.dp
 
-private fun preciseLabel(seconds: Double): String {
+internal fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
     return "%d:%02d.%d".format(tenths / 600, tenths / 10 % 60, tenths % 10)
 }
@@ -1525,10 +1526,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     sounds.firstOrNull { it.id == chosenSound }?.let { item ->
         if (shapingSound) {
+            val targets = soundTargets(edit, emptyList(), listOf(item.id), { "" }) { names[it.sourceID] ?: soundName }
             SoundDialog(
-                item.audio ?: ClipAudio(), canReduceNoise = false,
-                save = { commit(TimelineEditing.setAudioItemSound(edit, item.id, it), playhead); shapingSound = false; chosenSound = null },
-                dismiss = { shapingSound = false },
+                targets, canReduceNoise = false,
+                measure = { change -> Headroom.measure(withSound(edit, targets, change) ?: edit, files, setOf(item.id), item.start..item.end) },
+                save = { change -> commit(withSound(edit, targets, change), playhead); shapingSound = false; chosenSound = null },
+                dismiss = { shapingSound = false }, title = stringResource(R.string.sound_volume_and_fades),
             )
         } else {
             AudioItemDialog(
@@ -1555,15 +1558,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         )
     }
     if (editingAudio && location != null && current != null) {
+        // The clip under the playhead; in a scope its clips, cut at the ends of a range, and the sounds on the audio tracks
+        // selected with them, which have no noise reduction.
+        val base = toolScope?.state ?: edit
+        val clipName = stringResource(R.string.sound_target_clip)
+        val targets = soundTargets(base, toolScope?.clips ?: listOf(current.id), toolSounds, { clipName.format(it + 1) }) { names[it.sourceID] ?: soundName }
         SoundDialog(
-            (if (toolScope != null) toolSubject?.audio ?: sounds.firstOrNull { toolSubject == null && it.id in toolSounds }?.audio else current.audio) ?: ClipAudio(),
+            targets,
             canReduceNoise = toolScope == null || toolSubject != null,
-            save = { audio ->
-                // In a scope: its clips, and the sounds on the audio tracks selected with them, which have no noise reduction.
-                val next = if (toolScope == null) TimelineEditing.setAudio(edit, location.index, audio) else {
-                    val clipsDone = applied(toolScope) { state, at -> TimelineEditing.setAudio(state, at, audio) }
-                    toolSounds.fold(clipsDone) { state, id -> TimelineEditing.setAudioItemSound(state ?: toolScope.state, id, audio.copy(denoise = 0.0)) ?: state }
-                }
+            measure = { change ->
+                if (targets.isEmpty()) null
+                else Headroom.measure(withSound(base, targets, change) ?: base, files, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end })
+            },
+            save = { change ->
+                // Nothing changed changes nothing: the cuts at the ends of a range are then not made either.
+                val next = withSound(base, targets, change)
                 commit(next, playhead)
                 // As the original after Volume on a range: the range is let go.
                 if (next != null && marks.range != null) marks = marks.cleared()
@@ -1712,7 +1721,7 @@ private fun Timeline(
                     for (item in sounds) {
                         if (item.track != track) continue
                         key(item.id) {
-                            val note = item.audio?.let { if (it.muted) " · $mutedNote" else if (it.volumeDB != 0.0) " · ${it.volumeDB.roundToInt()} dB" else "" } ?: ""
+                            val note = item.audio?.let { if (it.muted) " · $mutedNote" else if (it.volumeDB != 0.0) " · ${AudioLevels.format(it.volumeDB)}" else "" } ?: ""
                             Text(
                                 (names[item.sourceID] ?: soundName) + note, color = Color.Black, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt(), 0) }
@@ -1838,7 +1847,7 @@ private fun ClipStrip(
         // What has been done to the sound, where the waveform is.
         clip.audio?.let { audio ->
             val note = listOfNotNull(
-                if (audio.muted) stringResource(R.string.sound_muted) else audio.volumeDB.takeIf { it != 0.0 }?.let { (if (it > 0) "+" else "") + "${it.roundToInt()} dB" },
+                if (audio.muted) stringResource(R.string.sound_muted) else audio.volumeDB.takeIf { it != 0.0 }?.let(AudioLevels::format),
                 stringResource(R.string.editor_tag_fade).takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
                 stringResource(R.string.editor_tag_clean).takeIf { audio.denoise > 0 },
             ).joinToString(" · ")
@@ -1904,7 +1913,7 @@ private fun ColorSettings.label(): String =
     imported?.name ?: stringResource(if (look == ColorLook.Natural && hasBalance) R.string.color_balance else look.label)
 
 @Composable
-private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected: T, choose: (T) -> Unit) {
+internal fun <T> Choices(label: String, options: List<Pair<String, T>>, selected: T, choose: (T) -> Unit) {
     Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
     Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
@@ -2030,52 +2039,6 @@ private fun AudioItemDialog(
             }
         },
         confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_done)) } },
-    )
-}
-
-/** The clip's own sound: level from silence to a 12 dB boost, mute, and a fade at each end. */
-@Composable
-private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAudio) -> Unit, dismiss: () -> Unit, appliesTo: String? = null) {
-    var audio by remember { mutableStateOf(saved) }
-    val fades = listOf(stringResource(R.string.sound_fade_none) to 0.0, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0, "3 s" to 3.0)
-    val silent = stringResource(R.string.sound_silent)
-    val volumeLabel = stringResource(R.string.sound_volume)
-    val muteLabel = stringResource(R.string.sound_mute)
-    fun label(decibels: Double) = when {
-        decibels <= ClipAudio.MINIMUM_DB -> silent
-        decibels > 0 -> "+${decibels.roundToInt()} dB"
-        else -> "${decibels.roundToInt()} dB"
-    }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(stringResource(R.string.sound_dialog_title)) },
-        text = {
-            Column {
-                appliesTo?.let { Text(it, color = Muted, fontSize = 13.sp) }
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text(stringResource(R.string.sound_volume_value, if (audio.muted) stringResource(R.string.sound_muted) else label(audio.volumeDB)), color = Color.White)
-                    TextButton(onClick = { audio = audio.copy(volumeDB = 0.0) }, enabled = audio.volumeDB != 0.0) { Text(stringResource(R.string.common_reset)) }
-                }
-                // Whole decibels: the range is wide and finer steps are not audible.
-                Slider(
-                    value = audio.volumeDB.toFloat(), onValueChange = { audio = audio.copy(volumeDB = it.roundToInt().toDouble()) },
-                    valueRange = ClipAudio.MINIMUM_DB.toFloat()..ClipAudio.MAXIMUM_DB.toFloat(), enabled = !audio.muted,
-                    modifier = Modifier.semantics { contentDescription = volumeLabel },
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = audio.muted, onCheckedChange = { audio = audio.copy(muted = it) }, modifier = Modifier.semantics { contentDescription = muteLabel })
-                    Text("  " + stringResource(R.string.sound_mute_clip), color = Color.White)
-                }
-                Choices(stringResource(R.string.sound_fade_in), fades, audio.fadeIn) { audio = audio.copy(fadeIn = it) }
-                Choices(stringResource(R.string.sound_fade_out), fades, audio.fadeOut) { audio = audio.copy(fadeOut = it) }
-                if (canReduceNoise) {
-                    Choices(stringResource(R.string.sound_noise_reduction), listOf(stringResource(R.string.sound_noise_off) to 0.0, stringResource(R.string.sound_noise_light) to 0.5, stringResource(R.string.sound_noise_full) to 1.0), audio.denoise) { audio = audio.copy(denoise = it) }
-                    Text(stringResource(R.string.sound_noise_note), color = Muted, fontSize = 13.sp)
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { save(audio) }) { Text(stringResource(R.string.common_save)) } },
-        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 

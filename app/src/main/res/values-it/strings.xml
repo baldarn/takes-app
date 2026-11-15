@@ -688,4 +688,26 @@
     <string name="motion_step_less">%1$s: più breve</string>
     <string name="motion_step_more">%1$s: più lunga</string>
     <string name="motion_hold">Resta su B per %1$s</string>
+    <string name="sound_mixed_levels">Livelli diversi</string>
+    <string name="sound_mixed_choose">Livelli diversi, scegli un livello</string>
+    <string name="sound_volume_decibels">Volume in decibel</string>
+    <string name="sound_step_down">Abbassa di 0,5 dB</string>
+    <string name="sound_step_up">Alza di 0,5 dB</string>
+    <string name="sound_clipping">Clipping a questo livello</string>
+    <string name="sound_clipping_short">Clipping</string>
+    <string name="sound_headroom_checking">Verifica dell\'headroom…</string>
+    <string name="sound_headroom_silent">La selezione è in silenzio o senza audio</string>
+    <string name="sound_headroom_unavailable">Headroom non disponibile</string>
+    <string name="sound_choose_level">Scegli un livello per portare tutte le parti selezionate allo stesso guadagno.</string>
+    <string name="sound_mixed_mute">Alcune parti selezionate sono senza audio. Il guadagno le lascia come sono.</string>
+    <string name="sound_reset_zero">Riporta a 0 dB</string>
+    <string name="sound_mute_switch">Muto</string>
+    <string name="sound_target_clip">Clip %1$d</string>
+    <string name="sound_fade_target">%1$s · %2$s</string>
+    <string name="sound_fade_off">No</string>
+    <string name="sound_fade_seconds">%1$s s</string>
+    <string name="sound_fade_duration">Durata: %1$s</string>
+    <string name="sound_fade_enter">Inserisci da 0 a %1$s secondi. Con zero il fade è disattivato.</string>
+    <string name="sound_fade_field">Secondi</string>
+    <string name="sound_fade_set">Imposta</string>
 </resources>
