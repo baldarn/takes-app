@@ -462,9 +462,7 @@
     <string name="recorder_mic_automatic">Automatic</string>
     <string name="recorder_mic_chip">Mic: %1$s</string>
     <string name="recorder_mic_change">Change microphone</string>
-    <string name="recorder_zoom_time_change">Change zoom transition time</string>
     <string name="recorder_zoom_instant">Instant</string>
-    <string name="recorder_zoom">Zoom</string>
     <string name="recorder_switch_camera">Switch camera</string>
     <string name="recorder_stop">Stop</string>
     <string name="recorder_pause">Pause</string>
