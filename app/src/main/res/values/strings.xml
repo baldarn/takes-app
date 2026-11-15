@@ -701,4 +701,27 @@
     <string name="sound_fade_set">Set</string>
     <string name="sound_level_mixed">Mixed</string>
     <string name="sound_level_changed">%1$s · Undo available</string>
+    <string name="export_running_title">Exporting</string>
+    <string name="export_percent">%1$d%%</string>
+    <string name="export_step_opening">Reading export settings</string>
+    <string name="export_step_audio_effects">Processing audio effects</string>
+    <string name="export_step_timeline">Building the video timeline</string>
+    <string name="export_step_audio_peak">Checking audio for clipping</string>
+    <string name="export_step_audio">Encoding audio</string>
+    <string name="export_step_picture">Rendering video</string>
+    <string name="export_step_assemble_video">Assembling video sections</string>
+    <string name="export_step_assemble_movie">Combining video and audio</string>
+    <string name="export_step_movie_index">Writing the movie index</string>
+    <string name="export_step_source_files">Checking source files</string>
+    <string name="export_step_verifying">Verifying the exported movie</string>
+    <string name="export_step_saving">Saving the exported video</string>
+    <string name="export_step_complete">Exported</string>
+    <string name="export_step_reopening">Reopening the saved export</string>
+    <string name="export_step_rebuilding">Rebuilding the video timeline</string>
+    <string name="export_paused_title">Export paused</string>
+    <string name="export_paused_background">Takes left the foreground. Keep it open and the screen on while exporting.</string>
+    <string name="export_paused_space">There is not enough free space to finish this export. Free space, then resume the export.</string>
+    <string name="export_paused_saved">Video saved through %1$s</string>
+    <string name="export_resume">Resume export</string>
+    <string name="export_discard">Discard export</string>
 </resources>
