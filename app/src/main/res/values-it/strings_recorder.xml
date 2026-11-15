@@ -41,4 +41,18 @@
     <string name="recorder_settings_fit_note">La vista a schermo intero riempie il display. Con questa opzione si vede il fotogramma registrato per intero.</string>
     <string name="recorder_settings_about">Informazioni</string>
     <string name="recorder_settings_credits">Crediti</string>
+    <!-- The camera strip: flip, the camera menu, the zoom and its presets. -->
+    <string name="recorder_flip_front">Passa alla camera frontale</string>
+    <string name="recorder_flip_back">Passa alla camera posteriore</string>
+    <string name="recorder_camera">Camera</string>
+    <string name="recorder_zoom_times">Zoom, %1$s volte</string>
+    <string name="recorder_zoom_preset">Zoom %1$s volte</string>
+    <string name="recorder_zoom_preset_main">Zoom 1 volta, camera principale</string>
+    <string name="recorder_zoom_main">Princ.</string>
+    <string name="recorder_zoom_one_second">Transizione di un secondo</string>
+    <string name="recorder_zoom_time">Durata della transizione di zoom</string>
+    <string name="recorder_zoom_time_longer">Allunga</string>
+    <string name="recorder_zoom_time_shorter">Accorcia</string>
+    <string name="recorder_zoom_time_hint">Scorri su o giù per cambiare il tempo di zoom</string>
+    <string name="recorder_pinch_on_release">%1$s  ·  %2$s al rilascio</string>
 </resources>

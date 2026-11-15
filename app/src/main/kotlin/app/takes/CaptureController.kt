@@ -45,7 +45,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
+import app.takes.core.PinchZoom
 import app.takes.core.Project
+import app.takes.core.RecorderCamera
+import app.takes.core.RecorderCameras
 import app.takes.core.RecordingSpace
 import app.takes.core.SourceMedia
 import app.takes.core.ZoomTransition
@@ -90,7 +93,7 @@ class CaptureController(private val context: Context, private val store: Project
     private var videoCapture = VideoCapture.withOutput(recorder)
     private var provider: ProcessCameraProvider? = null
     private var owner: LifecycleOwner? = null
-    private var camera: Camera? = null
+    private var camera: Camera? by mutableStateOf(null)
     private var recording: Recording? = null
     private var segment: Segment? = null
     private var zoomRamp: Job? = null
@@ -100,6 +103,8 @@ class CaptureController(private val context: Context, private val store: Project
     val hasActiveTake: Boolean get() = phase == Phase.Recording || phase == Phase.Saving
     var cameras by mutableStateOf(emptyList<CameraChoice>()); private set
     var cameraID by mutableStateOf<String?>(null); private set
+    /** A camera is bound: its controls can be used. */
+    val ready: Boolean get() = cameraID != null && camera != null
     var zoom by mutableStateOf(1.0); private set
     var zoomRange by mutableStateOf(1.0..1.0); private set
     /** Seconds a zoom preset takes. Instant until the person chooses a time, as in the original. */
@@ -271,14 +276,35 @@ class CaptureController(private val context: Context, private val store: Project
         camera = bound
         cameraID = choice.id
         prefs.edit().putString("camera", choice.id).apply()
+        // The flip button returns to the camera used last on each side of the phone.
+        if (choice.info.lensFacing == CameraSelector.LENS_FACING_FRONT) settings.lastFrontCamera = choice.id else settings.lastRearCamera = choice.id
         val state = bound.cameraInfo.zoomState.value
-        zoomRange = (state?.minZoomRatio ?: 1f).toDouble()..(state?.maxZoomRatio ?: 1f).toDouble()
+        val minimum = (state?.minZoomRatio ?: 1f).toDouble()
+        // Never past ten times, whatever the lens offers, as in the original.
+        zoomRange = minimum..maxOf(minimum, PinchZoom.maximum((state?.maxZoomRatio ?: 1f).toDouble()))
         applyZoom(prefs.getFloat("zoom.${choice.id}", 1f).toDouble())
     }
 
-    fun switchCamera(id: String) {
+    private fun lens(choice: CameraChoice) =
+        RecorderCamera(choice.id, choice.info.lensFacing == CameraSelector.LENS_FACING_FRONT, choice.info.intrinsicZoomRatio.toDouble())
+
+    /** Where the flip button leads: the camera used last on the other side of the phone; null when that side has none. */
+    val oppositeCamera: CameraChoice?
+        get() = RecorderCameras.opposite(cameras.map(::lens), cameraID, settings.lastFrontCamera, settings.lastRearCamera)
+            ?.let { target -> cameras.firstOrNull { it.id == target.id } }
+
+    /** From a rear ultrawide listed as a camera of its own, the camera the 1× preset changes to. */
+    val mainLensAtOneX: CameraChoice?
+        get() = RecorderCameras.mainAtOne(cameras.map(::lens), cameraID)?.let { target -> cameras.firstOrNull { it.id == target.id } }
+
+    /** The camera has a zoom to offer: a range, or the main camera behind the 1× preset. */
+    val hasZoom: Boolean get() = zoomRange.endInclusive > zoomRange.start || mainLensAtOneX != null
+
+    /** Changes camera, inside the segment being written when there is one. [nativeZoom] starts the camera at its own 1×. */
+    fun switchCamera(id: String, nativeZoom: Boolean = false) {
         val choice = cameras.firstOrNull { it.id == id } ?: return
         if (id == cameraID || phase == Phase.Saving) return
+        if (nativeZoom) prefs.edit().putFloat("zoom.$id", 1f).apply()
         // The old camera's move must not resume when that camera is selected again.
         zoomRamp?.cancel()
         segment?.takeIf { phase == Phase.Recording }?.let {
