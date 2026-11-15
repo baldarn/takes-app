@@ -103,7 +103,14 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore) {
     LaunchedEffect(owner) { capture.attach(owner, previewView.surfaceProvider) }
     DisposableEffect(owner) {
         // Returning from the background must never resume recording by itself.
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) capture.finishTake() }
+        // The chosen microphone is a system-wide route: hold it only while the recorder is in front.
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> capture.claimMicrophone()
+                Lifecycle.Event.ON_STOP -> { capture.finishTake(); capture.releaseMicrophone() }
+                else -> Unit
+            }
+        }
         owner.lifecycle.addObserver(observer)
         view.keepScreenOn = true
         onDispose {
@@ -162,8 +169,14 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
             )
         }
         capture.microphone?.takeIf { recording && capture.audioWarning == null }?.let {
-            Text(it, color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(if (capture.chosenMicrophone == null) "Automatic: $it" else it,
+                color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
+        }
+        if (capture.phase == Phase.Idle || capture.phase == Phase.Paused) MicrophoneChooser(capture)
+        capture.microphoneWarning?.let {
+            Text(it, color = Color.White, fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp).background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
         }
         capture.audioWarning?.let {
             Text(it, color = Color.White, fontSize = 13.sp,
@@ -178,6 +191,24 @@ private fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier
         label, color = if (selected) Color.Black else Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
         modifier = modifier.background(if (selected) Color.White else Scrim, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 10.dp),
     )
+}
+
+/** The input for the next segment. A running segment keeps its microphone, so this hides while recording. */
+@Composable
+private fun MicrophoneChooser(capture: CaptureController) {
+    if (capture.microphones.isEmpty()) return
+    var choosing by remember { mutableStateOf(false) }
+    val chosen = capture.chosenMicrophone
+    Box(Modifier.padding(top = 8.dp)) {
+        Chip("Mic: " + (chosen?.label ?: "Automatic"), false,
+            Modifier.clickable(onClickLabel = "Change microphone", role = Role.Button) { choosing = true })
+        DropdownMenu(choosing, { choosing = false }) {
+            DropdownMenuItem({ Text("Automatic") }, { capture.chooseMicrophone(null); choosing = false })
+            capture.microphones.forEach { choice ->
+                DropdownMenuItem({ Text(choice.label) }, { capture.chooseMicrophone(choice.id); choosing = false })
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

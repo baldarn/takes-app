@@ -4,9 +4,15 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecordingConfiguration
+import android.media.AudioTrack
+import android.media.MediaRecorder
+import android.os.Build
 import android.os.SystemClock
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -59,6 +65,8 @@ import kotlin.math.abs
 class CaptureController(private val context: Context, private val store: ProjectStore) {
     enum class Phase { Idle, Recording, Paused, Saving }
     data class CameraChoice(val id: String, val label: String, val info: CameraInfo)
+    /** An input the user can record from. The system routes by output device, so that is what is kept. */
+    data class MicrophoneChoice(val id: Int, val label: String, val device: AudioDeviceInfo)
 
     private class Segment(val id: String, val projectID: String, val file: File) {
         val events = mutableListOf<CaptureEvent>()
@@ -72,10 +80,8 @@ class CaptureController(private val context: Context, private val store: Project
     private val preview = Preview.Builder()
         .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
         .build()
-    private val recorder = Recorder.Builder()
-        .setQualitySelector(QualitySelector.from(Quality.FHD, FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD)))
-        .build()
-    private val videoCapture = VideoCapture.withOutput(recorder)
+    private var recorder = recorder(MediaRecorder.AudioSource.CAMCORDER)
+    private var videoCapture = VideoCapture.withOutput(recorder)
     private var provider: ProcessCameraProvider? = null
     private var owner: LifecycleOwner? = null
     private var camera: Camera? = null
@@ -97,6 +103,11 @@ class CaptureController(private val context: Context, private val store: Project
     var message by mutableStateOf<String?>(null)
     /** The microphone the system is recording from, while a take is running. */
     var microphone by mutableStateOf<String?>(null); private set
+    /** Inputs the user can choose; empty where the system offers no choice. */
+    var microphones by mutableStateOf(emptyList<MicrophoneChoice>()); private set
+    /** The user's choice for this session; null leaves the choice to the system. */
+    var chosenMicrophone by mutableStateOf<MicrophoneChoice?>(null); private set
+    var microphoneWarning by mutableStateOf<String?>(null); private set
     /** Bookmarks placed in the current take. */
     var marks by mutableStateOf(0); private set
 
@@ -115,22 +126,47 @@ class CaptureController(private val context: Context, private val store: Project
         }
     }
 
-    // The system picks the input; show which one it is, so a wrong microphone is noticed.
     private val audioManager = context.getSystemService(AudioManager::class.java)
+
+    // Show the input really in use, so a wrong microphone is noticed whatever was chosen.
     private val routes = object : AudioManager.AudioRecordingCallback() {
-        override fun onRecordingConfigChanged(configurations: List<AudioRecordingConfiguration>) {
-            microphone = configurations.firstNotNullOfOrNull { it.audioDevice }?.let(::describe)
-        }
+        override fun onRecordingConfigChanged(configurations: List<AudioRecordingConfiguration>) = showActiveMicrophone(configurations)
+    }
+
+    private fun showActiveMicrophone(configurations: List<AudioRecordingConfiguration>) {
+        val active = configurations.firstNotNullOfOrNull { it.audioDevice }
+        microphone = active?.let(::describe)
+        val chosen = chosenMicrophone
+        microphoneWarning = if (active != null && chosen != null && phase == Phase.Recording && kind(active) != kind(chosen.device)) {
+            "Recording from ${describe(active)}, not ${chosen.label}."
+        } else null
+    }
+
+    private val devices = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) = refreshMicrophones()
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) = refreshMicrophones()
+    }
+
+    private enum class Kind { Phone, Wired, Bluetooth, Usb, Other }
+
+    /** Groups the output a route is chosen by with the input recorded from it. */
+    private fun kind(device: AudioDeviceInfo) = when (device.type) {
+        AudioDeviceInfo.TYPE_BUILTIN_MIC, AudioDeviceInfo.TYPE_TELEPHONY,
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> Kind.Phone
+        AudioDeviceInfo.TYPE_WIRED_HEADSET -> Kind.Wired
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> Kind.Bluetooth
+        AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> Kind.Usb
+        else -> Kind.Other
     }
 
     private fun describe(device: AudioDeviceInfo): String {
         val name = device.productName?.toString()?.takeIf { it.isNotBlank() }
-        return when (device.type) {
-            AudioDeviceInfo.TYPE_BUILTIN_MIC, AudioDeviceInfo.TYPE_TELEPHONY -> "Phone microphone"
-            AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Wired headset"
-            AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> "Bluetooth" + (name?.let { ": $it" } ?: "")
-            AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB" + (name?.let { ": $it" } ?: "")
-            else -> name ?: "External microphone"
+        return when (kind(device)) {
+            Kind.Phone -> "Phone microphone"
+            Kind.Wired -> "Wired headset"
+            Kind.Bluetooth -> "Bluetooth" + (name?.let { ": $it" } ?: "")
+            Kind.Usb -> "USB" + (name?.let { ": $it" } ?: "")
+            Kind.Other -> name ?: "External microphone"
         }
     }
 
@@ -144,6 +180,8 @@ class CaptureController(private val context: Context, private val store: Project
         if (cameras.isEmpty()) { message = "No camera is available."; return }
         orientation.enable()
         audioManager.registerAudioRecordingCallback(routes, null)
+        // Reports the devices already connected at once, which fills the list.
+        audioManager.registerAudioDeviceCallback(devices, null)
         val remembered = prefs.getString("camera", null)
         bind(cameras.firstOrNull { it.id == remembered }
             ?: cameras.firstOrNull { it.info.lensFacing == CameraSelector.LENS_FACING_BACK }
@@ -155,7 +193,10 @@ class CaptureController(private val context: Context, private val store: Project
         zoomRamp?.cancel()
         orientation.disable()
         audioManager.unregisterAudioRecordingCallback(routes)
+        audioManager.unregisterAudioDeviceCallback(devices)
+        releaseMicrophone()
         microphone = null
+        microphoneWarning = null
         provider?.unbindAll()
         camera = null
         owner = null
@@ -212,6 +253,102 @@ class CaptureController(private val context: Context, private val store: Project
             it.events += CaptureEvent(time = it.nanos / 1e9, kind = "camera", detail = choice.label)
         }
         bind(choice)
+    }
+
+    // MARK: Microphone. Chosen for the session; routed only while the recorder is on screen.
+
+    private fun recorder(audioSource: Int) = Recorder.Builder()
+        .setQualitySelector(QualitySelector.from(Quality.FHD, FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD)))
+        .setAudioSource(audioSource)
+        .build()
+
+    /** Records from this input from the next segment on; null returns the choice to the system. */
+    fun chooseMicrophone(id: Int?) {
+        if (phase != Phase.Idle && phase != Phase.Paused) return
+        chosenMicrophone = microphones.firstOrNull { it.id == id }
+        claimMicrophone()
+    }
+
+    /** Routes to the chosen input. The route is system wide, so it is held only while the recorder shows. */
+    fun claimMicrophone() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        refreshMicrophones()
+        val chosen = chosenMicrophone
+        if (chosen != null && !audioManager.setCommunicationDevice(chosen.device)) {
+            chosenMicrophone = null
+            message = "${chosen.label} could not be selected. The system chooses the microphone."
+        }
+        if (chosenMicrophone == null) {
+            releaseMicrophone()
+            useAudioSource(MediaRecorder.AudioSource.CAMCORDER)
+        } else {
+            holdRoute()
+            // The camcorder source ignores the route; the communication source is the one that follows it.
+            useAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+        }
+    }
+
+    /** Gives the route back, so no other app is left talking through the chosen device. */
+    fun releaseMicrophone() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        silence?.release()
+        silence = null
+        audioManager.clearCommunicationDevice()
+    }
+
+    private var silence: AudioTrack? = null
+
+    // The system drops the route of an app that stays silent for a few seconds, and a segment started
+    // after that begins on the phone microphone with a click. Playing silence keeps the route up.
+    private fun holdRoute() {
+        if (silence != null) return
+        val frames = 8000
+        silence = runCatching {
+            AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).build())
+                .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(16000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(frames * 2)
+                .build()
+                .apply {
+                    write(ShortArray(frames), 0, frames)
+                    setLoopPoints(0, frames, -1)
+                    play()
+                }
+        }.getOrNull()
+    }
+
+    private fun refreshMicrophones() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        microphones = audioManager.availableCommunicationDevices
+            .filter { kind(it) != Kind.Other }
+            // The phone offers its speaker and its earpiece; the speaker route listens from a distance.
+            .sortedBy { it.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            .map { MicrophoneChoice(it.id, describe(it), it) }
+            .distinctBy { it.label }
+        dropLostMicrophone()
+    }
+
+    /**
+     * Nothing is switched under a running segment: its warning shows the input the system fell back to.
+     * The choice returns to the system once nothing is being written.
+     */
+    private fun dropLostMicrophone() {
+        val chosen = chosenMicrophone ?: return
+        if (microphones.any { it.id == chosen.id }) return
+        if (phase == Phase.Recording || phase == Phase.Saving) return
+        chosenMicrophone = null
+        message = "${chosen.label} disconnected. The system chooses the microphone."
+        claimMicrophone()
+    }
+
+    // The audio source is fixed when a Recorder is built, so a new one replaces it between segments.
+    private fun useAudioSource(source: Int) {
+        if (recorder.audioSource == source) return
+        val rotation = videoCapture.targetRotation
+        recorder = recorder(source)
+        videoCapture = VideoCapture.withOutput(recorder).apply { targetRotation = rotation }
+        cameras.firstOrNull { it.id == cameraID }?.let(::bind)
     }
 
     // MARK: Zoom. Each camera remembers its own last applied value.
@@ -320,6 +457,9 @@ class CaptureController(private val context: Context, private val store: Project
     private fun handle(current: Segment, event: VideoRecordEvent) {
         when (event) {
             is VideoRecordEvent.Status -> if (segment === current) {
+                // The system does not always report a route that changes under a running recording.
+                val second = event.recordingStats.recordedDurationNanos / 1_000_000_000
+                if (second != current.nanos / 1_000_000_000) showActiveMicrophone(audioManager.activeRecordingConfigurations)
                 current.nanos = event.recordingStats.recordedDurationNanos
                 elapsed = finished + current.nanos / 1e9
                 val audio = event.recordingStats.audioStats
@@ -351,6 +491,7 @@ class CaptureController(private val context: Context, private val store: Project
         }
         val requested = current.requested
         if (requested == Phase.Idle) reset() else { phase = Phase.Paused; elapsed = finished; level = 0f }
+        dropLostMicrophone()
         message = when {
             requested == null -> "Recording stopped: ${reason(event)}. " + if (seconds != null) "The footage so far is saved." else "Nothing could be saved."
             seconds == null -> "Nothing was recorded."
