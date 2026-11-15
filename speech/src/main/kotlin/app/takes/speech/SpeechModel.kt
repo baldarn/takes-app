@@ -32,6 +32,11 @@ data class SpeechModel(
     val kind: Kind,
     /** A [SpeechModelFile.name] may contain `/`: the file then lives in a folder inside the model's. */
     val files: List<SpeechModelFile>,
+    /**
+     * The bytes of memory recognizing 12 s pieces takes beyond what the program holds
+     * already, as measured (the README says where); about twice the size of the files.
+     */
+    val memory: Long,
     /** False for the English-only models, which accept no other language. */
     val multilingual: Boolean = true,
 ) {
@@ -121,11 +126,11 @@ data class SpeechModel(
         fun whisper(
             id: String, name: String, file: String, base: String,
             encoder: Pair<Long, String>, decoder: Pair<Long, String>, tokens: Pair<Long, String>,
-            multilingual: Boolean = true,
+            memory: Long, multilingual: Boolean = true,
         ): SpeechModel {
             fun part(suffix: String, size: Pair<Long, String>) =
                 SpeechModelFile("$file-$suffix", "${base.trimEnd('/')}/$file-$suffix", size.first, size.second)
-            return SpeechModel(id, name, file, Kind.Whisper, listOf(part(ENCODER, encoder), part(DECODER, decoder), part(TOKENS, tokens)), multilingual)
+            return SpeechModel(id, name, file, Kind.Whisper, listOf(part(ENCODER, encoder), part(DECODER, decoder), part(TOKENS, tokens)), memory, multilingual)
         }
 
         private const val WHISPER_TOKENS = "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
@@ -152,6 +157,7 @@ data class SpeechModel(
                     part(ENCODER, 182_491_662L, "60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9"),
                     part(DECODER, 755_914_231L, "4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771"),
                 ),
+                memory = 2_100_000_000L, // on a phone
             )
         }
 
@@ -163,6 +169,7 @@ data class SpeechModel(
             encoder = 112_442_483L to "4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9",
             decoder = 262_226_114L to "acad50b5c782696e91b55914cc5ab4f756f1532f76e22aa6fc615f39fb69a8ee",
             tokens = 816_730L to WHISPER_TOKENS,
+            memory = 800_000_000L, // on a phone
         )
 
         /** Multilingual Whisper base, 8-bit weights: 160,609,290 bytes. What the app offered before; no longer offered. */
@@ -173,6 +180,7 @@ data class SpeechModel(
             encoder = 29_120_534L to "0b8fb1304b6109976038efff5ace81720e00386f3ff6b54ee8c75291ca0a1e11",
             decoder = 130_672_026L to "9759d217388a01b3a4c7c15533201067b48ae819c4daafc8624e64b9409dc02d",
             tokens = 816_730L to WHISPER_TOKENS,
+            memory = 350_000_000L, // on a phone
         )
 
         /** Multilingual Whisper tiny, 8-bit weights: 103,609,903 bytes. For tests; it makes many mistakes. */
@@ -183,6 +191,7 @@ data class SpeechModel(
             encoder = 12_937_772L to "d24fb083ae3b1041fc24e97971d60e280c9342201fbb67b0ab428a8b4a51a434",
             decoder = 89_855_401L to "d2fece8dd42771f1df975c6c0445770d0c292bf7547c2cae04a6c0cc57540925",
             tokens = 816_730L to WHISPER_TOKENS,
+            memory = 150_000_000L, // on a computer
         )
 
         internal fun sha256(file: File, cancelled: () -> Boolean = { false }): String {
