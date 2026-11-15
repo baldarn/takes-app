@@ -73,3 +73,27 @@ The three kinds that needed a check against the original's editor, not only its 
 had it: `docs/TRACKS-EDITOR-CHECK.md`. Two pictures overlapping with no transition between
 them can be reached in the original for an insertion and for a range end on a join, and
 cannot for pauses. The rows above say what follows for each.
+
+## After S2-B
+
+The wrappers adopted none of the nine kinds marked Invisible. Four do not arise in what was
+wrapped (`caption-look-travels-with-any-words`, `playhead-in-time-a-transition-holds`,
+`bookmark-outlives-its-footage`, `later-piece-new-identity` outside `trimAudio`). Five turned
+out not to be invisible while a project still saves a sequence, and the wrappers keep
+today's result for them:
+
+| Kind | Why it is kept | Until |
+|---|---|---|
+| insert-new-identity | A project inserts the takes of its capture ledger again on every read, so inserted clips must keep the ids they are given; new ids also move the golden bytes. | S3b |
+| later-piece-new-identity (on `trimAudio`) | Moves the golden bytes of the sound projects. | S3b |
+| fade-no-longer-than-its-item | Audible: a ten-second fade on a shorter clip plays with the slope of ten seconds, and a cap changes it. | S4 |
+| fades-through-retimes-and-cuts (on trim) | Audible: the level at the new edge differs. | S4 |
+| regroup-at-the-count-it-has | Would add an Undo step that shows nothing. | S8 |
+| bookmark-at-the-last-second | At the end of the movie the track model puts the mark on the timeline itself, which a sequence cannot save. | S3b |
+
+One more thing S3b has to decide: the track model's fit of a transition differs from
+`TransitionLayout.fit` in the last digits (1e-8 to 1e-6). The wrappers save today's number
+when the two are within 1e-4.
+
+The remaining differences in `docs/TRACKS-PARITY.md` (197 of 91,755 calls) are all on edits
+that contain an unlinked clip and show four kinds marked Unreachable.
