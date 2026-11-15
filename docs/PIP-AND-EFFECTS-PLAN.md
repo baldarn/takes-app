@@ -266,6 +266,8 @@ So effects see the framed, canvas-shaped picture including any bars. They come b
   - whether `TextureView.bitmap` still gives held frames (`A/TransitionPreview.kt:69`).
 - A 1–2 day probe decides.
 
+**Probe result (emulator, Media3 1.11.1): the fallback.** Two players with `setVideoEffects` both ran, and a seek with an effect took as long as one without (about 0.1–0.4 s on the software renderer), but the `presentationTimeUs` an effect sees is the playlist position only for a run that began at its first item: after a seek into another item it is shifted by the offset Media3 gives the new period (+1.0 s and +2.0 s seen for the same item, from the start of the first stream), so one effect on a deck's playlist cannot tell which clip a frame belongs to, nor its source time. Per-item lists in the preview would need a deck per clip or `CompositionPlayer`; the preview therefore runs the chain as AGSL on each deck on Android 13 and later, from the same shader body as the export's GLSL, and held frames are untouched.
+
 **Fallback if the probe fails.** An AGSL chain as `RenderEffect` on each deck, on 13 and later only, sharing the shader body text as `TransitionShader.BODY` does (`A/TransitionRendering.kt:125-255`). That means no effect preview below 13 (the export is still right, with a notice), multi-pass effects much harder (one input per `RenderEffect`), and a wrong order relative to crop.
 
 **Parameters per frame.**
