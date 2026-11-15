@@ -62,6 +62,9 @@ The port is still in progress. What works today is listed under
   (Android 13 or newer) and the export.
 - Crop and reframing: zoom into a clip and move the window, with the picture following
   the sliders live; a cropped clip fills the movie's frame.
+- Clip speed from a quarter to four times, picture and sound, with the pitch kept, in
+  preview and export.
+- Duplicate a project with its recordings and editing history.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
 - Zip project: the recordings, sounds, imported LUTs, editing history and the current
@@ -74,7 +77,7 @@ The port is still in progress. What works today is listed under
 
 More than one video layer, unlinking a clip's sound from its picture, the other
 transitions (wipe, split screen and so on), title fonts, colors and motion, Log footage
-and highlight recovery, subtitles, clip speed, rotated and animated crops, video
+and highlight recovery, subtitles, rotated and animated crops, video
 effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log
 capture, manual focus.
 

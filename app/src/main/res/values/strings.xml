@@ -309,4 +309,7 @@
     <string name="editor_record_here">Record here</string>
     <string name="recorder_inserting_at">Inserting at %1$s</string>
     <string name="recorder_at_end">Record at the end</string>
+    <string name="editor_speed">Speed</string>
+    <string name="speed_title">Clip speed</string>
+    <string name="speed_note">The whole clip plays slower or faster, picture and sound, and the pitch of voices is kept. Later clips move.</string>
 </resources>

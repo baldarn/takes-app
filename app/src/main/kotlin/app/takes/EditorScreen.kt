@@ -139,6 +139,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -264,6 +265,12 @@ private class EditorPlayer(private val context: Context) {
         seek(time)
     }
 
+    /** Plays the deck at its clip's speed, keeping the pitch. */
+    private fun pace(player: ExoPlayer, clip: Int) {
+        val rate = clips.getOrNull(clip)?.rate?.toFloat() ?: 1f
+        if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
+    }
+
     /** Puts every deck where [time] needs it: inside its chain, or parked at the start of its next one. */
     fun seek(time: Double) {
         val location = TimelineEditing.locate(clips, time) ?: return
@@ -275,7 +282,9 @@ private class EditorPlayer(private val context: Context) {
                 val chain = active.value
                 val clip = (chain.first..chain.last).lastOrNull { TimelineEditing.clipStart(clips, it) <= time } ?: chain.first
                 val offset = (time - TimelineEditing.clipStart(clips, clip)).coerceIn(0.0, clips[clip].duration)
-                player.seekTo(items[deck].indexOf(clip), (offset * 1000).toLong())
+                // A deck's position runs in recorded seconds; a clip at another speed covers them faster or slower.
+                player.seekTo(items[deck].indexOf(clip), (offset * clips[clip].rate * 1000).toLong())
+                pace(player, clip)
             } else {
                 mine.firstOrNull { it.value.start > time }?.let { player.seekTo(items[deck].indexOf(it.value.first), 0) }
             }
@@ -304,7 +313,9 @@ private class EditorPlayer(private val context: Context) {
         val clip = items[master % 2].getOrNull(player.currentMediaItemIndex) ?: chain.last
         // A deck that ran past its chain is already in its next one.
         val time = if (clip > chain.last) chain.end
-        else (TimelineEditing.clipStart(clips, clip) + player.currentPosition.coerceAtLeast(0) / 1000.0).coerceAtMost(chain.end)
+        else (TimelineEditing.clipStart(clips, clip) + player.currentPosition.coerceAtLeast(0) / 1000.0 / clips[clip].rate).coerceAtMost(chain.end)
+        // Each deck follows the speed of the clip it has reached.
+        decks.forEachIndexed { deck, each -> items[deck].getOrNull(each.currentMediaItemIndex)?.let { pace(each, it) } }
         val next = chains.getOrNull(master + 1)
         if (next != null && time >= next.start) {
             decks[(master + 1) % 2].play()
@@ -464,14 +475,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val dragTrim = drag@{ pixels: Float ->
         val draft = trim ?: return@drag
         val original = clips.getOrNull(draft.index) ?: return@drag
-        val delta = pixels / pixelsPerSecond
+        val delta = pixels / pixelsPerSecond * original.rate // the strip is drawn in timeline seconds
         val limit = durations[original.sourceID] ?: original.end
         val next = if (draft.leading) TimelineEditing.trimmed(original, original.start + delta, original.end, limit)
         else TimelineEditing.trimmed(original, original.start, original.end + delta, limit)
         trim = draft.copy(clip = next)
         // Show the frame at the moving edge while it is inside the current clip.
         val edge = if (draft.leading) next.start else next.end - 0.03
-        if (edge in original.start..original.end) editor.seek(TimelineEditing.clipStart(clips, draft.index) + edge - original.start)
+        if (edge in original.start..original.end) editor.seek(TimelineEditing.clipStart(clips, draft.index) + original.offset(edge))
     }
     val endTrim = end@{
         val draft = trim ?: return@end
@@ -481,7 +492,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val next = TimelineEditing.trim(edit, draft.index, draft.clip.start, draft.clip.end, durations[original.sourceID] ?: original.end)
         if (next == null) { editor.seek(playhead); return@end }
         // Keep the same frame under the playhead when it survives the trim.
-        val offset = (playhead - base - (draft.clip.start - original.start)).coerceIn(0.0, draft.clip.duration - 0.01)
+        val offset = (playhead - base - original.offset(draft.clip.start)).coerceIn(0.0, draft.clip.duration - 0.01)
         val moved = base + offset - playhead
         commit(next, base + offset)
         scroll.dispatchRawDelta((moved * pixelsPerSecond).toFloat()) // no one-frame jump before the scroll catches up
@@ -501,8 +512,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // Reframing in progress: the clip being framed and the framing not saved yet, shown live.
     var cropping by remember { mutableStateOf<Pair<String, CropSettings>?>(null) }
+    var pacing by remember { mutableStateOf(false) }
     val current = location?.let { clips[it.index] }
-    val sourceTime = if (location != null && current != null) current.start + location.offset else 0.0
+    val sourceTime = if (location != null && current != null) current.sourceTime(location.offset) else 0.0
     val titles = current?.let { TimelineEditing.textsAt(it, sourceTime) }.orEmpty()
     val level = location?.let { TimelineEditing.level(clips, it.index, it.offset) } ?: 1.0
     // During a dissolve the incoming clip owns the playhead; the deck behind it carries the rest.
@@ -681,6 +693,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
                 TextButton(onClick = { editor.pause(); current?.let { cropping = it.id to (it.crop ?: CropSettings()) } }, compact,
                     enabled = current != null && sizes[current.sourceID] != null, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
+                TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
             }
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                 TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_title)) }
@@ -688,6 +701,30 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text(stringResource(R.string.editor_transition)) }
                 TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
                 TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
+            }
+            if (pacing && location != null && current != null) {
+                AlertDialog(
+                    onDismissRequest = { pacing = false },
+                    title = { Text(stringResource(R.string.speed_title)) },
+                    text = {
+                        Column {
+                            // Two rows, so every speed is in view on a narrow phone.
+                            for (rates in listOf(listOf(0.25, 0.5, 0.75), listOf(1.0, 1.5, 2.0, 4.0))) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for (rate in rates) {
+                                    FilterChip(current.rate == rate, onClick = {
+                                        // The same frame stays under the playhead.
+                                        val frame = current.sourceTime(location.offset)
+                                        val next = TimelineEditing.setSpeed(edit, location.index, rate)
+                                        commit(next, next?.let { TimelineEditing.clipStart(it.clips, location.index) + it.clips[location.index].offset(frame) } ?: playhead)
+                                        pacing = false
+                                    }, label = { Text(speedLabel(rate)) })
+                                }
+                            }
+                            Text(stringResource(R.string.speed_note), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = { pacing = false }) { Text(stringResource(R.string.common_cancel)) } },
+                )
             }
             Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
                 for ((label, step) in listOf(stringResource(R.string.editor_move_earlier) to -1, stringResource(R.string.editor_move_later) to 1)) {
@@ -929,7 +966,7 @@ private fun ClipStrip(
             Box(Modifier.fillMaxWidth().height(TileSize).clipToBounds().background(Color(0xFF2A2D33))) {
                 for (index in visible) {
                     key(index) {
-                        val time = (clip.start + (index + 0.5) * tile / pixelsPerSecond).coerceAtMost(clip.end)
+                        val time = clip.sourceTime((index + 0.5) * tile / pixelsPerSecond).coerceAtMost(clip.end)
                         val image by produceState<Bitmap?>(null, file, (time * 2).roundToInt()) { value = Thumbnails.frame(file, time) }
                         image?.let {
                             Image(it.asImageBitmap(), null, Modifier.offset { IntOffset((index * tile).roundToInt(), 0) }.size(TileSize), contentScale = ContentScale.Crop)
@@ -944,8 +981,8 @@ private fun ClipStrip(
                 var x = ((scroll.value - viewport - offset).coerceAtLeast(0f) / step).toInt() * step
                 val last = minOf(size.width, scroll.value + viewport - offset)
                 while (x < last) {
-                    val from = clip.start + x / pixelsPerSecond
-                    val level = WaveformBuilder.level(levels, from, minOf(clip.end, from + step / pixelsPerSecond))
+                    val from = clip.sourceTime((x / pixelsPerSecond).toDouble())
+                    val level = WaveformBuilder.level(levels, from, minOf(clip.end, from + step / pixelsPerSecond * clip.rate))
                     // Drawn at the clip's own level: flat when muted, taller when boosted.
                     val bar = (sqrt(level * loudness) * size.height).coerceIn(1.dp.toPx(), size.height)
                     drawRect(if (loudness == 0f) Muted else WaveColor, Offset(x, (size.height - bar) / 2), Size(step * 0.6f, bar))
@@ -960,15 +997,15 @@ private fun ClipStrip(
             if (to <= from) continue
             Text(
                 title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
-                modifier = Modifier.offset { IntOffset(((from - clip.start) * pixelsPerSecond).roundToInt(), 0) }
-                    .width(with(density) { ((to - from) * pixelsPerSecond).toFloat().toDp() })
+                modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), 0) }
+                    .width(with(density) { ((to - from) / clip.rate * pixelsPerSecond).toFloat().toDp() })
                     .background(TitleColor, RoundedCornerShape(3.dp))
                     // Clear of the trim grip when the title starts with the clip.
                     .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
         }
         // What has been done to the picture, named over it.
-        listOfNotNull(clip.color?.label(), stringResource(R.string.editor_tag_crop).takeIf { clip.crop != null }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { tags ->
+        listOfNotNull(clip.color?.label(), stringResource(R.string.editor_tag_crop).takeIf { clip.crop != null }, clip.speed?.let { speedLabel(it.rate) }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { tags ->
             Text(tags, color = Color.Black, fontSize = 10.sp, maxLines = 1,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 12.dp).background(Color(0xFFB6C2FF), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
         }
@@ -987,7 +1024,7 @@ private fun ClipStrip(
         // Bookmarks as flags on the footage they mark.
         for (mark in clip.bookmarks.orEmpty()) {
             if (mark.time < clip.start || mark.time >= clip.end) continue
-            Box(Modifier.offset { IntOffset(((mark.time - clip.start) * pixelsPerSecond).roundToInt() - 1.dp.roundToPx(), 0) }
+            Box(Modifier.offset { IntOffset((clip.offset(mark.time) * pixelsPerSecond).roundToInt() - 1.dp.roundToPx(), 0) }
                 .width(3.dp).height(TileSize + WaveHeight).background(BookmarkColor))
         }
         // The part of this clip that dissolves in over the previous one.
@@ -1369,3 +1406,6 @@ private fun ExportDialogs(exporter: Exporter, context: Context, report: (String)
         )
     }
 }
+
+/** A playback rate as the person reads it: 0.5×, 2×. */
+private fun speedLabel(rate: Double): String = (if (rate % 1.0 == 0.0) rate.toInt().toString() else rate.toString()) + "×"

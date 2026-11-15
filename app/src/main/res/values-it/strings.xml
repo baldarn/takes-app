@@ -312,4 +312,7 @@
     <string name="editor_record_here">Registra qui</string>
     <string name="recorder_inserting_at">Inserimento a %1$s</string>
     <string name="recorder_at_end">Registra in coda</string>
+    <string name="editor_speed">Velocità</string>
+    <string name="speed_title">Velocità della clip</string>
+    <string name="speed_note">Tutta la clip scorre più lenta o più veloce, immagine e audio, e l\'intonazione delle voci resta la stessa. Le clip successive si spostano.</string>
 </resources>
