@@ -32,6 +32,9 @@ The port is still in progress. What works today is listed under
 - Camera switching while recording, kept inside the same segment with a `camera` event.
 - Per-camera zoom memory, zoom presets, timed zoom transitions (tap: saved time,
   double tap: one second), pinch to zoom.
+- The large button stops a recording and the round one beside it pauses, as in the
+  original; leaving the app pauses the recording, and a recording cut short by a crash
+  comes back with its marks when the app is opened again.
 - Recordings stay outside editor undo/redo, as in the original model.
 - Unused takes: footage that is in the project but no longer in the edit can be put
   back at the playhead, in a chosen order, as one Undo step.
@@ -72,8 +75,9 @@ The port is still in progress. What works today is listed under
 - Clip color: the original's fourteen looks or an imported `.cube` LUT at a chosen
   strength, with exposure, warmth and tint. One lookup table drives both the preview
   (Android 13 or newer) and the export.
-- Crop and reframing: zoom into a clip and move the window, with the picture following
-  the sliders live; a cropped clip fills the movie's frame.
+- Crop and reframing: zoom into a clip, move the window and rotate it, by slider or by
+  dragging on the picture, and animate between two framings with a choice of curves; a
+  cropped clip fills the movie's frame, the same in preview and export.
 - Clip speed from a quarter to four times, picture and sound, with the pitch kept, in
   preview and export.
 - Subtitles: the speech of the clips is transcribed on the phone with Whisper (through
@@ -97,7 +101,7 @@ The port is still in progress. What works today is listed under
 More than one video layer, unlinking a clip's sound from its picture,
 importing fonts for titles, Log footage
 and highlight recovery, subtitles for sound on the audio tracks or for a selected range
-only, placing captions by dragging them, caption designs and motion, rotated and animated crops, video
+only, placing captions by dragging them, caption designs and motion, a movie shape chosen in the crop tool, video
 effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log
 capture, manual focus.
 
