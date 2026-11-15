@@ -8,4 +8,6 @@
     <string name="recorder_report_copy">Copy</string>
     <string name="recorder_report_copied">Copied</string>
     <string name="recorder_report_clip_label">Takes camera report</string>
+    <!-- The take: what pauses it and what the person is told. -->
+    <string name="recorder_paused_microphone_taken">Another app is using the microphone. Recording is paused; resume when the microphone is free.</string>
 </resources>

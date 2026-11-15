@@ -488,9 +488,14 @@ class CaptureController(private val context: Context, private val store: Project
                 audioWarning = when (audio.audioState) {
                     AudioStats.AUDIO_STATE_ACTIVE -> null
                     AudioStats.AUDIO_STATE_DISABLED -> context.getString(R.string.recorder_mic_off)
-                    AudioStats.AUDIO_STATE_SOURCE_SILENCED -> context.getString(R.string.recorder_mic_silenced)
+                    AudioStats.AUDIO_STATE_SOURCE_SILENCED -> null // the take is paused below
                     AudioStats.AUDIO_STATE_MUTED -> context.getString(R.string.recorder_mic_muted)
                     else -> context.getString(R.string.recorder_mic_stopped)
+                }
+                // A call or another app has taken the microphone: the original pauses the take rather than go on silent.
+                if (audio.audioState == AudioStats.AUDIO_STATE_SOURCE_SILENCED && phase == Phase.Recording) {
+                    pause()
+                    message = context.getString(R.string.recorder_paused_microphone_taken)
                 }
             }
             is VideoRecordEvent.Finalize -> scope.launch { finalize(current, event) }
