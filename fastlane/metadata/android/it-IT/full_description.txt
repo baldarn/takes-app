@@ -6,7 +6,8 @@ REGISTRA A RIPRESE
 • Zoom predefiniti, pizzico per zoomare e transizioni di zoom fluide e temporizzate. Ogni camera ricorda il proprio zoom.
 • Tocco per il fuoco, blocco del fuoco e fuoco manuale, 4K, selfie a specchio e luce frontale, ognuno dove la camera del telefono lo offre.
 • Impostazioni del registratore e un pannello rapido.
-• Scegli il microfono, anche delle cuffie Bluetooth, e controllane il livello in tempo reale.
+• Scegli il microfono e un ordine di preferenza tra i microfoni, e controlla in alto quello in uso e il suo livello in tempo reale.
+• Comandi che ruotano insieme al telefono.
 • Segnalibri: segna un momento mentre registri e ritrovalo nel montaggio.
 
 MONTA SULLA TIMELINE
@@ -24,19 +25,21 @@ MONTA SULLA TIMELINE
 • Colore: look, esposizione, calore e tinta per ogni clip, oppure importa una tua LUT .cube.
 • Ritaglia e reinquadra l'immagine, ruotala o animala tra due inquadrature.
 • Aggiungi video sul cursore: registra lì una nuova ripresa, o inserisci quelle che non hai ancora usato.
-• Sottotitoli: il parlato viene trascritto sul telefono, poi puoi correggere il testo e sceglierne lo stile.
+• Sottotitoli: il parlato viene trascritto sul telefono, poi puoi correggere il testo e sceglierne lo stile. Due modelli vocali tra cui scegliere: il più grande è quello usato da YouRec.
 • Velocità della clip da 0,25× a 4×, con l'intonazione mantenuta.
 • Annulla e ripristina che restano anche dopo aver chiuso l'app.
 • Le registrazioni originali non vengono mai modificate.
 
 ESPORTA E CONDIVIDI
 • Esporta il montaggio scegliendo dimensione, H.264 o H.265 e fotogrammi al secondo.
+• L'esportazione va in pausa quando esci dall'app o spegni lo schermo, e riprende da dove si era fermata.
+• Il filmato finito viene controllato prima di esserti proposto.
 • Guardalo, condividilo o salvalo nella galleria.
 
 I TUOI VIDEO RESTANO TUOI
 • Nessun account, nessuna pubblicità, nessun tracciamento.
 • Registrazioni e progetti non lasciano mai il tuo dispositivo.
-• L'app va su internet per una cosa sola: scaricare il modello vocale per i sottotitoli, e solo quando lo chiedi tu.
+• L'app va su internet per una cosa sola: scaricare il modello vocale per i sottotitoli (circa 987 MB o circa 375 MB, secondo il modello), e solo quando lo chiedi tu.
 • I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
 • Duplica un progetto, oppure esportalo come ZIP e riaprilo più tardi o su un altro telefono.
 • In italiano e in inglese.

@@ -6,7 +6,8 @@ RECORD IN TAKES
 • Zoom presets, pinch to zoom, and smooth timed zoom transitions. Each camera remembers its own zoom.
 • Tap to focus, focus lock and manual focus, 4K, mirrored selfies and a front light, each where your phone's camera offers it.
 • Recorder settings and a quick panel.
-• Choose the microphone, including a Bluetooth headset, and watch its live level.
+• Choose the microphone and an order of preference among microphones, and watch the one in use and its live level at the top of the screen.
+• Controls that turn with the phone.
 • Bookmarks: mark a moment while recording and jump back to it in the editor.
 
 EDIT ON A TIMELINE
@@ -24,19 +25,21 @@ EDIT ON A TIMELINE
 • Color: looks, exposure, warmth and tint for each clip, or import your own .cube LUT.
 • Crop and reframe the picture, rotate it, or animate between two framings.
 • Add video at the playhead: record a new take there, or drop in takes you have not used yet.
-• Subtitles: speech is transcribed on your phone, then you can edit the text and choose its style.
+• Subtitles: speech is transcribed on your phone, then you can edit the text and choose its style. Two speech models to choose from: the larger one is the model YouRec uses.
 • Clip speed from 0.25× to 4×, with the pitch kept.
 • Undo and redo that survive closing the app.
 • Your original recordings are never modified.
 
 EXPORT AND SHARE
 • Export your edit as a movie, choosing size, H.264 or H.265 and frame rate.
+• An export pauses when you leave the app or turn the screen off, and goes on from where it stopped.
+• The finished movie is checked before it is offered to you.
 • Play it, share it, or save it to your gallery.
 
 YOUR VIDEOS STAY YOURS
 • No account, no ads, no tracking.
 • Your recordings and projects never leave your device.
-• The app goes online for one thing only: downloading the speech model for subtitles, and only when you ask.
+• The app goes online for one thing only: downloading the speech model for subtitles (about 987 MB or about 375 MB, depending on the model), and only when you ask.
 • Deleted projects go to Recently Deleted, where you can restore them.
 • Duplicate a project, or export it as a ZIP and open it again later or on another phone.
 • In English and Italian.

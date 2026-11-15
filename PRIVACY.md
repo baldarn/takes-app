@@ -15,10 +15,11 @@ recordings, your projects and their sound are never uploaded anywhere.
 Versions up to 0.4 do not request the Android internet permission at all.
 
 From version 0.5 the app connects to the internet for one thing only: downloading the
-speech model used for subtitles (about 987 MB or about 375 MB, depending on the model:
-the tool picks one by the phone's memory and lets you choose the other; up to version 0.8
-it was one model of about 161 MB). This happens only when you tap the
-download button in the Subtitles tool, which shows the size first. Nothing is downloaded
+speech model used for subtitles. From version 0.9.1 there are two models: one of about
+987 MB, proposed on phones with 8 GB of memory or more, and one of about 375 MB,
+proposed on the others; you can choose either. Up to version 0.8 there was a single model
+of about 161 MB. The download happens only when you tap the download button in the
+Subtitles tool, which shows the size first. Nothing is downloaded
 when the app starts, there are no update checks and no telemetry.
 
 From version 0.7, before that download the app checks on the device whether the
