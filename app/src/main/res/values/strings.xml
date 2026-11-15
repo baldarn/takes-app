@@ -658,4 +658,22 @@
     <string name="crop_down_slider">Crop vertical position</string>
     <string name="crop_edges_note">Framing changes instantly at the edges of this selection.</string>
     <string name="crop_clips_note">Framing changes apply to all %1$d selected clips.</string>
+    <string name="motion_animate">Animate</string>
+    <string name="motion_edit_end">Edit %1$s</string>
+    <string name="motion_remove">Remove animation</string>
+    <string name="motion_curve">Animation curve</string>
+    <string name="motion_curve_linear">Linear</string>
+    <string name="motion_curve_ease_in">Ease in</string>
+    <string name="motion_curve_ease_out">Ease out</string>
+    <string name="motion_curve_smooth">Ease in &amp; out</string>
+    <string name="motion_curve_rise_hold">Rise &amp; hold</string>
+    <string name="motion_curve_rise_hold_return">Rise, hold &amp; return</string>
+    <string name="motion_ramp">Ramp shape</string>
+    <string name="motion_rise">Rise</string>
+    <string name="motion_return">Return</string>
+    <string name="motion_rise_time">Rise time</string>
+    <string name="motion_return_time">Return time</string>
+    <string name="motion_step_less">%1$s: shorter</string>
+    <string name="motion_step_more">%1$s: longer</string>
+    <string name="motion_hold">Hold B for %1$s</string>
 </resources>

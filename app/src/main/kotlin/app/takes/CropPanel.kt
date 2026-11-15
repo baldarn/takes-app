@@ -1,5 +1,22 @@
 package app.takes
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.outlined.Diamond
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.selected
+import app.takes.core.EffectAnimation
+import app.takes.core.EffectCurve
+import app.takes.core.EffectEndpoint
+import app.takes.core.EffectTiming
+import app.takes.core.PauseDetector
+import app.takes.core.RampShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -112,8 +129,8 @@ internal data class Cropping(val draft: CropDraft, val on: CropScope) {
             .minWithOrNull(compareBy<CropScope.Piece> { abs(it.start + it.clip.offset(sourceTime) - time) }.thenBy { sourceTime - it.clip.start })
             ?: return clip.crop
         if (piece.clip.id !in on.ids) return piece.clip.crop
-        // Until something is changed every clip shows what it has.
-        if (!draft.framingChanged && !draft.animationChanged) return piece.clip.crop
+        // Until something is changed every clip shows what it has; one without a crop fills the frame, as applying leaves it.
+        if (!draft.framingChanged && !draft.animationChanged) return piece.clip.crop ?: CropSettings(id = draft.crop.id)
         return draft.displayed(sourceTime, SpeedMapping.spans(piece.clip, piece.clip.speed), piece.start - on.start, piece.clip.crop?.motion)
     }
 
@@ -134,6 +151,18 @@ internal data class Cropping(val draft: CropDraft, val on: CropScope) {
         }
         return next.takeIf { changed }
     }
+
+    /**
+     * Where Play starts from with the playhead at [time]: the start of what
+     * the tool works on while an end of the motion is being edited, or when
+     * the playhead is outside it or at its end; else where it is.
+     */
+    fun playFrom(time: Double): Double =
+        if (draft.endpoint != null || time < on.start || time >= on.end - 0.05) on.start else time
+
+    /** The timeline second the picture stands at while parked on an end of the motion; null when it is not parked. */
+    fun parkedAt(time: Double): Double? =
+        if (draft.previewEndpoint == null || draft.animation == null) null else on.start + draft.previewPosition(time - on.start, on.duration)
 
     companion object {
         /**
@@ -241,6 +270,12 @@ internal fun CropPanel(
             TextButton(onClick = { apply(false) }, enabled = ready) { Text(stringResource(R.string.crop_apply), fontWeight = FontWeight.Bold) }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // The move between two framings. An end that is chosen is what the controls below change.
+            AnimationControls(
+                draft.animation, draft.endpoint, work.on.duration,
+                select = { change(draft.selecting(it, work.on.duration)) }, remove = { change(draft.removingAnimation()) },
+                done = { change(draft.finishing()) }, update = { change(draft.retimed(it, work.on.duration)) },
+            )
             Text(stringResource(R.string.crop_hint), color = Color.White, fontSize = 14.sp)
             // Rotation: the slider, the angle, which a tap sets upright again, and a quarter turn.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -313,5 +348,155 @@ internal fun CropPanel(
             if (!whole) Text(stringResource(R.string.crop_edges_note), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
             if (work.on.pieces.size > 1) Text(stringResource(R.string.crop_clips_note, work.on.pieces.size), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
         }
+    }
+}
+
+/** The curve names of the core module, which only has them in English. */
+private val EffectCurve.label: Int
+    get() = when (this) {
+        EffectCurve.Linear -> R.string.motion_curve_linear
+        EffectCurve.EaseIn -> R.string.motion_curve_ease_in
+        EffectCurve.EaseOut -> R.string.motion_curve_ease_out
+        EffectCurve.Smooth -> R.string.motion_curve_smooth
+        EffectCurve.RiseAndHold -> R.string.motion_curve_rise_hold
+        EffectCurve.RiseHoldReturn -> R.string.motion_curve_rise_hold_return
+    }
+
+private val RampShape.label: Int
+    get() = when (this) {
+        RampShape.Linear -> R.string.motion_curve_linear
+        RampShape.EaseIn -> R.string.motion_curve_ease_in
+        RampShape.EaseOut -> R.string.motion_curve_ease_out
+        RampShape.Smooth -> R.string.motion_curve_smooth
+    }
+
+/** Seconds as the original writes them: up to two decimals, none that say nothing. */
+private fun seconds(value: Double): String {
+    val hundredths = (value * 100).roundToLong()
+    val text = when {
+        hundredths % 100 == 0L -> "${hundredths / 100}"
+        hundredths % 10 == 0L -> String.format(Locale.getDefault(), "%.1f", hundredths / 100.0)
+        else -> String.format(Locale.getDefault(), "%.2f", hundredths / 100.0)
+    }
+    return "$text s"
+}
+
+/** A rounded button that opens a list of choices under it, as the original's menus do. */
+@Composable
+private fun Capsule(label: String, spoken: String, icon: ImageVector? = null, trailing: ImageVector? = null, menu: @Composable (close: () -> Unit) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(50)).background(Plain).clickable { open = true }
+                .semantics { role = Role.DropdownList; contentDescription = spoken }.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            icon?.let { Icon(it, null, Modifier.size(18.dp), tint = Color.White) }
+            Text(label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            trailing?.let { Icon(it, null, Modifier.size(18.dp), tint = Color.White) }
+        }
+        DropdownMenu(open, { open = false }) { menu { open = false } }
+    }
+}
+
+/**
+ * The move between two framings, as the original offers it for every tool
+ * that can move: "Animate" opens the two ends, A and B; choosing one shows
+ * it and lets the controls change it. With a motion there is its curve, and
+ * for the curves that rise and hold their ramp and the times of the rise and
+ * the return.
+ *
+ * @param duration the length of what the tool works on, which the motion runs over.
+ */
+@Composable
+private fun AnimationControls(
+    motion: EffectAnimation?, endpoint: EffectEndpoint?, duration: Double,
+    select: (EffectEndpoint) -> Unit, remove: () -> Unit, done: () -> Unit, update: (EffectTiming) -> Unit,
+) {
+    val ends: @Composable () -> Unit = {
+        val label = endpoint?.let { stringResource(R.string.motion_edit_end, it.name) } ?: stringResource(R.string.motion_animate)
+        Capsule(label, label, icon = if (motion == null) Icons.Outlined.Diamond else Icons.Filled.Diamond) { close ->
+            for (end in EffectEndpoint.entries) {
+                DropdownMenuItem(
+                    { Text(end.name) }, { close(); select(end) },
+                    leadingIcon = { Icon(if (end == endpoint) Icons.Filled.Diamond else Icons.Outlined.Diamond, null) },
+                    modifier = Modifier.semantics { selected = end == endpoint },
+                )
+            }
+            if (motion != null) {
+                DropdownMenuItem({ Text(stringResource(R.string.motion_remove), color = RecordRed) }, { close(); remove() })
+                DropdownMenuItem({ Text(stringResource(R.string.common_done)) }, { close(); done() })
+            }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (motion == null) ends() else {
+            val timing = motion.timing
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                ends()
+                Box(Modifier.weight(1f))
+                val curve = stringResource(timing.curve.label)
+                Capsule(curve, stringResource(R.string.motion_curve) + ": " + curve, trailing = Icons.Filled.ExpandMore) { close ->
+                    for (choice in EffectCurve.entries) {
+                        DropdownMenuItem({ Text(stringResource(choice.label)) }, {
+                            close()
+                            // A rise and a return that would not both fit share the time.
+                            val fits = choice != EffectCurve.RiseHoldReturn || timing.rise + timing.release <= duration
+                            update(if (fits) timing.copy(curve = choice) else timing.copy(curve = choice, rise = duration / 2, release = duration / 2))
+                        }, modifier = Modifier.semantics { selected = choice == timing.curve })
+                    }
+                }
+            }
+            if (endpoint != null || timing.curve.hasRise) {
+                // How far from A, at the bottom, to B, at the top, over the length of the motion.
+                Canvas(Modifier.fillMaxWidth().height(23.dp)) {
+                    val line = Path()
+                    for (step in 0..100) {
+                        val x = step / 100f
+                        val y = 2.dp.toPx() + (1 - timing.fraction(x * duration, duration, motion.frame).toFloat()) * (size.height - 4.dp.toPx())
+                        if (step == 0) line.moveTo(0f, y) else line.lineTo(x * size.width, y)
+                    }
+                    drawPath(line, Color.Cyan, style = Stroke(2.dp.toPx(), join = StrokeJoin.Round))
+                }
+            }
+            if (timing.curve.hasRise) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val name = stringResource(R.string.motion_ramp)
+                    Text(name, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    val ramp = stringResource(timing.ramp.label)
+                    Capsule(ramp, "$name: $ramp", trailing = Icons.Filled.ExpandMore) { close ->
+                        for (choice in RampShape.entries) {
+                            DropdownMenuItem({ Text(stringResource(choice.label)) }, { close(); update(timing.copy(ramp = choice)) }, modifier = Modifier.semantics { selected = choice == timing.ramp })
+                        }
+                    }
+                }
+                val phases = timing.phases(duration)
+                Phase(stringResource(R.string.motion_rise), stringResource(R.string.motion_rise_time), phases.rise, maxOf(0.0, duration - phases.release)) { update(timing.copy(rise = it)) }
+                if (timing.curve == EffectCurve.RiseHoldReturn) {
+                    Phase(stringResource(R.string.motion_return), stringResource(R.string.motion_return_time), phases.release, maxOf(0.0, duration - phases.rise)) { update(timing.copy(release = it)) }
+                }
+                Text(stringResource(R.string.motion_hold, seconds(phases.hold)), color = Soft, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** The time of the rise or of the return: a slider, and a step down and up beside its value. */
+@Composable
+private fun Phase(title: String, spoken: String, value: Double, maximum: Double, set: (Double) -> Unit) {
+    val step = if (maximum < 0.25) PauseDetector.FRAME else 0.1
+    val bounded = { number: Double -> set(if (number >= maximum) maximum else minOf(maximum, maxOf(0.0, Math.round(number / step) * step))) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Color.White, fontSize = 12.sp, modifier = Modifier.defaultMinSize(minWidth = 45.dp), maxLines = 1)
+        Slider(
+            value = value.toFloat().coerceIn(0f, maxOf(0.001, maximum).toFloat()), onValueChange = { bounded(it.toDouble()) },
+            valueRange = 0f..maxOf(0.001, maximum).toFloat(), enabled = maximum > 0,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp).height(36.dp).semantics { contentDescription = spoken },
+        )
+        val less = stringResource(R.string.motion_step_less, title)
+        val more = stringResource(R.string.motion_step_more, title)
+        TextButton(onClick = { bounded(value - step) }, enabled = value > 0, contentPadding = PaddingValues(0.dp), modifier = Modifier.width(36.dp).semantics { contentDescription = less }) { Text("−", fontSize = 18.sp) }
+        Text(seconds(value), color = Color.White, fontSize = 12.sp, maxLines = 1)
+        TextButton(onClick = { bounded(value + step) }, enabled = value < maximum, contentPadding = PaddingValues(0.dp), modifier = Modifier.width(36.dp).semantics { contentDescription = more }) { Text("+", fontSize = 18.sp) }
     }
 }

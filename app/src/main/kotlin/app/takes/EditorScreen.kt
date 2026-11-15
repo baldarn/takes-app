@@ -661,6 +661,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             if (!editor.playing && abs(time - playhead) > 0.6 / pixelsPerSecond) {
                 playhead = time
                 editor.seek(time)
+                // Moving the picture by hand leaves the end of a crop's motion it was parked on: the motion is shown as it runs.
+                cropping?.let { if (it.draft.previewEndpoint != null) cropping = it.copy(draft = it.draft.scrubbed()) }
             }
         }
     }
@@ -1035,7 +1037,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             TextButton(
                 onClick = {
                     auditionEnd = null
-                    if (editor.playing) editor.pause() else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
+                    val framed = cropping
+                    if (editor.playing) editor.pause()
+                    // The Crop tool plays what it works on and stops at its end, as the original's preview does.
+                    else if (framed != null) {
+                        auditionEnd = (framed.on.end - PauseDetector.FRAME / 2).takeIf { framed.on.end < duration - 0.0005 }
+                        val from = framed.playFrom(playhead)
+                        playhead = from
+                        editor.play(from)
+                    } else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
                 },
                 enabled = clips.isNotEmpty(), contentPadding = tight,
             ) { Icon(if (editor.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), Modifier.size(32.dp)) }
@@ -1103,16 +1113,30 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val shape = canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) }
             // The tool closes when the edit changes under it, as with Undo.
             LaunchedEffect(edit) { if (cropping?.on?.base != edit) cropping = null }
+            // Parked on an end of the motion, the picture stands where that end shows: the start for A, the peak
+            // or the last frame for B. It follows the peak as the timing changes.
+            val parked = framing.draft.previewEndpoint
+            LaunchedEffect(parked, framing.draft.animation?.timing) {
+                framing.parkedAt(playhead)?.coerceIn(0.0, duration)?.let { if (editor.playing || abs(it - playhead) > 0.0005) { auditionEnd = null; jump(it) } }
+            }
+            // Playing shows the motion run; when it stops, the picture goes back to the end being edited.
+            LaunchedEffect(editor.playing) {
+                val now = cropping ?: return@LaunchedEffect
+                if (editor.playing) { if (now.draft.previewEndpoint != null) cropping = now.copy(draft = now.draft.scrubbed()) }
+                else if (now.draft.endpoint != null && now.draft.previewEndpoint == null) cropping = now.copy(draft = now.draft.copy(previewEndpoint = now.draft.endpoint))
+            }
             CropPanel(
                 framing, source = framing.on.active(playhead)?.let { sizes[it.clip.sourceID] }, canvas = shape,
                 whole = framing.on.start <= 0.0005 && framing.on.end >= duration - 0.0005,
                 change = { cropping = framing.copy(draft = it) },
                 apply = { removing ->
                     val next = shape?.let { framing.applied(sizes, it, removing) }
+                    editor.pause()
+                    auditionEnd = null
                     cropping = null
                     framing.on.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
                 },
-                cancel = { cropping = null },
+                cancel = { editor.pause(); auditionEnd = null; cropping = null },
                 modifier = Modifier.weight(1f), appliesTo = toolScopeLabel,
             )
         } else if (titling != null) {

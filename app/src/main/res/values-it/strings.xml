@@ -666,4 +666,22 @@
     <string name="crop_down_slider">Posizione verticale del ritaglio</string>
     <string name="crop_edges_note">L\'inquadratura cambia di colpo ai bordi di questa selezione.</string>
     <string name="crop_clips_note">Le modifiche all\'inquadratura valgono per tutte le %1$d clip selezionate.</string>
+    <string name="motion_animate">Anima</string>
+    <string name="motion_edit_end">Modifica %1$s</string>
+    <string name="motion_remove">Rimuovi animazione</string>
+    <string name="motion_curve">Curva dell\'animazione</string>
+    <string name="motion_curve_linear">Lineare</string>
+    <string name="motion_curve_ease_in">Ease in</string>
+    <string name="motion_curve_ease_out">Ease out</string>
+    <string name="motion_curve_smooth">Ease in e out</string>
+    <string name="motion_curve_rise_hold">Sali e resta</string>
+    <string name="motion_curve_rise_hold_return">Sali, resta e torna</string>
+    <string name="motion_ramp">Forma della rampa</string>
+    <string name="motion_rise">Salita</string>
+    <string name="motion_return">Ritorno</string>
+    <string name="motion_rise_time">Durata della salita</string>
+    <string name="motion_return_time">Durata del ritorno</string>
+    <string name="motion_step_less">%1$s: più breve</string>
+    <string name="motion_step_more">%1$s: più lunga</string>
+    <string name="motion_hold">Resta su B per %1$s</string>
 </resources>
