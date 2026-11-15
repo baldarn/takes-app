@@ -33,7 +33,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CenterFocusWeak
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -87,7 +89,7 @@ private val Secondary = Color(0xFF98989F)
  * often, and "More settings" behind it, which fills the screen. A tap beside the panel closes it.
  */
 @Composable
-internal fun CameraSettings(capture: CaptureController, project: Project?, close: () -> Unit) {
+internal fun CameraSettings(capture: CaptureController, project: Project?, frontLight: Boolean, setFrontLight: (Boolean) -> Unit, close: () -> Unit) {
     var more by rememberSaveable { mutableStateOf(false) }
     BackHandler { if (more) more = false else close() }
     // A tap beside the panel closes it and a tap on the panel does nothing, neither with a ripple.
@@ -112,7 +114,7 @@ internal fun CameraSettings(capture: CaptureController, project: Project?, close
                     .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp)).clickable(quiet, null) {},
             ) {
                 TitleBar(title, close, null)
-                QuickSettings(capture)
+                QuickSettings(capture, frontLight, setFrontLight)
                 HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
                 Row(
                     Modifier.fillMaxWidth().clickable(role = Role.Button) { more = true }.heightIn(min = 48.dp).padding(horizontal = 20.dp),
@@ -141,13 +143,13 @@ private fun TitleBar(title: String, close: () -> Unit, back: (() -> Unit)?) {
 }
 
 /**
- * What is changed often: the assists as tiles, then the recording colour. Each is there only where a
- * camera of this phone has it, and can be used when the camera in use has it.
+ * What is changed often: the assists as tiles, then the recording colour. What depends on the camera is
+ * there only where a camera of this phone has it, and can be used when the camera in use has it.
  */
 @Composable
-private fun QuickSettings(capture: CaptureController) {
+private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFrontLight: (Boolean) -> Unit) {
     var help by remember { mutableStateOf<String?>(null) }
-    val tiles = buildList<@Composable (Modifier) -> Unit> {
+    val tiles = mutableListOf<@Composable (Modifier) -> Unit>().apply {
         if (capture.offersStabilization) add { modifier ->
             val on = capture.format.stabilization != CaptureFormat.Stabilization.Off
             val status = stringResource(when {
@@ -162,14 +164,18 @@ private fun QuickSettings(capture: CaptureController) {
             ) { capture.chooseStabilization(!capture.settings.stabilization) }
         }
     }
-    if (tiles.isEmpty() && !capture.offersHDR) return
+    tiles.add { modifier ->
+        // Needs nothing of the camera: the light is the display's.
+        AssistTile(
+            stringResource(R.string.recorder_light), if (frontLight) Icons.Filled.Lightbulb else Icons.Outlined.Lightbulb, frontLight, enabled = true,
+            details = stringResource(R.string.recorder_light_help), explain = { help = it }, modifier = modifier,
+        ) { setFrontLight(!frontLight) }
+    }
     Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (tiles.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                tiles.forEach { it(Modifier.weight(1f)) }
-                // Tiles keep the width they have when there are four of them, as in the original.
-                repeat(maxOf(0, 4 - tiles.size)) { Spacer(Modifier.weight(1f)) }
-            }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            tiles.forEach { it(Modifier.weight(1f)) }
+            // Tiles keep the width they have when there are four of them, as in the original.
+            repeat(maxOf(0, 4 - tiles.size)) { Spacer(Modifier.weight(1f)) }
         }
         if (capture.offersHDR) RecordingColor(capture)
     }

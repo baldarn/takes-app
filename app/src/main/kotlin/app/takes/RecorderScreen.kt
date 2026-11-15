@@ -57,6 +57,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,6 +92,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -102,6 +105,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.CaptureController.Phase
+import app.takes.core.CaptureFormat
+import app.takes.core.FrontLight
 import app.takes.core.PinchZoom
 import app.takes.core.Project
 import kotlinx.coroutines.delay
@@ -111,6 +116,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 private val Scrim = Color(0x99000000)
 /** The plate under a control that sits on the picture, as in the original. */
 private val ControlPlate = Color(0x85000000)
+/** The plate in use: opaque while the front light is on, so the controls stay readable on it, as in the original. */
+private val LocalControlPlate = compositionLocalOf { ControlPlate }
+private val LitPlate = Color(FrontLight.PLATE_WHITE.toFloat(), FrontLight.PLATE_WHITE.toFloat(), FrontLight.PLATE_WHITE.toFloat())
 private val PausedYellow = Color(0xFFFFD60A)
 
 private fun granted(context: Context, permission: String) =
@@ -147,6 +155,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     val settings = capture.settings
     var settingsOpen by remember { mutableStateOf(false) }
     var zoomOpen by remember { mutableStateOf(false) }
+    // Being on is not remembered, as in the original: the light is off whenever the recorder opens.
+    var frontLight by remember { mutableStateOf(false) }
     var pinch by remember { mutableStateOf<PinchZoom?>(null) }
     // While the camera changes, the last picture of the old one covers the preview, as in the original.
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -218,32 +228,50 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             // 27 % of the way down, centred, as in the original.
             PinchBadge(it, Modifier.align(BiasAlignment(0f, (PinchZoom.BADGE_HEIGHT * 2 - 1).toFloat())))
         }
-        // Clear of the camera cutout, which stays when the status bar is hidden.
-        Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
-        SettingsButton(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))) { settingsOpen = true }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            ProjectChip(capture, store, openEditor)
-            val usable = capture.ready && capture.phase != Phase.Saving && cover == null
-            if (zoomOpen && capture.hasZoom) {
-                Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
+        // Over the picture and under the controls. It is part of the interface: the camera never sees it.
+        if (frontLight) FrontLightRing(settings, screenCornerRadius()) { frontLight = false }
+        CompositionLocalProvider(LocalControlPlate provides if (frontLight) LitPlate else ControlPlate) {
+            // Clear of the camera cutout, which stays when the status bar is hidden.
+            Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+            SettingsButton(
+                // A dot says that an assist is on.
+                assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off,
+                Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)),
+            ) { settingsOpen = true }
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                ProjectChip(capture, store, openEditor)
+                val usable = capture.ready && capture.phase != Phase.Saving && cover == null
+                if (zoomOpen && capture.hasZoom) {
+                    Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
+                }
+                CameraStrip(capture, usable, zoomOpen, { zoomOpen = !zoomOpen }, switchCamera)
+                Controls(capture)
             }
-            CameraStrip(capture, usable, zoomOpen, { zoomOpen = !zoomOpen }, switchCamera)
-            Controls(capture)
         }
         TakeFrame(capture.phase, Modifier.matchParentSize())
-        if (settingsOpen) CameraSettings(capture, store.selected) { settingsOpen = false }
+        if (settingsOpen) CameraSettings(capture, store.selected, frontLight, { frontLight = it }) { settingsOpen = false }
         Notice(capture.message, Modifier.align(Alignment.Center)) { capture.message = null }
     }
 }
 
 /** The way into "Camera settings", at the end of the top bar as in the original. */
 @Composable
-private fun SettingsButton(modifier: Modifier, open: () -> Unit) {
+private fun SettingsButton(assist: Boolean, modifier: Modifier, open: () -> Unit) {
     Box(
-        modifier.padding(top = 9.dp, end = 12.dp).size(44.dp).clip(CircleShape).background(ControlPlate).clickable(role = Role.Button, onClick = open),
+        modifier.padding(top = 9.dp, end = 12.dp).size(44.dp).clip(CircleShape).background(LocalControlPlate.current).clickable(role = Role.Button, onClick = open),
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Filled.Tune, stringResource(R.string.recorder_settings_title), Modifier.size(22.dp), tint = Color.White)
+        if (assist) Box(Modifier.align(Alignment.BottomEnd).padding(7.dp).size(6.dp).background(SettingsCyan, CircleShape))
+    }
+}
+
+/** The radius of the display's corners, where the system tells it; zero elsewhere. */
+@Composable
+private fun screenCornerRadius(): Dp {
+    val view = LocalView.current
+    return with(LocalDensity.current) {
+        (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) view.rootWindowInsets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0 else 0).toDp()
     }
 }
 
@@ -259,13 +287,7 @@ private fun TakeFrame(phase: Phase, modifier: Modifier) {
         else -> return
     }
     // The line follows the corners of the display where the system tells them; over the tabs it is square.
-    val view = LocalView.current
-    val top = with(LocalDensity.current) {
-        val radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            view.rootWindowInsets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0
-        } else 0
-        maxOf(4.dp, radius.toDp() - 3.dp)
-    }
+    val top = maxOf(4.dp, screenCornerRadius() - 3.dp)
     Box(modifier.padding(3.dp).border(2.dp, color, RoundedCornerShape(topStart = top, topEnd = top, bottomStart = 4.dp, bottomEnd = 4.dp)))
 }
 
@@ -327,7 +349,7 @@ private fun Clock(capture: CaptureController, project: Project?) {
         phase == Phase.Recording -> RecordRed.copy(alpha = 0.8f)
         project?.sources?.isNotEmpty() == true && phase != Phase.Saving -> Color(0xFF961C29)
         phase == Phase.Paused -> Color(0xA6000000)
-        else -> ControlPlate
+        else -> LocalControlPlate.current
     }
     val spoken = when (phase) {
         Phase.Idle -> stringResource(R.string.recorder_ready) + " " + time
@@ -505,7 +527,8 @@ private fun Controls(capture: CaptureController) {
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.size(80.dp).border(3.dp, Color.White, CircleShape))
+            val lit = LocalControlPlate.current == LitPlate
+            Box(Modifier.size(80.dp).background(if (lit) LitPlate else Color.Transparent, CircleShape).border(3.dp, Color.White, CircleShape))
             when (phase) {
                 Phase.Saving -> CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 3.dp)
                 Phase.Recording -> Box(Modifier.size(30.dp).background(RecordRed, RoundedCornerShape(7.dp)))
@@ -535,7 +558,7 @@ private fun MarkButton(capture: CaptureController) {
         if (capture.marks > 0) { acknowledged = true; delay(700); acknowledged = false }
     }
     Column(
-        Modifier.size(52.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(15.dp)).background(ControlPlate)
+        Modifier.size(52.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(15.dp)).background(LocalControlPlate.current)
             .clickable(enabled = enabled, role = Role.Button, onClick = capture::bookmark),
         Arrangement.Center, Alignment.CenterHorizontally,
     ) {
@@ -547,7 +570,7 @@ private fun MarkButton(capture: CaptureController) {
 @Composable
 private fun SideButton(icon: ImageVector, label: Int, action: () -> Unit) {
     Box(
-        Modifier.size(52.dp).clip(CircleShape).background(ControlPlate).clickable(role = Role.Button, onClick = action),
+        Modifier.size(52.dp).clip(CircleShape).background(LocalControlPlate.current).clickable(role = Role.Button, onClick = action),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, stringResource(label), Modifier.size(24.dp), tint = Color.White)

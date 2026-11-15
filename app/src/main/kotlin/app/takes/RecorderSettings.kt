@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import app.takes.core.FocusControl
+import app.takes.core.FrontLight
 import app.takes.core.ZoomTransition
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -49,6 +50,15 @@ class RecorderSettings(private val prefs: SharedPreferences) {
 
     /** The front camera's takes are saved mirrored (the original's `mirrorFrontRecording`). */
     var mirrorRecording: Boolean by flag("mirrorFrontRecording", false)
+
+    /** The front light: its width, its colour and its opacity are kept; being on is not, as in the original. */
+    var frontLightWidth: FrontLight.Width by stored(FrontLight.width(prefs.getString("frontLightWidth", null))) { putString("frontLightWidth", it.name) }
+    var frontLightTone: FrontLight.Tone by stored(FrontLight.tone(prefs.getString("frontLightTone", null))) { putString("frontLightTone", it.name) }
+    /** The hue of the custom colour, in degrees. */
+    var frontLightHue: Double by stored(FrontLight.hue(prefs.getFloat("frontLightHue", FrontLight.DEFAULT_HUE.toFloat()).toDouble())) { putFloat("frontLightHue", it.toFloat()) }
+    var frontLightOpacity: Double by stored(FrontLight.opacity(prefs.getFloat("frontLightOpacity", FrontLight.DEFAULT_OPACITY.toFloat()).toDouble())) {
+        putFloat("frontLightOpacity", it.toFloat())
+    }
 
     private fun text(key: String) = stored(prefs.getString(key, null)) { putString(key, it) }
 
