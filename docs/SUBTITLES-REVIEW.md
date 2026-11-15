@@ -16,14 +16,20 @@ How each statement was established is marked:
 
 One correction to the premise of the review request: the original does **not** use
 Whisper. It runs Qwen3-ASR-0.6B through MLX (`O/SubtitleTranscriber.swift:2,42`,
-`O/SubtitleModelPack.swift:7-8`). Only the port uses Whisper.
+`O/SubtitleModelPack.swift:7-8`). At the time of the review only the port used Whisper.
+
+**Update, 2026-11-15.** Findings 1, 9 and 14 and verdict rows 2a and 2b describe v0.6.
+Since then the port runs the original's model, Qwen3-ASR 0.6B, through sherpa-onnx, with
+Whisper small as the lighter choice, and "Auto" no longer lets the first piece decide.
+What changed is written under each of those findings, marked **Now**; the rest of the
+review is as it was. File and line references of the unchanged text are those of v0.6.
 
 ## Verdict
 
 | Area | Verdict | In one line |
 |---|---|---|
 | 1. What is transcribed | **differs** | Original: the edited mix over the selected range. v0.6: each clip's own recording, whole project, as in 0.5. Nothing changed here between 0.5 and 0.6. |
-| 2a. Model and decoding | **differs** (by design) | Qwen3-ASR-0.6B 4-bit, 713 MB, against Whisper base int8, 161 MB. Both greedy, no prompt. |
+| 2a. Model and decoding | **matches** where the phone has the memory (was: differs) | v0.6: Qwen3-ASR-0.6B 4-bit, 713 MB, against Whisper base int8, 161 MB. Now: Qwen3-ASR 0.6B on both, another conversion (int8 ONNX, 987 MB); Whisper small on phones with less memory. |
 | 2b. Download, verification, storage, removal | **matches**, small differences | Pinned revision, SHA-256 per file, resume, cancel, outside backups, removable on both. Offline behaviour and space reserve differ. |
 | 2c. Chunking of long audio | **matches** | Same plan, identical numbers [probe]. It is fed different audio (see 1). |
 | 2d. Text post-processing | **differs** slightly | Original: none. Port: removes bracketed notes. Neither filters invented phrases. |
@@ -66,6 +72,25 @@ Severity: **every use** (seen each time the tool is used), **specific cases**,
 - Fix: a decision, not a bug. If accuracy on a phone is not good enough, offer Whisper
   small as a second download (already described in `SpeechModel`), or follow
   `docs/MODELS-ON-ANDROID.md` and try Qwen through sherpa-onnx.
+- **Now**: done. The port runs Qwen3-ASR 0.6B, the sherpa-onnx project's int8 export
+  at a pinned revision, six files, 987,015,347 bytes, shown as "987 MB"
+  (`S/SpeechModel.kt`, `Qwen3Asr`); its tokenizer files are byte for byte the
+  original's. sherpa-onnx is still 2.0.1, which already had the recognizer. Decoding as
+  the original: greedy, at most 256 tokens per piece, "language <name>" after the sound
+  when a language is chosen and nothing when it is Auto (`S/SpeechRecognizer.kt`).
+  Whisper small (375 MB) is the second model on offer and the one a phone with under
+  7 GB of memory gets by itself; Whisper base is used only where an earlier version
+  downloaded it. A model is a description (`SpeechModel`: id, name, folder, kind of
+  recognizer, files with size and SHA-256, memory it takes), the choice between them is
+  in `S/SpeechModels.kt`, and the tool shows it as one line, "Model: … · n MB".
+  Measured on a phone sold with 8 GB, on 88.5 s of Italian speech with English
+  technical words, pieces of at most 12 s: Qwen3-ASR loads in 5 to 13 s, recognizes in
+  50 to 55 s (0.6 of real time) and takes 2.1 GB; Whisper small loads in 3 s, recognizes
+  in 57 s and takes 0.8 GB. By reading, with the language set to Italian, Qwen3-ASR
+  wrote about 9 clearly wrong words out of 190 and Whisper small about 18; Qwen3-ASR
+  got "porting dell'app", "computer", "ram" and "input" right, Whisper small wrote
+  "compiuto" and "ramba". There was no reference text, so these counts are a reading,
+  not a score.
 
 ### 2. Sound on the audio tracks is not transcribed — specific cases — [read]
 
@@ -225,6 +250,12 @@ item with the clip's id own the words.
   detection applies to everything. [inferred]
 - Fix: detect on the longest of the first few pieces, or show the detected language
   so the person can correct it.
+- **Now**: the port does what the original does. With Auto every piece goes to the
+  model without a hint (`A/SubtitleTranscriber.kt`, `transcribe`), with Qwen3-ASR and
+  with Whisper alike. The price is the original's too: on the test speech, Italian
+  throughout, Qwen3-ASR wrote one short piece in Spanish ("Sí, este es el porting del
+  app") when left on Auto and wrote it in Italian when told the language. Whisper small
+  wrote the same text with Auto and with Italian.
 
 ### 10. No protection against Whisper's invented phrases — specific cases — [inferred]
 
@@ -283,6 +314,17 @@ item with the clip's id own the words.
 | Space | Model + 150 MB, message says 900 MB (`:36-37`) | Model + 20 MB, message says 181 MB (`A/SubtitleModel.kt:39-44,72`, `A/SubtitlesPanel.kt:176`) |
 | Progress | Bar only | "Downloading speech model… n of 161 MB" |
 | Remove | Asks; keeps subtitles (`O/SubtitleEditor.swift:167-173`) | Same (`A/SubtitlesPanel.kt:443-452`) |
+
+**Now**: the table holds for each of the two models, with their own folders
+(`noBackupFilesDir/speech/qwen3-asr-0.6b`, `…/small`; `…/base` for a Whisper base left
+by an earlier version) and sizes (987 MB, 375 MB). Qwen3-ASR comes from
+`huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25` at revision
+`68818b2313fe77bd06f6a7c5068ff3ef59d02b8a`, the sherpa-onnx project's second account,
+file by file, so nothing is unpacked on the phone. An interrupted download shows
+"Continue download · n MB left", and the choice of model shows how much of each is on
+the phone, with a bin to remove it. Seen on a phone against the real server: the
+download of both models, a stop in the middle of a file, and the continuation with a
+`Range` request answered with 206.
 
 The port's 20 MB reserve is thin: the scratch file of a later transcription is
 230 MB per hour of recording (`speech/README.md`), and nothing checks space for it.
@@ -448,9 +490,10 @@ Run on a desktop JVM (JDK 17), never committed.
 
 ## Not determined without a device or the model
 
-- How well each model recognizes speech, in any language; how often Whisper base
-  invents text on music or noise; whether "Auto" detects reliably from a first piece.
-- Time and memory of a transcription on a phone, on either side.
+- How well each model recognizes speech beyond the one Italian sample of finding 1;
+  how often Whisper invents text on music or noise, and whether Qwen3-ASR does.
+- Time and memory of a transcription on an iPhone, and on an Android phone with less
+  than 8 GB of memory: whether Qwen3-ASR runs at all on one sold with 6 GB.
 - What `NLTokenizer` returns for apostrophes, hyphens, numbers and unspaced scripts,
   so whether word counts per caption agree exactly.
 - Line breaks, line height and the look of each font: Core Text against
@@ -459,6 +502,7 @@ Run on a desktop JVM (JDK 17), never committed.
   target sizes; the 0.6 alpha change was not rendered here).
 - What Android does to a transcription or a download when the app is left.
 - Whether the original's preview mix includes its audio enhancement.
-- The download against the real server: resume, redirects, a refused request.
+- The download against the real server when it refuses a request or the network is
+  metered (resume and redirects were seen, finding 14).
 - Reading a project written by the other platform: schema numbers differ and were not
   compared here.

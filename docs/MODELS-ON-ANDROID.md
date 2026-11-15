@@ -51,3 +51,8 @@ downloaded on first use.
 Phone timings and memory for LavaSR, VoiceFixer and Qwen3-ASR; whether the
 ONNX exports hit unsupported operators; whether GPU or NNAPI delegates help;
 whether Qwen through sherpa-onnx can be forced to a language.
+
+Since determined for Qwen3-ASR (2026-11-15): it runs through sherpa-onnx 2.0.1 on a
+phone sold with 8 GB at 0.6 of real time, takes 2.1 GB of memory, and takes a language
+with each piece (the stream option `language`). The download is 987 MB file by file.
+See `speech/README.md` and `docs/SUBTITLES-REVIEW.md`, finding 1.
