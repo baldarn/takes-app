@@ -30,8 +30,11 @@ The port is still in progress. What works today is listed under
   project later, including after the app restarts. Each pause or stop finalizes one
   immutable segment file.
 - Camera switching while recording, kept inside the same segment with a `camera` event.
-- Per-camera zoom memory, zoom presets, timed zoom transitions (tap: saved time,
-  double tap: one second), pinch to zoom.
+- Per-camera zoom memory, zoom presets, timed zoom transitions and pinch to zoom, with
+  the 1× lens offered from the ultrawide.
+- Tap to focus, focus lock and manual focus where the camera has them; 4K, mirrored
+  selfies, a front light and recorder settings, each offered only where the phone's
+  camera supports it.
 - The large button stops a recording and the round one beside it pauses, as in the
   original; leaving the app pauses the recording, and a recording cut short by a crash
   comes back with its marks when the app is opened again.
@@ -59,7 +62,9 @@ The port is still in progress. What works today is listed under
   dragging, and channel styles saved for every project.
 - Export of the edit to a new movie in the project's `Exports` folder, with a choice
   of size (original, 720p, 1080p, 4K), H.264 or H.265, and a 30 or 60 fps ceiling, then
-  play, share or save to the gallery. Sources are never modified.
+  play, share or save to the gallery. Sources are never modified. A movie with a
+  transition runs at one frame rate, the fastest footage's under the ceiling; a movie of
+  plain cuts keeps the footage's own frames.
 - Import of videos from the device through the system picker, into a new or an
   existing project. HDR footage is tone-mapped on export.
 - Credits and licenses screen with the bundled license texts.
@@ -80,6 +85,9 @@ The port is still in progress. What works today is listed under
   cropped clip fills the movie's frame, the same in preview and export.
 - Clip speed from a quarter to four times, picture and sound, with the pitch kept, in
   preview and export.
+- Sound levels in half decibels with a warning when the mix would clip, fades of any
+  length that survive a split, short fades at cuts so they do not click, and the level
+  set by dragging a waveform up or down.
 - Subtitles: the speech of the clips is transcribed on the phone with Whisper (through
   sherpa-onnx), in the language you choose or one it detects. The model is downloaded
   once on request, verified, kept out of backups, and can be removed. Captions follow
