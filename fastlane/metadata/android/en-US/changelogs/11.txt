@@ -1,0 +1,1 @@
+A failed export now says why in the app's language. "Saved to the gallery" appears in the export window. The phone's microphone is called "Phone mic" in the recorder. A stopped transcription no longer leaves sound in the app's storage. Preview and export are built from one description of the movie; exported movies are the same as in 0.9.1.

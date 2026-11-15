@@ -1,0 +1,1 @@
+Un export non riuscito ora ne dice il motivo nella lingua dell'app. "Salvato in galleria" compare nella finestra dell'export. Nel registratore il microfono del telefono si chiama "Mic telefono". Una trascrizione interrotta non lascia più audio nella memoria dell'app. Anteprima ed export nascono da un'unica descrizione del filmato; i filmati esportati sono uguali alla 0.9.1.
