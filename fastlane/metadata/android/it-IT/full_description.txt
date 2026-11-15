@@ -10,7 +10,8 @@ REGISTRA A RIPRESE
 MONTA SULLA TIMELINE
 • Timeline scorrevole con miniature e forme d'onda dell'audio.
 • Dividi sul cursore, rifila con le maniglie, elimina e riordina le clip.
-• Titoli che seguono le immagini, dissolvenze al nero e dissolvenze incrociate tra le clip.
+• Titoli che seguono le immagini, con look, font, gradienti, contorno, ombra, sfondo, animazioni di entrata e uscita, e stili che puoi salvare.
+• Nove transizioni tra le clip, in apertura e in chiusura: dissolvenza, fade su colore, wipe, split screen, Hitchcock, whip pan, flash cut, fermo immagine e defocus, ognuna con i suoi tempi per l'audio.
 • Importa nel progetto i video già presenti sul telefono.
 • Audio per ogni clip: volume, mute e dissolvenze.
 • Due tracce audio separate per musica o voce, importate dai tuoi file.

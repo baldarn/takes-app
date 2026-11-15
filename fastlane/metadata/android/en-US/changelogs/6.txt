@@ -1,0 +1,1 @@
+YouRec's nine transitions (dissolve, fade through a color, wipe, split screen, Hitchcock, whip pan, flash cut, still, defocus), also at the start and end, with sound timing; title design and motion: looks, fonts, gradients, outline, shadow, background, entrance and exit, saved styles. Exports no longer drop the last frame of each clip.

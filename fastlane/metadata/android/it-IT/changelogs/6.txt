@@ -1,0 +1,1 @@
+Le nove transizioni di YouRec (dissolvenza, fade su colore, wipe, split screen, Hitchcock, whip pan, flash cut, fermo immagine, defocus), anche in apertura e chiusura, con i tempi dell'audio; design e movimento dei titoli: look, font, gradienti, contorno, ombra, sfondo, entrata e uscita, stili salvati. Gli export non perdono più l'ultimo fotogramma di ogni clip.

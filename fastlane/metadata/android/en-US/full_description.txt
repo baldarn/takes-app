@@ -10,7 +10,8 @@ RECORD IN TAKES
 EDIT ON A TIMELINE
 • Scrolling thumbnail timeline with audio waveforms.
 • Split at the playhead, trim with handles, delete and reorder clips.
-• Titles that follow the footage, plus fades and cross dissolves between clips.
+• Titles that follow the footage, with looks, fonts, gradients, outline, shadow, background, entrance and exit motion, and styles you can save.
+• Nine transitions between clips and at the start and end: dissolve, fade through a color, wipe, split screen, Hitchcock, whip pan, flash cut, still and defocus, each with its own sound timing.
 • Import videos from your device into a project.
 • Sound for each clip: volume, mute and fades.
 • Two separate audio tracks for music or voice, imported from your files.
