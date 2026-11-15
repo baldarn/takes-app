@@ -241,4 +241,19 @@ class TrackSubtitlesTest {
         assertSameCaptions(expected, actual)
         for ((a, b) in expected.zip(actual)) assertEquals(TrackTimeline.counterpart(a.audioID), b.audioID)
     }
+
+    /** Tests/SubtitleTests.swift:60-65: "Pasted subtitles own independent words". */
+    @Test
+    fun pastedCaptionsHaveWordsOfTheirOwn() {
+        val clipboard = original.copied(TrackLinking.entireSelection(original))
+        val pasted = original.pasting(clipboard, ticks(12.0))
+        val copies = pasted.selection.audio
+        assertEquals(original.cues().size * 2, pasted.timeline.cues().size)
+        val copy = pasted.timeline.cues().first { it.audioID in copies }
+        val corrected = TrackSubtitles.correcting(pasted.timeline, copy, "Independent copy")!!
+        assertEquals(original.cues().map { it.text }, corrected.cues().filter { it.audioID !in copies }.map { it.text })
+        assertEquals("Independent copy", corrected.cues().first { it.audioID in copies }.text)
+        assertEquals(original.audio[0].subtitleWords, corrected.audio.first { it.id == firstAudio }.subtitleWords)
+        corrected.validate(listOf(source))
+    }
 }

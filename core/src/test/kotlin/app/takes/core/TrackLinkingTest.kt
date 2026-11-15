@@ -398,4 +398,19 @@ class TrackLinkingTest {
         val closed = spaced.closingGap(t(5.0))
         assertEquals(blend, closed)
     }
+
+    // MARK: With the recipes
+
+    /** Tests/TrackTimelineTests.swift:486-491: "Retiming a horizontal video group keeps its joins contiguous without moving detached sound". */
+    @Test
+    fun retimingALinkOfPicturesKeepsThemMeetingAndLeavesUnlinkedSoundAlone() {
+        val horizontal = done(detached.joining(videos)).timeline
+        val clips = horizontal.projectedClips.toMutableList()
+        clips[0] = clips[0].copy(speed = SpeedSettings(rate = 0.5))
+        val retimed = horizontal.replacingVideoContents(clips)
+        assertEquals(listOf(t(0.0), t(8.0), t(12.0)), retimed.video.map { it.start })
+        assertEquals(horizontal.audio, retimed.audio)
+        assertEquals(horizontal.links, retimed.links)
+        settled(retimed)
+    }
 }

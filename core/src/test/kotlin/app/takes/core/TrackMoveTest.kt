@@ -569,4 +569,84 @@ class TrackMoveTest {
         assertEquals(clips[0].id, boundary?.incomingID)
         settled(moved, listOf(source))
     }
+
+    // MARK: Tests/TrackTimelineTests.swift:282-314, placements across a trim, a retime and a third picture
+
+    private val take = SourceMedia(id = uuid(7), filename = "source.mp4", duration = 8.0)
+    private val window = VideoPlacement(x = 0.6, y = 0.4, width = 0.8, height = 0.6, framing = TransitionFraming(0.2, 0.7, 2.0), order = 3)
+
+    /** "Trim extension into another base clip preserves the overlay's geometry", "Slowing an overlay into another base clip preserves its geometry". */
+    @Test
+    fun anOverlayLengthenedOrSlowedOverAnotherPieceOfItsBaseKeepsItsWindow() {
+        val base = TimelineClip(uuid(60), take.id, 0.0, 8.0)
+        var timeline = timeline(listOf(base))
+        timeline = timeline.unlinked(timeline.entireSelection())
+        val over = VideoTimelineItem.of(uuid(62), t(1.0), TimelineClip(uuid(61), take.id, 0.0, 2.0))
+        timeline = timeline.copy(
+            video = timeline.video + over,
+            placements = listOf(VideoPlacementRegion(participants = setOf(base.id, over.id), videos = mapOf(base.id to window, over.id to window))),
+        )
+        timeline = TrackEditing.split(timeline, t(4.0), TimelineSelection(video = setOf(base.id))).timeline
+
+        val extended = timeline.extending(TimelineSelection(video = setOf(over.id)), left = false, by = t(3.0), sources = listOf(take))
+        assertEquals(t(6.0), extended.video.first { it.id == over.id }.end)
+        val extendedPlan = extended.compile().first { t(5.0) in it.interval }
+        assertEquals(window.width, extended.placements.first { it.id == extendedPlan.placementID }.videos.getValue(over.id).width, 0.0)
+        settled(extended, listOf(take))
+
+        val slowed = timeline.replacingVideoContents(timeline.projectedClips.map { if (it.id == over.id) it.copy(speed = SpeedSettings(rate = 0.5)) else it })
+        assertEquals(t(5.0), slowed.video.first { it.id == over.id }.end)
+        val slowPlan = slowed.compile().first { t(4.5) in it.interval }
+        assertEquals(window.width, slowed.placements.first { it.id == slowPlan.placementID }.videos.getValue(over.id).width, 0.0)
+        settled(slowed, listOf(take))
+    }
+
+    /** "Adding a third overlapping picture keeps the existing arrangement", "New overlay remains in front while inherited windows retain their relative order". */
+    @Test
+    fun aThirdPictureMovedOverAnArrangedPairKeepsTheirWindowsAndComesInFront() {
+        val base = TimelineClip(uuid(60), take.id, 0.0, 8.0)
+        var timeline = timeline(listOf(base))
+        val other = timeline.video[0].copy(occurrenceID = uuid(64), content = base.copy(id = uuid(63)))
+        val third = timeline.video[0].copy(occurrenceID = uuid(66), content = base.copy(id = uuid(65)), start = t(8.0))
+        timeline = timeline.copy(
+            video = timeline.video + other + third,
+            placements = listOf(VideoPlacementRegion(participants = setOf(base.id, other.id), videos = mapOf(base.id to window, other.id to window))),
+        )
+        val moved = timeline.moved(TimelineSelection(video = setOf(third.id)), t(-6.0))
+        val three = moved.compile().first { it.video.size == 3 }
+        val inherited = moved.placements.first { it.id == three.placementID }
+        assertEquals(window.width, inherited.videos.getValue(base.id).width, 0.0)
+        assertEquals(window.framing, inherited.videos.getValue(other.id).framing)
+        assertEquals(third.id, VideoPlacement.ordered(three.video, inherited.videos).last())
+    }
+
+    /** "A moved PiP retains its size without borrowing unrelated distant geometry for the stationary background". */
+    @Test
+    fun aMovedInsetKeepsItsSizeAndTheBackgroundItComesOverStaysWhole() {
+        val whole = TimelineClip(uuid(60), take.id, 0.0, 8.0)
+        val remote = timeline(listOf(whole))
+        val first = remote.video[0]
+        val brief = TimelineClip(uuid(61), take.id, 0.0, 1.0)
+        val short = VideoTimelineItem.of(uuid(62), t(1.0), brief)
+        val remoteBase = first.copy(occurrenceID = uuid(64), content = whole.copy(id = uuid(63)), start = t(10.0))
+        val pip = VideoTimelineItem.of(uuid(66), t(11.0), brief.copy(id = uuid(65)), layer = 2)
+        val arranged = remote.copy(
+            video = remote.video + short + remoteBase + pip,
+            placements = listOf(
+                VideoPlacementRegion(
+                    participants = setOf(first.id, short.id),
+                    videos = mapOf(first.id to VideoPlacement.layout(PlacementLayout.SideBySide, 0, 2), short.id to VideoPlacement.layout(PlacementLayout.SideBySide, 1, 2)),
+                ),
+                VideoPlacementRegion(
+                    participants = setOf(remoteBase.id, pip.id),
+                    videos = mapOf(remoteBase.id to VideoPlacement(), pip.id to VideoPlacement.layout(PlacementLayout.PictureInPicture, 1, 2)),
+                ),
+            ),
+        )
+        val moved = arranged.moved(TimelineSelection(video = setOf(pip.id)), t(-6.0))
+        val plan = moved.compile().first { t(5.5) in it.interval }
+        val values = moved.placements.first { it.id == plan.placementID }.videos
+        assertEquals(1.0, values.getValue(first.id).width, 0.0)
+        assertEquals(0.32, values.getValue(pip.id).width, 0.0)
+    }
 }
