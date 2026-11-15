@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -434,7 +435,7 @@ private fun EffectControl(effect: VideoEffectSettings, parameter: EffectParamete
 /** The Color Correction in two tabs with its advanced light, as the original lays it out. VideoEffectsEditor.swift:1343-1383. */
 @Composable
 private fun CorrectionControls(effect: VideoEffectSettings, at: Double, set: (String, EffectValue) -> Unit, reset: () -> Unit) {
-    var tab by rememberSaveable { mutableStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

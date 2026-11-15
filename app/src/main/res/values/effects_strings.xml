@@ -55,18 +55,18 @@
     <string name="correction_reset_value">Reset %1$s</string>
     <string name="correction_got_it">Got it</string>
     <string name="correction_help_exposure">Brightens or darkens the whole picture in stops. +1 EV doubles the light. This grades the image; it does not change the camera exposure. Highlights roll off gently.</string>
-    <string name="correction_help_contrast">Separates light and dark tones around the contrast pivot. 100% is unchanged. Color proportions are preserved.</string>
+    <string name="correction_help_contrast" formatted="false">Separates light and dark tones around the contrast pivot. 100% is unchanged. Color proportions are preserved.</string>
     <string name="correction_help_shadows">Raises or lowers darker tones, while keeping the black endpoint. Use Blacks to lift or deepen the very darkest areas.</string>
     <string name="correction_help_highlights">Raises or lowers brighter tones, while keeping the white endpoint. Use Whites to change the brightest areas.</string>
     <string name="correction_help_blacks">Lifts or deepens the darkest endpoint. Positive values soften black; negative values deepen black with a gentle toe.</string>
     <string name="correction_help_whites">Raises or lowers the brightest endpoint. Positive values brighten whites with a gentle roll-off.</string>
-    <string name="correction_help_pivot">The tone that stays fixed as contrast changes. 50% is a middle display tone. Has no effect at 100% contrast.</string>
+    <string name="correction_help_pivot" formatted="false">The tone that stays fixed as contrast changes. 50% is a middle display tone. Has no effect at 100% contrast.</string>
     <string name="correction_help_temperature">Relative white balance: negative is cooler (blue), positive is warmer (amber). Zero preserves the recorded balance; very bright whites stay white. This is not a Kelvin setting.</string>
     <string name="correction_help_tint">Relative white balance: negative adds green, positive adds magenta. Useful for correcting a color cast.</string>
-    <string name="correction_help_saturation">Controls all color intensity. 100% is unchanged; 0% is black and white.</string>
+    <string name="correction_help_saturation" formatted="false">Controls all color intensity. 100% is unchanged; 0% is black and white.</string>
     <string name="correction_help_vibrance">Adjusts muted colors more than already vivid ones. Positive adjustments are gentler on common skin hues.</string>
     <string name="correction_help_hue">Rotates all colors around the color wheel, preserving luminance. Zero preserves the original hues.</string>
-    <string name="correction_help_intensity">Blends this correction with its input. 100% applies the full correction; 0% bypasses it.</string>
+    <string name="correction_help_intensity" formatted="false">Blends this correction with its input. 100% applies the full correction; 0% bypasses it.</string>
 
     <!-- Kaleidoscope -->
     <string name="kaleidoscope_fine">Fine adjustments</string>
@@ -109,7 +109,7 @@
     <string name="effect_color_isolation_history">Selective color contrasts a colored detail with monochrome surroundings, as in Rumble Fish (1983).</string>
     <string name="effect_rgb_offset">RGB Offset</string>
     <string name="effect_rgb_offset_summary">Slide the red, green and blue images out of alignment.</string>
-    <string name="effect_rgb_offset_help">Move each color layer with its X and Y sliders. Zero is the original registration; at either end a channel moves by 12% of the picture’s shorter side.</string>
+    <string name="effect_rgb_offset_help" formatted="false">Move each color layer with its X and Y sliders. Zero is the original registration; at either end a channel moves by 12% of the picture’s shorter side.</string>
     <string name="effect_rgb_offset_history">Color dye-transfer printing aligned three separate matrices to register the color image.</string>
     <string name="effect_negative_strobe">Negative Strobe</string>
     <string name="effect_negative_strobe_summary">Flash between the original picture and its color negative.</string>
