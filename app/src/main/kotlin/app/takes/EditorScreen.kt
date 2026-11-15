@@ -143,9 +143,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -161,6 +165,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import app.takes.core.EditScope
 import app.takes.core.EditState
 import app.takes.core.EditTargets
 import app.takes.core.ExportSettings
@@ -602,6 +607,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The last thing that happened, said beside the Mark button for a moment.
     var feedback by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(feedback) { if (feedback != null) { kotlinx.coroutines.delay(3000); feedback = null } }
+    // What Sound, Color, Crop and Speed apply to while something is marked or selected: the clips inside,
+    // cut at the two ends of a range. Null: the clip under the playhead, as always.
+    val toolScope = remember(edit, marks) { if (marks.scope == EditScope.Whole) null else RangeEditing.scoped(edit, marks.scope) }
+    // The sounds on the audio tracks a tool for sound applies to as well: the ones selected whole.
+    val toolSounds = (marks.scope as? EditScope.Selected)?.targets?.audio.orEmpty()
+    val toolScopeLabel = when (val scope = marks.scope) {
+        is EditScope.Range -> stringResource(R.string.selection_tool_range, preciseLabel(scope.range.start), preciseLabel(scope.range.end))
+        is EditScope.Selected -> stringResource(R.string.selection_tool_selected, selectionCount(scope.targets))
+        EditScope.Whole -> null
+    }
+    // The clip a tool shows the settings of: the one of its scope under the playhead, else the first.
+    val toolSubject = toolScope?.let { scoped ->
+        val under = TimelineEditing.locate(scoped.state.clips, playhead)?.let { scoped.state.clips[it.index] }?.takeIf { it.id in scoped.clips }
+        under ?: scoped.state.clips.firstOrNull { it.id == scoped.clips.firstOrNull() }
+    }
 
     // Trim handles change the clip under the playhead. The draft is shown in
     // the timeline while dragging and becomes one undo step on release.
@@ -862,7 +882,27 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
         Timeline(
-            shown, files, sounds, names, { editor.pause(); if (subtitling == null && titling == null && transitioning == null) chosenSound = it },
+            shown, files, sounds, names,
+            // A tap picks one item, or lets go of it when it is all that is picked; a long press adds it or takes it out.
+            select = { clip, audio ->
+                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                    val one = EditTargets(setOfNotNull(clip), setOfNotNull(audio))
+                    marks = if (marks.range == null && marks.start == null && marks.selected == one) marks.cleared() else marks.selecting(clip, audio)
+                }
+            },
+            toggle = { clip, audio ->
+                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                    editor.pause()
+                    marks = if (clip != null) marks.togglingClip(clip) else if (audio != null) marks.togglingAudio(audio) else marks
+                }
+            },
+            // A tap beside the clips and sounds goes there and lets go of everything; above them it only goes there.
+            seek = { time, deselect ->
+                if (subtitling == null && titling == null && transitioning == null && cropping == null) {
+                    if (deselect) marks = marks.selecting()
+                    jump(time.coerceIn(0.0, duration))
+                }
+            },
             // A title is opened from its bar, on the piece the bar is on. The picture goes to where that piece shows it.
             openTitle = { index, title ->
                 val clip = clips.getOrNull(index)
@@ -890,9 +930,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 done = { crop ->
                     val index = clips.indexOfFirst { it.id == framing.first }
                     cropping = null
-                    commit(TimelineEditing.setCrop(edit, index, crop), playhead)
+                    commit(if (toolScope != null) applied(toolScope) { state, at -> TimelineEditing.setCrop(state, at, crop) } else TimelineEditing.setCrop(edit, index, crop), playhead)
                 },
                 cancel = { cropping = null },
+                appliesTo = toolScopeLabel,
             )
         } else if (titling != null) {
             val work = titling!!
@@ -1078,15 +1119,28 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 replacesTransition = clipboard?.insertsTime == true &&
                     (RangeEditing.transitionAt(clips, playhead) != null || TimelineEditing.layout(clips).joins.any { it.transition != null && abs(it.time - playhead) < RangeEditing.EPSILON }),
                 clearClipboard = { store.clipboards.remove(project.id) },
+                // A sound on an audio track is opened from here once it is the one thing selected.
+                editSound = marks.selected.audio.singleOrNull()?.takeIf { !open && marks.selected.clips.isEmpty() }?.let { id -> { editor.pause(); chosenSound = id } },
             )
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
-                TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
+                TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead); marks = marks.cleared() }, compact,
                     enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
-                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
-                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
-                TextButton(onClick = { editor.pause(); current?.let { cropping = it.id to (it.crop ?: CropSettings()) } }, compact,
-                    enabled = current != null && sizes[current.sourceID] != null, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
-                TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
+                // With a range or a selection these four apply to the clips in it; a scope that holds no clip has nothing for them.
+                val scopeHasClips = toolScope == null || toolSubject != null
+                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
+                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
+                TextButton(onClick = {
+                    editor.pause()
+                    // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.
+                    val shownAt = toolScope?.let { scoped ->
+                        val start = scoped.state.clips.indexOfFirst { it.id == toolSubject?.id }.takeIf { it >= 0 }?.let { TimelineEditing.clipStart(scoped.state.clips, it) }
+                        if (start != null && (playhead < start || playhead >= start + toolSubject!!.duration)) start else null
+                    }
+                    shownAt?.let(jump)
+                    val framed = toolSubject ?: current
+                    TimelineEditing.locate(clips, shownAt ?: playhead)?.let { cropping = clips[it.index].id to (framed?.crop ?: CropSettings()) }
+                }, compact, enabled = current != null && sizes[current.sourceID] != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
+                TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
             }
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                 TextButton(
@@ -1094,7 +1148,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         editor.pause()
                         // Always a new title, also over another one: a title that is there is opened from its bar on the timeline.
                         // It starts at the playhead and stays three seconds of the movie, on every clip those seconds cover.
-                        if (clips.isNotEmpty()) titling = Titling(TextOverlay.fresh(), TimelineEditing.newTitleRange(clips, playhead), null, null, null)
+                        // Over the marked range when there is one, as in the original.
+                        if (clips.isNotEmpty()) titling = Titling(TextOverlay.fresh(), marks.range?.let { it.start..it.end } ?: TimelineEditing.newTitleRange(clips, playhead), null, null, null)
                     },
                     compact, enabled = location != null, contentPadding = tight,
                 ) { Text(stringResource(R.string.editor_title)) }
@@ -1176,14 +1231,22 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     title = { Text(stringResource(R.string.speed_title)) },
                     text = {
                         Column {
+                            toolScopeLabel?.let { Text(it, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
                             // Two rows, so every speed is in view on a narrow phone.
                             for (rates in listOf(listOf(0.25, 0.5, 0.75), listOf(1.0, 1.5, 2.0, 4.0))) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 for (rate in rates) {
-                                    FilterChip(current.rate == rate, onClick = {
+                                    FilterChip((toolSubject ?: current).rate == rate, onClick = {
                                         // The same frame stays under the playhead.
                                         val frame = current.sourceTime(location.offset)
-                                        val next = TimelineEditing.setSpeed(edit, location.index, rate)
-                                        commit(next, next?.let { TimelineEditing.clipStart(it.clips, location.index) + it.clips[location.index].offset(frame) } ?: playhead)
+                                        if (toolScope != null) {
+                                            val under = TimelineEditing.locate(toolScope.state.clips, playhead)?.let { toolScope.state.clips[it.index].id }
+                                            val next = applied(toolScope) { state, at -> TimelineEditing.setSpeed(state, at, rate) }
+                                            val at = next?.clips?.indexOfFirst { it.id == under }?.takeIf { it >= 0 }
+                                            commit(next, if (next != null && at != null) TimelineEditing.clipStart(next.clips, at) + next.clips[at].offset(frame).coerceIn(0.0, next.clips[at].duration) else playhead)
+                                        } else {
+                                            val next = TimelineEditing.setSpeed(edit, location.index, rate)
+                                            commit(next, next?.let { TimelineEditing.clipStart(it.clips, location.index) + it.clips[location.index].offset(frame) } ?: playhead)
+                                        }
                                         pacing = false
                                     }, label = { Text(speedLabel(rate)) })
                                 }
@@ -1220,10 +1283,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     if (editingColor && location != null && current != null) {
         ColorDialog(
-            current.color ?: ColorSettings(),
+            (toolSubject ?: current).color ?: ColorSettings(),
             importLut = { uri -> store.importLut(project.id, uri) },
-            save = { commit(TimelineEditing.setColor(edit, location.index, it), playhead); editingColor = false },
+            save = { color ->
+                commit(if (toolScope != null) applied(toolScope) { state, at -> TimelineEditing.setColor(state, at, color) } else TimelineEditing.setColor(edit, location.index, color), playhead)
+                editingColor = false
+            },
             dismiss = { editingColor = false },
+            appliesTo = toolScopeLabel,
         )
     }
     sounds.firstOrNull { it.id == chosenSound }?.let { item ->
@@ -1259,9 +1326,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     if (editingAudio && location != null && current != null) {
         SoundDialog(
-            current.audio ?: ClipAudio(), canReduceNoise = true,
-            save = { commit(TimelineEditing.setAudio(edit, location.index, it), playhead); editingAudio = false },
+            (if (toolScope != null) toolSubject?.audio ?: sounds.firstOrNull { toolSubject == null && it.id in toolSounds }?.audio else current.audio) ?: ClipAudio(),
+            canReduceNoise = toolScope == null || toolSubject != null,
+            save = { audio ->
+                // In a scope: its clips, and the sounds on the audio tracks selected with them, which have no noise reduction.
+                val next = if (toolScope == null) TimelineEditing.setAudio(edit, location.index, audio) else {
+                    val clipsDone = applied(toolScope) { state, at -> TimelineEditing.setAudio(state, at, audio) }
+                    toolSounds.fold(clipsDone) { state, id -> TimelineEditing.setAudioItemSound(state ?: toolScope.state, id, audio.copy(denoise = 0.0)) ?: state }
+                }
+                commit(next, playhead)
+                editingAudio = false
+            },
             dismiss = { editingAudio = false },
+            appliesTo = toolScopeLabel,
         )
     }
     if (choosingExport) {
@@ -1278,6 +1355,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     ExportDialogs(exporter, context) { store.error = it }
 }
 
+/** [change] made to each clip of a tool's scope, by its place in the edit, as one edit. Null when it changes none of them: the cuts at the ends of a range are then not made either. */
+private fun applied(scoped: RangeEditing.Scoped, change: (EditState, Int) -> EditState?): EditState? {
+    var state = scoped.state
+    var changed = false
+    for (id in scoped.clips) change(state, state.clips.indexOfFirst { it.id == id })?.let { state = it; changed = true }
+    return state.takeIf { changed }
+}
+
 /** A cut being previewed: the edit without what would be removed, and the stretch of it to play. */
 private data class Audition(val state: EditState, val review: ReviewWindows.Review)
 
@@ -1286,7 +1371,8 @@ private data class Trim(val index: Int, val leading: Boolean, val clip: Timeline
 
 @Composable
 private fun Timeline(
-    clips: List<TimelineClip>, files: Map<String, File>, sounds: List<AudioItem>, names: Map<String, String>, chooseSound: (String) -> Unit,
+    clips: List<TimelineClip>, files: Map<String, File>, sounds: List<AudioItem>, names: Map<String, String>,
+    select: (clip: String?, audio: String?) -> Unit, toggle: (clip: String?, audio: String?) -> Unit, seek: (time: Double, deselect: Boolean) -> Unit,
     openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
     touched: () -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
@@ -1298,6 +1384,11 @@ private fun Timeline(
     val onBeginTrim by rememberUpdatedState(beginTrim)
     val onDragTrim by rememberUpdatedState(dragTrim)
     val onEndTrim by rememberUpdatedState(endTrim)
+    val onSelect by rememberUpdatedState(select)
+    val onToggle by rememberUpdatedState(toggle)
+    val onSeek by rememberUpdatedState(seek)
+    val scale by rememberUpdatedState(pixelsPerSecond)
+    val haptics = LocalHapticFeedback.current
     // Where a touch grabs a trim handle of the current clip instead of scrolling.
     val handle by rememberUpdatedState { x: Float, half: Float ->
         current?.takeIf { it in clips.indices }?.let { index ->
@@ -1342,6 +1433,9 @@ private fun Timeline(
                     onEndTrim()
                 }
             }
+        }.pointerInput(Unit) {
+            // A tap that no clip, title or sound took.
+            detectTapGestures { at -> onSeek(((at.x - size.width / 2f + scroll.value) / scale).toDouble(), at.y >= StripTop.toPx()) }
         },
     ) {
         val viewport = constraints.maxWidth
@@ -1362,6 +1456,7 @@ private fun Timeline(
                             // The edge being dragged keeps its grip while the draft changes around it.
                             trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
                             offset, pixelsPerSecond, viewport, scroll, openTitle = { openTitle(index, it) },
+                            select = { onSelect(clip.id, null) }, toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(clip.id, null) },
                         )
                     }
                 }
@@ -1377,7 +1472,8 @@ private fun Timeline(
             // Sound on its own tracks. It stays where it is when the clips above are edited.
             val soundName = stringResource(R.string.editor_sound_default_name)
             val mutedNote = stringResource(R.string.sound_muted)
-            val editSoundLabel = stringResource(R.string.editor_edit_sound)
+            val selectLabel = stringResource(R.string.selection_select)
+            val toggleLabel = stringResource(R.string.selection_toggle)
             if (sounds.isNotEmpty()) for (track in 0 until AudioItem.TRACKS) {
                 Box(Modifier.width(width).height(TrackHeight).padding(top = 3.dp)) {
                     for (item in sounds) {
@@ -1389,7 +1485,17 @@ private fun Timeline(
                                 modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt(), 0) }
                                     .width(with(density) { (item.duration * pixelsPerSecond).toFloat().toDp() }).fillMaxHeight()
                                     .background(SoundColor, RoundedCornerShape(4.dp))
-                                    .clickable(onClickLabel = editSoundLabel) { chooseSound(item.id) }.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    .pointerInput(item.id) {
+                                        detectTapGestures(
+                                            onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(null, item.id) },
+                                            onTap = { onSelect(null, item.id) },
+                                        )
+                                    }
+                                    .semantics {
+                                        onClick(selectLabel) { onSelect(null, item.id); true }
+                                        onLongClick(toggleLabel) { onToggle(null, item.id); true }
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
                             )
                         }
                     }
@@ -1413,8 +1519,13 @@ private fun Timeline(
 private fun ClipStrip(
     clip: TimelineClip, file: File, current: Boolean, entering: TransitionStyle?, leaving: TransitionStyle?, dissolve: Float, trimsEnd: Boolean, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
+    select: () -> Unit, toggle: () -> Unit,
 ) {
     val density = LocalDensity.current
+    val onSelect by rememberUpdatedState(select)
+    val onToggle by rememberUpdatedState(toggle)
+    val selectLabel = stringResource(R.string.selection_select)
+    val toggleLabel = stringResource(R.string.selection_toggle)
     val width = (clip.duration * pixelsPerSecond).toFloat()
     val tile = with(density) { TileSize.toPx() }
     val count = ceil(width / tile).toInt()
@@ -1430,7 +1541,12 @@ private fun ClipStrip(
     val loudness = (clip.audio?.gain ?: 1.0).toFloat()
     Box(
         Modifier.offset { IntOffset(offset.roundToInt(), 0) }.width(with(density) { width.toDp() })
-            .border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black),
+            .border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black)
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { onToggle() }, onTap = { onSelect() }) }
+            .semantics {
+                onClick(selectLabel) { onSelect(); true }
+                onLongClick(toggleLabel) { onToggle(); true }
+            },
     ) {
         Column {
             Box(Modifier.fillMaxWidth().height(TileSize).clipToBounds().background(Color(0xFF2A2D33))) {
@@ -1559,7 +1675,7 @@ private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected:
  * follows the sliders. A crop fills the movie's frame with part of the clip.
  */
 @Composable
-private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSettings) -> Unit, done: (CropSettings?) -> Unit, cancel: () -> Unit) {
+private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSettings) -> Unit, done: (CropSettings?) -> Unit, cancel: () -> Unit, appliesTo: String? = null) {
     @Composable
     fun Level(label: String, shown: String, value: Double, range: ClosedFloatingPointRange<Float>, set: (Double) -> Unit) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1569,6 +1685,7 @@ private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSetti
         }
     }
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        appliesTo?.let { Text(it, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp)) }
         Level(stringResource(R.string.crop_zoom), "%.1f×".format(crop.zoom), crop.zoom, 1f..CropSettings.MAXIMUM_ZOOM.toFloat()) { change(crop.copy(zoom = (it * 10).roundToInt() / 10.0)) }
         Level(stringResource(R.string.crop_left_right), "${(crop.x * 100).roundToInt()}", crop.x, 0f..1f) { change(crop.copy(x = (it * 100).roundToInt() / 100.0)) }
         Level(stringResource(R.string.crop_up_down), "${(crop.y * 100).roundToInt()}", crop.y, 0f..1f) { change(crop.copy(y = (it * 100).roundToInt() / 100.0)) }
@@ -1582,7 +1699,7 @@ private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSetti
 
 /** The clip's color: a look or an imported LUT at some strength, over exposure, warmth and tint. */
 @Composable
-private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> ImportedLUT?, save: (ColorSettings) -> Unit, dismiss: () -> Unit) {
+private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> ImportedLUT?, save: (ColorSettings) -> Unit, dismiss: () -> Unit, appliesTo: String? = null) {
     var color by remember { mutableStateOf(saved) }
     val scope = rememberCoroutineScope()
     val pickLut = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -1603,6 +1720,7 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
         title = { Text(stringResource(R.string.color_dialog_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                appliesTo?.let { Text(it, color = Muted, fontSize = 13.sp) }
                 val lut = color.imported
                 if (lut == null) {
                     Choices(stringResource(R.string.color_look), ColorLook.entries.map { stringResource(it.label) to it }, color.look) { color = color.copy(look = it) }
@@ -1703,7 +1821,7 @@ private fun AudioItemDialog(
 
 /** The clip's own sound: level from silence to a 12 dB boost, mute, and a fade at each end. */
 @Composable
-private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAudio) -> Unit, dismiss: () -> Unit) {
+private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAudio) -> Unit, dismiss: () -> Unit, appliesTo: String? = null) {
     var audio by remember { mutableStateOf(saved) }
     val fades = listOf(stringResource(R.string.sound_fade_none) to 0.0, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0, "3 s" to 3.0)
     val silent = stringResource(R.string.sound_silent)
@@ -1719,6 +1837,7 @@ private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAu
         title = { Text(stringResource(R.string.sound_dialog_title)) },
         text = {
             Column {
+                appliesTo?.let { Text(it, color = Muted, fontSize = 13.sp) }
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Text(stringResource(R.string.sound_volume_value, if (audio.muted) stringResource(R.string.sound_muted) else label(audio.volumeDB)), color = Color.White)
                     TextButton(onClick = { audio = audio.copy(volumeDB = 0.0) }, enabled = audio.volumeDB != 0.0) { Text(stringResource(R.string.common_reset)) }

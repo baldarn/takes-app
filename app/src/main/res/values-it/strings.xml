@@ -629,4 +629,6 @@
         <item quantity="other">Incollato, ma %1$d audio sono rimasti fuori: lì le due tracce audio sono già occupate.</item>
     </plurals>
     <string name="clipboard_paste_no_room">Non è stato incollato niente: qui le due tracce audio sono già occupate.</string>
+    <string name="selection_select">Seleziona</string>
+    <string name="selection_toggle">Aggiungi o togli dalla selezione</string>
 </resources>

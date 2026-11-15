@@ -622,4 +622,6 @@
         <item quantity="other">Pasted, but %1$d sounds were left out: both audio tracks are busy there.</item>
     </plurals>
     <string name="clipboard_paste_no_room">Nothing was pasted: both audio tracks are busy here.</string>
+    <string name="selection_select">Select</string>
+    <string name="selection_toggle">Add to or remove from the selection</string>
 </resources>
