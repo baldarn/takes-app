@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Takes export probe" android:hasCode="true" />
+
+    <!-- The probe has no screen: it runs as an instrumentation of itself, one scenario per run. -->
+    <instrumentation
+        android:name="app.takes.probe.ProbeInstrumentation"
+        android:targetPackage="app.takes.probe" />
+</manifest>
