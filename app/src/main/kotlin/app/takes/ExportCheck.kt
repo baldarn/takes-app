@@ -1,6 +1,8 @@
 package app.takes
 
 import android.graphics.Bitmap
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.os.Build
 import app.takes.core.EditState
@@ -82,6 +84,22 @@ object ExportCheck {
         peak
     }
 
+    /** How long one packet of [movie]'s encoded sound lasts, in seconds: 1024 samples at its rate. Zero when it cannot be read. */
+    private fun soundPacket(movie: File): Double {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(movie.path)
+            (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }
+                .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+                ?.takeIf { it.containsKey(MediaFormat.KEY_SAMPLE_RATE) }?.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                ?.takeIf { it > 0 }?.let { 1024.0 / it } ?: 0.0
+        } catch (_: Exception) {
+            0.0
+        } finally {
+            extractor.release()
+        }
+    }
+
     /**
      * Proves that [movie] is the movie of [expected] seconds at [framesPerSecond] that was asked for, as the
      * original does before it publishes one: it has picture and sound, its length is the edit's within the
@@ -93,7 +111,7 @@ object ExportCheck {
         try {
             retriever.setDataSource(movie.path)
             val actual = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { it / 1000.0 }
-            if (actual == null || !ExportSections.durationMatches(actual, expected, framesPerSecond)) throw IOException("The exported movie has the wrong length.")
+            if (actual == null || !ExportSections.durationMatches(actual, expected, framesPerSecond, soundPacket(movie))) throw IOException("The exported movie has the wrong length.")
             if (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO) != "yes" || retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) != "yes") {
                 throw IOException("The exported movie is not complete.")
             }

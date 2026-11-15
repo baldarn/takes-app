@@ -118,6 +118,12 @@ class ExportCheckpointTest {
         assertFalse(ExportSections.durationMatches(10.121, 10.0, 24))
         assertFalse(ExportSections.durationMatches(Double.NaN, 10.0, 30))
         assertFalse(ExportSections.durationMatches(Double.POSITIVE_INFINITY, 10.0, 30))
+        // Sound recorded at 8 kHz ends on packets of 0.128 s: the movie of a 7.833 s take came out 7.992 s long.
+        assertTrue(ExportSections.durationMatches(7.992, 7.833, 30, soundPacket = 1024 / 8000.0))
+        assertFalse(ExportSections.durationMatches(7.992, 7.833, 30))
+        assertFalse(ExportSections.durationMatches(8.2, 7.833, 30, soundPacket = 1024 / 8000.0))
+        // At 48 kHz the allowance is the same as without it.
+        assertFalse(ExportSections.durationMatches(10.121, 10.0, 24, soundPacket = 1024 / 48000.0))
     }
 
     // MediaRenderer.swift:802-805: the last picture is read back too, unless the movie is a blink.

@@ -96,9 +96,17 @@ object ExportSections {
     /**
      * Whether a finished movie has the length that was asked for: within
      * 0.12 s, or two pictures when those are longer.
+     *
+     * A file is as long as its longest track, and encoded sound ends on a
+     * whole packet, with the encoder's own lead before it. At the usual
+     * rates a packet is about a fiftieth of a second and disappears in the
+     * tolerance; a recording made at 8 or 16 kHz (the emulator's microphone,
+     * a Bluetooth headset) keeps its rate in the movie, where a packet of
+     * [soundPacket] seconds is a sixteenth or an eighth of a second. Two of
+     * them and a picture are then allowed.
      */
-    fun durationMatches(actual: Double, expected: Double, framesPerSecond: Int): Boolean =
-        actual.isFinite() && abs(actual - expected) <= maxOf(0.12, 2.0 / framesPerSecond)
+    fun durationMatches(actual: Double, expected: Double, framesPerSecond: Int, soundPacket: Double = 0.0): Boolean =
+        actual.isFinite() && abs(actual - expected) <= maxOf(0.12, 2.0 / framesPerSecond, 2 * soundPacket + 1.0 / framesPerSecond)
 
     /**
      * The second picture read back from a finished movie to prove it decodes
