@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -85,11 +86,11 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore) {
     }
     if (!cameraGranted) {
         Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
-            Text("Camera access is needed to record.", color = Color.White)
+            Text(stringResource(R.string.recorder_camera_needed), color = Color.White)
             Spacer(Modifier.height(16.dp))
             Button(onClick = {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
-            }) { Text("Open settings") }
+            }) { Text(stringResource(R.string.recorder_open_settings)) }
         }
         return
     }
@@ -146,30 +147,31 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
         ) {
             Text(
                 when (capture.phase) {
-                    Phase.Idle -> "Ready"
-                    Phase.Recording -> "REC  " + timeLabel(capture.elapsed)
-                    Phase.Paused -> "PAUSED  " + timeLabel(capture.elapsed)
-                    Phase.Saving -> "SAVING…"
+                    Phase.Idle -> stringResource(R.string.recorder_ready)
+                    Phase.Recording -> stringResource(R.string.recorder_rec, timeLabel(capture.elapsed))
+                    Phase.Paused -> stringResource(R.string.recorder_paused, timeLabel(capture.elapsed))
+                    Phase.Saving -> stringResource(R.string.recorder_saving)
                 },
                 color = Color.White, fontWeight = FontWeight.Bold,
             )
         }
+        val micLevel = stringResource(R.string.recorder_mic_level)
         val project = store.selected
         Text(
-            (project?.let { "${it.title} · ${timeLabel(it.capturedDuration)}" } ?: "New project") +
-                " · " + if (capture.landscape) "Landscape" else "Portrait",
+            (project?.let { "${it.title} · ${timeLabel(it.capturedDuration)}" } ?: stringResource(R.string.recorder_new_project)) +
+                " · " + if (capture.landscape) stringResource(R.string.recorder_landscape) else stringResource(R.string.recorder_portrait),
             color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
         )
         if (recording && capture.audioWarning == null) {
             LinearProgressIndicator(
                 progress = { capture.level },
-                modifier = Modifier.padding(top = 8.dp).width(160.dp).semantics { contentDescription = "Microphone level" },
+                modifier = Modifier.padding(top = 8.dp).width(160.dp).semantics { contentDescription = micLevel },
                 color = if (capture.level > 0.95f) RecordRed else Color.White, trackColor = Scrim,
             )
         }
         capture.microphone?.takeIf { recording && capture.audioWarning == null }?.let {
-            Text(if (capture.chosenMicrophone == null) "Automatic: $it" else it,
+            Text(if (capture.chosenMicrophone == null) stringResource(R.string.recorder_mic_automatic_using, it) else it,
                 color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 4.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
         }
@@ -200,10 +202,10 @@ private fun MicrophoneChooser(capture: CaptureController) {
     var choosing by remember { mutableStateOf(false) }
     val chosen = capture.chosenMicrophone
     Box(Modifier.padding(top = 8.dp)) {
-        Chip("Mic: " + (chosen?.label ?: "Automatic"), false,
-            Modifier.clickable(onClickLabel = "Change microphone", role = Role.Button) { choosing = true })
+        Chip(stringResource(R.string.recorder_mic_chip, chosen?.label ?: stringResource(R.string.recorder_mic_automatic)), false,
+            Modifier.clickable(onClickLabel = stringResource(R.string.recorder_mic_change), role = Role.Button) { choosing = true })
         DropdownMenu(choosing, { choosing = false }) {
-            DropdownMenuItem({ Text("Automatic") }, { capture.chooseMicrophone(null); choosing = false })
+            DropdownMenuItem({ Text(stringResource(R.string.recorder_mic_automatic)) }, { capture.chooseMicrophone(null); choosing = false })
             capture.microphones.forEach { choice ->
                 DropdownMenuItem({ Text(choice.label) }, { capture.chooseMicrophone(choice.id); choosing = false })
             }
@@ -220,20 +222,21 @@ private fun ZoomRow(capture: CaptureController) {
     ) {
         var choosing by remember { mutableStateOf(false) }
         Box {
-            Chip(ZoomTransition.durationLabel(capture.zoomDuration), false,
-                Modifier.clickable(onClickLabel = "Change zoom transition time", role = Role.Button) { choosing = true })
+            Chip(zoomTimeLabel(capture.zoomDuration), false,
+                Modifier.clickable(onClickLabel = stringResource(R.string.recorder_zoom_time_change), role = Role.Button) { choosing = true })
             DropdownMenu(choosing, { choosing = false }) {
                 ZoomTransition.durationPresets.forEach { seconds ->
-                    DropdownMenuItem({ Text(ZoomTransition.durationLabel(seconds)) }, { capture.chooseZoomDuration(seconds); choosing = false })
+                    DropdownMenuItem({ Text(zoomTimeLabel(seconds)) }, { capture.chooseZoomDuration(seconds); choosing = false })
                 }
             }
         }
+        val zoomLabel = stringResource(R.string.recorder_zoom)
         val presets = ZoomTransition.presets(capture.zoomRange.start, capture.zoomRange.endInclusive)
         presets.forEach { preset ->
             // Tap uses the saved time; double tap always takes one second.
             Chip(ZoomTransition.zoomLabel(preset), abs(capture.zoom - preset) < 0.005,
                 Modifier.combinedClickable(
-                    role = Role.Button, onClickLabel = "Zoom", onDoubleClick = { capture.zoomTo(preset, 1.0) },
+                    role = Role.Button, onClickLabel = zoomLabel, onDoubleClick = { capture.zoomTo(preset, 1.0) },
                 ) { capture.zoomTo(preset) })
         }
         if (presets.none { abs(capture.zoom - it) < 0.005 }) {
@@ -251,7 +254,7 @@ private fun CameraRow(capture: CaptureController) {
     ) {
         capture.cameras.forEach { choice ->
             Chip(choice.label, choice.id == capture.cameraID,
-                Modifier.clickable(enabled = capture.phase != Phase.Saving, onClickLabel = "Switch camera", role = Role.Button) {
+                Modifier.clickable(enabled = capture.phase != Phase.Saving, onClickLabel = stringResource(R.string.recorder_switch_camera), role = Role.Button) {
                     capture.switchCamera(choice.id)
                 })
         }
@@ -264,20 +267,21 @@ private fun Controls(capture: CaptureController, store: ProjectStore) {
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
         Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
             if (phase == Phase.Recording || phase == Phase.Paused) {
-                TextButton(onClick = capture::finishTake) { Text("Stop", fontSize = 17.sp) }
+                TextButton(onClick = capture::finishTake) { Text(stringResource(R.string.recorder_stop), fontSize = 17.sp) }
             }
         }
         val pausing = phase == Phase.Recording
+        val recordLabel = stringResource(when (phase) {
+            Phase.Recording -> R.string.recorder_pause
+            Phase.Paused -> R.string.recorder_resume
+            else -> R.string.recorder_record
+        })
         Box(
             Modifier.size(76.dp).border(4.dp, Color.White, CircleShape)
                 .clickable(enabled = phase != Phase.Saving, role = Role.Button) { if (pausing) capture.pause() else capture.record() }
                 .semantics {
                     role = Role.Button
-                    contentDescription = when (phase) {
-                        Phase.Recording -> "Pause"
-                        Phase.Paused -> "Resume recording"
-                        else -> "Record"
-                    }
+                    contentDescription = recordLabel
                 },
             contentAlignment = Alignment.Center,
         ) {
@@ -291,12 +295,17 @@ private fun Controls(capture: CaptureController, store: ProjectStore) {
         }
         Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
             if (phase == Phase.Idle && store.selected?.sources?.isNotEmpty() == true) {
-                TextButton(onClick = { store.create() }) { Text("New project", fontSize = 15.sp) }
+                TextButton(onClick = { store.create() }) { Text(stringResource(R.string.recorder_new_project), fontSize = 15.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
             // One tap marks the moment without interrupting the take.
             if (phase == Phase.Recording) {
-                TextButton(onClick = capture::bookmark) { Text(if (capture.marks == 0) "Mark" else "Mark · ${capture.marks}", fontSize = 17.sp) }
+                TextButton(onClick = capture::bookmark) { Text(if (capture.marks == 0) stringResource(R.string.recorder_mark) else stringResource(R.string.recorder_mark_count, capture.marks), fontSize = 17.sp) }
             }
         }
     }
 }
+
+/** The zoom transition time as the chip shows it; the core's own label is English only. */
+@Composable
+private fun zoomTimeLabel(seconds: Double): String =
+    if (seconds == 0.0) stringResource(R.string.recorder_zoom_instant) else ZoomTransition.durationLabel(seconds)

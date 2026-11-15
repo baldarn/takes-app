@@ -138,7 +138,7 @@ class CaptureController(private val context: Context, private val store: Project
         microphone = active?.let(::describe)
         val chosen = chosenMicrophone
         microphoneWarning = if (active != null && chosen != null && phase == Phase.Recording && kind(active) != kind(chosen.device)) {
-            "Recording from ${describe(active)}, not ${chosen.label}."
+            context.getString(R.string.recorder_mic_mismatch, describe(active), chosen.label)
         } else null
     }
 
@@ -162,11 +162,11 @@ class CaptureController(private val context: Context, private val store: Project
     private fun describe(device: AudioDeviceInfo): String {
         val name = device.productName?.toString()?.takeIf { it.isNotBlank() }
         return when (kind(device)) {
-            Kind.Phone -> "Phone microphone"
-            Kind.Wired -> "Wired headset"
-            Kind.Bluetooth -> "Bluetooth" + (name?.let { ": $it" } ?: "")
-            Kind.Usb -> "USB" + (name?.let { ": $it" } ?: "")
-            Kind.Other -> name ?: "External microphone"
+            Kind.Phone -> context.getString(R.string.recorder_mic_phone)
+            Kind.Wired -> context.getString(R.string.recorder_mic_wired)
+            Kind.Bluetooth -> name?.let { context.getString(R.string.recorder_mic_named, "Bluetooth", it) } ?: "Bluetooth"
+            Kind.Usb -> name?.let { context.getString(R.string.recorder_mic_named, "USB", it) } ?: "USB"
+            Kind.Other -> name ?: context.getString(R.string.recorder_mic_external)
         }
     }
 
@@ -177,7 +177,7 @@ class CaptureController(private val context: Context, private val store: Project
         this.provider = provider
         preview.setSurfaceProvider(surface)
         cameras = describe(provider.availableCameraInfos)
-        if (cameras.isEmpty()) { message = "No camera is available."; return }
+        if (cameras.isEmpty()) { message = context.getString(R.string.recorder_no_camera); return }
         orientation.enable()
         audioManager.registerAudioRecordingCallback(routes, null)
         // Reports the devices already connected at once, which fills the list.
@@ -205,16 +205,16 @@ class CaptureController(private val context: Context, private val store: Project
     private fun describe(infos: List<CameraInfo>): List<CameraChoice> {
         val labelled = infos.map { info ->
             val facing = when (info.lensFacing) {
-                CameraSelector.LENS_FACING_FRONT -> "Front"
-                CameraSelector.LENS_FACING_BACK -> "Rear"
-                else -> "External"
+                CameraSelector.LENS_FACING_FRONT -> context.getString(R.string.recorder_camera_front)
+                CameraSelector.LENS_FACING_BACK -> context.getString(R.string.recorder_camera_rear)
+                else -> context.getString(R.string.recorder_camera_external)
             }
             val lens = when {
-                info.intrinsicZoomRatio < 0.9f -> " ultrawide"
-                info.intrinsicZoomRatio > 1.5f -> " tele"
-                else -> ""
+                info.intrinsicZoomRatio < 0.9f -> context.getString(R.string.recorder_lens_ultrawide, facing)
+                info.intrinsicZoomRatio > 1.5f -> context.getString(R.string.recorder_lens_tele, facing)
+                else -> facing
             }
-            CameraChoice(Camera2CameraInfo.from(info).cameraId, facing + lens, info)
+            CameraChoice(Camera2CameraInfo.from(info).cameraId, lens, info)
         }
         return labelled.map { choice ->
             val twins = labelled.filter { it.label == choice.label }
@@ -231,7 +231,7 @@ class CaptureController(private val context: Context, private val store: Project
             provider.bindToLifecycle(owner, choice.info.cameraSelector, preview, videoCapture)
         } catch (_: Exception) {
             camera = null
-            message = "The ${choice.label} camera could not be opened."
+            message = context.getString(R.string.recorder_camera_failed, choice.label)
             // Never leave the recording indicator on with no valid capture.
             if (phase == Phase.Recording) pause()
             return
@@ -257,6 +257,10 @@ class CaptureController(private val context: Context, private val store: Project
 
     // MARK: Microphone. Chosen for the session; routed only while the recorder is on screen.
 
+    // CameraX keeps the audio source to itself (a restricted API): there is no public way
+    // to record from a headset, which needs the voice communication source. Check this
+    // call again whenever the camera library is updated.
+    @SuppressLint("RestrictedApi")
     private fun recorder(audioSource: Int) = Recorder.Builder()
         .setQualitySelector(QualitySelector.from(Quality.FHD, FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD)))
         .setAudioSource(audioSource)
@@ -276,7 +280,7 @@ class CaptureController(private val context: Context, private val store: Project
         val chosen = chosenMicrophone
         if (chosen != null && !audioManager.setCommunicationDevice(chosen.device)) {
             chosenMicrophone = null
-            message = "${chosen.label} could not be selected. The system chooses the microphone."
+            message = context.getString(R.string.recorder_mic_not_selected, chosen.label)
         }
         if (chosenMicrophone == null) {
             releaseMicrophone()
@@ -338,11 +342,12 @@ class CaptureController(private val context: Context, private val store: Project
         if (microphones.any { it.id == chosen.id }) return
         if (phase == Phase.Recording || phase == Phase.Saving) return
         chosenMicrophone = null
-        message = "${chosen.label} disconnected. The system chooses the microphone."
+        message = context.getString(R.string.recorder_mic_disconnected, chosen.label)
         claimMicrophone()
     }
 
     // The audio source is fixed when a Recorder is built, so a new one replaces it between segments.
+    @SuppressLint("RestrictedApi")
     private fun useAudioSource(source: Int) {
         if (recorder.audioSource == source) return
         val rotation = videoCapture.targetRotation
@@ -392,11 +397,11 @@ class CaptureController(private val context: Context, private val store: Project
     /** Starts a take, or the next segment of a paused one. */
     fun record() {
         if (phase != Phase.Idle && phase != Phase.Paused) return
-        if (camera == null) { message = "No camera is ready."; return }
+        if (camera == null) { message = context.getString(R.string.recorder_camera_not_ready); return }
         val projectID = segmentProject ?: (store.selected ?: store.create())?.id ?: return
         val folder = store.disk.folder(projectID)
         if (folder.usableSpace < MINIMUM_FREE_BYTES) {
-            message = "Storage is almost full. Free some space before recording."
+            message = context.getString(R.string.recorder_storage_low)
             return
         }
         segmentProject = projectID
@@ -409,7 +414,7 @@ class CaptureController(private val context: Context, private val store: Project
     @SuppressLint("MissingPermission")
     private fun begin(next: Segment) {
         val audio = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        audioWarning = if (audio) null else "Microphone access is off. Recording without sound."
+        audioWarning = if (audio) null else context.getString(R.string.recorder_mic_off)
         level = 0f
         message = null
         var pending = recorder.prepareRecording(context, FileOutputOptions.Builder(next.file).build()).asPersistentRecording()
@@ -466,10 +471,10 @@ class CaptureController(private val context: Context, private val store: Project
                 level = audio.audioAmplitude.toFloat().coerceIn(0f, 1f)
                 audioWarning = when (audio.audioState) {
                     AudioStats.AUDIO_STATE_ACTIVE -> null
-                    AudioStats.AUDIO_STATE_DISABLED -> "Microphone access is off. Recording without sound."
-                    AudioStats.AUDIO_STATE_SOURCE_SILENCED -> "Another app is using the microphone. This take is silent."
-                    AudioStats.AUDIO_STATE_MUTED -> "The microphone is muted."
-                    else -> "The microphone stopped working. This take may have no sound."
+                    AudioStats.AUDIO_STATE_DISABLED -> context.getString(R.string.recorder_mic_off)
+                    AudioStats.AUDIO_STATE_SOURCE_SILENCED -> context.getString(R.string.recorder_mic_silenced)
+                    AudioStats.AUDIO_STATE_MUTED -> context.getString(R.string.recorder_mic_muted)
+                    else -> context.getString(R.string.recorder_mic_stopped)
                 }
             }
             is VideoRecordEvent.Finalize -> scope.launch { finalize(current, event) }
@@ -493,20 +498,20 @@ class CaptureController(private val context: Context, private val store: Project
         if (requested == Phase.Idle) reset() else { phase = Phase.Paused; elapsed = finished; level = 0f }
         dropLostMicrophone()
         message = when {
-            requested == null -> "Recording stopped: ${reason(event)}. " + if (seconds != null) "The footage so far is saved." else "Nothing could be saved."
-            seconds == null -> "Nothing was recorded."
+            requested == null -> context.getString(if (seconds != null) R.string.recorder_stopped_saved else R.string.recorder_stopped_lost, reason(event))
+            seconds == null -> context.getString(R.string.recorder_nothing_recorded)
             else -> message
         }
     }
 
     private fun reason(event: VideoRecordEvent.Finalize): String = when (event.error) {
-        VideoRecordEvent.Finalize.ERROR_INSUFFICIENT_STORAGE -> "storage is full"
-        VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED -> "the file reached its size limit"
-        VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE -> "the camera became unavailable"
-        VideoRecordEvent.Finalize.ERROR_ENCODING_FAILED -> "the video encoder failed"
-        VideoRecordEvent.Finalize.ERROR_RECORDER_ERROR -> "the recorder failed"
-        VideoRecordEvent.Finalize.ERROR_NO_VALID_DATA -> "no video arrived"
-        else -> "an unexpected error occurred"
+        VideoRecordEvent.Finalize.ERROR_INSUFFICIENT_STORAGE -> context.getString(R.string.recorder_reason_storage_full)
+        VideoRecordEvent.Finalize.ERROR_FILE_SIZE_LIMIT_REACHED -> context.getString(R.string.recorder_reason_size_limit)
+        VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE -> context.getString(R.string.recorder_reason_camera_lost)
+        VideoRecordEvent.Finalize.ERROR_ENCODING_FAILED -> context.getString(R.string.recorder_reason_encoder)
+        VideoRecordEvent.Finalize.ERROR_RECORDER_ERROR -> context.getString(R.string.recorder_reason_recorder)
+        VideoRecordEvent.Finalize.ERROR_NO_VALID_DATA -> context.getString(R.string.recorder_reason_no_data)
+        else -> context.getString(R.string.recorder_reason_unexpected)
     }
 
     private companion object {
