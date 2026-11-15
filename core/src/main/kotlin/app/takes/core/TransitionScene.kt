@@ -145,14 +145,32 @@ object TransitionScene {
             val placement = layout.placements[index]
             return Source.Clip(index, decks[index], (at - placement.start).coerceIn(0.0, placement.duration))
         }
-        val first: Source = if (join.outgoing == null) fill else {
-            val placement = layout.placements[join.outgoing]
+        val (outgoing, incoming) = related(clips, join)
+        val first: Source = if (outgoing == null) fill else {
+            val placement = layout.placements[outgoing]
             val held = TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, FRAMES_PER_SECOND)
             if (held != null && at >= held.from) Source.Held(placement.index, decks[placement.index], held.offset, held.from) else running(placement.index)
         }
-        val second: Source = if (join.incoming == null) fill else running(join.incoming)
+        val second: Source = if (incoming == null) fill else running(incoming)
         val (firstShare, secondShare) = shares(frame, progress)
         return Moment(first, second, frame, firstShare, secondShare, join)
+    }
+
+    /**
+     * Where among [clips] the two pictures [join] relates are: the one it
+     * leads out of and the one it leads into, null on the side an opening or
+     * a close does not have. A transition is taken by its pictures, as the
+     * original's compile names its pair (TrackTimeline.swift:989-998), not by
+     * where its number puts it among the joins; a join that names no
+     * pictures, from a layout made without ids, is taken by its places.
+     */
+    fun related(clips: List<TimelineClip>, join: TransitionLayout.Join): Pair<Int?, Int?> {
+        fun place(id: String?, index: Int?): Int? = when {
+            id == null -> index.takeIf { join.outgoingID == null && join.incomingID == null }
+            index != null && clips.getOrNull(index)?.id == id -> index
+            else -> clips.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+        }
+        return place(join.outgoingID, join.outgoing) to place(join.incomingID, join.incoming)
     }
 
     /** The titles of [moment] with their opacity, the outgoing side's first. A side that does not show gives none. */

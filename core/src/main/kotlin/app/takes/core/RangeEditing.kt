@@ -174,9 +174,9 @@ data class ClipFragment(
  *  - The original keeps a clip where it is when its transition goes, so a
  *    freeze or a hold on a color can leave empty picture behind. Here the
  *    clips always follow one another, and that time closes.
- *  - The opening belongs to the first clip and the close to the last, as
- *    [TimelineEditing] keeps them: one that an edit moves away from its end of
- *    the timeline is removed, where the original lets it play on in the middle.
+ *  - An opening and a close belong to their clip, as [TimelineEditing]
+ *    keeps them and as in the original: one that an edit moves away from its
+ *    end of the timeline plays on with its clip in the middle.
  */
 object RangeEditing {
     /** The original's editing frame: marks and ranges are placed on a 30 per second grid whatever the footage is. */

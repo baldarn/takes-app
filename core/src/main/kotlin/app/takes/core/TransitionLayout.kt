@@ -103,6 +103,15 @@ object TransitionLayout {
         /** The place among the clips of the one it leads out of, and of the one it leads into: null on the side an opening or a close does not have. */
         val outgoing: Int? = null,
         val incoming: Int? = null,
+        /**
+         * The pictures it relates, by their ids: what a renderer takes it by,
+         * as the original's compile names a transition by its two pictures and
+         * not by its place among the joins (TrackTimeline.swift:989-998). Null
+         * on the side an opening or a close does not have, and in a layout
+         * made without ids.
+         */
+        val outgoingID: String? = null,
+        val incomingID: String? = null,
     ) {
         val videoRange: ClosedFloatingPointRange<Double> get() = origin..(origin + timing.videoDuration)
         val audioIn: ClosedFloatingPointRange<Double> get() = TransitionSound.rampIn(timing, origin)
@@ -289,7 +298,7 @@ object TransitionLayout {
             val maximum = if (slot?.settings?.style == TransitionStyle.Still) LIMIT else maxOf(0.0, minOf(LIMIT, leftSpace / cost, rightSpace / cost))
             return Join(
                 index, time, maxOf(0.0, origin + timing.lower)..maxOf(0.0, origin + timing.upper), maximum, slot?.settings, origin, timing, slot?.factor ?: 1.0, edge,
-                outgoing, incoming,
+                outgoing, incoming, outgoing?.let { ids?.getOrNull(it) }, incoming?.let { ids?.getOrNull(it) },
             )
         }
         // The opening and the close count where their clip begins and ends, as in the original.

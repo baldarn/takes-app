@@ -34,9 +34,18 @@ import kotlin.math.abs
  * its last digits, and S3a changes nothing that is seen or heard. They become
  * what is planned when they are what is saved (S3b).
  *
+ * Every transition of a plan is taken by the pictures it relates
+ * ([TransitionLayout.Join.outgoingID], [TransitionScene.related]), as the
+ * original's compile names a transition by its pair
+ * (YouRec/TrackTimeline.swift:989-998), and a plan made from a timeline
+ * holds only transitions that are relations of that timeline, between the
+ * same two pictures. An opening and a close are on their own picture
+ * wherever it is (YouRec/TrackTimeline.swift:881-885).
+ *
  * A timeline that is not a sequence (pictures with time between them or over
- * one another, a placement, a third sound at once) has no plan yet: a
- * [RenderPlan] has two decks and no place for it. None arises before S4.
+ * one another, a placement, a third sound at once) has no plan here: a
+ * [RenderPlan] has two decks and no place for it. Such a timeline is planned
+ * from its compiled stretches, by picture layers.
  */
 object TrackRenderPlan {
     /**
@@ -51,7 +60,24 @@ object TrackRenderPlan {
      * captions remember the timeline they were timed for. Nothing of that is
      * seen or heard. [of] an edit keeps those as they are saved.
      */
-    fun of(timeline: TrackTimeline, cleaned: Set<Int>? = null): RenderPlan? = timeline.toSequence()?.let { RenderPlan.of(it, cleaned) }
+    fun of(timeline: TrackTimeline, cleaned: Set<Int>? = null): RenderPlan? =
+        timeline.toSequence()?.let { RenderPlan.of(it, cleaned) }?.takeIf { related(timeline, it) }
+
+    /**
+     * Whether every transition of [plan] is a relation of [timeline] between
+     * the two pictures the plan takes it by, each relation once.
+     */
+    internal fun related(timeline: TrackTimeline, plan: RenderPlan): Boolean {
+        if (plan.transitions.isEmpty() && timeline.transitions.isEmpty()) return true
+        val relations = timeline.transitions.associateBy { it.id }
+        val planned = HashSet<String>()
+        for (join in plan.transitions) {
+            val relation = relations[join.transition?.id] ?: return false
+            if (relation.outgoing != join.outgoingID || relation.incoming != join.incomingID) return false
+            planned += relation.id
+        }
+        return planned.size == plan.transitions.size
+    }
 
     /**
      * The plan of [state], made from the timeline it converts to: equal to
