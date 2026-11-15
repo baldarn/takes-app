@@ -114,7 +114,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
-private val Scrim = Color(0x99000000)
 /** The plate under a control that sits on the picture, as in the original. */
 internal val ControlPlate = Color(0x85000000)
 /** The plate in use: opaque while the front light is on, so the controls stay readable on it, as in the original. */
@@ -239,13 +238,15 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             Image(it, null, Modifier.fillMaxSize(), contentScale = if (settings.fitFrame) ContentScale.Fit else ContentScale.Crop)
         }
         FocusBox(capture.focus)
-        pinch?.let {
-            // 27 % of the way down, centred, as in the original.
-            PinchBadge(it, Modifier.align(BiasAlignment(0f, (PinchZoom.BADGE_HEIGHT * 2 - 1).toFloat())))
-        }
         // Over the picture and under the controls. It is part of the interface: the camera never sees it.
         if (frontLight) FrontLightRing(settings, screenCornerRadius()) { frontLight = false }
-        CompositionLocalProvider(LocalControlPlate provides if (frontLight) LitPlate else ControlPlate) {
+        // The screen stays portrait and every control turns in its place to stand upright for the person.
+        val turn = rememberTurn(capture.turn)
+        CompositionLocalProvider(LocalControlPlate provides if (frontLight) LitPlate else ControlPlate, LocalTurn provides turn) {
+            pinch?.let {
+                // 27 % of the way down, centred, as in the original.
+                PinchBadge(it, Modifier.align(BiasAlignment(0f, (PinchZoom.BADGE_HEIGHT * 2 - 1).toFloat())).turned())
+            }
             // While the settings are open the screen reader is in them alone, as in the original.
             Box(Modifier.matchParentSize().then(if (settingsOpen) Modifier.clearAndSetSemantics {} else Modifier)) {
                 // Clear of the camera cutout, which stays when the status bar is hidden.
@@ -253,7 +254,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 // At the start of the top bar, as in the original.
                 MicrophonePill(
                     capture,
-                    Modifier.align(Alignment.TopStart).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Start)).padding(top = 9.dp, start = 12.dp),
+                    Modifier.align(Alignment.TopStart).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Start))
+                        .padding(top = 9.dp, start = 12.dp).turnedBounds(),
                 )
                 SettingsButton(
                     // A dot says that an assist is on.
@@ -262,8 +264,16 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                     Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)),
                 ) { settingsOpen = true }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    FocusHint(capture.focus)
-                    ProjectChip(capture, store, openEditor)
+                    // Lines of text stand side by side when they are read across the screen.
+                    if (turn.sideways) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                            Box(Modifier.heightIn(max = 260.dp).turnedBounds()) { FocusHint(capture.focus) }
+                            Box(Modifier.heightIn(max = 260.dp).turnedBounds()) { ProjectChip(capture, store, openEditor) }
+                        }
+                    } else {
+                        FocusHint(capture.focus)
+                        ProjectChip(capture, store, openEditor)
+                    }
                     val usable = capture.ready && capture.phase != Phase.Saving && cover == null
                     if (zoomOpen && capture.hasZoom) {
                         Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
@@ -275,7 +285,9 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         }
         TakeFrame(capture.phase, Modifier.matchParentSize())
         if (settingsOpen) CameraSettings(capture, store.selected, frontLight, { frontLight = it }) { settingsOpen = false }
-        Notice(capture.message, Modifier.align(Alignment.Center)) { capture.message = null }
+        CompositionLocalProvider(LocalTurn provides turn) {
+            Notice(capture.message, Modifier.align(Alignment.Center).then(if (turn.sideways) Modifier.heightIn(max = 420.dp) else Modifier).turnedBounds()) { capture.message = null }
+        }
     }
 }
 
@@ -288,7 +300,7 @@ private fun SettingsButton(assist: Boolean, colour: String, modifier: Modifier, 
             .semantics(mergeDescendants = true) { stateDescription = colour },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Filled.Tune, stringResource(R.string.recorder_settings_title), Modifier.size(22.dp), tint = Color.White)
+        Icon(Icons.Filled.Tune, stringResource(R.string.recorder_settings_title), Modifier.size(22.dp).turned(), tint = Color.White)
         if (assist) Box(Modifier.align(Alignment.BottomEnd).padding(7.dp).size(6.dp).background(SettingsCyan, CircleShape))
     }
 }
@@ -321,22 +333,19 @@ private fun TakeFrame(phase: Phase, modifier: Modifier) {
 @Composable
 private fun Status(capture: CaptureController, store: ProjectStore, modifier: Modifier) {
     Column(modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Clock(capture, store.selected)
-        // The interface stays upright, so the frame the take will have is named here.
-        Text(
-            if (capture.landscape) stringResource(R.string.recorder_landscape) else stringResource(R.string.recorder_portrait),
-            color = Color.White, fontSize = 12.sp, maxLines = 1,
-            modifier = Modifier.padding(top = 6.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
-        )
+        // The controls stand as the take will be framed: the clock turns with the phone, and nothing has to name the frame.
+        Box(Modifier.turnedBounds()) { Clock(capture, store.selected) }
+        // A warning read across the screen is kept short enough to stay beside the picture's middle.
+        val warning = Modifier.padding(top = 8.dp).then(if (LocalTurn.current.sideways) Modifier.heightIn(max = 300.dp) else Modifier).turnedBounds()
         // What this phone's cameras offer, to copy and send; the development build only.
         if (capture.phase == Phase.Idle) CameraReportEntry(capture)
         capture.microphoneWarning?.let {
             Text(it, color = Color.White, fontSize = 13.sp,
-                modifier = Modifier.padding(top = 8.dp).background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+                modifier = warning.background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
         }
         capture.audioWarning?.let {
             Text(it, color = Color.White, fontSize = 13.sp,
-                modifier = Modifier.padding(top = 8.dp).background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+                modifier = warning.background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
         }
     }
 }
@@ -444,14 +453,15 @@ private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: B
                 .semantics { opposite?.let { stateDescription = it.label } },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Filled.Cameraswitch, flipLabel, Modifier.size(22.dp), tint = Color.White)
+            Icon(Icons.Filled.Cameraswitch, flipLabel, Modifier.size(22.dp).turned(), tint = Color.White)
         }
         var choosing by remember { mutableStateOf(false) }
         val current = capture.cameras.firstOrNull { it.id == capture.cameraID }
         val cameraLabel = stringResource(R.string.recorder_camera)
         Box {
             Row(
-                Modifier.heightIn(min = 44.dp).widthIn(min = 64.dp, max = 118.dp).alpha(if (usable) 1f else 0.4f)
+                // Across the screen the name is the height of the strip: it is given less room.
+                Modifier.turnedBounds().heightIn(min = 44.dp).widthIn(min = 64.dp, max = if (LocalTurn.current.sideways) 84.dp else 118.dp).alpha(if (usable) 1f else 0.4f)
                     .clickable(enabled = usable, onClickLabel = stringResource(R.string.recorder_switch_camera), role = Role.DropdownList) { choosing = true }
                     .padding(end = 8.dp).semantics(mergeDescendants = true) { contentDescription = cameraLabel; current?.let { stateDescription = it.label } },
                 Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally), Alignment.CenterVertically,
@@ -474,10 +484,10 @@ private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: B
         }
         if (capture.hasZoom) {
             StripDivider()
-            ZoomButton(capture, zoomOpen, usable, toggleZoom)
+            Box(Modifier.turned()) { ZoomButton(capture, zoomOpen, usable, toggleZoom) }
         }
         StripDivider()
-        FocusButton(capture.focus, usable)
+        Box(Modifier.turned()) { FocusButton(capture.focus, usable) }
     }
 }
 
@@ -550,7 +560,7 @@ private fun MarkButton(capture: CaptureController) {
     val label = stringResource(R.string.recorder_mark_label)
     val value = stringResource(if (acknowledged) R.string.recorder_mark_added else R.string.recorder_mark_moment)
     Column(
-        Modifier.size(52.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(15.dp)).background(LocalControlPlate.current)
+        Modifier.turned().size(52.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(15.dp)).background(LocalControlPlate.current)
             .clickable(enabled = enabled, role = Role.Button) { capture.bookmark(); view.confirm() }
             // One element for the screen reader: what the button does, and that the mark was placed.
             .semantics(mergeDescendants = true) { contentDescription = label; stateDescription = value },
@@ -568,6 +578,6 @@ private fun SideButton(icon: ImageVector, label: Int, action: () -> Unit) {
         Modifier.size(52.dp).clip(CircleShape).background(LocalControlPlate.current).clickable(role = Role.Button, onClick = action),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, stringResource(label), Modifier.size(24.dp), tint = Color.White)
+        Icon(icon, stringResource(label), Modifier.size(24.dp).turned(), tint = Color.White)
     }
 }

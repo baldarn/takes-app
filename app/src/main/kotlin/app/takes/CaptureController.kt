@@ -54,6 +54,7 @@ import androidx.lifecycle.LifecycleRegistry
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CaptureFormat
+import app.takes.core.DeviceTurn
 import app.takes.core.MicrophoneRoute
 import app.takes.core.PinchZoom
 import app.takes.core.Project
@@ -149,7 +150,11 @@ class CaptureController(private val context: Context, private val store: Project
     /** There is sound to measure: the permission to record is given. */
     var meterAvailable by mutableStateOf(false); private set
     var audioWarning by mutableStateOf<String?>(null); private set
-    var landscape by mutableStateOf(false); private set
+    /**
+     * The quarter the phone is held in, as the orientation sensor names it: the controls stand upright
+     * for it. Held from the first Record to Stop, as the original holds its interface for the take.
+     */
+    var turn by mutableStateOf(0); private set
     var message by mutableStateOf<String?>(null)
     /** The name of the microphone in use: the one sound comes from when the system tells, else the one asked for. */
     var microphone by mutableStateOf<String?>(null); private set
@@ -165,29 +170,33 @@ class CaptureController(private val context: Context, private val store: Project
     /** Bookmarks placed in the current take. */
     var marks by mutableStateOf(0); private set
 
-    private var deviceRotation = Surface.ROTATION_0
+    private var deviceQuarter = 0
 
     private val orientation = object : OrientationEventListener(context) {
         override fun onOrientationChanged(degrees: Int) {
-            if (degrees == ORIENTATION_UNKNOWN) return
-            deviceRotation = when (degrees) {
-                in 45 until 135 -> Surface.ROTATION_270
-                in 135 until 225 -> Surface.ROTATION_180
-                in 225 until 315 -> Surface.ROTATION_90
-                else -> Surface.ROTATION_0
-            }
+            // A phone lying flat gives no angle and keeps the quarter it had.
+            val quarter = DeviceTurn.quarter(degrees, deviceQuarter)
+            if (quarter == deviceQuarter) return
+            deviceQuarter = quarter
             followDevice()
         }
     }
 
     /**
      * A take keeps the orientation it began in from the first Record to Stop, pauses
-     * included, so its segments share one frame. The device is followed between takes.
+     * included, so its segments share one frame, and its controls stay as they stood.
+     * The device is followed between takes.
      */
     private fun followDevice() {
         if (phase != Phase.Idle) return
-        cases.video.targetRotation = deviceRotation
-        landscape = deviceRotation == Surface.ROTATION_90 || deviceRotation == Surface.ROTATION_270
+        // Only the frame of the recording is set: nothing is bound again by turning the phone.
+        cases.video.targetRotation = when (deviceQuarter) {
+            90 -> Surface.ROTATION_270
+            180 -> Surface.ROTATION_180
+            270 -> Surface.ROTATION_90
+            else -> Surface.ROTATION_0
+        }
+        turn = deviceQuarter
     }
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
