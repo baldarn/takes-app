@@ -603,12 +603,32 @@ object TrackSequenceView {
 
     private fun bounded(range: TimeRange): TimeRange? = TimeRange(maxOf(0.0, range.start), range.end).takeIf { range.valid && it.valid }
 
+    /**
+     * Second [seconds] of the sequence as a time of [timeline]: the edge of an
+     * item when it is within [TICKS] of one. A cut of the sequence is a sum of
+     * seconds, and on the timeline a sum of lengths each rounded to a tick, so
+     * the same cut can come out a tick apart; taken as it is, a range marked
+     * on a cut would slice a piece one tick long off the item beside it.
+     */
+    fun onTimeline(timeline: TrackTimeline, seconds: Double): EditTime {
+        val time = EditTime.of(seconds)
+        var nearest = time
+        var distance = TICKS + 1
+        fun consider(edge: EditTime) {
+            val apart = abs(edge.ticks - time.ticks)
+            if (apart < distance) { nearest = edge; distance = apart }
+        }
+        for (item in timeline.video) { consider(item.start); consider(item.end) }
+        for (item in timeline.audio) { consider(item.start); consider(item.end) }
+        return nearest
+    }
+
     /** What [scope] names on the timeline of [state]: whole items, or with a range the part of them inside it. Null for a range the editor does not act on. */
     fun selection(state: EditState, timeline: TrackTimeline, scope: EditScope): TimelineSelection? = when (scope) {
         EditScope.Whole -> timeline.entireSelection()
         is EditScope.Selected -> timeline.expanded(selection(state, scope.targets))
         is EditScope.Range -> bounded(scope.range)?.let { range ->
-            val interval = EditInterval.of(range.start, range.end)
+            val interval = EditInterval(onTimeline(timeline, range.start), onTimeline(timeline, range.end))
             scope.targets?.let { selection(state, it, interval) } ?: timeline.entireSelection(interval)
         }
     }

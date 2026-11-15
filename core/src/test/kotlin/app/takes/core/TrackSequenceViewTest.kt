@@ -190,6 +190,32 @@ class TrackSequenceViewTest {
     }
 
     @Test
+    fun aRangeMarkedOnACutThatIsATickAwayOnTheTimelineCutsNothingThere() {
+        // Each clip is 120000.504 ticks long and is kept as 120001: the second one ends on tick 240002, where its end in seconds is tick 240001.
+        val length = 0.5000021
+        val close = TransitionSettings(id = uuid(60), style = TransitionStyle.FadeColor, duration = 0.2)
+        val edit = TimelineEditing.setJoin(EditState(listOf(TimelineClip(uuid(61), source.id, 0.0, length), TimelineClip(uuid(62), source.id, 1.0, 1.0 + length))), 2, close)!!
+        val start = TimelineEditing.clipStart(edit.clips, 1)
+        val range = EditScope.Range(TimeRange(start, start + edit.clips[1].duration))
+        val converted = edit.toTimeline()
+        assertEquals(1L, converted.video[1].end.ticks - t(range.range.end).ticks)
+        assertEquals(converted.video[1].end, TrackSequenceView.onTimeline(converted, range.range.end))
+        // Three ticks away is another place.
+        assertEquals(t(0.25), TrackSequenceView.onTimeline(converted, 0.25))
+        assertEquals(EditTime(converted.video[1].end.ticks - 3), TrackSequenceView.onTimeline(converted, (converted.video[1].end.ticks - 3).toDouble() / EditTime.SCALE))
+
+        val scoped = TrackSequenceView.scoped(edit, range)
+        assertEquals(listOf(uuid(62)), scoped.clips)
+        assertEquals(2, done(scoped.result).clips.size)
+        // The whole clip is copied, with the close that is on its end.
+        val copied = TrackSequenceView.copy(edit, range)!!
+        assertEquals(converted.video[1].mapping.duration, copied.clipboard.timeline.video.single().mapping.duration)
+        assertEquals(close.id, done(copied.fragment).clips.single().transition?.id)
+        // And deleted whole, leaving no piece of it.
+        assertEquals(listOf(uuid(61)), done(TrackSequenceView.delete(edit, range)!!.result).clips.map { it.id })
+    }
+
+    @Test
     fun aRangeDeletedThroughTheTrackModelCarriesThePlayhead() {
         val removed = TrackSequenceView.delete(state, EditScope.Range(TimeRange(1.0, 3.0)), playhead = 5.0)!!
         val back = done(removed.result)
