@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import app.takes.core.PinchZoom
 import app.takes.core.RecorderCameras
 import app.takes.core.ZoomTransition
+import java.text.NumberFormat
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -142,10 +143,13 @@ internal fun PinchBadge(pinch: PinchZoom, modifier: Modifier = Modifier) {
     )
 }
 
+/** A zoom as the screen reader says it: the number alone, in the way of the language, "1" and "2,5" in Italian. */
+private fun spokenZoom(zoom: Double): String = NumberFormat.getNumberInstance().apply { maximumFractionDigits = 1 }.format(zoom)
+
 /** The zoom in the camera strip: shows the magnification and opens the presets. */
 @Composable
 internal fun ZoomButton(capture: CaptureController, open: Boolean, enabled: Boolean, toggle: () -> Unit) {
-    val label = stringResource(R.string.recorder_zoom_times, PinchZoom.readout(capture.zoom).removeSuffix("×"))
+    val label = stringResource(R.string.recorder_zoom_times, spokenZoom(capture.zoom))
     Box(
         Modifier.size(58.dp, 44.dp).alpha(if (enabled) 1f else 0.4f)
             .clickable(enabled = enabled, role = Role.Button, onClick = toggle)
@@ -202,8 +206,7 @@ internal fun ZoomPresets(capture: CaptureController, enabled: Boolean, switchCam
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ZoomPreset(zoom: Double, selectsMainLens: Boolean, selected: Boolean, enabled: Boolean, normal: () -> Unit, quick: () -> Unit) {
-    val times = RecorderCameras.presetLabel(zoom).removeSuffix("×")
-    val label = if (selectsMainLens) stringResource(R.string.recorder_zoom_preset_main) else stringResource(R.string.recorder_zoom_preset, times)
+    val label = if (selectsMainLens) stringResource(R.string.recorder_zoom_preset_main) else stringResource(R.string.recorder_zoom_preset, spokenZoom(zoom))
     val quickLabel = stringResource(R.string.recorder_zoom_one_second)
     val color = if (selected) ControlYellow else Color.White
     // The tap waits to see whether it is a double one; the touch is answered at once, as in the original.
