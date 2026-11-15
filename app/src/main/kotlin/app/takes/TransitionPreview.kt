@@ -29,9 +29,13 @@ import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
 import app.takes.core.TransitionFrame
 import app.takes.core.TransitionScene
+import app.takes.core.TransitionStyle
 
 /** Android 13 brought the shaders the preview draws transitions with; before it, the decks are cross-faded. */
 internal val shadedPreview = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+
+/** The styles only the shader can draw: without it the preview shows them as a dissolve, and the export is unaffected. */
+internal val simplifiedWithoutShader = setOf(TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.Hitchcock, TransitionStyle.Whip, TransitionStyle.Defocus)
 
 /**
  * The picture of the preview: the two decks and what the moment makes of

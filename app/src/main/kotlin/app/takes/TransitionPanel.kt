@@ -222,6 +222,8 @@ fun TransitionPanel(
                 Text(stringResource(style.label), color = Accent, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f).padding(start = 10.dp))
                 Icon(Icons.Outlined.UnfoldMore, null, Modifier.size(16.dp), tint = Accent)
             }
+            // Before Android 13 the preview has no shader for these styles; the export draws them in full.
+            if (!shadedPreview && style in simplifiedWithoutShader) Note(stringResource(R.string.transition_preview_simplified))
             if (style == TransitionStyle.FadeColor) FadeColor(settings.resolvedFadeColor) { change(settings.copy(fadeColor = it.takeIf { color -> color != TransitionColor.BLACK })) }
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

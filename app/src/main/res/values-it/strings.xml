@@ -329,6 +329,7 @@
     <string name="transition_style_flash_cut">Flash cut</string>
     <string name="transition_style_still">Fermo immagine</string>
     <string name="transition_style_defocus">Defocus</string>
+    <string name="transition_preview_simplified">Su questa versione di Android l\'anteprima di questo stile è semplificata. Il filmato esportato è completo.</string>
     <string name="transition_tag_fade">Fade</string>
     <string name="transition_fade_color">Colore del fade</string>
     <string name="transition_fade_color_named">Colore del fade %1$s</string>
