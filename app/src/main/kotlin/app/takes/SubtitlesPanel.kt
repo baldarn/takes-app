@@ -529,12 +529,15 @@ private fun ModelChoice(choices: List<ModelRow>, selected: SpeechModel, recommen
             Column {
                 for (row in choices) {
                     val megabytes = SubtitleModel.megabytes(row.model)
-                    val state = when {
-                        row.present >= row.model.bytes -> stringResource(R.string.subtitles_model_downloaded)
-                        row.present > 0 -> stringResource(R.string.subtitles_model_partly, SubtitleModel.megabytes(row.present), megabytes)
-                        row.model == recommended -> stringResource(R.string.subtitles_model_recommended)
-                        else -> null
-                    }
+                    // Which one suits the phone stays in sight after it was downloaded, for whoever is about to pick the other.
+                    val state = listOfNotNull(
+                        if (row.model == recommended) stringResource(R.string.subtitles_model_recommended) else null,
+                        when {
+                            row.present >= row.model.bytes -> stringResource(R.string.subtitles_model_downloaded)
+                            row.present > 0 -> stringResource(R.string.subtitles_model_partly, SubtitleModel.megabytes(row.present), megabytes)
+                            else -> null
+                        },
+                    ).joinToString(" · ").ifEmpty { null }
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { choose(row.model) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = row.model == selected, onClick = { choose(row.model) })
                         Column(Modifier.weight(1f)) {
