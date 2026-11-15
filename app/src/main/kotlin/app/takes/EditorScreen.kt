@@ -1325,7 +1325,7 @@ private fun ClipStrip(
             if (row == rows.size) rows += to else rows[row] = to
             Text(
                 title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
-                modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), (row * 14.dp.toPx()).roundToInt()) }
+                modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), (row * 21.dp.toPx()).roundToInt()) }
                     .width(with(density) { ((to - from) / clip.rate * pixelsPerSecond).toFloat().toDp() })
                     .background(TitleColor, RoundedCornerShape(3.dp))
                     .clickable(onClickLabel = editTitle) { openTitle(title) }
