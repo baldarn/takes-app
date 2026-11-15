@@ -710,4 +710,27 @@
     <string name="sound_fade_set">Imposta</string>
     <string name="sound_level_mixed">Diversi</string>
     <string name="sound_level_changed">%1$s · Puoi annullare</string>
+    <string name="export_running_title">Esportazione</string>
+    <string name="export_percent">%1$d%%</string>
+    <string name="export_step_opening">Lettura delle impostazioni di esportazione</string>
+    <string name="export_step_audio_effects">Elaborazione degli effetti audio</string>
+    <string name="export_step_timeline">Preparazione della timeline video</string>
+    <string name="export_step_audio_peak">Controllo del clipping audio</string>
+    <string name="export_step_audio">Codifica dell\'audio</string>
+    <string name="export_step_picture">Rendering del video</string>
+    <string name="export_step_assemble_video">Unione delle sezioni video</string>
+    <string name="export_step_assemble_movie">Unione di video e audio</string>
+    <string name="export_step_movie_index">Scrittura dell\'indice del filmato</string>
+    <string name="export_step_source_files">Controllo dei file sorgente</string>
+    <string name="export_step_verifying">Verifica del filmato esportato</string>
+    <string name="export_step_saving">Salvataggio del video esportato</string>
+    <string name="export_step_complete">Esportato</string>
+    <string name="export_step_reopening">Riapertura dell\'esportazione salvata</string>
+    <string name="export_step_rebuilding">Ricostruzione della timeline video</string>
+    <string name="export_paused_title">Esportazione in pausa</string>
+    <string name="export_paused_background">Takes non era più in primo piano. Tienilo aperto e con lo schermo acceso durante l\'esportazione.</string>
+    <string name="export_paused_space">Non c\'è abbastanza spazio libero per finire questa esportazione. Libera spazio, poi riprendi l\'esportazione.</string>
+    <string name="export_paused_saved">Video salvato fino a %1$s</string>
+    <string name="export_resume">Riprendi esportazione</string>
+    <string name="export_discard">Elimina esportazione</string>
 </resources>

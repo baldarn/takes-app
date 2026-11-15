@@ -1647,18 +1647,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             appliesTo = toolScopeLabel,
         )
     }
-    if (choosingExport) {
-        ExportSettingsDialog(
-            project.exportSettings, canvas,
-            start = { settings ->
-                choosingExport = false
-                store.setExportSettings(project.id, settings)
-                exporter.start(project.copy(exportSettings = settings))
-            },
-            dismiss = { choosingExport = false },
-        )
-    }
-    ExportDialogs(exporter, context) { store.error = it }
+    ExportPanel(project, canvas, store, exporter, choosingExport) { choosingExport = false }
 }
 
 /** [change] made to each clip of a tool's scope, by its place in the edit, as one edit. Null when it changes none of them: the cuts at the ends of a range are then not made either. */
@@ -2161,72 +2150,6 @@ private data class Titling(
 ) {
     /** The edit with the title as it is now; null when that changes nothing. */
     fun applied(edit: EditState): EditState? = TimelineEditing.placeTitle(edit, title, range, clipID?.let { setOf(it) }, opened)
-}
-
-/** The choices are remembered in the project. [canvas] is the shape of the first clip. */
-@Composable
-private fun ExportSettingsDialog(saved: ExportSettings, canvas: Pair<Int, Int>?, start: (ExportSettings) -> Unit, dismiss: () -> Unit) {
-    var settings by remember { mutableStateOf(saved) }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(stringResource(R.string.export_title)) },
-        text = {
-            Column {
-                Choices(stringResource(R.string.export_size), listOf(
-                    stringResource(R.string.export_size_original) to ExportSettings.Resolution.Project, "720p" to ExportSettings.Resolution.HD,
-                    "1080p" to ExportSettings.Resolution.FullHD, "4K" to ExportSettings.Resolution.UltraHD,
-                ), settings.resolution) { settings = settings.copy(resolution = it) }
-                canvas?.let { settings.resolution.size(it.first, it.second) }?.let { (width, height) ->
-                    Text(stringResource(R.string.export_pixels, width, height), color = Muted, fontSize = 13.sp)
-                }
-                // Only the limits the exporter can really honor.
-                Choices(stringResource(R.string.export_frame_rate), listOf(stringResource(R.string.export_up_to, 30) to 30, stringResource(R.string.export_up_to, 60) to 60), settings.frameRate) { settings = settings.copy(frameRate = it) }
-                Text(stringResource(R.string.export_frame_rate_note), color = Muted, fontSize = 13.sp)
-                Choices(stringResource(R.string.export_format), listOf("H.264" to ExportSettings.Codec.H264, stringResource(R.string.export_h265_smaller) to ExportSettings.Codec.HEVC), settings.codec) {
-                    settings = settings.copy(codec = it)
-                }
-            }
-        },
-        confirmButton = { Button(onClick = { start(settings) }) { Text(stringResource(R.string.editor_export)) } },
-        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
-    )
-}
-
-@Composable
-private fun ExportDialogs(exporter: Exporter, context: Context, report: (String) -> Unit) {
-    exporter.progress?.let { progress ->
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(stringResource(R.string.export_progress, (progress * 100).roundToInt())) },
-            text = { LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = { TextButton(onClick = exporter::cancel) { Text(stringResource(R.string.common_cancel)) } },
-        )
-    }
-    exporter.result?.let { file ->
-        val uri = remember(file) { FileProvider.getUriForFile(context, "${context.packageName}.files", file) }
-        fun open(intent: Intent) = try {
-            context.startActivity(intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-        } catch (_: Exception) {
-            report(context.getString(R.string.export_open_failed))
-        }
-        AlertDialog(
-            onDismissRequest = { exporter.result = null },
-            title = { Text(stringResource(R.string.export_done_title)) },
-            text = {
-                Column {
-                    Text(file.name, color = Muted, fontSize = 13.sp)
-                    TextButton(onClick = { open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4")) }) { Text(stringResource(R.string.common_play)) }
-                    TextButton(onClick = {
-                        open(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, uri), null))
-                    }) { Text(stringResource(R.string.export_share)) }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        TextButton(onClick = { exporter.saveToGallery(file) }) { Text(stringResource(R.string.export_save_to_gallery)) }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { exporter.result = null }) { Text(stringResource(R.string.common_done)) } },
-        )
-    }
 }
 
 /** A playback rate as the person reads it: 0.5×, 2×. */
