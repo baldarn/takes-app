@@ -74,7 +74,7 @@ class CaptureController(private val context: Context, private val store: Project
     private class Segment(val id: String, val projectID: String, val file: File) {
         val events = mutableListOf<CaptureEvent>()
         var nanos = 0L
-        var reportedAt = 0L // when [nanos] was reported, on the elapsed-time clock; zero before the first report
+        var reportedAt = 0L // when [nanos] was reported, on the elapsed-time clock; zero until the recording starts
         var requested: Phase? = null // null: the system ended this segment
     }
 
@@ -102,8 +102,6 @@ class CaptureController(private val context: Context, private val store: Project
     var zoomRange by mutableStateOf(1.0..1.0); private set
     /** Seconds a zoom preset takes. Instant until the person chooses a time, as in the original. */
     var zoomDuration by mutableStateOf(ZoomTransition.boundedDuration(prefs.getFloat("zoomDuration", 0f).toDouble())); private set
-    /** Seconds written to the segment being recorded; zero when there is none. The clock adds them to the length of the edit. */
-    var elapsed by mutableStateOf(0.0); private set
     var level by mutableStateOf(0f); private set
     var audioWarning by mutableStateOf<String?>(null); private set
     var landscape by mutableStateOf(false); private set
@@ -487,11 +485,20 @@ class CaptureController(private val context: Context, private val store: Project
     /** Marks this moment of the take, for example a mistake to find again in the editor. */
     fun bookmark() {
         val current = segment?.takeIf { phase == Phase.Recording } ?: return
-        // The moment of the tap, as the original reads its clock at the tap: the length the recorder
-        // last reported and the time since. Bounded, because a recording that stalls reports nothing.
-        val since = if (current.reportedAt == 0L) 0L else (SystemClock.elapsedRealtimeNanos() - current.reportedAt).coerceIn(0L, 1_000_000_000L)
-        note(current, CaptureEvent(time = (current.nanos + since) / 1e9, kind = Project.BOOKMARK_EVENT, detail = ""))
+        // The moment of the tap, as the original reads its clock at the tap.
+        note(current, CaptureEvent(time = segmentSeconds(), kind = Project.BOOKMARK_EVENT, detail = ""))
         marks++
+    }
+
+    /**
+     * Seconds written to the segment being recorded, zero when there is none. The recorder reports that
+     * length once a second: between two reports it is the last one plus the time since, bounded because
+     * a recording that stalls reports nothing. The clock adds it to the length of the edit.
+     */
+    fun segmentSeconds(): Double {
+        val current = segment?.takeIf { phase == Phase.Recording } ?: return 0.0
+        val since = if (current.reportedAt == 0L) 0L else (SystemClock.elapsedRealtimeNanos() - current.reportedAt).coerceIn(0L, 1_500_000_000L)
+        return (current.nanos + since) / 1e9
     }
 
     /** Saves the running segment and keeps the take open. A Stop already asked for is not undone. */
@@ -524,20 +531,20 @@ class CaptureController(private val context: Context, private val store: Project
         followDevice()
         marks = 0
         segmentProject = null
-        elapsed = 0.0
         level = 0f
         if (inserted) onInsertionEnded?.invoke()
     }
 
     private fun handle(current: Segment, event: VideoRecordEvent) {
         when (event) {
+            // The first report comes a second into the recording; time runs from here until then.
+            is VideoRecordEvent.Start -> if (segment === current) current.reportedAt = SystemClock.elapsedRealtimeNanos()
             is VideoRecordEvent.Status -> if (segment === current) {
                 // The system does not always report a route that changes under a running recording.
                 val second = event.recordingStats.recordedDurationNanos / 1_000_000_000
                 if (second != current.nanos / 1_000_000_000) showActiveMicrophone(audioManager.activeRecordingConfigurations)
                 current.nanos = event.recordingStats.recordedDurationNanos
                 current.reportedAt = SystemClock.elapsedRealtimeNanos()
-                elapsed = current.nanos / 1e9
                 val audio = event.recordingStats.audioStats
                 level = audio.audioAmplitude.toFloat().coerceIn(0f, 1f)
                 audioWarning = when (audio.audioState) {
@@ -575,7 +582,7 @@ class CaptureController(private val context: Context, private val store: Project
         }
         val requested = current.requested
         // The segment is in the edit now, and the clock counts it there.
-        if (requested == Phase.Idle) reset() else { phase = Phase.Paused; elapsed = 0.0; level = 0f }
+        if (requested == Phase.Idle) reset() else { phase = Phase.Paused; level = 0f }
         dropLostMicrophone()
         message = when {
             requested == null -> context.getString(if (seconds != null) R.string.recorder_stopped_saved else R.string.recorder_stopped_lost, reason(event))

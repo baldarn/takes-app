@@ -58,8 +58,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -254,7 +254,13 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
 private fun Clock(capture: CaptureController, project: Project?) {
     val phase = capture.phase
     val edited = remember(project) { project?.edit?.duration ?: 0.0 }
-    val seconds by remember(edited) { derivedStateOf { (edited + capture.elapsed).toLong().coerceAtLeast(0) } }
+    // The recorder reports the length of the segment once a second; the clock runs on between its reports.
+    var running by remember { mutableDoubleStateOf(0.0) }
+    LaunchedEffect(phase) {
+        running = 0.0
+        while (phase == Phase.Recording) { running = capture.segmentSeconds(); delay(200) }
+    }
+    val seconds = (edited + if (phase == Phase.Recording) running else 0.0).toLong().coerceAtLeast(0)
     val time = "%02d:%02d".format(seconds / 60, seconds % 60)
     val plate = when {
         phase == Phase.Recording -> RecordRed.copy(alpha = 0.8f)
