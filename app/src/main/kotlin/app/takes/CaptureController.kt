@@ -15,6 +15,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.SystemClock
 import android.text.format.Formatter
+import android.util.Range
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.annotation.OptIn
@@ -24,6 +25,8 @@ import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.DynamicRange
+import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
@@ -46,6 +49,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
+import app.takes.core.CaptureFormat
 import app.takes.core.PinchZoom
 import app.takes.core.Project
 import app.takes.core.RecorderCamera
@@ -71,7 +75,12 @@ import kotlin.math.abs
 @OptIn(ExperimentalPersistentRecording::class, ExperimentalCamera2Interop::class)
 class CaptureController(private val context: Context, private val store: ProjectStore) {
     enum class Phase { Idle, Recording, Paused, Saving }
-    data class CameraChoice(val id: String, val label: String, val info: CameraInfo)
+    /** A camera of the phone, with what it offers to the recorder: asked once, when the cameras are listed. */
+    data class CameraChoice(val id: String, val label: String, val info: CameraInfo, val offers: CaptureFormat.Camera = CaptureFormat.Camera()) {
+        val front: Boolean get() = info.lensFacing == CameraSelector.LENS_FACING_FRONT
+    }
+    /** The preview and the recording of one bind. They are built together, for the camera and the settings of the moment. */
+    private class UseCases(val preview: Preview, val recorder: Recorder, val video: VideoCapture<Recorder>)
     /** An input the user can record from. The system routes by output device, so that is what is kept. */
     data class MicrophoneChoice(val id: Int, val label: String, val device: AudioDeviceInfo)
 
@@ -88,14 +97,11 @@ class CaptureController(private val context: Context, private val store: Project
     /** The focus of the camera in use: tap to focus, the lock and manual focus. */
     val focus = CameraFocus(context, settings)
     private val scope = MainScope()
-    // Same shape as the recorded movie, so the preview shows the real frame.
-    private val preview = Preview.Builder()
-        .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
-        // The focus reads the position of the lens from what the camera reports with each frame.
-        .also { Camera2Interop.Extender(it).setSessionCaptureCallback(focus.results) }
-        .build()
-    private var recorder = recorder(MediaRecorder.AudioSource.CAMCORDER)
-    private var videoCapture = VideoCapture.withOutput(recorder)
+    private var audioSource = MediaRecorder.AudioSource.CAMCORDER
+    private var surface: Preview.SurfaceProvider? = null
+    /** The picture the bound camera records with: what the settings ask for, as far as this camera goes. */
+    var format by mutableStateOf(CaptureFormat.of(CaptureFormat.Wish(), CaptureFormat.Camera())); private set
+    private var cases = build(format, Surface.ROTATION_0)
     private var provider: ProcessCameraProvider? = null
     private var owner: LifecycleOwner? = null
     private var camera: Camera? by mutableStateOf(null)
@@ -151,7 +157,7 @@ class CaptureController(private val context: Context, private val store: Project
      */
     private fun followDevice() {
         if (phase != Phase.Idle) return
-        videoCapture.targetRotation = deviceRotation
+        cases.video.targetRotation = deviceRotation
         landscape = deviceRotation == Surface.ROTATION_90 || deviceRotation == Surface.ROTATION_270
     }
 
@@ -204,7 +210,8 @@ class CaptureController(private val context: Context, private val store: Project
         val provider = ProcessCameraProvider.awaitInstance(context)
         if (this.owner !== owner) return
         this.provider = provider
-        preview.setSurfaceProvider(surface)
+        this.surface = surface
+        cases.preview.setSurfaceProvider(surface)
         cameras = describe(provider.availableCameraInfos)
         if (cameras.isEmpty()) { message = context.getString(R.string.recorder_no_camera); return }
         orientation.enable()
@@ -244,7 +251,7 @@ class CaptureController(private val context: Context, private val store: Project
                 info.intrinsicZoomRatio > 1.5f -> context.getString(R.string.recorder_lens_tele, facing)
                 else -> facing
             }
-            CameraChoice(Camera2CameraInfo.from(info).cameraId, lens, info)
+            CameraChoice(Camera2CameraInfo.from(info).cameraId, lens, info, offers(info))
         }
         return labelled.map { choice ->
             val twins = labelled.filter { it.label == choice.label }
@@ -265,14 +272,112 @@ class CaptureController(private val context: Context, private val store: Project
         scope.launch(eventFiles) { runCatching { CaptureEventsFile.write(events, segment.file) } }
     }
 
+    // MARK: Picture format. One rebuild and bind for all of it, between segments and never under one.
+
+    /** What [info] offers to the recorder. Every question is asked on its own: one that fails counts as "no". */
+    private fun offers(info: CameraInfo): CaptureFormat.Camera {
+        val video = runCatching { Recorder.getVideoCapabilities(info) }.getOrNull()
+        fun sizes(range: DynamicRange) = runCatching { video?.getSupportedQualities(range) }.getOrNull().orEmpty().mapNotNull { quality ->
+            FRAME_SIZES.entries.firstOrNull { it.value == quality }?.key
+        }
+        val sdr = sizes(DynamicRange.SDR).mapNotNull { size ->
+            runCatching { QualitySelector.getResolution(info, FRAME_SIZES.getValue(size)) }.getOrNull()?.let { size to CaptureFormat.Pixels(it.width, it.height) }
+        }.toMap()
+        val hdr = runCatching { video?.supportedDynamicRanges?.contains(DynamicRange.HLG_10_BIT) }.getOrNull() == true
+        return CaptureFormat.Camera(
+            sizes = sdr,
+            hdrSizes = if (hdr) sizes(DynamicRange.HLG_10_BIT).toSet() else emptySet(),
+            previewStabilization = runCatching { Preview.getPreviewCapabilities(info).isStabilizationSupported }.getOrDefault(false),
+            recordingStabilization = runCatching { video?.isStabilizationSupported }.getOrNull() == true,
+            thirty = runCatching { info.supportedFrameRateRanges.contains(THIRTY) }.getOrDefault(false),
+        )
+    }
+
+    private val current: CameraChoice? get() = cameras.firstOrNull { it.id == cameraID }
+
+    /** What the camera in use offers; nothing while no camera is bound. */
+    val offers: CaptureFormat.Camera get() = current?.offers ?: CaptureFormat.Camera()
+    /** A control of the picture format is shown only where a camera of this phone has what it sets. */
+    val offersUltraHD: Boolean get() = cameras.any { it.offers.ultraHD }
+    val offersHDR: Boolean get() = cameras.any { it.offers.hdr }
+    val offersStabilization: Boolean get() = cameras.any { it.offers.stabilization }
+    val hasFrontCamera: Boolean get() = cameras.any { it.front }
+
+    /** The format can change now: a camera is bound and no segment is being written. */
+    val canChangeFormat: Boolean get() = ready && (phase == Phase.Idle || phase == Phase.Paused)
+    /** The quality and the mirroring of the saved picture stay fixed from the first Record to Stop, as in the original. */
+    val canChangeTake: Boolean get() = ready && phase == Phase.Idle
+
+    fun chooseUltraHD(on: Boolean) { if (canChangeTake && settings.ultraHD != on) { settings.ultraHD = on; rebind() } }
+    fun chooseHDR(on: Boolean) { if (canChangeFormat && settings.hdr != on) { settings.hdr = on; rebind() } }
+    fun chooseStabilization(on: Boolean) { if (canChangeFormat && settings.stabilization != on) { settings.stabilization = on; rebind() } }
+    fun chooseMirrorPreview(on: Boolean) { if (canChangeFormat && settings.mirrorPreview != on) { settings.mirrorPreview = on; rebind() } }
+    fun chooseMirrorRecording(on: Boolean) { if (canChangeTake && settings.mirrorRecording != on) { settings.mirrorRecording = on; rebind() } }
+
+    private fun rebind() { current?.let(::bind) }
+
+    /**
+     * The preview and the recording for [format]. Each part of the format was asked of the camera before
+     * (see [offers]), so nothing here is requested from a camera that does not have it.
+     */
+    // CameraX keeps the audio source to itself (a restricted API): there is no public way
+    // to record from a headset, which needs the voice communication source. Check this
+    // call again whenever the camera library is updated.
+    @SuppressLint("RestrictedApi")
+    private fun build(format: CaptureFormat, rotation: Int): UseCases {
+        val preview = Preview.Builder()
+            // Same shape as the recorded movie, so the preview shows the real frame.
+            .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
+            // A mirror for the front camera, as in the original, unless the person turned it off.
+            .setMirrorMode(if (settings.mirrorPreview) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
+            .apply { if (format.stabilization == CaptureFormat.Stabilization.PreviewAndRecording) setPreviewStabilizationEnabled(true) }
+            // The focus reads the position of the lens from what the camera reports with each frame.
+            .also { Camera2Interop.Extender(it).setSessionCaptureCallback(focus.results) }
+            .build()
+        surface?.let(preview::setSurfaceProvider)
+        val quality = if (format.ultraHD) Quality.UHD else Quality.FHD
+        val recorder = Recorder.Builder()
+            .setQualitySelector(QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality)))
+            .setAudioSource(audioSource)
+            // The original's bit rate: six bits for each pixel of the frame. The encoder keeps it within what it accepts.
+            .apply { format.bitRate?.let { setTargetVideoEncodingBitRate(it) } }
+            .build()
+        val video = VideoCapture.Builder(recorder)
+            // Saved as the scene is, so that writing stays readable, unless the person asked for mirrored selfies.
+            .setMirrorMode(if (settings.mirrorRecording) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
+            .apply {
+                if (format.fixedRate) setTargetFrameRate(THIRTY)
+                if (format.hdr) setDynamicRange(DynamicRange.HLG_10_BIT)
+                if (format.stabilization == CaptureFormat.Stabilization.RecordingOnly) setVideoStabilizationEnabled(true)
+            }
+            .build()
+        video.targetRotation = rotation
+        return UseCases(preview, recorder, video)
+    }
+
     private fun bind(choice: CameraChoice) {
         val provider = provider ?: return
         val owner = owner ?: return
         // A persistent recording pauses while nothing is bound and resumes by itself.
         provider.unbindAll()
-        val bound = try {
-            provider.bindToLifecycle(owner, choice.info.cameraSelector, preview, videoCapture)
-        } catch (_: Exception) {
+        // A segment being written keeps its recorder: the format changes between segments.
+        val writing = phase == Phase.Recording || phase == Phase.Saving
+        val wanted = CaptureFormat.of(CaptureFormat.Wish(settings.ultraHD, settings.hdr, settings.stabilization), choice.offers)
+        var bound: Camera? = null
+        for (attempt in if (writing) listOf(format) else CaptureFormat.attempts(wanted)) {
+            if (!writing) {
+                cases = build(attempt, cases.video.targetRotation)
+                format = attempt
+            }
+            bound = try {
+                provider.bindToLifecycle(owner, choice.info.cameraSelector, cases.preview, cases.video)
+            } catch (_: Exception) {
+                provider.unbindAll()
+                null
+            }
+            if (bound != null) break
+        }
+        if (bound == null) {
             camera = null
             focus.unbound()
             message = context.getString(R.string.recorder_camera_failed, choice.label)
@@ -280,11 +385,13 @@ class CaptureController(private val context: Context, private val store: Project
             if (phase == Phase.Recording) pause()
             return
         }
+        // The camera said it could and then refused: the take is recorded without, and the person is told.
+        if (!writing && format != wanted) message = context.getString(R.string.recorder_format_reduced)
         camera = bound
         cameraID = choice.id
         prefs.edit().putString("camera", choice.id).apply()
         // The flip button returns to the camera used last on each side of the phone.
-        if (choice.info.lensFacing == CameraSelector.LENS_FACING_FRONT) settings.lastFrontCamera = choice.id else settings.lastRearCamera = choice.id
+        if (choice.front) settings.lastFrontCamera = choice.id else settings.lastRearCamera = choice.id
         val state = bound.cameraInfo.zoomState.value
         val minimum = (state?.minZoomRatio ?: 1f).toDouble()
         // Never past ten times, whatever the lens offers, as in the original.
@@ -294,7 +401,7 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     private fun lens(choice: CameraChoice) =
-        RecorderCamera(choice.id, choice.info.lensFacing == CameraSelector.LENS_FACING_FRONT, choice.info.intrinsicZoomRatio.toDouble())
+        RecorderCamera(choice.id, choice.front, choice.info.intrinsicZoomRatio.toDouble())
 
     /** Where the flip button leads: the camera used last on the other side of the phone; null when that side has none. */
     val oppositeCamera: CameraChoice?
@@ -322,15 +429,6 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     // MARK: Microphone. Chosen for the session; routed only while the recorder is on screen.
-
-    // CameraX keeps the audio source to itself (a restricted API): there is no public way
-    // to record from a headset, which needs the voice communication source. Check this
-    // call again whenever the camera library is updated.
-    @SuppressLint("RestrictedApi")
-    private fun recorder(audioSource: Int) = Recorder.Builder()
-        .setQualitySelector(QualitySelector.from(Quality.FHD, FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD)))
-        .setAudioSource(audioSource)
-        .build()
 
     /** Records from this input from the next segment on; null returns the choice to the system. */
     fun chooseMicrophone(id: Int?) {
@@ -413,13 +511,10 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     // The audio source is fixed when a Recorder is built, so a new one replaces it between segments.
-    @SuppressLint("RestrictedApi")
     private fun useAudioSource(source: Int) {
-        if (recorder.audioSource == source) return
-        val rotation = videoCapture.targetRotation
-        recorder = recorder(source)
-        videoCapture = VideoCapture.withOutput(recorder).apply { targetRotation = rotation }
-        cameras.firstOrNull { it.id == cameraID }?.let(::bind)
+        if (audioSource == source) return
+        audioSource = source
+        rebind()
     }
 
     // MARK: Zoom. Each camera remembers its own last applied value.
@@ -481,7 +576,7 @@ class CaptureController(private val context: Context, private val store: Project
         if (camera == null) { message = context.getString(R.string.recorder_camera_not_ready); return }
         val projectID = segmentProject ?: (store.selected ?: store.create())?.id ?: return
         val folder = store.disk.folder(projectID)
-        val short = space.shortBy(freeBytes(folder), folder.totalSpace, ultraHD = false)
+        val short = space.shortBy(freeBytes(folder), folder.totalSpace, format.ultraHD)
         if (short > 0) {
             message = context.getString(R.string.recorder_storage_short, Formatter.formatShortFileSize(context, short))
             return
@@ -493,7 +588,7 @@ class CaptureController(private val context: Context, private val store: Project
 
     private var segmentProject: String? = null
 
-    // MARK: Free storage. The original's rule with a flat figure to start and no floor: the recorder writes 1080p.
+    // MARK: Free storage. The original's rule with a flat figure to start and no floor.
 
     private val space = RecordingSpace.ANDROID_FLAT
     private var pace = space.begin(0.0, ultraHD = false)
@@ -523,10 +618,10 @@ class CaptureController(private val context: Context, private val store: Project
         audioWarning = if (audio) null else context.getString(R.string.recorder_mic_off)
         level = 0f
         message = null
-        var pending = recorder.prepareRecording(context, FileOutputOptions.Builder(next.file).build()).asPersistentRecording()
+        var pending = cases.recorder.prepareRecording(context, FileOutputOptions.Builder(next.file).build()).asPersistentRecording()
         if (audio) pending = pending.withAudioEnabled()
         val now = SystemClock.elapsedRealtimeNanos() / 1e9
-        pace = space.begin(now, ultraHD = false)
+        pace = space.begin(now, format.ultraHD)
         spaceCheckedAt = now
         segment = next
         phase = Phase.Recording
@@ -640,6 +735,15 @@ class CaptureController(private val context: Context, private val store: Project
             seconds == null -> context.getString(R.string.recorder_nothing_recorded)
             else -> message
         }
+    }
+
+    private companion object {
+        /** Thirty frames per second, exactly, as the original sets it. */
+        val THIRTY = Range(CaptureFormat.FRAMES_PER_SECOND, CaptureFormat.FRAMES_PER_SECOND)
+        val FRAME_SIZES = mapOf(
+            CaptureFormat.FrameSize.UHD to Quality.UHD, CaptureFormat.FrameSize.FHD to Quality.FHD,
+            CaptureFormat.FrameSize.HD to Quality.HD, CaptureFormat.FrameSize.SD to Quality.SD,
+        )
     }
 
     private fun reason(event: VideoRecordEvent.Finalize): String = when (event.error) {

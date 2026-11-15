@@ -11,7 +11,6 @@ import android.view.RoundedCorner
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -428,7 +427,7 @@ private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: B
     ) {
         val opposite = capture.oppositeCamera
         val flipLabel = stringResource(
-            if (opposite?.info?.lensFacing == CameraSelector.LENS_FACING_FRONT) R.string.recorder_flip_front else R.string.recorder_flip_back,
+            if (opposite?.front == true) R.string.recorder_flip_front else R.string.recorder_flip_back,
         )
         val flips = usable && opposite != null
         Box(
