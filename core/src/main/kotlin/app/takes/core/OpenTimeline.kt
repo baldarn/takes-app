@@ -209,7 +209,7 @@ object OpenTimeline {
                 val begins = TimelineEditing.clipStart(clips, index)
                 // Only what is inside the visible part of the clip is on the timeline.
                 for (mark in clip.bookmarks.orEmpty().filter { it.time >= clip.start && it.time < clip.end }) {
-                    val at = edge(begins + mark.time - clip.start)
+                    val at = edge(begins + clip.offset(mark.time))
                     bookmarks += at to marker(mark.label?.ifEmpty { null } ?: "Bookmark", at, 0.0, "YELLOW")
                 }
                 val fade = TimelineEditing.fadeLength(clips, index)
@@ -219,8 +219,8 @@ object OpenTimeline {
                     fades += marker("Fade through black", start, edge(cut + fade) - start, "PURPLE")
                 }
                 for (title in clip.texts.orEmpty()) {
-                    val start = edge(begins + maxOf(title.start, clip.start) - clip.start)
-                    val end = edge(begins + minOf(title.end, clip.end) - clip.start)
+                    val start = edge(begins + clip.offset(maxOf(title.start, clip.start)))
+                    val end = edge(begins + clip.offset(minOf(title.end, clip.end)))
                     if (end <= start) continue
                     titles += marker(title.text.lines().joinToString(" ") { it.trim() }.trim().ifEmpty { "Title" }, start, end - start, "CYAN") {
                         put("kind", "title"); put("text", title.text)

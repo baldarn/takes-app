@@ -1,6 +1,7 @@
 package app.takes.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -102,5 +103,52 @@ class SpeedTest {
         val text = documentJson.encodeToString(SpeedSettings.serializer(), SpeedSettings(id = "A", rate = 2.0))
         assertEquals("""{"id":"A","rate":2.0}""", text)
         assertEquals(SpeedSettings("A", 2.0), documentJson.decodeFromString(SpeedSettings.serializer(), """{"id":"A","rate":2}"""))
+    }
+
+    // Own tests: speed as a setting on a timeline clip.
+    @Test fun aFasterClipTakesLessTimeAndKeepsItsFootage() {
+        val a = TimelineClip(sourceID = "A", start = 2.0, end = 10.0)
+        val b = TimelineClip(sourceID = "B", start = 0.0, end = 4.0)
+        val state = EditState(listOf(a, b))
+        val fast = TimelineEditing.setSpeed(state, 0, 2.0)!!
+        assertEquals(4.0, fast.clips[0].duration, 0.0)
+        assertEquals(8.0, fast.duration, 0.0)
+        assertEquals(4.0, TimelineEditing.clipStart(fast.clips, 1), 0.0)
+        assertEquals(2.0 to 10.0, fast.clips[0].let { it.start to it.end })     // the source range is untouched
+        assertEquals(6.0, fast.clips[0].sourceTime(2.0), 0.0)
+        assertEquals(2.0, fast.clips[0].offset(6.0), 0.0)
+        val slow = TimelineEditing.setSpeed(state, 0, 0.5)!!
+        assertEquals(16.0, slow.clips[0].duration, 0.0)
+        assertNull(TimelineEditing.setSpeed(state, 0, 1.0))                       // already normal
+        assertNull(TimelineEditing.setSpeed(state, 0, 5.0))                       // outside the limits
+        assertNull(TimelineEditing.setSpeed(fast, 0, 2.0))
+        assertNull(TimelineEditing.setSpeed(fast, 0, 1.0)!!.clips[0].speed)
+        assertEquals(fast.clips[0].speed!!.id, TimelineEditing.setSpeed(fast, 0, 3.0)!!.clips[0].speed!!.id)
+    }
+
+    @Test fun editsOnAFastClipLandOnTheRightFootage() {
+        val clip = TimelineClip(sourceID = "A", start = 2.0, end = 10.0)
+        var state = TimelineEditing.setSpeed(EditState(listOf(clip)), 0, 2.0)!!
+        state = TimelineEditing.setText(state, 0, TextOverlay(text = "T", start = 6.0, end = 8.0))!!
+        state = TimelineEditing.toggleBookmark(state, 0, 9.0)!!
+        // Source 6–8 shows from timeline 2.0 to 3.0; the mark at source 9 shows at 3.5.
+        assertEquals(1, TimelineEditing.titlesAt(state.clips, 2.5).size)
+        assertEquals(0, TimelineEditing.titlesAt(state.clips, 1.9).size)
+        assertEquals(listOf(3.5), TimelineEditing.bookmarkTimes(state.clips))
+        // A split one second in cuts the source at 4, and both pieces keep the speed.
+        val split = TimelineEditing.split(state, 1.0)!!.clips
+        assertEquals(listOf(2.0 to 4.0, 4.0 to 10.0), split.map { it.start to it.end })
+        assertEquals(listOf(1.0, 3.0), split.map { it.duration })
+        // Removing two source seconds from a 2x clip shortens it by one.
+        val cut = TimelineEditing.removeIntervals(state, 0, listOf(SourceInterval(4.0, 6.0)))!!
+        assertEquals(3.0, cut.duration, 0.0)
+        var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 10.0))
+        project = project.commit(TimelineEditing.setSpeed(project.edit, 0, 0.5)!!)
+        assertEquals(9, project.schemaVersion)
+        assertEquals(20.0, project.edit.duration, 0.0)
+        project.validate()
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
     }
 }

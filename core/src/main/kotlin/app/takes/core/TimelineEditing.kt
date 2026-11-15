@@ -59,7 +59,7 @@ object TimelineEditing {
         if (offset < MINIMUM_CLIP || clip.duration - offset < MINIMUM_CLIP) return null
         // Not inside a dissolve: two clips are showing there.
         if (offset < overlap(state.clips, index - 1) || offset > clip.duration - overlap(state.clips, index)) return null
-        val cut = clip.start + offset
+        val cut = clip.sourceTime(offset)
         // The join after the clip now follows the second piece; each piece keeps the titles it shows.
         fun titles(from: Double, to: Double) = clip.texts?.filter { it.start < to && it.end > from }?.ifEmpty { null }
         val (before, after) = clip.bookmarks.orEmpty().partition { it.time < cut }
@@ -94,8 +94,10 @@ object TimelineEditing {
     fun trimmed(clip: TimelineClip, start: Double, end: Double, sourceDuration: Double): TimelineClip {
         if (!start.isFinite() || !end.isFinite()) return clip
         val limit = maxOf(sourceDuration, clip.end)
-        val newStart = if (start == clip.start) start else start.coerceIn(0.0, maxOf(0.0, clip.end - MINIMUM_CLIP))
-        val newEnd = if (end == clip.end) end else end.coerceIn(minOf(limit, newStart + MINIMUM_CLIP), limit)
+        // The shortest clip is measured on the timeline, so in source seconds it scales with the speed.
+        val least = MINIMUM_CLIP * clip.rate
+        val newStart = if (start == clip.start) start else start.coerceIn(0.0, maxOf(0.0, clip.end - least))
+        val newEnd = if (end == clip.end) end else end.coerceIn(minOf(limit, newStart + least), limit)
         return clip.copy(start = newStart, end = newEnd)
     }
 
@@ -115,7 +117,7 @@ object TimelineEditing {
      */
     fun removeIntervals(state: EditState, index: Int, cuts: List<SourceInterval>): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
-        val kept = PauseDetector.keptIntervals(clip, cuts).filter { it.duration >= MINIMUM_CLIP }
+        val kept = PauseDetector.keptIntervals(clip, cuts).filter { it.duration / clip.rate >= MINIMUM_CLIP }
         if (kept.isEmpty() || (kept.size == 1 && kept[0].start == clip.start && kept[0].end == clip.end)) return null
         val pieces = kept.mapIndexed { position, part ->
             val first = position == 0
@@ -206,10 +208,10 @@ object TimelineEditing {
         val (index, offset) = locate(clips, time) ?: return emptyList()
         val clip = clips[index]
         val share = weight(clips, index, offset)
-        val entering = textsAt(clip, clip.start + offset).map { it to share }
+        val entering = textsAt(clip, clip.sourceTime(offset)).map { it to share }
         if (share >= 1 || index == 0) return entering
         val leaving = clips[index - 1]
-        return textsAt(leaving, leaving.end - overlap(clips, index - 1) + offset).map { it to 1 - share } + entering
+        return textsAt(leaving, leaving.sourceTime(leaving.duration - overlap(clips, index - 1) + offset)).map { it to 1 - share } + entering
     }
 
     /** Adds the title to the clip, or replaces the one with the same id. */
@@ -237,7 +239,7 @@ object TimelineEditing {
     /** Timeline seconds of every bookmark that is inside the visible part of its clip, in order. */
     fun bookmarkTimes(clips: List<TimelineClip>): List<Double> = clips.flatMapIndexed { index, clip ->
         val begins = clipStart(clips, index)
-        clip.bookmarks.orEmpty().filter { it.time >= clip.start && it.time < clip.end }.map { begins + it.time - clip.start }
+        clip.bookmarks.orEmpty().filter { it.time >= clip.start && it.time < clip.end }.map { begins + clip.offset(it.time) }
     }.sorted()
 
     fun nextBookmark(clips: List<TimelineClip>, time: Double): Double? = bookmarkTimes(clips).firstOrNull { it > time + 0.05 }
@@ -367,5 +369,19 @@ object TimelineEditing {
         val clip = state.clips.getOrNull(index) ?: return null
         if (crop?.valid == false || crop == clip.crop) return null
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(crop = crop) })
+    }
+
+    // MARK: Speed
+
+    /**
+     * Plays the clip at [rate] times its recorded speed; 1 removes the
+     * setting. The clip keeps its footage and takes more or less time, so
+     * later clips move.
+     */
+    fun setSpeed(state: EditState, index: Int, rate: Double): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        val speed = if (rate == 1.0) null else (clip.speed ?: SpeedSettings()).copy(rate = rate)
+        if (speed?.valid == false || speed == clip.speed) return null
+        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(speed = speed) })
     }
 }
