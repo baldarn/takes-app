@@ -548,6 +548,10 @@
     <string name="subtitles_row_hint">Tap a subtitle to go to it, tap it again to edit it.</string>
     <string name="subtitles_current">Showing now</string>
     <string name="subtitles_edit_title">Subtitle text</string>
+    <string name="subtitles_following">Following playback</string>
+    <string name="subtitles_pause_in_speech">Pause in speech</string>
+    <string name="subtitles_cancel_edit">Cancel edit</string>
+    <string name="subtitles_save_text">Save text</string>
     <string name="subtitles_remove_all">Remove all subtitles</string>
     <string name="subtitles_remove_all_title">Remove every subtitle from this project? This includes corrected text and timing. Undo will restore them.</string>
     <string name="subtitles_replace_title">Replace the subtitles? Corrected text will be replaced. You can Undo after applying.</string>
