@@ -135,10 +135,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     val view = LocalView.current
     val activity = LocalActivity.current
     val backToEditor by rememberUpdatedState(openEditor)
-    val previewView = remember {
-        // Show the whole recorded frame, never a crop of it.
-        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER }
-    }
+    val previewView = remember { PreviewView(context) }
+    val settings = capture.settings
     var settingsOpen by remember { mutableStateOf(false) }
     LaunchedEffect(owner) { capture.attach(owner, previewView.surfaceProvider) }
     DisposableEffect(owner) {
@@ -174,7 +172,10 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             detectTransformGestures { _, _, scale, _ -> capture.pinch(scale) }
         },
     ) {
-        AndroidView({ previewView }, Modifier.fillMaxSize())
+        // The whole recorded frame, or the screen filled with it: a setting, as in the original.
+        AndroidView({ previewView }, Modifier.fillMaxSize()) {
+            it.scaleType = if (settings.fitFrame) PreviewView.ScaleType.FIT_CENTER else PreviewView.ScaleType.FILL_CENTER
+        }
         // Clear of the camera cutout, which stays when the status bar is hidden.
         Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
         SettingsButton(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))) { settingsOpen = true }

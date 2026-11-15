@@ -18,6 +18,11 @@ class RecorderSettings(private val prefs: SharedPreferences) {
         putFloat("zoomDuration", it.toFloat())
     }
 
+    /** Show the whole recorded frame, or fill the screen with it (the original's `fitRecordedFrame`). */
+    var fitFrame: Boolean by flag("fitRecordedFrame", true)
+
+    private fun flag(key: String, default: Boolean) = stored(prefs.getBoolean(key, default)) { putBoolean(key, it) }
+
     /** A value the interface observes, written to the preferences at each change. */
     private fun <T> stored(initial: T, write: SharedPreferences.Editor.(T) -> Unit): ReadWriteProperty<Any?, T> =
         object : ReadWriteProperty<Any?, T> {
