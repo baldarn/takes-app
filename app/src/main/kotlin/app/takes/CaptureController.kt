@@ -564,8 +564,11 @@ class CaptureController(private val context: Context, private val store: Project
         if (pinch.timed) zoomTo(target, pinch.seconds) else applyZoom(target)
     }
 
-    fun chooseZoomDuration(seconds: Double) {
+    /** Sets the zoom transition time, kept within its bounds; says whether that changed it. */
+    fun chooseZoomDuration(seconds: Double): Boolean {
+        val before = settings.zoomSeconds
         settings.zoomSeconds = ZoomTransition.boundedDuration(seconds)
+        return settings.zoomSeconds != before
     }
 
     // MARK: Take lifecycle
