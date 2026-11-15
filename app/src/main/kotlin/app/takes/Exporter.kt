@@ -262,11 +262,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             // Transitions are drawn on the finished frame, from one sequence or from two.
             val joined = TimelineEditing.layout(clips).joins.any { it.transition != null && TransitionLayout.longEnough(it.timing) }
             fun drawn(decks: Int) = TransitionEffect(clips, Size(canvas.first, canvas.second), decks, content)
-            // An overlay in the same composition corrupts the picture made of two
-            // sequences, so a movie with both overlapping clips and titles is rendered
-            // in two passes: the picture first, then the titles over it.
-            val blended = File(folder, ".$name.blend").takeIf { chains.size > 1 && titles != Effects.EMPTY }
-            val first = if (chains.size == 1) {
+            // Titles and subtitles go over the frame the transition effect has finished, in the same
+            // pass. (While Media3 itself blended the two sequences, an overlay in the same composition
+            // corrupted the blend, and such a movie took a second pass and a second encoding.)
+            val movie = if (chains.size == 1) {
                 val chain = chains[0]
                 val effects = if (joined) Effects(emptyList(), listOf<Effect>(drawn(1)) + titles.videoEffects) else titles
                 // Silence is generated for takes recorded without a microphone.
@@ -297,22 +296,17 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 for (deck in 0..1) gap(deck, total)
                 Composition.Builder(sequences.map { it.build() } + extra)
                     .setVideoCompositorSettings(DecksCompositor(Size(canvas.first, canvas.second)))
-                    .setEffects(Effects(emptyList(), listOf<Effect>(drawn(2))))
+                    .setEffects(Effects(emptyList(), listOf<Effect>(drawn(2)) + titles.videoEffects))
                     .setHdrMode(sdr)
                     .build()
             }
             val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
             try {
-                if (blended == null) render(first, writing, codec, began, 1f) else {
-                    render(first, blended, codec, began, 0.5f + began / 2)
-                    val whole = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(blended))).build()
-                    render(Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(listOf(whole))).setEffects(titles).build(), writing, codec, 0.5f + began / 2, 1f)
-                }
+                render(movie, writing, codec, began, 1f)
                 if (writing.renameTo(output)) result = output else store.error = context.getString(R.string.export_save_failed)
             } catch (problem: ExportException) {
                 store.error = context.getString(R.string.export_failed, problem.message ?: problem.errorCodeName)
             } finally {
-                blended?.delete()
                 writing.delete()
                 progress = null
             }
