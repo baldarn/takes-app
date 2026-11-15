@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.view.RoundedCorner
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
@@ -29,7 +30,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -82,6 +87,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -124,6 +132,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
 
     val owner = LocalLifecycleOwner.current
     val view = LocalView.current
+    val activity = LocalActivity.current
     val backToEditor by rememberUpdatedState(openEditor)
     val previewView = remember {
         // Show the whole recorded frame, never a crop of it.
@@ -143,10 +152,15 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         }
         owner.lifecycle.addObserver(observer)
         view.keepScreenOn = true
+        // Full screen, as in the original: no status bar while the recorder shows. A swipe brings it back for a moment.
+        val bars = activity?.window?.let { WindowCompat.getInsetsController(it, view) }
+        bars?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        bars?.hide(WindowInsetsCompat.Type.statusBars())
         capture.onInsertionEnded = { backToEditor() }
         onDispose {
             owner.lifecycle.removeObserver(observer)
             view.keepScreenOn = false
+            bars?.show(WindowInsetsCompat.Type.statusBars())
             // Leaving by a tab ends a paused take too, and the tab chosen is where the person goes.
             capture.onInsertionEnded = null
             capture.detach()
@@ -159,7 +173,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         },
     ) {
         AndroidView({ previewView }, Modifier.fillMaxSize())
-        Status(capture, store, Modifier.align(Alignment.TopCenter).statusBarsPadding())
+        // Clear of the camera cutout, which stays when the status bar is hidden.
+        Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             ProjectChip(capture, store, openEditor)
             ZoomRow(capture)
