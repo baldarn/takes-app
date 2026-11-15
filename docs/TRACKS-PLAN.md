@@ -485,8 +485,9 @@ Until S3b ships, going back is installing the previous APK: nothing on disk has 
 
 ### S3a. Render from the timeline
 
-- **What.** A second builder of `RenderPlan`, from `compile()` and the layout of the converted timeline. The app uses it. The saved format is unchanged.
-- **Core.** `RenderPlan.kt`. **App.** Nothing but the call.
+- **What.** A second builder of `RenderPlan`, from the converted timeline. The app uses it. The saved format is unchanged.
+- **How, as built.** This plan first said "from `compile()` and the layout of the converted timeline". That and the gate below cannot both hold: `compile()` and `TrackLayout` are in ticks, a `RenderPlan` is in the seconds of `TimelineEditing.layout`, and the ticks are those seconds rounded (3.2), so a plan made of them differs from today's in its last digits. A `RenderPlan` is also a plan of a sequence: its clips are numbered and it answers about a moment from its clips. So the builder (`C/TrackRenderPlan.kt`) reads the timeline as the sequence it is — the clips in the timeline's order, with the relations as their transitions at the saved factors and the settings and words of the sounds that follow them — and plans that. The original does so only for a timeline that is one ordinary linked sequence with no transition, caption or level in it (`O/TrackRenderer.swift:44-68`) and composes every other from the ticks; here that waits for the ticks to be what is saved, so that S3a moves nothing by a last digit. Three things the timeline does not hold stay the saved ones until the stage that adopts the timeline's: the second and the track of a sound item (S3b, S5), what the captions were timed for (S8), and on a clip what the conversion does not carry (3.2: settings not in play, a fit never saved, what an unlinked clip remembers). `compile()` is the check, in the tests: in every stretch it gives, the plan plays the pictures, sounds and transitions the timeline has there, each picture within a tick of its item. A plan in ticks, and of timelines that are no sequence, is S3b and S4.
+- **Core.** New `TrackRenderPlan.kt`; `RenderPlan.kt` is not touched. **App.** Nothing but the call.
 - **Size.** L, 2–3 days.
 - **Parallel, without the app.** All of it.
 - **Emulator.** One export per golden project. **Phone.** One export with a hardware encoder.
