@@ -112,19 +112,29 @@ class CaptureController(private val context: Context, private val store: Project
     /** Bookmarks placed in the current take. */
     var marks by mutableStateOf(0); private set
 
+    private var deviceRotation = Surface.ROTATION_0
+
     private val orientation = object : OrientationEventListener(context) {
         override fun onOrientationChanged(degrees: Int) {
-            // A movie file has one orientation; follow the device between segments only.
-            if (degrees == ORIENTATION_UNKNOWN || phase == Phase.Recording || phase == Phase.Saving) return
-            val rotation = when (degrees) {
+            if (degrees == ORIENTATION_UNKNOWN) return
+            deviceRotation = when (degrees) {
                 in 45 until 135 -> Surface.ROTATION_270
                 in 135 until 225 -> Surface.ROTATION_180
                 in 225 until 315 -> Surface.ROTATION_90
                 else -> Surface.ROTATION_0
             }
-            videoCapture.targetRotation = rotation
-            landscape = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
+            followDevice()
         }
+    }
+
+    /**
+     * A take keeps the orientation it began in from the first Record to Stop, pauses
+     * included, so its segments share one frame. The device is followed between takes.
+     */
+    private fun followDevice() {
+        if (phase != Phase.Idle) return
+        videoCapture.targetRotation = deviceRotation
+        landscape = deviceRotation == Surface.ROTATION_90 || deviceRotation == Surface.ROTATION_270
     }
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
@@ -455,6 +465,8 @@ class CaptureController(private val context: Context, private val store: Project
         // Stop ends a run of takes recorded into the middle of an edit.
         (segmentProject ?: store.selectedID)?.let(store::recordAtEnd)
         phase = Phase.Idle
+        // The phone may have been turned during the take.
+        followDevice()
         marks = 0
         segmentProject = null
         finished = 0.0
