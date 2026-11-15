@@ -68,15 +68,26 @@ class SpeechModelsTest {
         assertEquals(listOf(qwen, small, base), SpeechModels.choices(setOf(base.id, small.id), small))
     }
 
-    @Test fun aModelIsNotTriedWithLessMemoryThanItTakes() {
+    @Test fun aModelIsTriedWhereThePhoneCanMakeRoomForIt() {
         assertTrue(SpeechModels.fits(qwen, 3_600_000_000L))
+        // Less available than the model takes is enough: a phone sold with 6 GB idles between 2.0 and 2.9 GB and ran it from 1.75.
+        assertTrue(SpeechModels.fits(qwen, 2_900_000_000L))
+        assertTrue(SpeechModels.fits(qwen, 2_000_000_000L))
+        assertTrue(SpeechModels.fits(qwen, 1_750_000_000L))
         assertTrue(!SpeechModels.fits(qwen, 1_500_000_000L))
         assertTrue(SpeechModels.fits(small, 1_500_000_000L))
+        assertTrue(SpeechModels.fits(small, 700_000_000L))
         assertTrue(!SpeechModels.fits(small, 500_000_000L))
         // What a model takes grows with its size, and none is free.
         assertTrue(qwen.memory > small.memory && small.memory > base.memory && base.memory > 0)
         // The memory that makes Qwen the default leaves room for it beside everything else.
         assertTrue(SpeechModels.QWEN_MINIMUM_RAM_BYTES >= 3 * qwen.memory)
+    }
+
+    @Test fun nothingIsLoadedWhileAndroidCallsItsMemoryLow() {
+        assertTrue(!SpeechModels.fits(qwen, 3_600_000_000L, low = true))
+        assertTrue(!SpeechModels.fits(small, 1_500_000_000L, low = true))
+        assertTrue(SpeechModels.fits(small, 1_500_000_000L, low = false))
     }
 
     @Test fun theLighterModelToFallBackTo() {

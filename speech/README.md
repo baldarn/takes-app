@@ -67,7 +67,7 @@ object SpeechModels {
     fun selected(chosen: String?, installed: Set<String>, totalRam: Long): SpeechModel
     fun choices(installed: Set<String>, selected: SpeechModel): List<SpeechModel>
     fun lighter(model: SpeechModel): SpeechModel?
-    fun fits(model: SpeechModel, free: Long): Boolean
+    fun fits(model: SpeechModel, free: Long, low: Boolean = false): Boolean
 }
 fun interface SpeechModelSource { fun open(url: String, offset: Long): Opened }
 object SpeechModelFetcher { fun download(model, folder, source, progress = …, cancelled = …) }
@@ -164,6 +164,8 @@ were also compared with the archive of the GitHub release.
 
 ### On a phone
 
+#### A phone sold with 8 GB
+
 Samsung Galaxy A54 (Exynos 1380, sold with 8 GB, of which Android reports 7.6 GB), four
 threads, the debug build, 88.5 s of speech (one person, Italian with English technical
 words) in ten pieces of at most 12 s. Memory is what `dumpsys meminfo` reports for the
@@ -192,11 +194,68 @@ Whisper base, on the same phone and speech: loads in 1.1 s, recognizes in 16.5 s
 real time), takes 0.35 GB, and writes far more wrong words than either (over 30, with
 Auto one piece in German).
 
-`SpeechModel.memory` holds what each model takes (2.1 GB, 0.8 GB and 0.35 GB from these
-figures; for Whisper tiny the figure of a computer, below). `QWEN_MINIMUM_RAM_BYTES` is 7 GB:
-on this phone Qwen3-ASR left 1.8 GB of the 3.6 GB there were, so a phone with 2 GB less
-(sold with 6 GB) would have had less to give than the model takes. That is arithmetic
-from one phone: Qwen3-ASR was not run on a phone with less memory.
+#### A phone sold with 6 GB
+
+Xiaomi Mi 10T (Snapdragon 865, sold with 6 GB, of which Android 12 reports 5.9 GB, with
+4 GB of compressed swap), four threads, the debug build. 139 s of English speech put
+together from three of the sample recordings published with the Qwen3-ASR export
+(`rap1.wav`, `f1_noise.wav`, `noise1-en.wav`: fast speech over music, a radio call, two
+people over traffic and rain), 131 s of it recognized in 15 pieces, language set to
+English. Memory of the app as above; of the phone, `availMem` of
+`ActivityManager.MemoryInfo` (what the check reads) and `MemAvailable` of `/proc/meminfo`,
+twice a second. On this phone Android calls its memory low under 0.68 GB available
+(`MemoryInfo.threshold`), and with the phone idle `availMem` moves between 2.0 and 2.9 GB.
+
+| Run | Before it | `availMem` at the start | … at the lowest | Low memory, part of the job | `MemAvailable`, start and lowest | Swap in use, start and peak | Peak of the app | Load | Recognize 131 s | Processes closed: by the phone's memory service, by the low memory killer |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Whisper small | idle | 2.52 GB | 1.72 GB | none | 2.19, 1.38 GB | 1.28, 1.28 GB | 0.99 GB | 1.8 s | 63.8 s | 0, 0 |
+| Qwen3-ASR 1 | idle | 2.36 GB | 0.69 GB | none | 2.03, 0.38 GB | 1.33, 1.33 GB | 2.25 GB | 5.1 s | 63.5 s | 17, 6 |
+| Qwen3-ASR 2 | idle | 2.44 GB | not read | not read | 2.14, 0.39 GB | 1.70, 1.71 GB | 2.27 GB | 5.0 s | 64.0 s | 10, 5 |
+| Qwen3-ASR 3 | three apps opened | not read | 0.62 GB | 3 of 58 readings | 2.00, 0.29 GB | 1.45, 1.95 GB | 2.25 GB, 2.37 with what was swapped | 5.1 s | 68.0 s | 25, at least 19 |
+| Qwen3-ASR 4 | six apps opened | 2.00 GB | 0.54 GB | 20 of 76 readings | 1.73, 0.22 GB | 1.73, 1.98 GB | 2.25 GB, 2.39 with what was swapped | 5.1 s | 71.9 s | 35, 25 |
+| Qwen3-ASR 5 | six apps opened | 1.75 GB | not read | not read | 1.49, 0.16 GB | 1.88, 2.09 GB | 2.23 GB, 2.31 with what was swapped | 5.4 s | 66.3 s | 18, 18 |
+
+Every run completed; the app was never closed and stayed in front, and the phone answered
+afterwards. The processes closed were mostly cached ones; in the runs after other apps
+also services (down to priority 500, and two providers at 250), and Android's low memory
+killer reported "critical pressure" and "direct reclaim". With less available memory at
+the start more was closed, and the job took up to an eighth longer. In four earlier runs on
+this phone (88.5 s of Italian speech) Qwen3-ASR also completed each time, with a peak of
+2.35 GB.
+
+Word errors against the reference texts that come with the recordings (494 words; lower
+case, punctuation removed, word by word): Qwen3-ASR 128 (25.9 %: 19 of 79, 4 of 31 and
+105 of 384 in the three recordings), the same in the two runs whose text was kept whole; Whisper small 195 (39.5 %: 49
+of 79, 6 of 31, 140 of 384). Whisper small wrote "(upbeat music)" for the first eleven
+seconds of speech over music. The recordings are hard on purpose; these are not the
+figures of clean speech.
+
+#### What follows from the figures
+
+`SpeechModel.memory` holds what each model takes (2.1 GB, 0.8 GB and 0.35 GB; for Whisper
+tiny the figure of a computer, below).
+
+`SpeechModels.fits` decides whether a model is loaded at all. It used to want as much
+memory available as the model takes, and on the phone sold with 6 GB that refused
+Qwen3-ASR in two attempts of six, because 2.1 GB lies inside the range the figure moves
+in by itself. Available memory is not all a phone can give: Android closes apps nobody is
+looking at and compresses memory, and that is where the model's room came from in every
+run above. The rule now: nothing is loaded while Android itself calls its memory low
+(`MemoryInfo.lowMemory`, the check the platform documentation gives for memory-intensive
+work), and otherwise three quarters of what the model takes must be available: 1.58 GB
+for Qwen3-ASR, 0.6 GB for Whisper small. No run failed, so the floor is not where loading
+breaks; it is kept just under the lowest start that was measured (1.75 GB), because
+with less at the start more was closed. What happens below was not measured.
+
+`QWEN_MINIMUM_RAM_BYTES` stays at 7 GB. On the phone sold with 8 GB Qwen3-ASR left 1.8 GB
+of 3.6 GB. On the one sold with 6 GB it ran every time, but by having Android close
+other processes 15 to 60 times a run, on a fast processor and with 4 GB of swap; a phone sold
+with 6 GB that has less swap or a slower processor was not measured, nor any sold with
+4 GB. Those phones get Whisper small by themselves and Qwen3-ASR when the person picks it.
+From Android 17 the system also limits an app's memory by the phone's size (source.android.com,
+"Memory Limiter": 4 GiB while the app is in front and 2 GiB while it is not on phones
+reporting 4.8 to 6.8 GiB; 2 GiB and 1 GiB on those reporting 3.2 to 4.8 GiB), which Qwen3-ASR
+passes in front on the first group and does not on the second. Not tried on Android 17.
 
 ## Versions and licenses
 

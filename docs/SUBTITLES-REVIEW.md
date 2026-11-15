@@ -492,8 +492,9 @@ Run on a desktop JVM (JDK 17), never committed.
 
 - How well each model recognizes speech beyond the one Italian sample of finding 1;
   how often Whisper invents text on music or noise, and whether Qwen3-ASR does.
-- Time and memory of a transcription on an iPhone, and on an Android phone with less
-  than 8 GB of memory: whether Qwen3-ASR runs at all on one sold with 6 GB.
+- Time and memory of a transcription on an iPhone. On Android, Qwen3-ASR was since run
+  on one phone sold with 6 GB and completed every time (`speech/README.md`, "A phone sold
+  with 6 GB"); not on one with less swap or a slower processor, nor on one sold with 4 GB.
 - What `NLTokenizer` returns for apostrophes, hyphens, numbers and unspaced scripts,
   so whether word counts per caption agree exactly.
 - Line breaks, line height and the look of each font: Core Text against

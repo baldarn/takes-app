@@ -59,8 +59,17 @@ object SubtitleModel {
     /** The phone's memory in bytes as Android reports it, somewhat less than it is sold with; 0 when unknown. */
     fun totalMemory(context: Context): Long = memory(context)?.totalMem ?: 0
 
-    /** Whether the phone has the memory free, at this moment, that recognizing with [model] takes. Unknown counts as yes. */
-    fun hasMemory(context: Context, model: SpeechModel): Boolean = memory(context)?.let { SpeechModels.fits(model, it.availMem) } ?: true
+    /**
+     * Whether the phone can give, at this moment, the memory that recognizing with [model] takes:
+     * Android does not call its memory low, and enough of it is available. Unknown counts as yes.
+     */
+    fun hasMemory(context: Context, model: SpeechModel): Boolean {
+        val info = memory(context) ?: return true
+        val fits = SpeechModels.fits(model, info.availMem, info.lowMemory)
+        // For anyone reading the log after a job went wrong: what the phone said before the model was loaded.
+        Log.i("Subtitles", "${model.name} takes ${model.memory / 1_000_000} MB; available ${info.availMem / 1_000_000} MB of ${info.totalMem / 1_000_000}, low below ${info.threshold / 1_000_000}${if (info.lowMemory) ", low now" else ""}: ${if (fits) "loading" else "not loading"}")
+        return fits
+    }
 
     /**
      * The model a transcription was loading or running when the app was last
