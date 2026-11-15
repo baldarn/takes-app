@@ -391,29 +391,32 @@ object TrackSequenceView {
     fun move(state: EditState, from: Int, to: Int): SequenceResult? {
         if (from !in state.clips.indices || to !in state.clips.indices || from == to) return null
         val id = state.clips[from].id
-        return through(state) { timeline ->
-            val lifted = TrackClipboard.cut(timeline, timeline.selection(id), EditTime.ZERO) ?: return@through null
-            val rest = lifted.timeline
-            val order = rest.chronologicalVideo
-            val targets = rest.pasteTargets().filter { it.kind == TimelinePasteTarget.Kind.Picture }
-            val target = when {
-                order.isEmpty() -> null
-                to == 0 -> targets.firstOrNull { it.anchor == TimelinePasteTarget.Anchor.Start }
-                to >= order.size -> targets.firstOrNull { it.anchor == TimelinePasteTarget.Anchor.End }
-                else -> targets.firstOrNull { it.anchor == TimelinePasteTarget.Anchor.Between(order[to - 1].id, order[to].id) } ?: return@through null
-            }
-            val prepared = TrackClipboard.preparing(rest, lifted.clipboard, target?.time ?: EditTime.ZERO, target)
-            val base = prepared.timeline
-            val piece = lifted.clipboard.timeline
-            val front = (base.video.maxOfOrNull { it.layer } ?: 0) + 1
-            base.copy(
-                video = (base.video + piece.video.map { it.copy(start = it.start + prepared.position, layer = front + it.layer) }).sortedBy { it.start },
-                audio = base.audio + piece.audio.map { it.copy(start = it.start + prepared.position) },
-                links = base.links + piece.links,
-                transitions = base.transitions + piece.transitions.map { it.copy(origin = it.origin + prepared.position) },
-                bookmarks = base.bookmarks + piece.bookmarks.filter { mark -> base.bookmarks.none { it.id == mark.id } },
-            ).pruned()
+        return through(state) { moving(it, id, to) }
+    }
+
+    /** [timeline] with the picture [id], and what it is linked to, lifted out and put back where the picture that is then the [to]-th begins. Null when there is no cut to put it on. */
+    internal fun moving(timeline: TrackTimeline, id: String, to: Int): TrackTimeline? {
+        val lifted = TrackClipboard.cut(timeline, timeline.selection(id), EditTime.ZERO) ?: return null
+        val rest = lifted.timeline
+        val order = rest.chronologicalVideo
+        val targets = rest.pasteTargets().filter { it.kind == TimelinePasteTarget.Kind.Picture }
+        val target = when {
+            order.isEmpty() -> null
+            to == 0 -> targets.firstOrNull { it.anchor == TimelinePasteTarget.Anchor.Start }
+            to >= order.size -> targets.firstOrNull { it.anchor == TimelinePasteTarget.Anchor.End }
+            else -> targets.firstOrNull { it.anchor == TimelinePasteTarget.Anchor.Between(order[to - 1].id, order[to].id) } ?: return null
         }
+        val prepared = TrackClipboard.preparing(rest, lifted.clipboard, target?.time ?: EditTime.ZERO, target)
+        val base = prepared.timeline
+        val piece = lifted.clipboard.timeline
+        val front = (base.video.maxOfOrNull { it.layer } ?: 0) + 1
+        return base.copy(
+            video = (base.video + piece.video.map { it.copy(start = it.start + prepared.position, layer = front + it.layer) }).sortedBy { it.start },
+            audio = base.audio + piece.audio.map { it.copy(start = it.start + prepared.position) },
+            links = base.links + piece.links,
+            transitions = base.transitions + piece.transitions.map { it.copy(origin = it.origin + prepared.position) },
+            bookmarks = base.bookmarks + piece.bookmarks.filter { mark -> base.bookmarks.none { it.id == mark.id } },
+        ).pruned()
     }
 
     /** [TimelineEditing.insert]: new footage at [time] ([TrackEditing.inserting]). Every clip put in gets an id of its own. */

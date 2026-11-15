@@ -187,42 +187,63 @@ object TimelineEditing {
     /**
      * Cuts the clip showing at [time] in two. Refused inside a transition.
      * No fit changes: the transition into the clip stays on the first piece
-     * and the one out of it goes with the second, as they were.
+     * and the one out of it goes with the second, as they were. Both pieces
+     * keep every title and every word; each keeps the level, and of each fade
+     * what falls in it; a bookmark stays with the piece that plays it.
+     *
+     * The cut is the track model's ([TrackEditing.split]) of the clip's
+     * picture and the sound that follows it, where today's rules say:
      */
     fun split(state: EditState, time: Double): EditState? {
-        val clips = fitted(state.clips)
+        val base = TrackWrapping.fitted(state)
+        val clips = base.clips
         val (index, offset) = locate(clips, time) ?: return null
         val clip = clips[index]
+        // Kept until S4 (split-refused-near-an-edge): no piece shorter than MINIMUM_CLIP is left.
         if (offset < MINIMUM_CLIP || clip.duration - offset < MINIMUM_CLIP) return null
         // Not inside a transition: the picture or the sound of two clips is in play there.
         if (layout(clips).all.any { it.transition != null && time > it.range.start && time < it.range.endInclusive }) return null
+        // Kept until S3b (split-on-the-grid): the cut is where the playhead is, not on the frame nearest to it.
+        // Kept until S5 (split-cuts-sound-items): the clip alone is cut; a sound of its own under the playhead is not.
         val cut = clip.sourceTime(offset)
-        // The join after the clip now follows the second piece. Both pieces keep every title, as in the original: one that
-        // lies in the other piece's footage does not show, and shows again when the piece is extended over that footage.
-        val (before, after) = clip.bookmarks.orEmpty().partition { it.time < cut }
-        // Each piece keeps the level, and of each fade what falls in it: a cut inside a fade leaves both pieces its level and slope there.
-        val pieces = listOf(
-            clip.copy(end = cut, transition = null, transitionFit = null, bookmarks = before.ifEmpty { null },
-                audio = clip.audio?.sliced(0.0, offset, clip.duration).normalized()),
-            // A copy, so whatever else a clip carries, such as its color, stays on both pieces.
-            clip.copy(id = newID(), start = cut, openingTransition = null, openingTransitionFit = null, bookmarks = after.ifEmpty { null },
-                audio = clip.audio?.sliced(offset, clip.duration, clip.duration).normalized()),
-        )
-        return state.copy(clips = pruned(clips.take(index) + pieces + clips.drop(index + 1)))
+        val slack = TransitionLayout.TICK * maxOf(1.0, clip.rate)
+        val result = TrackWrapping.edit(base, sound = false) { timeline ->
+            val picture = timeline.video.firstOrNull { it.id == clip.id } ?: return@edit null
+            timeline.split(picture.start + EditTime.of(offset), timeline.selection(clip.id)).timeline
+        } ?: return null
+        if (result.clips.size != clips.size + 1) return null
+        return result.copy(clips = result.clips.mapIndexed { place, piece ->
+            when (place) {
+                index -> piece.copy(end = TrackWrapping.exactly(piece.end, cut, slack))
+                index + 1 -> piece.copy(start = TrackWrapping.exactly(piece.start, cut, slack))
+                else -> piece
+            }
+        })
     }
 
-    /** Removes the clip and closes the gap. Its transitions go with it; every other keeps its fit. */
+    /**
+     * Removes the clip and closes the gap. Its transitions go with it; every
+     * other keeps its fit. The deletion is the track model's, of the clip's
+     * picture with what it is linked to ([TrackEditing.removing]).
+     */
     fun delete(state: EditState, index: Int): EditState? {
-        if (index !in state.clips.indices) return null
-        return state.copy(clips = pruned(withoutBrokenJoins(fitted(state.clips).filterIndexed { position, _ -> position != index })))
+        val id = state.clips.getOrNull(index)?.id ?: return null
+        return TrackWrapping.edit(TrackWrapping.fitted(state), sound = false) { it.removing(it.selection(id)).timeline }?.let(::settled)
     }
 
-    /** Moves the clip. A transition whose two clips are no longer neighbors is removed; every other keeps its fit. */
+    /**
+     * Moves the clip. A transition whose two clips are no longer neighbors is
+     * removed; every other keeps its fit. The clip is lifted out and put back
+     * on the cut it goes to, as the track model's clipboard does
+     * ([TrackSequenceView.moving]).
+     */
     fun move(state: EditState, from: Int, to: Int): EditState? {
         if (from !in state.clips.indices || to !in state.clips.indices || from == to) return null
-        val clips = fitted(state.clips).toMutableList()
-        clips.add(to, clips.removeAt(from))
-        return state.copy(clips = pruned(withoutBrokenJoins(clips)))
+        val id = state.clips[from].id
+        val order = state.clips.map { it.id }.toMutableList().also { it.add(to, it.removeAt(from)) }.withIndex().associate { it.value to it.index }
+        return TrackWrapping.edit(TrackWrapping.fitted(state), sound = false) { timeline ->
+            TrackSequenceView.moving(timeline, id, to)?.let { moved -> moved.copy(video = moved.video.sortedBy { order[it.id] ?: Int.MAX_VALUE }) }
+        }?.let(::settled)
     }
 
     /** Times this close to a join are on it, as in the original's paste. */
@@ -233,8 +254,8 @@ object TimelineEditing {
      * original's paste does: the clips, and the join the footage goes on when
      * [point] is on the join of a transition (the footage then goes between
      * its two clips, which ends it). Otherwise every transition running at
-     * [point] is removed, so both its clips have their whole length again,
-     * and the clip then showing at that second is the one to cut.
+     * [point] is removed ([setJoin]), so both its clips have their whole
+     * length again, and the clip then showing at that second is the one to cut.
      */
     internal fun opened(clips: List<TimelineClip>, point: Double): Pair<List<TimelineClip>, Int?> {
         var result = fitted(clips)
@@ -242,8 +263,9 @@ object TimelineEditing {
         // A transition gone moves the clips after it, which can bring another one over the point.
         while (true) {
             val crossed = transitions(result).filter { point > it.range.start && point < it.range.endInclusive }
-            if (crossed.isEmpty()) break
-            for (join in crossed) result = withJoin(result, join.index, null, null)
+            var removed = false
+            for (join in crossed) setJoin(EditState(result), join.index, null)?.let { result = it.clips; removed = true }
+            if (!removed) break
         }
         return result to null
     }
@@ -259,23 +281,53 @@ object TimelineEditing {
      * instead. A transition on the join they land on is removed, as when a
      * clip is moved there: it belonged to those neighbors. Every other
      * transition keeps its fit.
+     *
+     * Time is opened for the clips as the track model opens it
+     * ([TrackEditing.insertingTime]) and each goes in as a picture, a sound
+     * and a link. They keep the ids they are given, where the track model's
+     * own insertion makes copies with new ones (`insert-new-identity`): the
+     * takes of the capture ledger are put in again every time a project is
+     * read ([Project.materialized]) and have to be the same clips each time.
      * Null when there is nothing to insert or a clip is already on the timeline.
      */
     fun insert(state: EditState, clips: List<TimelineClip>, time: Double): EditState? {
         if (clips.isEmpty() || !time.isFinite()) return null
         val ids = clips.map { it.id }.toSet()
         if (ids.size != clips.size || state.clips.any { it.id in ids }) return null
+        // Kept until S5 (footage-put-after-the-picture): the movie ends with its picture, and so does the place footage can go.
         val at = time.coerceIn(0.0, state.duration)
-        var (base, index) = opened(state.clips, at).let { it.first to (it.second ?: -1) }
+        // Not adopted (insert-inside-a-transition): a transition running there is removed and the clip then showing is cut, the original's Paste rule for every insertion.
+        val (ready, onJoin) = opened(state.clips, at)
+        var base = if (ready === state.clips) state else state.copy(clips = ready)
+        var index = onJoin ?: -1
         if (index < 0) {
             index = 0
-            locate(base, at)?.let { (found, offset) ->
-                val cut = split(state.copy(clips = base), at)
-                if (cut != null) { base = cut.clips; index = found + 1 }
-                else index = if (offset <= base[found].duration / 2) found else found + 1
+            locate(base.clips, at)?.let { (found, offset) ->
+                val cut = split(base, at)
+                if (cut != null) { base = cut; index = found + 1 }
+                // Kept until S4 (split-refused-near-an-edge): where a cut would leave too short a piece, the footage goes to the nearer edge.
+                else index = if (offset <= base.clips[found].duration / 2) found else found + 1
             }
         }
-        return state.copy(clips = pruned(withoutBrokenJoins(base.take(index) + clips + base.drop(index))))
+        if (index in 1 until base.clips.size && transition(base.clips, index - 1) != null) base = setJoin(base, index, null) ?: base
+        val place = index
+        // Kept until S5 (insert-moves-sound-items): the sound items stay where they are on the clock.
+        return TrackWrapping.edit(base, sound = false) { timeline ->
+            val point = timeline.video.getOrNull(place)?.start ?: timeline.video.lastOrNull()?.end ?: EditTime.ZERO
+            // What [TrackEditing.inserting] does, without the new identities: time is opened and the clips go in as a
+            // picture, a sound and a link each, with the transitions they have among themselves.
+            val addition = EditState(clips).toTimeline()
+            val opened = timeline.insertingTime(addition.duration, point)
+            val front = (opened.video.maxOfOrNull { it.layer } ?: 0) + 1
+            opened.copy(
+                video = opened.video.take(place) + addition.video.map { it.copy(start = it.start + point, layer = it.layer + front) } + opened.video.drop(place),
+                audio = opened.audio + addition.audio.map { it.copy(start = it.start + point) },
+                links = opened.links + addition.links,
+                bookmarks = opened.bookmarks + addition.bookmarks,
+                transitions = opened.transitions + addition.transitions.map { it.copy(origin = it.origin + point) },
+            ).pruned()
+        // The clips put in are the clips given, as they were given.
+        }?.let { result -> settled(result.copy(clips = result.clips.map { clip -> clips.firstOrNull { it.id == clip.id } ?: clip })) }
     }
 
     /**
@@ -314,15 +366,16 @@ object TimelineEditing {
      */
     fun trim(state: EditState, index: Int, start: Double, end: Double, sourceDuration: Double): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
-        if (trimmed(clip, start, end, sourceDuration) == clip) return null
-        var clips = fitted(state.clips)
-        val next = trimmed(clips[index], start, end, sourceDuration)
-        val sides = layout(clips).let { listOf(it.entering(index)!!, it.leaving(index)!!) }
-        clips = clips.toMutableList().also { it[index] = next }
-        if (sides[0].timing.rightCost + sides[1].timing.leftCost > next.duration) {
-            for (join in sides) if (join.transition != null) clips = withJoin(clips, join.index, null, null)
-        }
-        return state.copy(clips = pruned(clips))
+        val next = trimmed(clip, start, end, sourceDuration)
+        if (next == clip) return null
+        // The clip's new bounds are merged as an edited recipe ([TrackEditing.settingSourceBounds]), the path the original's own
+        // trim takes until S4. Not adopted (trim-removes-an-opening-of-a-middle-clip): the clips keep their order and follow
+        // one another, where the merge sends a picture that lost its opening to the start of the timeline.
+        val result = TrackWrapping.edit(TrackWrapping.fitted(state), sound = false) { TrackEditing.settingSourceBounds(it, clip.id, next.start, next.end) } ?: return null
+        // Kept until S4 (handle-trim-inwards-is-a-deletion, handle-trim-outwards-overlaps): the fades are already those a
+        // handle leaves, cut where the edge went in and given back where it goes out ([trimmed]); the merge of a recipe
+        // would leave them whole until they no longer fit.
+        return result.copy(clips = result.clips.map { if (it.id == clip.id && it.audio != next.audio) it.copy(audio = next.audio) else it })
     }
 
     /**
@@ -382,6 +435,14 @@ object TimelineEditing {
         if (broken) clip.copy(transition = null, transitionFit = null) else clip
     }
 
+    /**
+     * [state] after clips were removed, moved or put in, with the settings of
+     * every join that is broken taken off its clip ([withoutBrokenJoins]).
+     * The timeline has no such transition, and the conversion reads none;
+     * this is what keeps the saved clips saying the same.
+     */
+    private fun settled(state: EditState): EditState = withoutBrokenJoins(state.clips).let { if (it == state.clips) state else state.copy(clips = it) }
+
     /** The transition into the clip after [index], if those two clips are still neighbors. */
     fun transition(clips: List<TimelineClip>, index: Int): TransitionSettings? =
         clips.getOrNull(index)?.transition?.takeIf { index + 1 < clips.size && it.nextClipID == clips[index + 1].id }
@@ -417,8 +478,10 @@ object TimelineEditing {
      * what fits is shorter than one frame: that is no transition.
      */
     fun setJoin(state: EditState, join: Int, settings: TransitionSettings?): EditState? {
-        val place = saved(join, state.clips.size) ?: return null
-        var clips = fitted(state.clips)
+        val base = TrackWrapping.fitted(state)
+        val clips = base.clips
+        val place = saved(join, clips.size) ?: return null
+        val (outgoing, incoming) = TrackSequenceView.joinClips(clips, join) ?: return null
         val between = join in 1 until clips.size
         // The clips on its two sides: an opening has none before it, a close none after it.
         val left = if (place.opening) null else place.clip
@@ -429,22 +492,37 @@ object TimelineEditing {
         // The opening of a clip that is not the first and the close of one that is not the last are there because their
         // clip was once at that end: they can be changed and removed, not made.
         if (current == null && join > clips.size) return null
-        if (value == null) return if (current == null) null else state.copy(clips = withJoin(clips, join, null, null))
-        val before = layout(clips)
-        // The transitions on the far sides keep their footage.
-        val leftFree = TransitionLayout.free(left?.let { clips[it].duration }, left?.let { before.entering(it)?.timing?.rightCost } ?: 0.0)
-        val rightFree = TransitionLayout.free(right?.let { clips[it].duration }, right?.let { before.leaving(it)?.timing?.leftCost } ?: 0.0)
-        val fit = TransitionLayout.fit(value, if (left == null) -1 else if (right == null) 1 else 0, leftFree, rightFree) ?: return null
-        val fitted = (if (place.opening) clips[place.clip].openingTransitionFit else clips[place.clip].transitionFit)?.factor
-        // Found again by halving, the same fit comes out a hair different: that is no change.
-        if (value == current && fitted != null && kotlin.math.abs(fit.factor - fitted) < SAME_FIT) return null
-        // Each clip has one transition at its start and one at its end: the new one takes those two places, as in the
-        // original (Transitions.swift:343-347). Between two clips it replaces the opening of the second (the close of the
-        // first is what it is saved over); an opening replaces the transition from the clip before.
-        if (between) clips = clips.toMutableList().also { it[join] = it[join].copy(openingTransition = null, openingTransitionFit = null) }
-        if (place.opening && place.clip > 0 && transition(clips, place.clip - 1) != null) clips = withJoin(clips, place.clip, null, null)
-        return state.copy(clips = withJoin(clips, join, value, TransitionFit(fit.factor)))
+        // Kept until S3b: the fit that is saved is the one [TransitionLayout.fit] finds, to the last digit. The track model
+        // fits by halving with a slack of its own, and comes out a hundred-millionth longer.
+        var factor: Double? = null
+        if (value != null) {
+            val before = layout(clips)
+            val leftFree = TransitionLayout.free(left?.let { clips[it].duration }, left?.let { before.entering(it)?.timing?.rightCost } ?: 0.0)
+            val rightFree = TransitionLayout.free(right?.let { clips[it].duration }, right?.let { before.leaving(it)?.timing?.leftCost } ?: 0.0)
+            // What fits is shorter than one frame: that is no transition, and nothing changes.
+            factor = (TransitionLayout.fit(value, if (left == null) -1 else if (right == null) 1 else 0, leftFree, rightFree) ?: return null).factor
+            val fitted = (if (place.opening) clips[place.clip].openingTransitionFit else clips[place.clip].transitionFit)?.factor
+            // Found again by halving, the same fit comes out a hair different: that is no change.
+            if (value == current && fitted != null && kotlin.math.abs(factor - fitted) < SAME_FIT) return null
+        }
+        // The join is found by its two clips among the joins of the timeline, and the transition set or removed there
+        // ([TrackTransitions.setting], [TrackTransitions.restoringStraightCut]): each clip has one transition at its start
+        // and one at its end, and the new one takes those two places.
+        val result = TrackWrapping.edit(base, sound = false) { timeline ->
+            val found = TrackLayout.of(timeline).joins.firstOrNull { it.outgoingID == outgoing && it.incomingID == incoming } ?: return@edit null
+            if (settings == null) TrackTransitions.restoringStraightCut(timeline, found.index) else TrackTransitions.setting(timeline, settings, found.index)
+        } ?: return null
+        val made = (if (place.opening) result.clips[place.clip].openingTransitionFit else result.clips[place.clip].transitionFit)?.factor
+        if (factor == null || made == null || kotlin.math.abs(made - factor) > FIT_ROUNDING) return result
+        return result.copy(clips = withJoin(result.clips, join, joinSettings(result.clips, join), TransitionFit(factor)))
     }
+
+    /**
+     * A fit of the track model and the fit today's rule finds, closer than
+     * this, are the same fit: the track model measures a clip in ticks, and
+     * half a tick of footage is this much of a short transition.
+     */
+    private const val FIT_ROUNDING = 0.0001
 
     /**
      * The longest duration the Transition tool offers for join [join]: the
@@ -478,6 +556,18 @@ object TimelineEditing {
         return level.coerceIn(0.0, 1.0)
     }
 
+    // MARK: Recipes
+
+    /**
+     * [state] with [clips], the same clips with the recipe of some changed
+     * (titles, color, framing): the tools that edit a clip's recipe read the
+     * clips and answer clips, and what they changed is merged into the
+     * timeline ([TrackSequenceView.merging]), as the original's tools do
+     * through `replaceVideoContents`. Null when the merge changes nothing.
+     */
+    private fun recipes(state: EditState, clips: List<TimelineClip>): EditState? =
+        TrackWrapping.edit(state, sound = false) { TrackSequenceView.merging(it, clips) }
+
     // MARK: Titles
 
     fun textsAt(clip: TimelineClip, sourceTime: Double): List<TextOverlay> =
@@ -504,7 +594,7 @@ object TimelineEditing {
         val texts = clip.texts.orEmpty()
         val next = if (texts.any { it.id == text.id }) texts.map { if (it.id == text.id) text else it } else texts + text
         if (next == texts) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(texts = next) })
+        return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(texts = next) })
     }
 
     /** Removes the title from the clip at [index] only; another piece carrying it keeps it. */
@@ -512,7 +602,7 @@ object TimelineEditing {
         val clip = state.clips.getOrNull(index) ?: return null
         val texts = clip.texts.orEmpty()
         if (texts.none { it.id == id }) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(texts = texts.filter { it.id != id }.ifEmpty { null }) })
+        return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(texts = texts.filter { it.id != id }.ifEmpty { null }) })
     }
 
     /** How long a new title stays, in seconds of the movie. */
@@ -586,7 +676,7 @@ object TimelineEditing {
             val next = if (placed == null) others else if (previous == null) texts + placed else texts.map { if (it.id == title.id) placed else it }
             clip.copy(texts = next.ifEmpty { null })
         }
-        return if (clips == state.clips) null else state.copy(clips = clips)
+        return if (clips == state.clips) null else recipes(state, clips)
     }
 
     // MARK: Bookmarks
@@ -614,9 +704,16 @@ object TimelineEditing {
         val clip = state.clips.getOrNull(index) ?: return null
         if (!sourceTime.isFinite() || sourceTime < clip.start || sourceTime > clip.end) return null
         val existing = bookmarkAt(state.clips, index, sourceTime)
-        val marks = clip.bookmarks.orEmpty()
-        val next = if (existing != null) marks.filter { it.id != existing.id } else (marks + Bookmark(time = sourceTime)).sortedBy { it.time }
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(bookmarks = next.ifEmpty { null }) })
+        // The mark is one of the timeline's, on the footage of the clip's occurrence at the second given
+        // ([BookmarkAnchor.Source]). The track model's own [TrackBookmarks.adding] takes a moment of the timeline and marks
+        // what plays then, which at a clip's very last second is the clip after it, or the timeline itself where the movie
+        // ends (`bookmark-at-the-last-second`): a mark the sequence form has no place for. So the mark is put on the
+        // footage it was made on, as today, until bookmarks are the timeline's own (S12).
+        return TrackWrapping.edit(state, sound = false) { timeline ->
+            if (existing != null) return@edit TrackBookmarks.removing(timeline, existing.id)
+            val picture = timeline.video.firstOrNull { it.id == clip.id } ?: return@edit null
+            timeline.copy(bookmarks = timeline.bookmarks + TimelineBookmark(anchor = BookmarkAnchor.Source(picture.occurrenceID, clip.sourceID, sourceTime)))
+        }
     }
 
     // MARK: Clip sound
@@ -629,7 +726,12 @@ object TimelineEditing {
         if (!audio.valid) return null
         val next = audio.normalized()
         if (next == clip.audio) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(audio = next) })
+        val clips = state.clips.toMutableList().also { it[index] = clip.copy(audio = next) }
+        // Kept until S6 (sound-settings-of-an-unlinked-clip): a clip whose sound was unlinked has no sound on the timeline
+        // to set; what it is given is what it remembers for when the sound is linked again ([AudioUnlinking]).
+        if (AudioUnlinking.isDetached(state, index) || AudioUnlinking.isDetached(state.copy(clips = clips), index)) return state.copy(clips = clips)
+        // The level, the mute, the fades and the noise reduction are written to the sound that follows the clip's picture.
+        return recipes(state, clips)
     }
 
     /**
@@ -647,59 +749,73 @@ object TimelineEditing {
 
     // MARK: Sound on its own tracks
 
-    private fun EditState.withAudio(items: List<AudioItem>) = copy(audio = items.sortedBy { it.start }.ifEmpty { null })
-
-    private fun fits(items: List<AudioItem>, item: AudioItem) =
-        items.none { it.id != item.id && it.track == item.track && it.start < item.end && item.start < it.end }
-
-    /** The first track where [item] overlaps nothing, or null when every track is busy there. */
-    private fun placed(items: List<AudioItem>, item: AudioItem): AudioItem? =
-        (listOf(item.track) + (0 until AudioItem.TRACKS)).distinct().map { item.copy(track = it) }.firstOrNull { fits(items, it) }
-
-    /** Puts a whole sound source on the timeline at [at]. Null when both tracks are busy there. */
-    fun addAudio(state: EditState, sourceID: String, sourceDuration: Double, at: Double): EditState? {
-        if (!at.isFinite() || at < 0 || !sourceDuration.isFinite() || sourceDuration < MINIMUM_CLIP) return null
-        val items = state.audio.orEmpty()
-        val item = placed(items, AudioItem(sourceID = sourceID, start = at, sourceStart = 0.0, sourceEnd = sourceDuration)) ?: return null
-        return state.withAudio(items + item)
+    /** The sound of the timeline that the sound item [id] of [state] is; null when there is no such item. */
+    private fun sound(state: EditState, timeline: TrackTimeline, id: String): AudioTimelineItem? {
+        if (state.audio.orEmpty().none { it.id == id }) return null
+        val name = TrackWrapping.soundID(state, id)
+        return timeline.audio.firstOrNull { it.id == name }
     }
 
-    /** Moves an item to begin at [start], changing track if its own is busy there. */
+    /** Puts a whole sound source on the timeline at [at], laid over what is there ([TrackAudio.inserting]). Null when both tracks are busy there. */
+    fun addAudio(state: EditState, sourceID: String, sourceDuration: Double, at: Double): EditState? {
+        if (!at.isFinite() || at < 0 || !sourceDuration.isFinite() || sourceDuration < MINIMUM_CLIP) return null
+        return TrackWrapping.edit(state, settled = { it.copy(start = TrackWrapping.exactly(it.start, at)) }) {
+            TrackAudio.inserting(it, SourceMedia(sourceID, "", sourceDuration, 0L, audioOnly = true), EditTime.of(at)).timeline
+        }
+    }
+
+    /** Moves an item to begin at [start] ([TrackMove.moved]), changing track if its own is busy there. */
     fun moveAudio(state: EditState, id: String, start: Double): EditState? {
-        val items = state.audio.orEmpty()
-        val item = items.firstOrNull { it.id == id } ?: return null
+        val item = state.audio.orEmpty().firstOrNull { it.id == id } ?: return null
         if (!start.isFinite() || start < 0 || start == item.start) return null
-        val moved = placed(items, item.copy(start = start)) ?: return null
-        return state.withAudio(items.map { if (it.id == id) moved else it })
+        return TrackWrapping.edit(state, settled = { it.copy(start = TrackWrapping.exactly(it.start, start)) }) { timeline ->
+            val sound = sound(state, timeline, id) ?: return@edit null
+            timeline.moved(TimelineSelection(audio = setOf(sound.id)), EditTime.of(start) - sound.start)
+        }
     }
 
     /**
      * Cuts the item so it begins or ends at timeline second [time], which
-     * must fall inside it. What stays keeps its place on the timeline.
+     * must fall inside it. What stays keeps its place on the timeline. The
+     * part before or after [time] is cut off and deleted as the track model
+     * deletes ([TrackEditing.scoped], [TrackEditing.removing]). What is left
+     * after the beginning is cut away is a new item to the track model
+     * (`later-piece-new-identity`); here it keeps the id the item has, so a
+     * saved project and a selection name it as before.
      */
     fun trimAudio(state: EditState, id: String, time: Double, leading: Boolean): EditState? {
-        val items = state.audio.orEmpty()
-        val item = items.firstOrNull { it.id == id } ?: return null
+        val item = state.audio.orEmpty().firstOrNull { it.id == id } ?: return null
+        // Kept until S4 (split-refused-near-an-edge): no piece shorter than MINIMUM_CLIP is left.
         if (!time.isFinite() || time - item.start < MINIMUM_CLIP || item.end - time < MINIMUM_CLIP) return null
         val cut = item.sourceStart + (time - item.start)
-        // A cut inside a fade leaves what is left of it, as on a clip.
-        val sound = (if (leading) item.audio?.sliced(time - item.start, item.duration, item.duration) else item.audio?.sliced(0.0, time - item.start, item.duration)).normalized()
-        val trimmed = if (leading) item.copy(start = time, sourceStart = cut, audio = sound) else item.copy(sourceEnd = cut, audio = sound)
-        return state.withAudio(items.map { if (it.id == id) trimmed else it })
+        // Kept until S3b (split-on-the-grid): the cut is at the second given. What is left stays the item, on the item's track.
+        val settled = { piece: AudioItem ->
+            if (leading) piece.copy(id = id, start = TrackWrapping.exactly(piece.start, time), sourceStart = TrackWrapping.exactly(piece.sourceStart, cut), track = item.track)
+            else piece.copy(sourceEnd = TrackWrapping.exactly(piece.sourceEnd, cut), track = item.track)
+        }
+        return TrackWrapping.edit(state, settled = settled) { timeline ->
+            val sound = sound(state, timeline, id) ?: return@edit null
+            val at = EditTime.of(time)
+            if (at <= sound.start || at >= sound.end) return@edit null
+            val scope = timeline.scoped(TimelineSelection(audio = setOf(sound.id), range = if (leading) EditInterval(sound.start, at) else EditInterval(at, sound.end)))
+            scope.timeline.removing(scope.selection).timeline
+        }
     }
 
+    /** Sets the level, mute and fades of a sound item ([TrackAudio.settingVolume], [TrackAudio.settingFade]); a fade is no longer than the item. */
     fun setAudioItemSound(state: EditState, id: String, audio: ClipAudio): EditState? {
-        val items = state.audio.orEmpty()
-        val item = items.firstOrNull { it.id == id } ?: return null
-        if (!audio.valid || audio.normalized() == item.audio) return null
-        return state.withAudio(items.map { if (it.id == id) it.copy(audio = audio.normalized()) else it })
+        val item = state.audio.orEmpty().firstOrNull { it.id == id } ?: return null
+        if (!audio.valid) return null
+        val next = audio.normalized()
+        if (next == item.audio) return null
+        val result = TrackWrapping.edit(state) { timeline -> sound(state, timeline, id)?.let { TrackWrapping.sounding(timeline, it.id, audio, item.audio ?: ClipAudio()) } } ?: state
+        // A sound of the timeline has no amount of noise reduction for all of it; a sound item keeps the one it is given, which does nothing until items are cleaned (S7).
+        return result.copy(audio = result.audio?.map { if (it.id == id && it.audio != next) it.copy(audio = next) else it })
     }
 
-    fun removeAudio(state: EditState, id: String): EditState? {
-        val items = state.audio.orEmpty()
-        if (items.none { it.id == id }) return null
-        return state.withAudio(items.filter { it.id != id })
-    }
+    /** Removes a sound item by itself, which moves nothing ([TrackEditing.removing]). */
+    fun removeAudio(state: EditState, id: String): EditState? =
+        TrackWrapping.edit(state) { timeline -> sound(state, timeline, id)?.let { timeline.removing(TimelineSelection(audio = setOf(it.id))).timeline } }
 
     /** The item playing on [track] at timeline second [time]. */
     fun audioAt(items: List<AudioItem>, track: Int, time: Double): AudioItem? =
@@ -719,7 +835,7 @@ object TimelineEditing {
         if (!color.valid) return null
         val next = color.takeIf { !it.isIdentity }
         if (next == clip.color) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(color = next) })
+        return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(color = next) })
     }
 
     // MARK: Crop
@@ -728,7 +844,7 @@ object TimelineEditing {
     fun setCrop(state: EditState, index: Int, crop: CropSettings?): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
         if (crop?.valid == false || crop == clip.crop) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(crop = crop) })
+        return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(crop = crop) })
     }
 
     // MARK: Speed
@@ -744,9 +860,19 @@ object TimelineEditing {
         val clip = state.clips.getOrNull(index) ?: return null
         val speed = if (rate == 1.0) null else (clip.speed ?: SpeedSettings()).copy(rate = rate)
         if (speed?.valid == false || speed == clip.speed) return null
-        // A fade longer than the clip now lasts is squeezed into it, as in the original; one that fits keeps its length.
-        val sound = clip.audio?.fitted(clip.duration, clip.copy(speed = speed).duration).normalized()
-        val clips = fitted(state.clips).toMutableList().also { it[index] = it[index].copy(speed = speed, audio = sound) }
-        return state.copy(clips = pruned(refitted(clips, index)))
+        // The speed is merged as an edited recipe, with its ripple ([TrackEditing.settingSpeed]); the clips keep their order.
+        val base = TrackWrapping.fitted(state)
+        val result = TrackWrapping.edit(base, sound = false) { TrackEditing.settingSpeed(it, clip.id, speed) } ?: return null
+        // Kept until S3b: where the clip's transitions are scaled to fit it, the fits saved are the ones today's rule finds
+        // ([refitted]), to the last digit; the track model measures the clip in ticks and comes out a millionth apart.
+        val wanted = refitted(base.clips.toMutableList().also { it[index] = it[index].copy(speed = speed) }, index).associateBy { it.id }
+        return result.copy(clips = result.clips.map { made ->
+            val fits = wanted[made.id] ?: return@map made
+            fun same(a: TransitionFit?, b: TransitionFit?) = a != null && b != null && a != b && kotlin.math.abs(a.factor - b.factor) <= FIT_ROUNDING
+            made.copy(
+                transitionFit = if (same(made.transitionFit, fits.transitionFit)) fits.transitionFit else made.transitionFit,
+                openingTransitionFit = if (same(made.openingTransitionFit, fits.openingTransitionFit)) fits.openingTransitionFit else made.openingTransitionFit,
+            )
+        })
     }
 }
