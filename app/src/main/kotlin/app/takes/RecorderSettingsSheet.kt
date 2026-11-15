@@ -192,6 +192,15 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
                 SettingsRow { SettingsNote(stringResource(if (free) R.string.recorder_settings_microphone_note else R.string.recorder_settings_microphone_busy)) }
             }
         }
+        if (capture.offersUltraHD) {
+            SettingsSection(stringResource(R.string.recorder_settings_quality)) {
+                ChoiceRow(stringResource(R.string.recorder_quality_1080), !settings.ultraHD, capture.canChangeTake) { capture.chooseUltraHD(false) }
+                ChoiceRow(stringResource(R.string.recorder_quality_4k), settings.ultraHD, capture.canChangeTake) { capture.chooseUltraHD(true) }
+                SettingsRow {
+                    SettingsNote(stringResource(if (settings.ultraHD && !capture.offers.ultraHD) R.string.recorder_quality_note_camera else R.string.recorder_quality_note))
+                }
+            }
+        }
         SettingsSection(stringResource(R.string.recorder_settings_framing)) {
             SettingsSwitch(stringResource(R.string.recorder_settings_fit), settings.fitFrame) { settings.fitFrame = it }
             SettingsRow { SettingsNote(stringResource(R.string.recorder_settings_fit_note)) }
