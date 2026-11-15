@@ -125,4 +125,8 @@
     <string name="recorder_light_opacity">Opacity</string>
     <string name="recorder_light_opacity_label">Front light opacity</string>
     <string name="recorder_light_off">Turn off front light</string>
+    <!-- What the screen reader says of the bottom row. -->
+    <string name="recorder_mark_label">Add recording bookmark</string>
+    <string name="recorder_mark_added">Bookmark added</string>
+    <string name="recorder_mark_moment">Mark this moment</string>
 </resources>

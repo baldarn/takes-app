@@ -245,21 +245,25 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         // Over the picture and under the controls. It is part of the interface: the camera never sees it.
         if (frontLight) FrontLightRing(settings, screenCornerRadius()) { frontLight = false }
         CompositionLocalProvider(LocalControlPlate provides if (frontLight) LitPlate else ControlPlate) {
-            // Clear of the camera cutout, which stays when the status bar is hidden.
-            Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
-            SettingsButton(
-                // A dot says that an assist is on.
-                assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off,
-                Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)),
-            ) { settingsOpen = true }
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                ProjectChip(capture, store, openEditor)
-                val usable = capture.ready && capture.phase != Phase.Saving && cover == null
-                if (zoomOpen && capture.hasZoom) {
-                    Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
+            // While the settings are open the screen reader is in them alone, as in the original.
+            Box(Modifier.matchParentSize().then(if (settingsOpen) Modifier.clearAndSetSemantics {} else Modifier)) {
+                // Clear of the camera cutout, which stays when the status bar is hidden.
+                Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+                SettingsButton(
+                    // A dot says that an assist is on.
+                    assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off,
+                colour = stringResource(if (capture.format.hdr) R.string.recorder_color_hdr else R.string.recorder_color_sdr),
+                    Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)),
+                ) { settingsOpen = true }
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    ProjectChip(capture, store, openEditor)
+                    val usable = capture.ready && capture.phase != Phase.Saving && cover == null
+                    if (zoomOpen && capture.hasZoom) {
+                        Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
+                    }
+                    CameraStrip(capture, usable, zoomOpen, { zoomOpen = !zoomOpen }, switchCamera)
+                    Controls(capture, store.selected?.title)
                 }
-                CameraStrip(capture, usable, zoomOpen, { zoomOpen = !zoomOpen }, switchCamera)
-                Controls(capture)
             }
         }
         TakeFrame(capture.phase, Modifier.matchParentSize())
@@ -270,9 +274,11 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
 
 /** The way into "Camera settings", at the end of the top bar as in the original. */
 @Composable
-private fun SettingsButton(assist: Boolean, modifier: Modifier, open: () -> Unit) {
+private fun SettingsButton(assist: Boolean, colour: String, modifier: Modifier, open: () -> Unit) {
     Box(
-        modifier.padding(top = 9.dp, end = 12.dp).size(44.dp).clip(CircleShape).background(LocalControlPlate.current).clickable(role = Role.Button, onClick = open),
+        modifier.padding(top = 9.dp, end = 12.dp).size(44.dp).clip(CircleShape).background(LocalControlPlate.current).clickable(role = Role.Button, onClick = open)
+            // The screen reader hears the colour the takes are recorded in, as in the original.
+            .semantics(mergeDescendants = true) { stateDescription = colour },
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.Filled.Tune, stringResource(R.string.recorder_settings_title), Modifier.size(22.dp), tint = Color.White)
@@ -519,7 +525,7 @@ private fun StripDivider() {
  * a paused one; the round button on its right pauses, and finishes a paused take; Mark is on the left.
  */
 @Composable
-private fun Controls(capture: CaptureController) {
+private fun Controls(capture: CaptureController, project: String?) {
     val phase = capture.phase
     val recording = phase == Phase.Recording
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -532,12 +538,15 @@ private fun Controls(capture: CaptureController) {
             Phase.Paused -> R.string.recorder_resume
             else -> R.string.recorder_record
         })
+        // The screen reader hears where the take goes, as in the original.
+        val into = project ?: stringResource(R.string.recorder_new_project)
         Box(
             Modifier.size(88.dp).clip(CircleShape)
                 .clickable(enabled = phase != Phase.Saving, role = Role.Button) { if (recording) capture.finishTake() else capture.record() }
                 .semantics {
                     role = Role.Button
                     contentDescription = recordLabel
+                    stateDescription = into
                 },
             contentAlignment = Alignment.Center,
         ) {
@@ -572,13 +581,18 @@ private fun MarkButton(capture: CaptureController) {
     LaunchedEffect(capture.marks) {
         if (capture.marks > 0) { acknowledged = true; delay(700); acknowledged = false }
     }
+    val label = stringResource(R.string.recorder_mark_label)
+    val value = stringResource(if (acknowledged) R.string.recorder_mark_added else R.string.recorder_mark_moment)
     Column(
         Modifier.size(52.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(15.dp)).background(LocalControlPlate.current)
-            .clickable(enabled = enabled, role = Role.Button) { capture.bookmark(); view.confirm() },
+            .clickable(enabled = enabled, role = Role.Button) { capture.bookmark(); view.confirm() }
+            // One element for the screen reader: what the button does, and that the mark was placed.
+            .semantics(mergeDescendants = true) { contentDescription = label; stateDescription = value },
         Arrangement.Center, Alignment.CenterHorizontally,
     ) {
         Icon(if (acknowledged) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, null, Modifier.size(22.dp), tint = Color.White)
-        Text(stringResource(R.string.recorder_mark), color = Color.White, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(stringResource(R.string.recorder_mark), color = Color.White, fontSize = 11.sp, lineHeight = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+            modifier = Modifier.clearAndSetSemantics {})
     }
 }
 
