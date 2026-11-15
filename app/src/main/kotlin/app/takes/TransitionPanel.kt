@@ -162,7 +162,7 @@ private fun TransitionColor.hex() = String.format(Locale.US, "%02X%02X%02X", (re
  * @param index the join: 0 is the opening of the first clip, [count] (the number of clips) the close of the last, 1 to [count] − 1 between two clips.
  * @param edge −1 for the opening of a clip, +1 for its close, 0 between two clips.
  * @param join the join as the timeline lays it out with [settings], shortened to fit; null while what fits is under one frame.
- * @param maximum the longest duration the footage around the join allows.
+ * @param maximum the longest duration offered: the length of the shorter clip at the join ([app.takes.core.TimelineEditing.joinMaximum]).
  * @param lengthChange seconds the project gets longer (or, negative, shorter) with this transition.
  * @param audioMaximum how far the sound may be offset or blended.
  * @param framesPerSecond the frame rate of the movie during this transition, which a flash cut counts its frames in.

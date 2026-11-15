@@ -1095,7 +1095,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             TransitionPanel(
                 settings = work.settings, existing = work.initial != null, change = { transitioning = work.changed(it) },
                 index = work.join, count = saved.clips.size, edge = place?.edge ?: 0, join = join,
-                maximum = TimelineEditing.layout(clips).join(work.join)?.maximum ?: place?.maximum ?: 0.0, projectDuration = duration,
+                maximum = TimelineEditing.joinMaximum(saved.clips, work.join), projectDuration = duration,
                 lengthChange = duration - (TimelineEditing.setJoin(saved, work.join, null) ?: saved).duration,
                 audioMaximum = TransitionDefaults.audioMaximum(clips.maxOfOrNull { it.duration }),
                 framesPerSecond = TimelineEditing.layout(clips).join(work.join)?.let(frames) ?: TransitionScene.FRAMES_PER_SECOND,
@@ -1990,7 +1990,7 @@ private data class Transitioning(val join: Int, val settings: TransitionSettings
         fun at(state: EditState, join: Int, canvas: Pair<Int, Int>?): Transitioning? {
             val found = TimelineEditing.layout(state.clips).join(join) ?: return null
             val existing = TimelineEditing.joinSettings(state.clips, join)
-            val fresh = TransitionDefaults.new(found.maximum, canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) })
+            val fresh = TransitionDefaults.new(TimelineEditing.joinMaximum(state.clips, join), canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) })
             return Transitioning(join, existing ?: fresh, existing ?: fresh, existing, fresh)
         }
     }

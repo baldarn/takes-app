@@ -468,4 +468,36 @@ class TransitionFitTest {
         assertSame(chain, RangeEditing.scoped(chain, EditScope.Whole).state)
         assertSame(chain, RangeEditing.scoped(chain, EditScope.Range(TimeRange(0.0, 8.0))).state)
     }
+
+    /**
+     * What the tool offers as the longest duration: the shorter clip's whole
+     * length (Transitions.swift:294, TransitionEditor.swift:11), not what the
+     * neighboring transitions leave free. What does not fit is kept as
+     * entered and plays shortened (Transitions.swift:359-370, TransitionEditor.swift:298).
+     */
+    @Test fun theToolOffersTheWholeLengthOfTheShorterClip() {
+        fun clip(id: String, seconds: Double) = TimelineClip(id = id, sourceID = "S", start = 0.0, end = seconds)
+        val three = EditState(listOf(clip("A", 4.0), clip("B", 4.0), clip("C", 4.0)))
+        val first = TimelineEditing.setJoin(three, 1, TransitionSettings(duration = 1.0))!!
+        // The second join, with a second of the middle clip held by the first: 4 s offered, where the layout leaves 3 s free.
+        assertEquals(3.0, TimelineEditing.layout(first.clips).joins[2].maximum, 1e-9)
+        assertEquals(4.0, TimelineEditing.joinMaximum(first.clips, 2), 1e-9)
+        val asked = TimelineEditing.setJoin(first, 2, TransitionSettings(duration = 4.0))!!.clips
+        assertEquals(4.0, asked[1].transition!!.duration, 1e-9)
+        assertEquals(0.75, asked[1].transitionFit!!.factor, 1e-9)
+        assertEquals(3.0, TimelineEditing.join(asked, 2)!!.timing.videoDuration, 1e-9)
+        // A fade through color between two clips takes half from each: still 4 s offered, not 8.
+        val fade = TimelineEditing.setJoin(EditState(three.clips.take(2)), 1, TransitionSettings(style = TransitionStyle.FadeColor, duration = 1.0))!!.clips
+        assertEquals(8.0, TimelineEditing.layout(fade).joins[1].maximum, 1e-9)
+        assertEquals(4.0, TimelineEditing.joinMaximum(fade, 1), 1e-9)
+        // The shorter of the two; one clip alone for an opening and a close.
+        val uneven = listOf(clip("A", 2.5), clip("B", 4.0))
+        assertEquals(2.5, TimelineEditing.joinMaximum(uneven, 1), 1e-9)
+        assertEquals(2.5, TimelineEditing.joinMaximum(uneven, 0), 1e-9)
+        assertEquals(4.0, TimelineEditing.joinMaximum(uneven, 2), 1e-9)
+        assertEquals(0.0, TimelineEditing.joinMaximum(uneven, 9), 1e-9)
+        // A new transition starts at half a second, or at all of a shorter clip (TransitionEditor.swift:64).
+        assertEquals(0.5, TransitionDefaults.new(TimelineEditing.joinMaximum(uneven, 1)).duration, 1e-9)
+        assertEquals(0.2, TransitionDefaults.new(TimelineEditing.joinMaximum(listOf(clip("A", 0.2), clip("B", 4.0)), 1)).duration, 1e-9)
+    }
 }

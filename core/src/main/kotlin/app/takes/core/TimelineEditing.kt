@@ -429,6 +429,20 @@ object TimelineEditing {
         return state.copy(clips = withJoin(clips, join, value, TransitionFit(fit.factor)))
     }
 
+    /**
+     * The longest duration the Transition tool offers for join [join]: the
+     * whole played length of the shorter of its two clips, or of its one clip
+     * for an opening or a close, as the original's editor offers it
+     * (Transitions.swift:294, read by TransitionEditor.swift:11). The footage
+     * the transitions at the clips' other ends already hold is not taken off:
+     * a duration that does not fit beside them is kept as entered and plays
+     * shortened ([setJoin]), which the tool says. 0 when there is no such join.
+     */
+    fun joinMaximum(clips: List<TimelineClip>, join: Int): Double {
+        val found = layout(clips).join(join) ?: return 0.0
+        return minOf(found.outgoing?.let { clips[it].duration } ?: TransitionLayout.LIMIT, found.incoming?.let { clips[it].duration } ?: TransitionLayout.LIMIT)
+    }
+
     /** Sets the join after the clip at [index] to [style] over [duration] seconds; a null [duration] removes it. */
     fun setTransition(state: EditState, index: Int, duration: Double?, style: TransitionStyle): EditState? {
         if (index !in 0 until state.clips.size - 1) return null
