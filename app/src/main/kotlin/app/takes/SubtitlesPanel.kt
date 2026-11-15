@@ -2,6 +2,7 @@ package app.takes
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.net.ConnectivityManager
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -145,6 +146,7 @@ fun SubtitlesPanel(
     var showPosition by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
     var askReplace by remember { mutableStateOf(false) }
+    var askMetered by remember { mutableStateOf(false) }
     var askRemoveAll by remember { mutableStateOf(false) }
     var askDiscard by remember { mutableStateOf(false) }
     var askRemoveModel by remember { mutableStateOf(false) }
@@ -300,7 +302,8 @@ fun SubtitlesPanel(
                         }
                         if (!installed) {
                             Text(stringResource(R.string.subtitles_download_note, megabytes), color = Soft, fontSize = 14.sp)
-                            Button(onClick = download, modifier = Modifier.padding(top = 6.dp)) { Text(stringResource(R.string.subtitles_download, megabytes)) }
+                            // On a connection that counts the data used, such as mobile data, the person is asked first.
+                            Button(onClick = { if (metered(context)) askMetered = true else download() }, modifier = Modifier.padding(top = 6.dp)) { Text(stringResource(R.string.subtitles_download, megabytes)) }
                         }
                     }
                     failure?.let { Text(it, color = Warning, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp)) }
@@ -428,6 +431,11 @@ fun SubtitlesPanel(
             },
         )
     }
+    if (askMetered) Confirm(
+        stringResource(R.string.subtitles_metered_title), stringResource(R.string.subtitles_metered_message, megabytes),
+        stringResource(R.string.subtitles_metered_download), stringResource(R.string.common_cancel),
+        confirm = { askMetered = false; download() }, dismiss = { askMetered = false },
+    )
     if (askReplace) Confirm(
         stringResource(R.string.subtitles_replace_title), null, stringResource(R.string.subtitles_retranscribe), stringResource(R.string.common_cancel),
         confirm = { askReplace = false; transcribe() }, dismiss = { askReplace = false },
@@ -451,6 +459,10 @@ fun SubtitlesPanel(
         dismiss = { askRemoveModel = false },
     )
 }
+
+/** Whether the network in use counts the data it carries, as mobile data and some Wi-Fi do. False when that cannot be told. */
+private fun metered(context: android.content.Context): Boolean =
+    runCatching { context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true }.getOrDefault(false)
 
 @Composable
 private fun Confirm(title: String, message: String?, action: String, keep: String, destructive: Boolean = false, confirm: () -> Unit, dismiss: () -> Unit) {
