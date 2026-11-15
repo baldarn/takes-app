@@ -45,9 +45,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val DISSOLVE = 1
         const val FADE = 2
         const val WIPE = 3
+        const val SPLIT = 4
 
         /** The styles the shader draws. The editor offers these; any other is shown as a dissolve, and cannot be made here. */
-        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.FlashCut, TransitionStyle.Still)
+        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.FlashCut, TransitionStyle.Still)
 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
@@ -76,6 +77,28 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
                     put(1, 2 * frame.edge.feather)
                     SceneDrawing(WIPE, first, second, fill, values)
                 }
+                is TransitionFrame.Split -> {
+                    val whole = Rect(0.0, 0.0, width.toDouble(), height.toDouble())
+                    // Each clip without the bars around it; a side with no clip is the fill, everywhere.
+                    fun lies(source: TransitionScene.Source) = when (source) {
+                        is TransitionScene.Source.Clip -> content(source.index)
+                        is TransitionScene.Source.Held -> content(source.index)
+                        is TransitionScene.Source.Fill -> whole
+                    }
+                    // The core counts y upward from the bottom; the renderers count it downward from the top.
+                    fun put(row: Int, rect: Rect) = put(row, rect.x, height - rect.maxY, rect.width, rect.height)
+                    put(0, frame.first)
+                    put(1, frame.second)
+                    put(2, frame.line)
+                    val firstContent = lies(moment.first)
+                    val secondContent = lies(moment.second)
+                    val firstFramed = frame.firstFramed(firstContent.size)
+                    val secondFramed = frame.secondFramed(secondContent.size)
+                    put(3, firstContent.x + firstFramed.crop.x, firstContent.y + firstFramed.crop.y, 1 / firstFramed.scale)
+                    put(4, secondContent.x + secondFramed.crop.x, secondContent.y + secondFramed.crop.y, 1 / secondFramed.scale)
+                    put(5, frame.mix.first, frame.mix.pair, frame.mix.second, frame.lineColor.red)
+                    SceneDrawing(SPLIT, first, second, fill, values)
+                }
                 // A style this version cannot draw: a plain dissolve by its share of the incoming picture.
                 else -> { put(0, moment.secondShare / maxOf(1e-9, moment.firstShare + moment.secondShare)); SceneDrawing(DISSOLVE, first, second, fill, values) }
             }
@@ -101,13 +124,27 @@ object TransitionShader {
             if (kind > 1.5) return uFill;
             return deck(kind, clamp(p, vec2(0.5), uSize - 0.5));
         }
+        // Whether a pixel is in a rectangle given as left, top, width, height.
+        bool within(vec2 p, vec4 r) { return p.x >= r.x && p.y >= r.y && p.x < r.x + r.z && p.y < r.y + r.w; }
         vec3 scene(vec2 q) {
             if (uMode < 0.5) return side(uKind.x, q);
             if (uMode < 1.5) return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), uA.x));
             if (uMode < 2.5) return enc(uA.x * lin(side(uKind.x, q)) + uA.y * lin(uFill) + uA.z * lin(side(uKind.y, q)));
-            // A wipe: the second picture behind the edge, the first ahead of it, a ramp across its band.
-            float share = clamp(1.0 - dot(q - uA.xy, uA.zw) / uB.x, 0.0, 1.0);
-            return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), share));
+            if (uMode < 3.5) {
+                // A wipe: the second picture behind the edge, the first ahead of it, a ramp across its band.
+                float share = clamp(1.0 - dot(q - uA.xy, uA.zw) / uB.x, 0.0, 1.0);
+                return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), share));
+            }
+            // A split screen: each picture framed in its half over black, the second half over the first, then
+            // the line between them; the whole blends from the first picture alone and to the second alone.
+            vec3 pair = vec3(0.0);
+            if (within(q, uA)) pair = lin(side(uKind.x, uD.xy + (q - uA.xy) * uD.z));
+            if (within(q, uB)) pair = lin(side(uKind.y, uE.xy + (q - uB.xy) * uE.z));
+            if (within(q, uC)) pair = lin(vec3(uF.w));
+            vec3 sum = uF.y * pair;
+            if (uF.x > 0.0) sum += uF.x * lin(side(uKind.x, q));
+            if (uF.z > 0.0) sum += uF.z * lin(side(uKind.y, q));
+            return enc(sum);
         }
     """
 
