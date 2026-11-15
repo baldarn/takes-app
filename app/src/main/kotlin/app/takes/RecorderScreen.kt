@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,12 +66,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -95,11 +100,14 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.CaptureController.Phase
 import app.takes.core.PinchZoom
 import app.takes.core.Project
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 private val Scrim = Color(0x99000000)
 /** The plate under a control that sits on the picture, as in the original. */
@@ -141,8 +149,26 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     var settingsOpen by remember { mutableStateOf(false) }
     var zoomOpen by remember { mutableStateOf(false) }
     var pinch by remember { mutableStateOf<PinchZoom?>(null) }
+    // While the camera changes, the last picture of the old one covers the preview, as in the original.
+    var cover by remember { mutableStateOf<ImageBitmap?>(null) }
+    var streaming by remember { mutableStateOf(false) }
+    DisposableEffect(previewView) {
+        val observer = Observer<PreviewView.StreamState> { streaming = it == PreviewView.StreamState.STREAMING }
+        previewView.previewStreamState.observeForever(observer)
+        onDispose { previewView.previewStreamState.removeObserver(observer) }
+    }
+    LaunchedEffect(cover) {
+        if (cover == null) return@LaunchedEffect
+        // Until the new camera delivers pictures; a camera that never does must not leave the cover up.
+        withTimeoutOrNull(1000) { snapshotFlow { streaming }.first { !it } }
+        withTimeoutOrNull(3000) { snapshotFlow { streaming }.first { it } }
+        cover = null
+    }
     val switchCamera = { id: String, nativeZoom: Boolean ->
-        if (id != capture.cameraID && capture.phase != Phase.Saving) capture.switchCamera(id, nativeZoom)
+        if (id != capture.cameraID && capture.phase != Phase.Saving && cover == null) {
+            cover = runCatching { previewView.bitmap?.asImageBitmap() }.getOrNull()
+            capture.switchCamera(id, nativeZoom)
+        }
     }
     LaunchedEffect(owner) { capture.attach(owner, previewView.surfaceProvider) }
     DisposableEffect(owner) {
@@ -180,6 +206,9 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         AndroidView({ previewView }, Modifier.fillMaxSize()) {
             it.scaleType = if (settings.fitFrame) PreviewView.ScaleType.FIT_CENTER else PreviewView.ScaleType.FILL_CENTER
         }
+        cover?.let {
+            Image(it, null, Modifier.fillMaxSize(), contentScale = if (settings.fitFrame) ContentScale.Fit else ContentScale.Crop)
+        }
         pinch?.let {
             // 27 % of the way down, centred, as in the original.
             PinchBadge(it, Modifier.align(BiasAlignment(0f, (PinchZoom.BADGE_HEIGHT * 2 - 1).toFloat())))
@@ -189,7 +218,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         SettingsButton(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))) { settingsOpen = true }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             ProjectChip(capture, store, openEditor)
-            val usable = capture.ready && capture.phase != Phase.Saving
+            val usable = capture.ready && capture.phase != Phase.Saving && cover == null
             if (zoomOpen && capture.hasZoom) {
                 Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
             }
