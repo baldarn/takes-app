@@ -88,6 +88,30 @@ object TimelineEditing {
     }
 
     /**
+     * Puts [clips] into the timeline at [time], in order; later clips ripple.
+     * Inside a clip, the clip is split there and they go between the pieces.
+     * Where a split is refused (closer than [MINIMUM_CLIP] to an edge, or
+     * inside a dissolve, where two clips are showing) they go to the nearer
+     * edge of the clip instead. A transition on the join they land on is
+     * removed, as when a clip is moved there: it belonged to those neighbors.
+     * Null when there is nothing to insert or a clip is already on the timeline.
+     */
+    fun insert(state: EditState, clips: List<TimelineClip>, time: Double): EditState? {
+        if (clips.isEmpty() || !time.isFinite()) return null
+        val ids = clips.map { it.id }.toSet()
+        if (ids.size != clips.size || state.clips.any { it.id in ids }) return null
+        val at = time.coerceIn(0.0, state.duration)
+        var base = state.clips
+        var index = 0
+        locate(base, at)?.let { (found, offset) ->
+            val cut = split(state, at)
+            if (cut != null) { base = cut.clips; index = found + 1 }
+            else index = if (offset <= base[found].duration / 2) found else found + 1
+        }
+        return state.copy(clips = withoutBrokenJoins(base.take(index) + clips + base.drop(index)))
+    }
+
+    /**
      * The clip with new source bounds, kept inside its source and at least
      * [MINIMUM_CLIP] long. Moving one edge never moves the other.
      */

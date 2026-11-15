@@ -259,6 +259,10 @@ private data class Manifest(
     val captureLedger: List<TimelineClip> = emptyList(),
     val snapshotFiles: List<String>,
     val exportSettings: ExportSettings = ExportSettings(),
+    /** Indices into [captureLedger] of the takes that were inserted rather than appended. Absent when there are none. */
+    val captureInsertions: List<Int>? = null,
+    val recordingInsertion: Double? = null,
+    val recordingInsertionStep: Int? = null,
 )
 
 data class Project(
@@ -272,9 +276,23 @@ data class Project(
     val captureLedger: List<TimelineClip> = emptyList(),
     val historyCursor: Int = 0,
     val exportSettings: ExportSettings = ExportSettings(),
+    /**
+     * Indices into [captureLedger] of the takes recorded at a chosen place.
+     * Such a take lives in the edit step that inserted it, so replaying the
+     * ledger skips it: Undo takes it off the timeline, and no other history
+     * step gains it at the end.
+     */
+    val captureInsertions: Set<Int> = emptySet(),
+    /** Timeline second where the next take goes; null appends it at the end. See [beginRecordingInsertion]. */
+    val recordingInsertion: Double? = null,
+    /** The history step holding the takes inserted so far in this run; the next take joins it while it is still the newest step. */
+    val recordingInsertionStep: Int? = null,
 ) {
-    private fun materialized(snapshot: EditSnapshot): EditState =
-        EditState(snapshot.state.clips + captureLedger.drop(snapshot.captureCursor), captureLedger.size, snapshot.state.audio)
+    private fun materialized(snapshot: EditSnapshot): EditState {
+        val later = captureLedger.drop(snapshot.captureCursor)
+        val appended = if (captureInsertions.isEmpty()) later else later.filterIndexed { index, _ -> snapshot.captureCursor + index !in captureInsertions }
+        return EditState(snapshot.state.clips + appended, captureLedger.size, snapshot.state.audio)
+    }
 
     val edit: EditState get() = materialized(snapshots[historyCursor])
     val history: List<EditState> get() = snapshots.map(::materialized)
@@ -293,10 +311,21 @@ data class Project(
     fun renamed(title: String, now: Long = System.currentTimeMillis()): Project = copy(title = title, updatedAt = now)
 
     /**
+     * False for a state read before a take was inserted: an inserted take is
+     * not replayed from the ledger, so committing that state would silently
+     * take it off the timeline. [commit] leaves the project unchanged then.
+     */
+    fun canCommit(state: EditState): Boolean {
+        val base = state.captureBase ?: return true
+        return captureInsertions.none { it >= base }
+    }
+
+    /**
      * A state built before a take arrived keeps its capture cursor, so the
      * newer takes are appended again rather than silently discarded.
      */
     fun commit(state: EditState, now: Long = System.currentTimeMillis()): Project {
+        if (!canCommit(state)) return this
         val sound = state.audio?.ifEmpty { null }
         if (state.clips == edit.clips && sound == edit.audio) return this
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
@@ -316,11 +345,50 @@ data class Project(
     fun addSource(source: SourceMedia, now: Long = System.currentTimeMillis()): Project =
         copy(sources = sources + source, updatedAt = now)
 
-    /** Recording additions are outside editor Undo: every history step gains the take. */
+    /**
+     * The takes recorded from now on go into the timeline at [at] instead of
+     * at the end, one after another, as one Undo step. Saved with the project,
+     * so a run of takes continues after the app restarts. A time that is not a
+     * number changes nothing.
+     */
+    fun beginRecordingInsertion(at: Double): Project =
+        if (!at.isFinite()) this else copy(recordingInsertion = at.coerceIn(0.0, MAX_DURATION), recordingInsertionStep = null)
+
+    /** Later takes are appended at the end again. */
+    fun endRecordingInsertion(): Project = copy(recordingInsertion = null, recordingInsertionStep = null)
+
+    /**
+     * Recording additions are outside editor Undo: every history step gains
+     * the take. A take recorded at a chosen place ([beginRecordingInsertion])
+     * is an edit step instead, and the footage stays in [sources] when it is undone.
+     */
     fun addRecording(source: SourceMedia, now: Long = System.currentTimeMillis()): Project {
         // Marks made while recording arrive on the take's clip.
         val marks = source.events.orEmpty().filter { it.kind == BOOKMARK_EVENT }.map { Bookmark(id = it.id, time = it.time) }.ifEmpty { null }
         val clip = TimelineClip(sourceID = source.id, start = 0.0, end = source.duration, bookmarks = marks)
+        if (recordingInsertion != null) {
+            // The takes of one run share a step while it is still the newest one. After an
+            // Undo or another edit, the next take begins a step of its own on what is there now.
+            val continuing = recordingInsertionStep == historyCursor && historyCursor > 0 && historyCursor == snapshots.lastIndex
+            val current = edit
+            val next = TimelineEditing.insert(current, listOf(clip), recordingInsertion) ?: current.copy(clips = current.clips + clip)
+            // Its cursor is past the take: the ledger never replays what the step already holds.
+            val snapshot = EditSnapshot(EditState(next.clips, audio = next.audio), captureLedger.size + 1)
+            val step = if (continuing) historyCursor else historyCursor + 1
+            return copy(
+                // Older readers would replay the take at the end of every step.
+                schemaVersion = maxOf(schemaVersion, clip.schema, 10),
+                sources = sources + source,
+                captureLedger = captureLedger + clip,
+                captureInsertions = captureInsertions + captureLedger.size,
+                snapshots = snapshots.take(step) + snapshot,
+                historyCursor = step,
+                // The next take follows this one.
+                recordingInsertion = TimelineEditing.clipStart(next.clips, next.clips.indexOfFirst { it.id == clip.id } + 1),
+                recordingInsertionStep = step,
+                updatedAt = now,
+            )
+        }
         return copy(
             schemaVersion = maxOf(schemaVersion, clip.schema),
             sources = sources + source,
@@ -344,6 +412,9 @@ data class Project(
         if (byID.size != sources.size) invalid()
         if (sources.map { it.filename.lowercase() }.toSet().size != sources.size) invalid()
         if (captureLedger.any { it.sourceID !in byID }) invalid()
+        if (captureInsertions.any { it !in captureLedger.indices }) invalid()
+        if (recordingInsertion != null && (!recordingInsertion.isFinite() || recordingInsertion < 0 || recordingInsertion > MAX_DURATION)) invalid()
+        if (recordingInsertionStep != null && recordingInsertionStep !in snapshots.indices) invalid()
         for (source in sources) {
             val name = source.filename
             if (!source.duration.isFinite() || source.duration <= 0 || source.duration > MAX_DURATION) invalid()
@@ -388,12 +459,13 @@ data class Project(
             val data = snapshot.data()
             (sha256(data) + ".json").also { write(it, data) }
         }
-        val manifest = Manifest(schemaVersion, id, title, createdAt, updatedAt, sources, historyCursor, captureLedger, names, exportSettings)
+        val manifest = Manifest(schemaVersion, id, title, createdAt, updatedAt, sources, historyCursor, captureLedger, names, exportSettings,
+            captureInsertions.sorted().ifEmpty { null }, recordingInsertion, recordingInsertionStep)
         return documentJson.encodeToString(Manifest.serializer(), manifest).toByteArray()
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 9
+        const val LATEST_READABLE_SCHEMA = 10
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
@@ -425,6 +497,8 @@ data class Project(
                 createdAt = manifest.createdAt, updatedAt = manifest.updatedAt, sources = manifest.sources,
                 snapshots = snapshots, captureLedger = manifest.captureLedger, historyCursor = manifest.historyCursor,
                 exportSettings = manifest.exportSettings,
+                captureInsertions = manifest.captureInsertions.orEmpty().toSet(),
+                recordingInsertion = manifest.recordingInsertion, recordingInsertionStep = manifest.recordingInsertionStep,
             ).also { it.validate() }
         }
     }
