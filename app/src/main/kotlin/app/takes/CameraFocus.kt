@@ -374,17 +374,17 @@ internal fun FocusButton(focus: CameraFocus, enabled: Boolean) {
 /** The "Focus" section of More settings: the lock, and the position of the lens where it can be set. */
 @Composable
 internal fun FocusSettings(focus: CameraFocus, enabled: Boolean) {
-    Section(stringResource(R.string.recorder_settings_focus)) {
-        SwitchRow(stringResource(R.string.recorder_focus_lock), focus.locked, enabled && focus.lockSupported && !focus.fixed) { focus.setLocked(it) }
+    SettingsSection(stringResource(R.string.recorder_settings_focus)) {
+        SettingsSwitch(stringResource(R.string.recorder_focus_lock), focus.locked, enabled && focus.lockSupported && !focus.fixed) { focus.setLocked(it) }
         if (focus.adjustable) {
             val position = stringResource(R.string.recorder_focus_position)
             SettingsRow(Modifier.alpha(if (enabled) 1f else 0.4f)) {
-                Note(stringResource(R.string.recorder_focus_near))
+                SettingsNote(stringResource(R.string.recorder_focus_near))
                 Slider(
                     focus.lens.toFloat(), { focus.setLocked(true, it.toDouble()) }, Modifier.weight(1f).semantics { contentDescription = position },
                     enabled = enabled, colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = SettingsCyan),
                 )
-                Note(stringResource(R.string.recorder_focus_far))
+                SettingsNote(stringResource(R.string.recorder_focus_far))
             }
         }
         val note = when {
@@ -392,6 +392,6 @@ internal fun FocusSettings(focus: CameraFocus, enabled: Boolean) {
             focus.adjustable -> R.string.recorder_focus_note_manual
             else -> null
         }
-        if (note != null) SettingsRow { Note(stringResource(note)) }
+        if (note != null) SettingsRow { SettingsNote(stringResource(note)) }
     }
 }

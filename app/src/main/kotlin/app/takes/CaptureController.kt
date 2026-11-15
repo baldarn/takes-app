@@ -26,6 +26,7 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.DynamicRange
+import androidx.camera.core.ExperimentalMirrorMode
 import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
@@ -72,7 +73,7 @@ import kotlin.math.abs
  * both finalize the current movie file into the project, Resume starts the next.
  * Main thread only.
  */
-@OptIn(ExperimentalPersistentRecording::class, ExperimentalCamera2Interop::class)
+@OptIn(ExperimentalPersistentRecording::class, ExperimentalCamera2Interop::class, ExperimentalMirrorMode::class)
 class CaptureController(private val context: Context, private val store: ProjectStore) {
     enum class Phase { Idle, Recording, Paused, Saving }
     /** A camera of the phone, with what it offers to the recorder: asked once, when the cameras are listed. */
@@ -320,10 +321,6 @@ class CaptureController(private val context: Context, private val store: Project
      * The preview and the recording for [format]. Each part of the format was asked of the camera before
      * (see [offers]), so nothing here is requested from a camera that does not have it.
      */
-    // CameraX keeps the audio source to itself (a restricted API): there is no public way
-    // to record from a headset, which needs the voice communication source. Check this
-    // call again whenever the camera library is updated.
-    @SuppressLint("RestrictedApi")
     private fun build(format: CaptureFormat, rotation: Int): UseCases {
         val preview = Preview.Builder()
             // Same shape as the recorded movie, so the preview shows the real frame.
@@ -336,9 +333,8 @@ class CaptureController(private val context: Context, private val store: Project
             .build()
         surface?.let(preview::setSurfaceProvider)
         val quality = if (format.ultraHD) Quality.UHD else Quality.FHD
-        val recorder = Recorder.Builder()
+        val recorder = recorder(audioSource)
             .setQualitySelector(QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(quality)))
-            .setAudioSource(audioSource)
             // The original's bit rate: six bits for each pixel of the frame. The encoder keeps it within what it accepts.
             .apply { format.bitRate?.let { setTargetVideoEncodingBitRate(it) } }
             .build()
@@ -354,6 +350,12 @@ class CaptureController(private val context: Context, private val store: Project
         video.targetRotation = rotation
         return UseCases(preview, recorder, video)
     }
+
+    // CameraX keeps the audio source to itself (a restricted API): there is no public way
+    // to record from a headset, which needs the voice communication source. Check this
+    // call again whenever the camera library is updated.
+    @SuppressLint("RestrictedApi")
+    private fun recorder(audioSource: Int) = Recorder.Builder().setAudioSource(audioSource)
 
     private fun bind(choice: CameraChoice) {
         val provider = provider ?: return

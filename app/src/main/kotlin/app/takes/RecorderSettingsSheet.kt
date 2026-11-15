@@ -93,15 +93,17 @@ private val Secondary = Color(0xFF98989F)
 internal fun CameraSettings(capture: CaptureController, project: Project?, frontLight: Boolean, setFrontLight: (Boolean) -> Unit, close: () -> Unit) {
     var more by rememberSaveable { mutableStateOf(false) }
     BackHandler { if (more) more = false else close() }
+    // A tap beside the panel closes it and a tap on the panel does nothing, neither with a ripple.
+    val quiet = remember { MutableInteractionSource() }
     val title = stringResource(if (more) R.string.recorder_settings_more else R.string.recorder_settings_title)
     Box(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (more) 1f else 0.25f))
-            .clickable(MutableInteractionSource(), null, onClick = close).semantics { paneTitle = title },
+            .clickable(quiet, null, onClick = close).semantics { paneTitle = title },
         contentAlignment = Alignment.BottomCenter,
     ) {
         if (more) {
             Column(
-                Modifier.fillMaxSize().background(PanelGrey).clickable(MutableInteractionSource(), null) {}
+                Modifier.fillMaxSize().background(PanelGrey).clickable(quiet, null) {}
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
             ) {
                 TitleBar(title, close) { more = false }
@@ -110,7 +112,7 @@ internal fun CameraSettings(capture: CaptureController, project: Project?, front
         } else {
             Column(
                 Modifier.padding(6.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PanelGrey)
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp)).clickable(MutableInteractionSource(), null) {},
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp)).clickable(quiet, null) {},
             ) {
                 TitleBar(title, close, null)
                 QuickSettings(capture, frontLight, setFrontLight)
@@ -235,7 +237,7 @@ private fun RecordingColor(capture: CaptureController) {
                 }
             }
         }
-        Note(stringResource(when {
+        SettingsNote(stringResource(when {
             capture.hasActiveTake -> R.string.recorder_color_note_pause
             !capture.ready -> R.string.recorder_color_note_not_ready
             !capture.offers.hdr -> R.string.recorder_color_note_sdr_only
@@ -256,20 +258,20 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
     ) {
-        Section(stringResource(R.string.recorder_settings_project)) {
+        SettingsSection(stringResource(R.string.recorder_settings_project)) {
             SettingsRow { Text(project?.title ?: stringResource(R.string.recorder_new_project), color = Color.White) }
-            SettingsRow { Note(stringResource(R.string.recorder_settings_captured, clock(project?.capturedDuration ?: 0.0))) }
+            SettingsRow { SettingsNote(stringResource(R.string.recorder_settings_captured, clock(project?.capturedDuration ?: 0.0))) }
         }
         if (capture.hasFrontCamera) {
-            Section(stringResource(R.string.recorder_settings_picture)) {
+            SettingsSection(stringResource(R.string.recorder_settings_picture)) {
                 // Changing either rebuilds the camera, which is done between segments, never under one.
-                SwitchRow(stringResource(R.string.recorder_mirror_preview), settings.mirrorPreview, capture.canChangeFormat) { capture.chooseMirrorPreview(it) }
-                SwitchRow(stringResource(R.string.recorder_mirror_recording), settings.mirrorRecording, capture.canChangeTake) { capture.chooseMirrorRecording(it) }
-                SettingsRow { Note(stringResource(R.string.recorder_mirror_note)) }
+                SettingsSwitch(stringResource(R.string.recorder_mirror_preview), settings.mirrorPreview, capture.canChangeFormat) { capture.chooseMirrorPreview(it) }
+                SettingsSwitch(stringResource(R.string.recorder_mirror_recording), settings.mirrorRecording, capture.canChangeTake) { capture.chooseMirrorRecording(it) }
+                SettingsRow { SettingsNote(stringResource(R.string.recorder_mirror_note)) }
             }
         }
         FocusSettings(capture.focus, capture.ready && capture.phase != Phase.Saving)
-        Section(stringResource(R.string.recorder_settings_zoom)) {
+        SettingsSection(stringResource(R.string.recorder_settings_zoom)) {
             var choosing by remember { mutableStateOf(false) }
             val transition = stringResource(R.string.recorder_settings_transition)
             val value = zoomTimeName(settings.zoomSeconds)
@@ -287,33 +289,33 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
                     }
                 }
             }
-            SettingsRow { Note(stringResource(R.string.recorder_settings_zoom_note)) }
+            SettingsRow { SettingsNote(stringResource(R.string.recorder_settings_zoom_note)) }
         }
         if (capture.microphones.isNotEmpty()) {
             // A running segment keeps its microphone: the choice is for the next one.
             val free = capture.phase == Phase.Idle || capture.phase == Phase.Paused
-            Section(stringResource(R.string.recorder_settings_microphone)) {
+            SettingsSection(stringResource(R.string.recorder_settings_microphone)) {
                 ChoiceRow(stringResource(R.string.recorder_mic_automatic), capture.chosenMicrophone == null, free) { capture.chooseMicrophone(null) }
                 capture.microphones.forEach { choice ->
                     ChoiceRow(choice.label, capture.chosenMicrophone?.id == choice.id, free) { capture.chooseMicrophone(choice.id) }
                 }
-                SettingsRow { Note(stringResource(if (free) R.string.recorder_settings_microphone_note else R.string.recorder_settings_microphone_busy)) }
+                SettingsRow { SettingsNote(stringResource(if (free) R.string.recorder_settings_microphone_note else R.string.recorder_settings_microphone_busy)) }
             }
         }
         if (capture.offersUltraHD) {
-            Section(stringResource(R.string.recorder_settings_quality)) {
+            SettingsSection(stringResource(R.string.recorder_settings_quality)) {
                 ChoiceRow(stringResource(R.string.recorder_quality_1080), !settings.ultraHD, capture.canChangeTake) { capture.chooseUltraHD(false) }
                 ChoiceRow(stringResource(R.string.recorder_quality_4k), settings.ultraHD, capture.canChangeTake) { capture.chooseUltraHD(true) }
                 SettingsRow {
-                    Note(stringResource(if (settings.ultraHD && !capture.offers.ultraHD) R.string.recorder_quality_note_camera else R.string.recorder_quality_note))
+                    SettingsNote(stringResource(if (settings.ultraHD && !capture.offers.ultraHD) R.string.recorder_quality_note_camera else R.string.recorder_quality_note))
                 }
             }
         }
-        Section(stringResource(R.string.recorder_settings_framing)) {
-            SwitchRow(stringResource(R.string.recorder_settings_fit), settings.fitFrame) { settings.fitFrame = it }
-            SettingsRow { Note(stringResource(R.string.recorder_settings_fit_note)) }
+        SettingsSection(stringResource(R.string.recorder_settings_framing)) {
+            SettingsSwitch(stringResource(R.string.recorder_settings_fit), settings.fitFrame) { settings.fitFrame = it }
+            SettingsRow { SettingsNote(stringResource(R.string.recorder_settings_fit_note)) }
         }
-        Section(stringResource(R.string.recorder_settings_about)) {
+        SettingsSection(stringResource(R.string.recorder_settings_about)) {
             SettingsRow(Modifier.clickable(role = Role.Button) { credits = true }) {
                 Text(stringResource(R.string.recorder_settings_credits), color = Color.White, modifier = Modifier.weight(1f))
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = Secondary)
@@ -325,7 +327,7 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
 }
 
 @Composable
-internal fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Text(
         title.uppercase(), color = Secondary, fontSize = 12.sp,
         modifier = Modifier.padding(start = 12.dp, top = 18.dp, bottom = 6.dp).semantics { heading() },
@@ -342,12 +344,12 @@ internal fun SettingsRow(modifier: Modifier = Modifier, content: @Composable and
 }
 
 @Composable
-internal fun Note(text: String) {
+internal fun SettingsNote(text: String) {
     Text(text, color = Secondary, fontSize = 12.sp, lineHeight = 16.sp)
 }
 
 @Composable
-internal fun SwitchRow(label: String, on: Boolean, enabled: Boolean = true, change: (Boolean) -> Unit) {
+internal fun SettingsSwitch(label: String, on: Boolean, enabled: Boolean = true, change: (Boolean) -> Unit) {
     SettingsRow(Modifier.alpha(if (enabled) 1f else 0.4f)) {
         Text(label, color = Color.White, modifier = Modifier.weight(1f))
         Switch(
