@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -346,7 +347,7 @@ internal fun CropPanel(
                 }
             }
             if (!whole) Text(stringResource(R.string.crop_edges_note), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
-            if (work.on.pieces.size > 1) Text(stringResource(R.string.crop_clips_note, work.on.pieces.size), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
+            if (work.on.pieces.size > 1) Text(pluralStringResource(R.plurals.crop_clips_note, work.on.pieces.size, work.on.pieces.size), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
         }
     }
 }

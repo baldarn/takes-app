@@ -650,14 +650,17 @@
     <string name="crop_rotation_note">Edges stay filled. Tap the angle to reset.</string>
     <string name="crop_zoom_slider">Crop zoom</string>
     <string name="crop_reset_framing">Reset framing</string>
-    <string name="crop_source_area">Source area %1$d by %2$d pixels</string>
+    <string name="crop_source_area">Source area in pixels: %1$d by %2$d</string>
     <string name="crop_position">Position</string>
     <string name="crop_across">Across</string>
     <string name="crop_down">Down</string>
     <string name="crop_across_slider">Crop horizontal position</string>
     <string name="crop_down_slider">Crop vertical position</string>
     <string name="crop_edges_note">Framing changes instantly at the edges of this selection.</string>
-    <string name="crop_clips_note">Framing changes apply to all %1$d selected clips.</string>
+    <plurals name="crop_clips_note">
+        <item quantity="one">Framing changes apply to the selected clip.</item>
+        <item quantity="other">Framing changes apply to all %1$d selected clips.</item>
+    </plurals>
     <string name="motion_animate">Animate</string>
     <string name="motion_edit_end">Edit %1$s</string>
     <string name="motion_remove">Remove animation</string>
