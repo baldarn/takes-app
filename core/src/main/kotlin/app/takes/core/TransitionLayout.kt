@@ -61,6 +61,11 @@ object TransitionLayout {
      * it fits as entered; otherwise the largest factor found by [FIT_STEPS]
      * halvings of 0…1. Null when what is left is under one frame: then there
      * is no transition.
+     *
+     * The original allows its slack of a hundred-millionth of a second in the
+     * halvings too, and its timeline's grid then absorbs the overdraw. There
+     * is no grid here, so a shortened transition takes no more than is free
+     * and the next clip never begins before zero.
      */
     fun fit(settings: TransitionSettings, edge: Int, leftFree: Double, rightFree: Double): Fit? {
         var factor = 1.0
@@ -69,7 +74,8 @@ object TransitionLayout {
             var high = 1.0
             repeat(FIT_STEPS) {
                 val middle = (low + high) / 2
-                if (fits(settings, middle, edge, leftFree, rightFree)) low = middle else high = middle
+                val timing = TransitionTiming.of(settings, middle, edge)
+                if (timing.leftCost <= leftFree && timing.rightCost <= rightFree) low = middle else high = middle
             }
             factor = low
         }
@@ -127,28 +133,33 @@ object TransitionLayout {
     }
 
     /**
-     * Lays out clips that simply follow one another, deriving every factor
-     * from the clips themselves: nothing is stored. [durations] are the clips'
-     * played lengths; [transitions] has one entry per join, so one more than
-     * there are clips (the opening first, the close last; missing entries are
-     * plain cuts).
+     * Lays out clips that simply follow one another. [durations] are the
+     * clips' played lengths; [transitions] has one entry per join, so one
+     * more than there are clips (the opening first, the close last; missing
+     * entries are plain cuts). Invalid settings are ignored. With [ids] (the
+     * clips' ids), a transition whose [TransitionSettings.nextClipID] is not
+     * the clip after it is ignored too.
      *
-     * When the transitions on a clip's two sides together ask for more than
-     * the clip, both are shortened by the same factor, clip by clip from the
-     * first. Invalid settings are ignored. With [ids] (the clips' ids), a
-     * transition whose [TransitionSettings.nextClipID] is not the clip after
-     * it is ignored too.
+     * [fits] are the factors saved for the joins, one per join like
+     * [transitions]. A transition that has one plays at it, as the original's
+     * saved timeline does: nothing is fitted again. When any transition in
+     * play has none, the factors are derived as the original converts a
+     * timeline saved without them: starting from the saved ones (1 where
+     * there is none), wherever the transitions on a clip's two sides together
+     * ask for more than the clip, both are shortened by the same factor, clip
+     * by clip from the first. Without [fits] every factor is derived so.
      */
-    fun sequence(durations: List<Double>, transitions: List<TransitionSettings?>, ids: List<String>? = null): Sequence {
+    fun sequence(durations: List<Double>, transitions: List<TransitionSettings?>, ids: List<String>? = null, fits: List<Double?>? = null): Sequence {
         val count = durations.size
         if (count == 0) return Sequence(emptyList(), emptyList(), 0.0)
         val settings = List(count + 1) { index ->
             transitions.getOrNull(index)?.takeIf { it.valid && (ids == null || index == 0 || it.nextClipID == ids.getOrNull(index)) }
         }
-        val factors = MutableList(count + 1) { 1.0 }
+        val factors = MutableList(count + 1) { index -> fits?.getOrNull(index)?.takeIf { settings[index] != null } ?: 1.0 }
+        val fitted = fits != null && (0..count).all { settings[it] == null || fits.getOrNull(it) != null }
         fun timing(index: Int, scale: Double = 1.0) = TransitionTiming.of(settings[index], factors[index] * scale, edge(index, count))
         // Adjacent footprints cannot share source time.
-        for (index in 0 until count) {
+        if (!fitted) for (index in 0 until count) {
             if (timing(index).rightCost + timing(index + 1).leftCost > durations[index] + FIT_SLACK) {
                 var low = 0.0
                 var high = 1.0

@@ -11,17 +11,93 @@ object TimelineEditing {
     @Volatile private var laidOut: Pair<List<TimelineClip>, TransitionLayout.Sequence>? = null
 
     /**
-     * Where every clip plays and what happens at every join, with each
-     * transition fitted to the footage around it. Join 0 is the opening of
-     * the timeline, join n its close, and join i the one into the clip at i.
+     * Where every clip plays and what happens at every join. Join 0 is the
+     * opening of the timeline, join n its close, and join i the one into the
+     * clip at i. A transition plays as it was fitted when its fit is saved
+     * ([TimelineClip.transitionFit]); one saved without a fit is fitted to
+     * the footage around it here, by [TransitionLayout.sequence]'s rule, and
+     * [fitted] is what saves it.
      */
     fun layout(clips: List<TimelineClip>): TransitionLayout.Sequence {
         laidOut?.let { (list, sequence) -> if (list === clips) return sequence }
         val sequence = TransitionLayout.sequence(
             clips.map { it.duration }, listOf(clips.firstOrNull()?.openingTransition) + clips.map { it.transition }, clips.map { it.id },
+            listOf(clips.firstOrNull()?.openingTransitionFit?.factor) + clips.map { it.transitionFit?.factor },
         )
         laidOut = clips to sequence
         return sequence
+    }
+
+    /**
+     * The clips with the fit of every transition in play saved on them, as
+     * [layout] finds it: the conversion the original makes once of a timeline
+     * saved without fits. The same list, the same instance, when nothing was
+     * missing. Every edit that moves footage starts from this, so from then
+     * on its rule decides what becomes of each fit and none is derived again.
+     */
+    fun fitted(clips: List<TimelineClip>): List<TimelineClip> {
+        if (clips.isEmpty()) return clips
+        val joins = layout(clips).joins
+        var changed = false
+        val next = clips.mapIndexed { index, clip ->
+            val opening = joins[index].takeIf { index == 0 && it.transition != null }?.let { TransitionFit(it.factor) } ?: clip.openingTransitionFit
+            val leaving = joins[index + 1].takeIf { it.transition != null }?.let { TransitionFit(it.factor) } ?: clip.transitionFit
+            if (opening == clip.openingTransitionFit && leaving == clip.transitionFit) clip else {
+                changed = true
+                clip.copy(openingTransitionFit = opening, transitionFit = leaving)
+            }
+        }
+        return if (changed) next else clips
+    }
+
+    /** The clips with the transition of join [join] and its fit replaced; null removes both. */
+    private fun withJoin(clips: List<TimelineClip>, join: Int, settings: TransitionSettings?, fit: TransitionFit?): List<TimelineClip> =
+        clips.toMutableList().also {
+            if (join == 0) it[0] = clips[0].copy(openingTransition = settings, openingTransitionFit = fit.takeIf { settings != null })
+            else it[join - 1] = clips[join - 1].copy(transition = settings, transitionFit = fit.takeIf { settings != null })
+        }
+
+    /**
+     * The original's guard after every edit: a transition between two clips
+     * that costs more footage than one of them has is removed. The rules of
+     * the edits here never leave one, so this is a net and not a rule.
+     */
+    private fun pruned(clips: List<TimelineClip>): List<TimelineClip> {
+        var result = clips
+        for (join in layout(clips).joins) {
+            if (join.transition == null || join.edge != 0) continue
+            if (join.timing.leftCost > clips[join.index - 1].duration + PRUNE_SLACK || join.timing.rightCost > clips[join.index].duration + PRUNE_SLACK) {
+                result = withJoin(result, join.index, null, null)
+            }
+        }
+        return result
+    }
+
+    private const val PRUNE_SLACK = 0.00001
+
+    /**
+     * After the clip at [index] was made shorter without losing footage (a
+     * faster speed, pauses taken out): when the transition into it and the
+     * one out of it together cost more than it now lasts, both are scaled by
+     * the largest factor that fits, as the original does. Otherwise nothing
+     * changes, and a transition never grows here.
+     */
+    private fun refitted(clips: List<TimelineClip>, index: Int): List<TimelineClip> {
+        val joins = layout(clips).joins
+        val sides = listOf(joins[index], joins[index + 1])
+        fun cost(scale: Double) = TransitionTiming.of(sides[0].transition, sides[0].factor * scale, sides[0].edge).rightCost +
+            TransitionTiming.of(sides[1].transition, sides[1].factor * scale, sides[1].edge).leftCost
+        val length = clips[index].duration
+        if (cost(1.0) <= length) return clips
+        var low = 0.0
+        var high = 1.0
+        repeat(TransitionLayout.FIT_STEPS) {
+            val middle = (low + high) / 2
+            if (cost(middle) <= length) low = middle else high = middle
+        }
+        var result = clips
+        for (side in sides) if (side.transition != null) result = withJoin(result, side.index, side.transition, TransitionFit(side.factor * low))
+        return result
     }
 
     /** The join into the clip at [index]; null when it is a plain cut, or when its transition is left with less than a frame. */
@@ -73,47 +149,81 @@ object TimelineEditing {
         return chains
     }
 
+    /**
+     * Cuts the clip showing at [time] in two. Refused inside a transition.
+     * No fit changes: the transition into the clip stays on the first piece
+     * and the one out of it goes with the second, as they were.
+     */
     fun split(state: EditState, time: Double): EditState? {
-        val (index, offset) = locate(state.clips, time) ?: return null
-        val clip = state.clips[index]
+        val clips = fitted(state.clips)
+        val (index, offset) = locate(clips, time) ?: return null
+        val clip = clips[index]
         if (offset < MINIMUM_CLIP || clip.duration - offset < MINIMUM_CLIP) return null
         // Not inside a transition: the picture or the sound of two clips is in play there.
-        if (layout(state.clips).joins.any { it.transition != null && time > it.range.start && time < it.range.endInclusive }) return null
+        if (layout(clips).joins.any { it.transition != null && time > it.range.start && time < it.range.endInclusive }) return null
         val cut = clip.sourceTime(offset)
         // The join after the clip now follows the second piece. Both pieces keep every title, as in the original: one that
         // lies in the other piece's footage does not show, and shows again when the piece is extended over that footage.
         val (before, after) = clip.bookmarks.orEmpty().partition { it.time < cut }
         // Each piece keeps the level; the fade in stays at the start, the fade out at the end.
         val pieces = listOf(
-            clip.copy(end = cut, transition = null, bookmarks = before.ifEmpty { null },
+            clip.copy(end = cut, transition = null, transitionFit = null, bookmarks = before.ifEmpty { null },
                 audio = clip.audio?.copy(fadeOut = 0.0).normalized()),
             // A copy, so whatever else a clip carries, such as its color, stays on both pieces.
-            clip.copy(id = newID(), start = cut, openingTransition = null, bookmarks = after.ifEmpty { null },
+            clip.copy(id = newID(), start = cut, openingTransition = null, openingTransitionFit = null, bookmarks = after.ifEmpty { null },
                 audio = clip.audio?.copy(fadeIn = 0.0).normalized()),
         )
-        return state.copy(clips = state.clips.take(index) + pieces + state.clips.drop(index + 1))
+        return state.copy(clips = pruned(clips.take(index) + pieces + clips.drop(index + 1)))
     }
 
-    /** Removes the clip and closes the gap. */
+    /** Removes the clip and closes the gap. Its transitions go with it; every other keeps its fit. */
     fun delete(state: EditState, index: Int): EditState? {
         if (index !in state.clips.indices) return null
-        return state.copy(clips = withoutBrokenJoins(state.clips.filterIndexed { position, _ -> position != index }))
+        return state.copy(clips = pruned(withoutBrokenJoins(fitted(state.clips).filterIndexed { position, _ -> position != index })))
     }
 
+    /** Moves the clip. A transition whose two clips are no longer neighbors is removed; every other keeps its fit. */
     fun move(state: EditState, from: Int, to: Int): EditState? {
         if (from !in state.clips.indices || to !in state.clips.indices || from == to) return null
-        val clips = state.clips.toMutableList()
+        val clips = fitted(state.clips).toMutableList()
         clips.add(to, clips.removeAt(from))
-        return state.copy(clips = withoutBrokenJoins(clips))
+        return state.copy(clips = pruned(withoutBrokenJoins(clips)))
+    }
+
+    /** Times this close to a join are on it, as in the original's paste. */
+    const val JOIN_REACH = 0.0001
+
+    /**
+     * The timeline made ready for footage to go in at [point], as the
+     * original's paste does: the clips, and the join the footage goes on when
+     * [point] is on the join of a transition (the footage then goes between
+     * its two clips, which ends it). Otherwise every transition running at
+     * [point] is removed, so both its clips have their whole length again,
+     * and the clip then showing at that second is the one to cut.
+     */
+    internal fun opened(clips: List<TimelineClip>, point: Double): Pair<List<TimelineClip>, Int?> {
+        var result = fitted(clips)
+        (1 until result.size).firstOrNull { index -> join(result, index)?.let { kotlin.math.abs(it.time - point) < JOIN_REACH } == true }?.let { return result to it }
+        // A transition gone moves the clips after it, which can bring another one over the point.
+        while (true) {
+            val crossed = (0..result.size).mapNotNull { join(result, it) }.filter { point > it.range.start && point < it.range.endInclusive }
+            if (crossed.isEmpty()) break
+            for (join in crossed) result = withJoin(result, join.index, null, null)
+        }
+        return result to null
     }
 
     /**
      * Puts [clips] into the timeline at [time], in order; later clips ripple.
      * Inside a clip, the clip is split there and they go between the pieces.
-     * Where a split is refused (closer than [MINIMUM_CLIP] to an edge, or
-     * inside a transition, where two clips are in play) they go to the nearer
-     * edge of the clip instead. A transition on the join they land on is
-     * removed, as when a clip is moved there: it belonged to those neighbors.
+     * Inside a transition, the transition is removed and the clip then
+     * showing at that second is split, as the original's paste does and as
+     * [RangeEditing.paste] does ([opened]); on the join of a transition they
+     * go between its two clips. Where a split is refused (closer than
+     * [MINIMUM_CLIP] to an edge) they go to the nearer edge of the clip
+     * instead. A transition on the join they land on is removed, as when a
+     * clip is moved there: it belonged to those neighbors. Every other
+     * transition keeps its fit.
      * Null when there is nothing to insert or a clip is already on the timeline.
      */
     fun insert(state: EditState, clips: List<TimelineClip>, time: Double): EditState? {
@@ -121,14 +231,16 @@ object TimelineEditing {
         val ids = clips.map { it.id }.toSet()
         if (ids.size != clips.size || state.clips.any { it.id in ids }) return null
         val at = time.coerceIn(0.0, state.duration)
-        var base = state.clips
-        var index = 0
-        locate(base, at)?.let { (found, offset) ->
-            val cut = split(state, at)
-            if (cut != null) { base = cut.clips; index = found + 1 }
-            else index = if (offset <= base[found].duration / 2) found else found + 1
+        var (base, index) = opened(state.clips, at).let { it.first to (it.second ?: -1) }
+        if (index < 0) {
+            index = 0
+            locate(base, at)?.let { (found, offset) ->
+                val cut = split(state.copy(clips = base), at)
+                if (cut != null) { base = cut.clips; index = found + 1 }
+                else index = if (offset <= base[found].duration / 2) found else found + 1
+            }
         }
-        return state.copy(clips = withoutBrokenJoins(base.take(index) + clips + base.drop(index)))
+        return state.copy(clips = pruned(withoutBrokenJoins(base.take(index) + clips + base.drop(index))))
     }
 
     /**
@@ -145,12 +257,24 @@ object TimelineEditing {
         return clip.copy(start = newStart, end = newEnd)
     }
 
-    /** Changes the clip's source range; later clips ripple. */
+    /**
+     * Changes the clip's source range; later clips ripple. As in the
+     * original, when the transition into the clip and the one out of it
+     * together cost more footage than the clip is left with, both are
+     * removed, and they do not come back when the clip is extended again.
+     * Otherwise no fit changes, however much room the clip gains.
+     */
     fun trim(state: EditState, index: Int, start: Double, end: Double, sourceDuration: Double): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
-        val next = trimmed(clip, start, end, sourceDuration)
-        if (next == clip) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = next })
+        if (trimmed(clip, start, end, sourceDuration) == clip) return null
+        var clips = fitted(state.clips)
+        val next = trimmed(clips[index], start, end, sourceDuration)
+        val joins = layout(clips).joins
+        clips = clips.toMutableList().also { it[index] = next }
+        if (joins[index].timing.rightCost + joins[index + 1].timing.leftCost > next.duration) {
+            for (join in listOf(joins[index], joins[index + 1])) if (join.transition != null) clips = withJoin(clips, join.index, null, null)
+        }
+        return state.copy(clips = pruned(clips))
     }
 
     /**
@@ -159,9 +283,15 @@ object TimelineEditing {
      * the gaps closed. Pieces too short to stand alone are dropped with the
      * cut. Titles stay on every piece. Null when nothing would change or
      * nothing would be left.
+     *
+     * The transition into the clip stays on the first piece and the one out
+     * of it on the last. One that now costs more than its piece lasts is
+     * scaled to fit it, as the original does when pauses make a clip shorter
+     * (there a clip stays one clip; refitting each to its piece is this
+     * port's reading for separate pieces).
      */
     fun removeIntervals(state: EditState, index: Int, cuts: List<SourceInterval>): EditState? {
-        val clip = state.clips.getOrNull(index) ?: return null
+        val clip = fitted(state.clips).getOrNull(index) ?: return null
         val kept = PauseDetector.keptIntervals(clip, cuts).filter { it.duration / clip.rate >= MINIMUM_CLIP }
         if (kept.isEmpty() || (kept.size == 1 && kept[0].start == clip.start && kept[0].end == clip.end)) return null
         val pieces = kept.mapIndexed { position, part ->
@@ -172,13 +302,18 @@ object TimelineEditing {
                 id = if (first) clip.id else newID(),
                 start = part.start, end = part.end,
                 transition = if (last) clip.transition else null,
+                transitionFit = if (last) clip.transitionFit else null,
                 openingTransition = if (first) clip.openingTransition else null,
+                openingTransitionFit = if (first) clip.openingTransitionFit else null,
                 // Every piece keeps every title, as the pieces of a split do: a title shows wherever its footage is played.
                 bookmarks = clip.bookmarks?.filter { it.time >= part.start && it.time < part.end }?.ifEmpty { null },
                 audio = clip.audio?.copy(fadeIn = if (first) clip.audio.fadeIn else 0.0, fadeOut = if (last) clip.audio.fadeOut else 0.0).normalized(),
             )
         }
-        return state.copy(clips = state.clips.take(index) + pieces + state.clips.drop(index + 1))
+        val before = fitted(state.clips)
+        var clips = refitted(before.take(index) + pieces + before.drop(index + 1), index)
+        if (pieces.size > 1) clips = refitted(clips, index + pieces.lastIndex)
+        return state.copy(clips = pruned(clips))
     }
 
     // MARK: Transitions
@@ -192,7 +327,10 @@ object TimelineEditing {
     private fun withoutBrokenJoins(clips: List<TimelineClip>): List<TimelineClip> = clips.mapIndexed { index, clip ->
         val broken = clip.transition != null && clip.transition.nextClipID != clips.getOrNull(index + 1)?.id
         val displaced = clip.openingTransition != null && index != 0
-        if (broken || displaced) clip.copy(transition = if (broken) null else clip.transition, openingTransition = if (displaced) null else clip.openingTransition) else clip
+        if (broken || displaced) clip.copy(
+            transition = if (broken) null else clip.transition, transitionFit = if (broken) null else clip.transitionFit,
+            openingTransition = if (displaced) null else clip.openingTransition, openingTransitionFit = if (displaced) null else clip.openingTransitionFit,
+        ) else clip
     }
 
     /** The transition into the clip after [index], if those two clips are still neighbors. */
@@ -209,22 +347,34 @@ object TimelineEditing {
 
     /**
      * Sets the transition at join [join] (0 the opening, the number of clips
-     * the close), or restores the plain cut when [settings] is null. The
-     * settings are kept as entered; the layout shortens a transition that
-     * asks for more footage than its clips have. Null when nothing changes,
-     * when the settings are out of range, or when what fits is shorter than
-     * one frame: that is no transition.
+     * the close), or restores the plain cut when [settings] is null.
+     *
+     * As in the original, the settings are kept as entered and the
+     * transition is fitted, from its full length, into the footage the
+     * transitions on the far sides of its two clips leave free; those keep
+     * their fits and are never shortened to make room, so the order in which
+     * transitions are set matters. The factor found is saved with it. Setting
+     * the same settings again fits it again, which is the one moment a
+     * shortened transition gets back the length its clips have gained since.
+     *
+     * Null when nothing changes, when the settings are out of range, or when
+     * what fits is shorter than one frame: that is no transition.
      */
     fun setJoin(state: EditState, join: Int, settings: TransitionSettings?): EditState? {
-        val clips = state.clips
-        if (clips.isEmpty() || join !in 0..clips.size) return null
+        if (state.clips.isEmpty() || join !in 0..state.clips.size) return null
+        val clips = fitted(state.clips)
         val value = settings?.copy(nextClipID = clips.getOrNull(join)?.id)
         if (value != null && !value.valid) return null
-        if (value == joinSettings(clips, join) && (value != null || (if (join == 0) clips[0].openingTransition else clips[join - 1].transition) == null)) return null
-        val next = clips.toMutableList()
-        if (join == 0) next[0] = clips[0].copy(openingTransition = value) else next[join - 1] = clips[join - 1].copy(transition = value)
-        if (value != null && join(next, join) == null) return null
-        return state.copy(clips = next)
+        val saved = if (join == 0) clips[0].openingTransition else clips[join - 1].transition
+        if (value == null) return if (saved == null) null else state.copy(clips = withJoin(clips, join, null, null))
+        val joins = layout(clips).joins
+        // The transitions on the far sides keep their footage.
+        val leftFree = TransitionLayout.free(clips.getOrNull(join - 1)?.duration, if (join > 0) joins[join - 1].timing.rightCost else 0.0)
+        val rightFree = TransitionLayout.free(clips.getOrNull(join)?.duration, if (join < clips.size) joins[join + 1].timing.leftCost else 0.0)
+        val fit = TransitionLayout.fit(value, TransitionLayout.edge(join, clips.size), leftFree, rightFree) ?: return null
+        val fitted = (if (join == 0) clips[0].openingTransitionFit else clips[join - 1].transitionFit)?.factor
+        if (value == joinSettings(clips, join) && fit.factor == fitted) return null
+        return state.copy(clips = withJoin(clips, join, value, TransitionFit(fit.factor)))
     }
 
     /** Sets the join after the clip at [index] to [style] over [duration] seconds; a null [duration] removes it. */
@@ -502,12 +652,15 @@ object TimelineEditing {
     /**
      * Plays the clip at [rate] times its recorded speed; 1 removes the
      * setting. The clip keeps its footage and takes more or less time, so
-     * later clips move.
+     * later clips move. When its transitions then cost more than it lasts,
+     * they are scaled together to fit, as in the original; a clip made
+     * slower does not give a shortened transition its length back.
      */
     fun setSpeed(state: EditState, index: Int, rate: Double): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
         val speed = if (rate == 1.0) null else (clip.speed ?: SpeedSettings()).copy(rate = rate)
         if (speed?.valid == false || speed == clip.speed) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(speed = speed) })
+        val clips = fitted(state.clips).toMutableList().also { it[index] = it[index].copy(speed = speed) }
+        return state.copy(clips = pruned(refitted(clips, index)))
     }
 }

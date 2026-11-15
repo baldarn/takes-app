@@ -168,8 +168,9 @@ data class ClipFragment(
  *  - A transition belongs to its two clips. It survives while both stay
  *    neighbors, travels in a fragment that holds both, and is removed, giving
  *    both clips their full length back, when a cut or a paste separates them.
- *    Where it sits is read from [TimelineEditing.layout], fitted to the
- *    footage: nothing here measures a transition by its style.
+ *    Where it sits is read from [TimelineEditing.layout], as it was
+ *    fitted: nothing here measures a transition by its style, and a
+ *    transition that stays or travels keeps its fit.
  *  - The original keeps a clip where it is when its transition goes, so a
  *    freeze or a hold on a color can leave empty picture behind. Here the
  *    clips always follow one another, and that time closes.
@@ -184,7 +185,7 @@ object RangeEditing {
     const val EPSILON = 0.00001
 
     /** Times this close to a join are on it. */
-    private const val JOIN_REACH = 0.0001
+    private const val JOIN_REACH = TimelineEditing.JOIN_REACH
 
     /** [time] on the nearest frame; a tie goes away from zero. */
     fun quantize(time: Double): Double {
@@ -335,7 +336,10 @@ object RangeEditing {
 
     /** The clips without the opening and the close, which shape the ends of a timeline and not the clips' places among themselves. */
     private fun inner(clips: List<TimelineClip>): List<TimelineClip> =
-        clips.map { it.copy(openingTransition = null, transition = it.transition?.takeIf { join -> join.nextClipID != null }) }
+        clips.map { clip ->
+            val leaving = clip.transition?.takeIf { it.nextClipID != null }
+            clip.copy(openingTransition = null, openingTransitionFit = null, transition = leaving, transitionFit = clip.transitionFit.takeIf { leaving != null })
+        }
 
     /** The timeline cut at both ends of a range: [pieces] `from` until `until` lie inside it. */
     private class Resolved(val pieces: List<Piece>, val from: Int, val until: Int)
@@ -415,7 +419,9 @@ object RangeEditing {
      * Null when the range is shorter than a frame or inverted, or when the
      * scope covers nothing.
      */
-    fun delete(state: EditState, scope: EditScope, playhead: Double? = null): Removed? {
+    fun delete(given: EditState, scope: EditScope, playhead: Double? = null): Removed? {
+        // From here on the transitions that stay keep the fit they have.
+        val state = given.copy(clips = TimelineEditing.fitted(given.clips))
         val all = pieces(state.clips)
         val items = state.audio.orEmpty()
         val kept: List<Piece>
@@ -486,7 +492,9 @@ object RangeEditing {
      *
      * Null when the range is shorter than a frame or inverted, or nothing is covered.
      */
-    fun copy(state: EditState, scope: EditScope): ClipFragment? {
+    fun copy(given: EditState, scope: EditScope): ClipFragment? {
+        // A transition travels with the fit it has.
+        val state = given.copy(clips = TimelineEditing.fitted(given.clips))
         val items = state.audio.orEmpty()
         val chosen: List<Piece>
         val sound: List<AudioItem>
@@ -521,8 +529,10 @@ object RangeEditing {
                 // A piece is known by the clip it was cut from, which keeps a detached sound item paired with its picture.
                 id = whole.id,
                 transition = join.takeIf { travels },
+                transitionFit = piece.clip.transitionFit.takeIf { travels },
                 // A cut leaves the opening on the piece that begins the first clip.
                 openingTransition = piece.clip.openingTransition.takeIf { piece.origin == 0 },
+                openingTransitionFit = piece.clip.openingTransitionFit.takeIf { piece.origin == 0 },
                 // Only the marks that show: a mark on trimmed-away footage stays behind.
                 bookmarks = piece.clip.bookmarks?.filter { it.time >= piece.clip.start && it.time < piece.clip.end }?.ifEmpty { null },
             )
@@ -630,23 +640,14 @@ object RangeEditing {
             base = at.coerceIn(0.0, maxOf(state.duration, state.audio.orEmpty().maxOfOrNull { it.end } ?: 0.0))
         } else {
             val point = at.coerceIn(0.0, state.duration)
-            val onJoin = (1 until clips.size).firstOrNull { join -> TimelineEditing.join(clips, join)?.let { abs(it.time - point) < JOIN_REACH } == true }
+            // The rule of TimelineEditing.insert: on the join of a transition between its two clips;
+            // otherwise what is in play at the point is separated before the picture is opened.
+            val (ready, onJoin) = TimelineEditing.opened(clips, point)
+            clips = ready
             val index: Int
             if (onJoin != null) {
                 index = onJoin
             } else {
-                // Separate what is in play there before opening the picture. Without it a
-                // neighboring transition may take the footage back and reach the point in turn.
-                while (true) {
-                    val crossed = transitions(clips).filter { point > it.range.start && point < it.range.endInclusive }.map { it.index }
-                    if (crossed.isEmpty()) break
-                    clips = clips.mapIndexed { position, clip ->
-                        clip.copy(
-                            openingTransition = clip.openingTransition.takeUnless { position == 0 && 0 in crossed },
-                            transition = clip.transition.takeUnless { position + 1 in crossed },
-                        )
-                    }
-                }
                 val cut = cut(clips, point)
                 if (cut.offset != null) clips = pieces(clips).dividedAt(cut.index, cut.offset).map { it.clip }
                 index = if (cut.offset != null) cut.index + 1 else cut.index
@@ -682,7 +683,9 @@ object RangeEditing {
                 id = fresh(clip.id),
                 transition = clip.transition?.takeIf { it.nextClipID == fragment.clips.getOrNull(index + 1)?.id }
                     ?.let { it.copy(id = fresh(it.id), nextClipID = it.nextClipID?.let(::fresh)) },
+                transitionFit = clip.transitionFit.takeIf { clip.transition?.nextClipID == fragment.clips.getOrNull(index + 1)?.id },
                 openingTransition = clip.openingTransition?.takeIf { index == 0 }?.let { it.copy(id = fresh(it.id), nextClipID = it.nextClipID?.let(::fresh)) },
+                openingTransitionFit = clip.openingTransitionFit.takeIf { index == 0 },
                 texts = clip.texts?.map { it.copy(id = fresh(it.id)) },
                 bookmarks = clip.bookmarks?.map { it.copy(id = newID()) },
                 color = clip.color?.let { it.copy(id = fresh(it.id)) },
@@ -715,13 +718,17 @@ object RangeEditing {
         EditScope.Whole -> Scoped(state, state.clips.map { it.id })
         is EditScope.Selected -> Scoped(state, state.clips.map { it.id }.filter { it in scope.targets.clips })
         is EditScope.Range -> {
-            val joins = joinTimes(state.clips)
-            fun inside(time: Double) = joins.none { abs(it - time) < JOIN_REACH } && transitionAt(state.clips, time) != null
+            // The cuts are made on the fitted clips, so no transition is fitted again around the pieces.
+            val clips = TimelineEditing.fitted(state.clips)
+            val joins = joinTimes(clips)
+            fun inside(time: Double) = joins.none { abs(it - time) < JOIN_REACH } && transitionAt(clips, time) != null
             val resolved = bounded(scope.range)?.takeUnless { inside(it.start) || inside(it.end) }
-                ?.let { resolve(state.clips, it.start, it.end, scope.targets?.clips) }
+                ?.let { resolve(clips, it.start, it.end, scope.targets?.clips) }
             if (resolved == null) Scoped(state, emptyList()) else {
-                val chosen = resolved.pieces.subList(resolved.from, resolved.until).filter { scope.targets.aims(state.clips[it.origin].id) }
-                Scoped(state.copy(clips = resolved.pieces.map { it.clip }), chosen.map { it.clip.id })
+                val chosen = resolved.pieces.subList(resolved.from, resolved.until).filter { scope.targets.aims(clips[it.origin].id) }
+                // An edit that cuts nothing is the edit it was given.
+                val pieces = resolved.pieces.map { it.clip }
+                Scoped(if (pieces == clips) state else state.copy(clips = pieces), chosen.map { it.clip.id })
             }
         }
     }

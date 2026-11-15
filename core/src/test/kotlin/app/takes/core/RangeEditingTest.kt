@@ -414,9 +414,12 @@ class RangeEditingTest {
         val music = AudioItem(sourceID = "M", start = 1.5, sourceStart = 3.0, sourceEnd = 9.0, track = 1, audio = ClipAudio(volumeDB = -12.0, fadeOut = 1.0))
         val state = EditState(listOf(first, second, third), audio = listOf(music), subtitles = SubtitleSettings(maxWords = 3, timingFingerprint = "x"))
         val copy = RangeEditing.copy(state, EditScope.Whole)!!
-        assertEquals(state.clips, copy.clips)
+        // The transitions travel as they were fitted (TimelineClipboardChecks.swift:97).
+        val fitted = TimelineEditing.fitted(state.clips)
+        assertEquals(listOf(TransitionFit(1.0), TransitionFit(1.0), null), fitted.map { it.transitionFit })
+        assertEquals(fitted, copy.clips)
         val pasted = RangeEditing.paste(EditState(), copy, 0.0)!!
-        assertEquals(content(state.clips), content(pasted.state.clips))
+        assertEquals(content(fitted), content(pasted.state.clips))
         assertEquals(listOf(music.copy(id = pasted.audio.single())), pasted.state.audio)
         assertEquals(state.duration, pasted.state.duration, 0.0)
         // An empty project takes the caption look; regrouping waits for a transcription made here.
@@ -752,7 +755,7 @@ class RangeEditingTest {
             val copy = RangeEditing.copy(state, EditScope.Whole)!!
             assertEquals("$style", state.duration, copy.duration, 0.0)
             val pasted = RangeEditing.paste(EditState(), copy, 0.0)!!.state
-            assertEquals("$style", content(state.clips), content(pasted.clips))
+            assertEquals("$style", content(TimelineEditing.fitted(state.clips)), content(pasted.clips))
             assertNotEquals("$style", settings.id, pasted.clips[0].transition!!.id)
             assertEquals("$style", pasted.clips[1].id, pasted.clips[0].transition!!.nextClipID)
             assertEquals("$style", state.duration, pasted.duration, 0.0)
@@ -943,23 +946,23 @@ class RangeEditingTest {
         assertEquals(b.id, scoped.state.clips[1].id)
         assertEquals(listOf(a.transition, null, b.transition, null), scoped.state.clips.map { it.transition })
         assertEquals(8.0, scoped.state.duration, 1e-9)
-        // A deletion before the first one leaves both. How long they are then is the layout's answer for the
-        // footage that is left, the same as after two splits and a delete: nothing here keeps a fitted length,
-        // where the original stores the factor (TrackTimeline.swift:853-874).
+        // A deletion before the first one leaves both as they were fitted, the same as after two splits and a
+        // delete: the factor is saved, as the original stores it (TrackTimeline.swift:863-866).
         val shorter = RangeEditing.delete(chain, range(0.5, 1.5))!!.state
         assertEquals(listOf(null, a.transition, b.transition, null), shorter.clips.map { it.transition })
         val bySplits = TimelineEditing.delete(TimelineEditing.split(TimelineEditing.split(chain, 1.5)!!, 0.5)!!, 1)!!
         assertEquals(ranges(bySplits), ranges(shorter))
         assertEquals(bySplits.duration, shorter.duration, 0.0)
         assertEquals(join(bySplits, 2).range, join(shorter, 2).range)
-        // A paste inside the first removes it. The second then has the whole middle clip and is three seconds
-        // again: the layout fits a transition to the footage there is (TransitionLayout.sequence), where the
-        // original keeps the factor it stored (TrackTimeline.swift:853-874).
+        assertEquals(2.0 / 3, join(shorter, 2).factor, 1e-9)
+        assertEquals(2.0 / 3, join(shorter, 3).factor, 1e-9)
+        // A paste inside the first removes it. The second has the whole middle clip free now and still plays
+        // for two seconds: it keeps the factor it was fitted with (TrackTimeline.swift:863-866).
         val pasted = RangeEditing.paste(chain, insert, 3.5)!!.state
         assertEquals(listOf("A", "C", "A", "B", "C"), pasted.clips.map { it.sourceID })
         assertEquals(listOf(null, null, null, b.transition!!.id, null), pasted.clips.map { it.transition?.id })
-        assertEquals(1.0, join(pasted, 4).factor, 0.0)
-        assertEquals(11.0, pasted.duration, 1e-9)
+        assertEquals(2.0 / 3, join(pasted, 4).factor, 1e-9)
+        assertEquals(12.0, pasted.duration, 1e-9)
     }
 
     /**

@@ -121,6 +121,20 @@ data class ClipAudio(
     }
 }
 
+/**
+ * How a transition was fitted to the footage around it, saved beside it as
+ * the original saves it: [factor] scales its picture and sound together,
+ * 1 when it plays as entered, less when its clips had less footage than it
+ * asks for. A saved fit is kept by every edit except those that name it
+ * ([TimelineEditing]); it is never worked out again from the clips. Where the
+ * transition starts is not saved: clips follow one another here, so it
+ * follows from their order and the factors.
+ */
+@Serializable
+data class TransitionFit(val factor: Double = 1.0) {
+    val valid: Boolean get() = factor.isFinite() && factor in 0.0..1.0
+}
+
 @Serializable
 data class TimelineClip(
     val id: String = newID(),
@@ -143,6 +157,13 @@ data class TimelineClip(
     val speed: SpeedSettings? = null,
     /** What is said in this clip's sound, in source seconds, so it follows the footage. Null when not transcribed. */
     val subtitleWords: List<SubtitleWord>? = null,
+    /**
+     * The fit of [transition]. Null while it has not been fitted: a project saved before fits were, whose
+     * transitions are laid out by [TransitionLayout.sequence]'s own rule until an edit that moves footage saves them.
+     */
+    val transitionFit: TransitionFit? = null,
+    /** The fit of [openingTransition]. */
+    val openingTransitionFit: TransitionFit? = null,
 ) {
     /** How fast the clip plays: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
@@ -451,6 +472,7 @@ data class Project(
                 if (!clip.start.isFinite() || !clip.end.isFinite() || clip.start < 0 ||
                     clip.end <= clip.start || clip.end > source.duration + 0.001) invalid()
                 if (clip.transition?.valid == false || clip.openingTransition?.valid == false) invalid()
+                if (clip.transitionFit?.valid == false || clip.openingTransitionFit?.valid == false) invalid()
                 val texts = clip.texts.orEmpty()
                 if (texts.map { it.id }.toSet().size != texts.size) invalid()
                 if (texts.any { !it.valid || it.end > source.duration + 0.001 }) invalid()

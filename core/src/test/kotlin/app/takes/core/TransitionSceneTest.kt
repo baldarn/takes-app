@@ -56,15 +56,23 @@ class TransitionSceneTest {
     @Test fun aShortClipBetweenTwoLongTransitionsSharesItsFootage() {
         val c = TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 4.0)
         val short = TimelineClip(id = "M", sourceID = "S", start = 0.0, end = 1.0)
-        var state = EditState(listOf(a, short, c))
-        state = TimelineEditing.setJoin(state, 1, TransitionSettings(duration = 3.0))!!
-        state = TimelineEditing.setJoin(state, 2, TransitionSettings(duration = 3.0))!!
-        val layout = TimelineEditing.layout(state.clips)
-        // Each dissolve gets half of the one-second clip; the two never show three clips at once.
+        // Saved without fits, as before fits were saved: each dissolve gets half of the one-second clip.
+        val saved = listOf(
+            a.copy(transition = TransitionSettings(nextClipID = "M", duration = 3.0)), short.copy(transition = TransitionSettings(nextClipID = "C", duration = 3.0)), c,
+        )
+        val layout = TimelineEditing.layout(saved)
         assertEquals(0.5, layout.joins[1].timing.videoDuration, 1e-6)
         assertEquals(0.5, layout.joins[2].timing.videoDuration, 1e-6)
+        // The two never show three clips at once.
         assertTrue(layout.joins[1].videoRange.endInclusive <= layout.joins[2].videoRange.start + 1e-6)
         assertEquals(8.0, layout.duration, 1e-6)
+        // Set one after the other, the first takes the whole clip and nothing is left for the second:
+        // a transition is fitted into what its neighbors leave free and they keep theirs (Transitions.swift:349-370).
+        val state = TimelineEditing.setJoin(EditState(listOf(a, short, c)), 1, TransitionSettings(duration = 3.0))!!
+        assertEquals(1.0, TimelineEditing.layout(state.clips).joins[1].timing.videoDuration, 1e-6)
+        assertEquals(1.0 / 3, state.clips[0].transitionFit!!.factor, 1e-9)
+        assertNull(TimelineEditing.setJoin(state, 2, TransitionSettings(duration = 3.0)))
+        assertEquals(8.0, state.duration, 1e-6)
         assertEquals(3.0, state.clips[0].transition!!.duration, 0.0)
     }
 
@@ -246,9 +254,15 @@ class TransitionSceneTest {
     @Test fun aClipInsertedOnAJoinRemovesItsTransition() {
         val clips = joined(TransitionSettings(style = TransitionStyle.Wipe, duration = 1.0))
         val c = TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 2.0)
+        // On the join it goes between the two clips (TimelinePaste.swift:161-163).
+        val between = TimelineEditing.insert(EditState(clips), listOf(c), 3.5)!!.clips
+        assertEquals(listOf("A", "C", "B"), between.map { it.id })
+        assertTrue(between.all { it.transition == null && it.transitionFit == null })
+        // Inside the transition it is removed and the clip showing at that second is cut there (TimelinePaste.swift:176-186).
         val inserted = TimelineEditing.insert(EditState(clips), listOf(c), 3.6)!!.clips
-        assertEquals(listOf("A", "C", "B"), inserted.map { it.id })
-        assertTrue(inserted.all { it.transition == null })
+        assertEquals(listOf("A", "C", "S", "B"), inserted.mapIndexed { index, clip -> if (index == 2) clip.sourceID else clip.id })
+        assertEquals(listOf(0.0 to 3.6, 0.0 to 2.0, 3.6 to 4.0, 0.0 to 4.0), inserted.map { it.start to it.end })
+        assertTrue(inserted.all { it.transition == null && it.transitionFit == null })
     }
 
     @Test fun aTransitionOnAFasterClipIsMeasuredInMovieSeconds() {
