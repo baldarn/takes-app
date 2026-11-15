@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Camera report: what each camera of this phone offers. Shown in the development build only. -->
+    <string name="recorder_report_open">Camera report</string>
+    <string name="recorder_report_title">Camera report</string>
+    <string name="recorder_report_hint">What each camera of this phone offers to the recorder. Copy it and paste it where it was asked for. The report itself is in English.</string>
+    <string name="recorder_report_reading">Reading the cameras…</string>
+    <string name="recorder_report_copy">Copy</string>
+    <string name="recorder_report_copied">Copied</string>
+    <string name="recorder_report_clip_label">Takes camera report</string>
+</resources>

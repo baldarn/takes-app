@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Camera report: what each camera of this phone offers. Shown in the development build only. -->
+    <string name="recorder_report_open">Rapporto camere</string>
+    <string name="recorder_report_title">Rapporto camere</string>
+    <string name="recorder_report_hint">Che cosa offre al registratore ogni camera di questo telefono. Copialo e incollalo dove ti è stato chiesto. Il rapporto è in inglese.</string>
+    <string name="recorder_report_reading">Lettura delle camere…</string>
+    <string name="recorder_report_copy">Copia</string>
+    <string name="recorder_report_copied">Copiato</string>
+    <string name="recorder_report_clip_label">Rapporto camere di Takes</string>
+</resources>

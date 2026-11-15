@@ -177,6 +177,8 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
                 modifier = Modifier.padding(top = 4.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
         }
         if (capture.phase == Phase.Idle || capture.phase == Phase.Paused) MicrophoneChooser(capture)
+        // What this phone's cameras offer, to copy and send; the development build only.
+        if (capture.phase == Phase.Idle) CameraReportEntry(capture)
         capture.microphoneWarning?.let {
             Text(it, color = Color.White, fontSize = 13.sp,
                 modifier = Modifier.padding(top = 8.dp).background(RecordRed, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
