@@ -16,7 +16,7 @@ The suite is one test of the core tests: `./gradlew :core:test`, or by itself wi
 Every function of `TimelineEditing`, `RangeEditing`, `SubtitleEditing` and `AudioUnlinking` that changes an edit, and the questions among them that the track model also answers, is called twice on the same edit with the same arguments:
 as it is today, and through the track model (`TrackSequenceView`: the edit is converted to a timeline, the operation the function is to become is run, and the result is brought back to a sequence).
 Today's answer is read as the conversion reads it (fits saved, settings that do not play dropped, sound tracks repacked), so only what plays differently counts.
-Ids made during the call, the track of a sound item, the order of a clip's bookmarks, and times less than three ticks (1/80000 s) apart are not differences.
+Ids made during the call, the track of a sound item, the order of a clip's bookmarks, and times less than three ticks (1/80000 s) apart are not differences. Where a sound is muted on both sides, its level, fades and noise reduction are compared as one thing: what it would sound like unmuted.
 
 - **identical**: the same edit and the same answer, or neither applies.
 - **different**: both give a sequence, and the two differ.
@@ -28,16 +28,16 @@ The edits: 18 small ones made for one situation each, 128 steps of the histories
 
 | Function | Calls | Identical | Different | Not expressible | Kinds |
 |---|---:|---:|---:|---:|---|
-| `TimelineEditing.split` | 1931 | 681 | 1239 | 11 | [split-on-the-grid](#split-on-the-grid), [split-refused-near-an-edge](#split-refused-near-an-edge), [split-cuts-sound-items](#split-cuts-sound-items), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts) |
+| `TimelineEditing.split` | 1931 | 681 | 1239 | 11 | [split-on-the-grid](#split-on-the-grid), [split-refused-near-an-edge](#split-refused-near-an-edge), [split-cuts-sound-items](#split-cuts-sound-items), [words-of-unlinked-sound](#words-of-unlinked-sound), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts) |
 | `TimelineEditing.delete` | 621 | 536 | 3 | 82 | [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [later-piece-new-identity](#later-piece-new-identity) |
-| `TimelineEditing.move` | 1396 | 1231 | 11 | 154 | [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), 11 unexplained |
-| `TimelineEditing.insert` | 2822 | 0 | 2579 | 243 | [insert-new-identity](#insert-new-identity), [split-refused-near-an-edge](#split-refused-near-an-edge), [insert-inside-a-transition](#insert-inside-a-transition), [insert-moves-sound-items](#insert-moves-sound-items), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), 24 unexplained |
-| `TimelineEditing.trim` | 3080 | 2791 | 69 | 220 | [trim-removes-an-opening-of-a-middle-clip](#trim-removes-an-opening-of-a-middle-clip), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), 7 unexplained |
-| `TimelineEditing.trim, as a handle` | 3080 | 1828 | 644 | 608 | [later-piece-new-identity](#later-piece-new-identity), [handle-trim-inwards-is-a-deletion](#handle-trim-inwards-is-a-deletion), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [handle-trim-outwards-overlaps](#handle-trim-outwards-overlaps), 8 unexplained |
+| `TimelineEditing.move` | 1396 | 1231 | 11 | 154 | [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [move-finds-no-cut-among-unlinked-pictures](#move-finds-no-cut-among-unlinked-pictures) |
+| `TimelineEditing.insert` | 2822 | 0 | 2579 | 243 | [insert-new-identity](#insert-new-identity), [split-refused-near-an-edge](#split-refused-near-an-edge), [insert-inside-a-transition](#insert-inside-a-transition), [insert-moves-sound-items](#insert-moves-sound-items), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [footage-put-after-the-picture](#footage-put-after-the-picture), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound) |
+| `TimelineEditing.trim` | 3080 | 2791 | 69 | 220 | [trim-removes-an-opening-of-a-middle-clip](#trim-removes-an-opening-of-a-middle-clip), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [noise-reduction-stays-on-its-footage](#noise-reduction-stays-on-its-footage) |
+| `TimelineEditing.trim, as a handle` | 3080 | 1828 | 644 | 608 | [later-piece-new-identity](#later-piece-new-identity), [handle-trim-inwards-is-a-deletion](#handle-trim-inwards-is-a-deletion), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [handle-trim-outwards-overlaps](#handle-trim-outwards-overlaps) |
 | `TimelineEditing.removeIntervals` | 2464 | 1303 | 642 | 519 | [split-refused-near-an-edge](#split-refused-near-an-edge), [pauses-leave-a-transition-without-footage](#pauses-leave-a-transition-without-footage), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [bookmark-outlives-its-footage](#bookmark-outlives-its-footage), [words-of-unlinked-sound](#words-of-unlinked-sound) |
 | `TimelineEditing.setSpeed` | 2464 | 2289 | 2 | 173 | [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple) |
-| `TimelineEditing.toggleBookmark` | 1250 | 623 | 464 | 163 | [bookmark-at-the-last-second](#bookmark-at-the-last-second), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), 11 unexplained |
-| `TimelineEditing.setJoin` | 15917 | 15312 | 12 | 593 | [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), 1 unexplained |
+| `TimelineEditing.toggleBookmark` | 1250 | 634 | 453 | 163 | [bookmark-at-the-last-second](#bookmark-at-the-last-second), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound) |
+| `TimelineEditing.setJoin` | 15917 | 15312 | 12 | 593 | [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [close-that-holds-pushes-nothing](#close-that-holds-pushes-nothing) |
 | `TimelineEditing.setTransition` | 5253 | 5003 | 6 | 244 | [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple) |
 | `TimelineEditing.setText` | 616 | 616 | 0 | 0 |  |
 | `TimelineEditing.setColor` | 616 | 616 | 0 | 0 |  |
@@ -46,77 +46,40 @@ The edits: 18 small ones made for one situation each, 128 steps of the histories
 | `TimelineEditing.setAudio` | 3708 | 3595 | 113 | 0 | [sound-settings-of-an-unlinked-clip](#sound-settings-of-an-unlinked-clip), [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
 | `AudioUnlinking.setSound` | 3708 | 3690 | 18 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound), [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
 | `TimelineEditing.addAudio` | 1062 | 925 | 54 | 83 | [third-sound](#third-sound), [captions-fingerprint](#captions-fingerprint) |
-| `RangeEditing.delete` | 4519 | 3199 | 620 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [bookmark-outlives-its-footage](#bookmark-outlives-its-footage), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [today-throws-on-a-range-of-sound](#today-throws-on-a-range-of-sound), 9 unexplained |
-| `RangeEditing.copy` | 4519 | 3625 | 677 | 217 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [later-piece-new-identity](#later-piece-new-identity), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), 82 unexplained |
-| `RangeEditing.cut` | 4519 | 3217 | 602 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [today-throws-on-a-range-of-sound](#today-throws-on-a-range-of-sound), 9 unexplained |
-| `RangeEditing.paste` | 13557 | 10041 | 1852 | 1664 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [third-sound](#third-sound), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [paste-opens-the-length-of-the-fragment](#paste-opens-the-length-of-the-fragment), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [later-piece-new-identity](#later-piece-new-identity), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), 52 unexplained |
-| `RangeEditing.scoped` | 4519 | 3190 | 1106 | 223 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [scope-cuts-sound-items](#scope-cuts-sound-items), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [captions-fingerprint](#captions-fingerprint), 36 unexplained |
-| `SubtitleEditing.install` | 446 | 373 | 66 | 7 | [words-of-unlinked-sound](#words-of-unlinked-sound), 7 unexplained |
+| `RangeEditing.delete` | 4519 | 3199 | 620 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [bookmark-outlives-its-footage](#bookmark-outlives-its-footage), [playhead-in-time-a-transition-holds](#playhead-in-time-a-transition-holds), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound) |
+| `RangeEditing.copy` | 4519 | 3636 | 666 | 217 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [caption-look-travels-with-any-words](#caption-look-travels-with-any-words), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [later-piece-new-identity](#later-piece-new-identity), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [copy-keeps-time-that-sound-fills](#copy-keeps-time-that-sound-fills) |
+| `RangeEditing.cut` | 4519 | 3217 | 602 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [playhead-in-time-a-transition-holds](#playhead-in-time-a-transition-holds), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound) |
+| `RangeEditing.paste` | 13557 | 10041 | 1852 | 1664 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [third-sound](#third-sound), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [paste-opens-the-length-of-the-fragment](#paste-opens-the-length-of-the-fragment), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [later-piece-new-identity](#later-piece-new-identity), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound) |
+| `RangeEditing.scoped` | 4519 | 3190 | 1106 | 223 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [scope-cuts-sound-items](#scope-cuts-sound-items), [words-of-unlinked-sound](#words-of-unlinked-sound), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [captions-fingerprint](#captions-fingerprint) |
+| `SubtitleEditing.install` | 446 | 373 | 66 | 7 | [words-of-unlinked-sound](#words-of-unlinked-sound), [transcription-hears-sound-items](#transcription-hears-sound-items) |
 | `SubtitleEditing.cues` | 446 | 429 | 17 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound) |
 | `SubtitleEditing.transcript` | 446 | 429 | 17 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound) |
 | `SubtitleEditing.groupingAvailable` | 446 | 446 | 0 | 0 |  |
 | `SubtitleEditing.stretches` | 446 | 239 | 207 | 0 | [transcription-hears-sound-items](#transcription-hears-sound-items), [words-of-unlinked-sound](#words-of-unlinked-sound) |
 | `AudioUnlinking.unlink` | 612 | 418 | 138 | 56 | [unlink-does-not-bake-the-transition](#unlink-does-not-bake-the-transition), [unlink-is-never-refused](#unlink-is-never-refused), [third-sound](#third-sound), [captions-fingerprint](#captions-fingerprint) |
 | `AudioUnlinking.relink` | 612 | 612 | 0 | 0 |  |
-| `AudioUnlinking.restoreSync` | 612 | 611 | 1 | 0 | 1 unexplained |
-| `AudioUnlinking.syncOffset` | 612 | 611 | 1 | 0 | 1 unexplained |
+| `AudioUnlinking.restoreSync` | 612 | 611 | 1 | 0 | [sync-is-measured-on-footage-that-shows](#sync-is-measured-on-footage-that-shows) |
+| `AudioUnlinking.syncOffset` | 612 | 611 | 1 | 0 | [sync-is-measured-on-footage-that-shows](#sync-is-measured-on-footage-that-shows) |
 | `EditState.duration` | 446 | 313 | 133 | 0 | [duration-with-sound](#duration-with-sound) |
 | `TimelineEditing.clipStart` | 446 | 446 | 0 | 0 |  |
 | `RangeEditing.joinTimes` | 446 | 446 | 0 | 0 |  |
 | `TimelineEditing.bookmarkTimes` | 446 | 446 | 0 | 0 |  |
 | `RangeEditing.transitionAt` | 1931 | 1931 | 0 | 0 |  |
-| `TimelineEditing.moveAudio` | 897 | 839 | 54 | 4 | [captions-fingerprint](#captions-fingerprint), [third-sound](#third-sound), [words-of-unlinked-sound](#words-of-unlinked-sound), 1 unexplained |
+| `TimelineEditing.moveAudio` | 897 | 839 | 54 | 4 | [captions-fingerprint](#captions-fingerprint), [third-sound](#third-sound), [words-of-unlinked-sound](#words-of-unlinked-sound), [sound-tracks-are-laid-anew](#sound-tracks-are-laid-anew) |
 | `TimelineEditing.trimAudio` | 897 | 342 | 551 | 4 | [later-piece-new-identity](#later-piece-new-identity), [split-refused-near-an-edge](#split-refused-near-an-edge), [words-of-unlinked-sound](#words-of-unlinked-sound), [captions-fingerprint](#captions-fingerprint) |
 | `TimelineEditing.setAudioItemSound` | 897 | 868 | 29 | 0 | [captions-fingerprint](#captions-fingerprint), [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
-| `TimelineEditing.removeAudio` | 299 | 262 | 37 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [captions-fingerprint](#captions-fingerprint), 4 unexplained |
+| `TimelineEditing.removeAudio` | 299 | 262 | 37 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound), [captions-fingerprint](#captions-fingerprint) |
 | `SubtitleEditing.remove` | 81 | 81 | 0 | 0 |  |
 | `SubtitleEditing.restyle` | 81 | 81 | 0 | 0 |  |
-| `SubtitleEditing.regroup` | 243 | 242 | 1 | 0 | 1 unexplained |
+| `SubtitleEditing.regroup` | 243 | 242 | 1 | 0 | [regroup-at-the-count-it-has](#regroup-at-the-count-it-has) |
 | `SubtitleEditing.correct` | 174 | 174 | 0 | 0 |  |
 | `SubtitleEditing.delete` | 174 | 174 | 0 | 0 |  |
 | `TimelineEditing.removeText` | 14 | 14 | 0 | 0 |  |
-| **all** | 94997 | 76364 | 11965 | 6668 | |
+| **all** | 94997 | 76386 | 11943 | 6668 | |
 
 ## The kinds of difference
 
 In the order a user would notice them. A call can show several kinds; it is counted under each. "Plan" is the row of `docs/TRACKS-PLAN.md`, 2.4. The rule is where the original does what the track model does, as a path in its repository.
-
-### today-throws-on-a-range-of-sound
-
-**Today's range functions throw on a range limited to sound items.**
-
-- Today: `RangeEditing.copy`, `cut`, `paste` of such a copy and `scoped` throw `IllegalArgumentException` when the scope is a range limited to sound items and both its ends fall inside one clip: the clips are not cut, and the list of pieces is then read from a later place to an earlier one (`RangeEditing.resolve`, read at `RangeEditing.kt:510`).
-- Track model: The sound item is cut at the two ends of the range and the piece copied, cut or scoped.
-- Visible effect: Today the app would crash on Copy or Cut with a marked range while only a sound item is selected, if the editor lets that scope through. This is a defect of today's code, not of the track model.
-- Rule: YouRec/TrackTimeline.swift:1080-1094; YouRec/TimelinePaste.swift:70-109
-- Seen in: `RangeEditing.delete` 2, `RangeEditing.cut` 2 (0 not expressible; 0 together with another kind)
-- Accepted: no
-
-`RangeEditing.delete(selected: a sound item, the playhead at 2.007)` on `generated 26, step 8`:
-
-```
-before
-    c1 @2.5 S1 0–12 (opens: still 2.5) marks 7.262 10 words
-    c2 @14.5 S2 0–8 5 words
-    c3 @22.5 S3 0–0.628 3 words
-    a1 @20.533 M1 0–30
-    a2 @26 S4 0–20
-    (23.128 s of picture)
-today
-    c1 @2.5 S1 0–12 (opens: still 2.5) marks 7.262 10 words
-    c2 @14.5 S2 0–8 5 words
-    c3 @22.5 S3 0–0.628 3 words
-    a2 @26 S4 0–20
-    (23.128 s of picture)
-    playhead: 2.5
-through the track model
-    c1 @2.5 S1 0–12 (opens: still 2.5) marks 7.262 10 words
-    c2 @14.5 S2 0–8 5 words
-    c3 @22.5 S3 0–0.628 3 words
-    a2 @26 S4 0–20
-    (23.128 s of picture)
-    playhead: 2.007
-```
 
 ### unlinked-picture-does-not-ripple
 
@@ -149,6 +112,36 @@ through the track model
     picture c2 12–20 layer 1
     sound of c2 12–20 (follows nothing)
     sound of c3 8–14
+```
+
+### move-finds-no-cut-among-unlinked-pictures
+
+**A clip cannot be moved to a place between pictures that do not meet.**
+
+- Today: Clips are a list: a clip is moved to any place in it, and the others close up around it.
+- Track model: The clip is lifted out and put back at the cut between the two pictures it is to go between. When lifting it leaves a picture whose sound is unlinked where it was while the linked pictures close up, those two no longer meet: there is no cut to go to, and the move does not apply.
+- Visible effect: Moving a clip to a place in the order stops working around a clip whose sound is unlinked. The clip can still be dragged to a time.
+- Rule: YouRec/TimelinePaste.swift:39-44 (a place to paste picture is a join of two pictures that meet); YouRec/TrackTimeline.swift:774-799 (plan: N9)
+- Seen in: `TimelineEditing.move` 11 (0 not expressible; 0 together with another kind)
+- Accepted: no
+
+`TimelineEditing.move(clip 1 to place 2)` on `golden unlinked-sound, step 2`:
+
+```
+before
+    c1 @0 S1 0–6
+    c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
+    c3 @12 S3 0–6
+    sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
+    (18 s of picture)
+today
+    c2 @0 S2 0–6 [muted]
+    c1 @6 S1 0–6
+    c3 @12 S3 0–6
+    sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
+    (18 s of picture)
+through the track model
+    does not apply
 ```
 
 ### trim-removes-an-opening-of-a-middle-clip
@@ -189,11 +182,11 @@ through the track model
 
 **A range that begins or ends inside a transition cuts both clips there.**
 
-- Today: An end of a range inside a transition is put on the join of the transition; a tool on such a range applies to nothing and cuts nothing.
-- Track model: Both pictures playing there are cut at the exact second. The pieces keep overlapping; the transition stays when both its pictures still have its footage and is removed otherwise, and what is copied can be two pictures that play at once.
-- Visible effect: Delete, Cut, Copy and a tool on a range marked into a dissolve leave two pictures on top of each other for the rest of the dissolve's time, or a short gap, where today the edit snaps to the join.
+- Today: An end of a range inside a transition is put on the join of the transition, and one on the first instant of an opening of a clip that is not the first is put where that opening ends. A tool on a range with an end inside a transition, its first instant included, applies to nothing and cuts nothing.
+- Track model: Both pictures playing there are cut at the exact second. The pieces keep overlapping; the transition stays when both its pictures still have its footage and is removed otherwise, and what is copied can be two pictures that play at once. A range from the first instant of an opening takes the clip with its opening.
+- Visible effect: Delete, Cut, Copy and a tool on a range marked into a dissolve leave two pictures on top of each other for the rest of the dissolve's time, or a short gap, where today the edit snaps to the join. What is copied begins where the range does, not at the join, so its sound items lie that much earlier against its picture. A range marked exactly over a clip that carries an opening and is not first takes the whole clip, where today the length of the opening is left behind.
 - Rule: YouRec/TrackTimeline.swift:1080-1094 (the items are cut at the range's ends), :857-895 (the prune keeps or drops the relation) (plan: N12)
-- Seen in: `RangeEditing.delete` 350, `RangeEditing.copy` 363, `RangeEditing.cut` 350, `RangeEditing.paste` 1038, `RangeEditing.scoped` 372 (1418 not expressible; 97 together with another kind)
+- Seen in: `RangeEditing.delete` 355, `RangeEditing.copy` 364, `RangeEditing.cut` 355, `RangeEditing.paste` 1137, `RangeEditing.scoped` 431 (1441 not expressible; 86 together with another kind)
 - Accepted: no
 
 `RangeEditing.copy(range 10–11.5)` on `a dissolve`:
@@ -260,7 +253,7 @@ through the track model
 - Track model: Revealing footage moves nothing else: the clip grows over the clip after it (or, at its start, back over the clip before it) and comes in front of it.
 - Visible effect: Dragging a handle outwards covers the beginning of the next clip instead of making the movie longer.
 - Rule: YouRec/EditorView.swift:1241-1258; YouRec/TrackTimeline.swift:1618-1675 (plan: N2)
-- Seen in: `TimelineEditing.trim, as a handle` 275 (258 not expressible; 0 together with another kind)
+- Seen in: `TimelineEditing.trim, as a handle` 283 (266 not expressible; 0 together with another kind)
 - Accepted: no
 
 `TimelineEditing.trim, as a handle(clip 1, the end out by 1 s)` on `two short clips`:
@@ -360,10 +353,10 @@ through the track model
 **The words of a clip whose sound is unlinked are on the sound, and show.**
 
 - Today: Words belong to clips. A clip whose sound is unlinked is muted, and a muted clip shows no captions, gets no words from a transcription, and is not listened to; its unlinked sound, an item on a sound track, has no words.
-- Track model: Words belong to sounds. The unlinked sound of a clip is an ordinary sound that is not muted: it keeps the words, shows them where it now plays, is transcribed, and loses them when it is deleted. Cut in pieces, each piece keeps them.
+- Track model: Words belong to sounds. The unlinked sound of a clip is an ordinary sound that is not muted: it keeps the words, shows them where it now plays, is transcribed, and loses them when it is deleted. Cut in pieces, each piece keeps them. A copy of the picture alone has no words, and so does not carry the look of the captions.
 - Visible effect: After Unlink the captions of that clip stay on screen and follow the sound when it is moved, where today they disappear. Deleting the unlinked sound deletes its captions.
 - Rule: YouRec/TrackTimeline.swift:184; YouRec/Subtitles.swift:155-180, :205-246 (plan: N10)
-- Seen in: `TimelineEditing.split` 97, `TimelineEditing.trimAudio` 135, `SubtitleEditing.install` 66, `SubtitleEditing.stretches` 75, `TimelineEditing.delete` 9, `TimelineEditing.removeAudio` 16, `RangeEditing.paste` 165, `RangeEditing.delete` 53, `RangeEditing.copy` 55, `RangeEditing.cut` 53, `RangeEditing.scoped` 22, `SubtitleEditing.cues` 17, `SubtitleEditing.transcript` 17, `AudioUnlinking.setSound` 6, `TimelineEditing.removeIntervals` 8, `TimelineEditing.insert` 5, `TimelineEditing.moveAudio` 2 (261 not expressible; 5 together with another kind)
+- Seen in: `TimelineEditing.split` 97, `TimelineEditing.trimAudio` 135, `SubtitleEditing.install` 66, `SubtitleEditing.stretches` 75, `TimelineEditing.delete` 9, `TimelineEditing.removeAudio` 16, `RangeEditing.paste` 165, `RangeEditing.delete` 53, `RangeEditing.copy` 67, `RangeEditing.cut` 53, `RangeEditing.scoped` 22, `SubtitleEditing.cues` 17, `SubtitleEditing.transcript` 17, `AudioUnlinking.setSound` 6, `TimelineEditing.removeIntervals` 8, `TimelineEditing.insert` 5, `TimelineEditing.moveAudio` 2 (261 not expressible; 8 together with another kind)
 - Accepted: no
 
 `TimelineEditing.split(at 20.05)` on `unlinked sound`:
@@ -392,9 +385,9 @@ through the track model
 
 - Today: Only the footage that clips with sound play is listened to.
 - Track model: Every sound that is not muted is listened to, music and voice-overs on the sound lanes included.
-- Visible effect: A voice-over gets captions; music is sent to the recogniser as well.
+- Visible effect: A voice-over gets captions; music is sent to the recogniser as well. A sound item with words cannot be saved as a sequence.
 - Rule: YouRec/Subtitles.swift:205-246 (plan: N10)
-- Seen in: `SubtitleEditing.stretches` 132 (0 not expressible; 0 together with another kind)
+- Seen in: `SubtitleEditing.stretches` 132, `SubtitleEditing.install` 7 (7 not expressible; 0 together with another kind)
 - Accepted: no
 
 `SubtitleEditing.stretches(what a transcription listens to)` on `music and a voice`:
@@ -413,6 +406,136 @@ through the track model
     stretches: [[S1, 0, 12], [S2, 0, 8], [S3, 0, 6], [M1, 0, 30], [M2, 0, 5]]
 ```
 
+### caption-look-travels-with-any-words
+
+**A copy takes the look of the captions along whenever its sound has words, shown or not.**
+
+- Today: A copied fragment carries the caption settings only when one of its clips shows a word in the footage that was copied.
+- Track model: A sound keeps every word of its recording, also those outside the footage it plays. The fragment carries the caption settings whenever a copied sound has any.
+- Visible effect: None within one project. Pasted into a project that has no captions yet, such a fragment brings the look of the captions it was copied from although it shows none.
+- Rule: YouRec/TimelinePaste.swift:105
+- Seen in: `RangeEditing.copy` 20 (0 not expressible; 4 together with another kind)
+- Accepted: no
+
+`RangeEditing.copy(range 25.871–26.419)` on `captions`:
+
+```
+before
+    c1 @0 S1 0–12 10 words
+    c2 @12 S2 0–8 5 words
+    c3 @20 S3 0–6 3 words
+    (26 s of picture, with the look of its captions)
+today
+    c4 @0 S3 5.871–6 3 words
+    (0.129 s of picture)
+through the track model
+    c4 @0 S3 5.871–6 3 words
+    (0.129 s of picture, with the look of its captions)
+```
+
+### copy-keeps-time-that-sound-fills
+
+**A copy of a selection keeps the time between its items while something copied plays through it.**
+
+- Today: In a copy of a selection or of everything, a sound item that begins after the last copied clip is put right where that clip ends, whatever else plays in between.
+- Track model: Only time in which nothing that was copied plays is taken out. A sound item that begins after the picture while another copied sound is still playing keeps its place.
+- Visible effect: Pasted, the later sound begins earlier against the other sound than it did where it was copied.
+- Rule: YouRec/TimelinePaste.swift:81-103
+- Seen in: `RangeEditing.copy` 15 (0 not expressible; 0 together with another kind)
+- Accepted: no
+
+`RangeEditing.copy(everything)` on `generated 26, step 8`:
+
+```
+before
+    c1 @2.5 S1 0–12 (opens: still 2.5) marks 7.262 10 words
+    c2 @14.5 S2 0–8 5 words
+    c3 @22.5 S3 0–0.628 3 words
+    a1 @20.533 M1 0–30
+    a2 @26 S4 0–20
+    (23.128 s of picture, with the look of its captions)
+today
+    c4 @2.5 S1 0–12 (opens: still 2.5) marks 7.262 10 words
+    c5 @14.5 S2 0–8 5 words
+    c6 @22.5 S3 0–0.628 3 words
+    a3 @20.533 M1 0–30
+    a4 @23.128 S4 0–20
+    (23.128 s of picture, with the look of its captions)
+through the track model
+    c4 @2.5 S1 0–12 (opens: still 2.5) marks 7.262 10 words
+    c5 @14.5 S2 0–8 5 words
+    c6 @22.5 S3 0–0.628 3 words
+    a3 @20.533 M1 0–30
+    a4 @26 S4 0–20
+    (23.128 s of picture, with the look of its captions)
+```
+
+### regroup-at-the-count-it-has
+
+**Regrouping at the count the captions already have groups them again.**
+
+- Today: Asking for the number of words a caption already has does not apply.
+- Track model: The words are grouped again at that count, which undoes what typing a caption again or deleting one did to the grouping.
+- Visible effect: Choosing the same number of words again splits and joins the captions as at transcription, where today nothing happens.
+- Rule: YouRec/Subtitles.swift:192-196
+- Seen in: `SubtitleEditing.regroup` 1 (0 not expressible; 0 together with another kind)
+- Accepted: no
+
+`SubtitleEditing.regroup(4 words a caption)` on `golden subtitles, step 2`:
+
+```
+before
+    c1 @0 S1 0–6 10 words
+    c2 @6 S2 0–4 5 words
+    (10 s of picture, with the look of its captions)
+today
+    does not apply
+through the track model
+    c1 @0 S1 0–6 10 words
+    c2 @6 S2 0–4 5 words
+    (10 s of picture, with the look of its captions)
+```
+
+### footage-put-after-the-picture
+
+**Footage can be put after the end of the picture, under sound that runs on.**
+
+- Today: The movie ends with its last clip: footage inserted later than that goes right after the last clip.
+- Track model: The timeline ends with its last picture or sound. Under sound that runs past the picture, footage goes in at the second asked for, and the time between the last clip and it has no picture.
+- Visible effect: Black between the last clip and footage added further along the music, where today the footage follows the last clip.
+- Rule: YouRec/TimelineEditing.swift:89; YouRec/TrackTimeline.swift:503 (plan: N6)
+- Seen in: `TimelineEditing.insert` 39 (39 not expressible; 0 together with another kind)
+- Accepted: no
+
+`TimelineEditing.insert(a clip of 2.5 s at 13.5)` on `golden sound-tracks, step 5`:
+
+```
+before
+    c1 @0 S1 0–6
+    c2 @6 S2 0–6
+    a1 @2.5 S3 2.5–30 [-12 dB, fades 0/2]
+    a2 @6.5 S4 0–4
+    (12 s of picture)
+today
+    c1 @0 S1 0–6
+    c2 @6 S2 0–6
+    c3 @12 S1 0–2.5
+    a1 @2.5 S3 2.5–30 [-12 dB, fades 0/2]
+    a2 @6.5 S4 0–4
+    (14.5 s of picture)
+through the track model
+    no sequence: there is time without picture before a picture
+    picture c1 0–6 layer 0
+    picture c2 6–12 layer 1
+    picture c4 13.5–16 layer 2
+    sound of c1 0–6
+    sound of c2 6–12
+    sound a1 2.5–13.5 (follows nothing)
+    sound a3 16–32.5 (follows nothing) [fade out 2 from 0]
+    sound a2 6.5–10.5 (follows nothing)
+    sound of c4 13.5–16
+```
+
 ### paste-opens-the-length-of-the-fragment
 
 **A paste opens the picture by the whole length of what was copied, sound included.**
@@ -421,7 +544,7 @@ through the track model
 - Track model: The picture is opened by the length of the fragment, which is that of its longest item: a copied range whose sound (or whose opening or close) reaches further than its picture leaves time without picture after the pasted clips.
 - Visible effect: A gap of black after a pasted range that held music running past its picture.
 - Rule: YouRec/TimelinePaste.swift:136-150
-- Seen in: `RangeEditing.paste` 240 (240 not expressible; 0 together with another kind)
+- Seen in: `RangeEditing.paste` 225 (225 not expressible; 0 together with another kind)
 - Accepted: no
 
 `RangeEditing.paste(a copy of range 10.275–12.367, at 0)` on `golden sound-tracks, step 1`:
@@ -453,6 +576,40 @@ through the track model
     begins at: 0
 ```
 
+### playhead-in-time-a-transition-holds
+
+**A playhead in time a transition holds stays where it is.**
+
+- Today: After a deletion the playhead is carried to the frame of footage it was on. In the time an opening or a still holds, no clip plays: the playhead is put on the edge of the clip that time belongs to, the first frame after an opening or the last before a still, even when nothing before it moved.
+- Track model: The playhead moves only by the time that was closed before it, or with the picture or the sound it was on.
+- Visible effect: Deleting something later in the movie, or a sound item, while the playhead stands in the held time of an opening or a still makes the playhead jump to the clip, where through the track model it stays.
+- Rule: YouRec/TrackTimeline.swift:807-826
+- Seen in: `RangeEditing.delete` 12, `RangeEditing.cut` 12 (0 not expressible; 3 together with another kind)
+- Accepted: no
+
+`RangeEditing.delete(selected: clip 4, the playhead at 9.01)` on `golden everything, step 6`:
+
+```
+before
+    c1 @0 S1 0–9 (opens: fadecolor 0.5) (into next: still 1)
+    c2 @10 S2 0–7 at ×1.5 (into next: whip 0.267)
+    c3 @14.4 S3 0–8 (into next: dissolve 1)
+    c4 @21.1 S4 0–5 (closes: dissolve 0.75)
+    (26.1 s of picture)
+today
+    c1 @0 S1 0–9 (opens: fadecolor 0.5) (into next: still 1)
+    c2 @10 S2 0–7 at ×1.5 (into next: whip 0.267)
+    c3 @14.4 S3 0–8
+    (22.4 s of picture)
+    playhead: 9
+through the track model
+    c1 @0 S1 0–9 (opens: fadecolor 0.5) (into next: still 1)
+    c2 @10 S2 0–7 at ×1.5 (into next: whip 0.267)
+    c3 @14.4 S3 0–8
+    (22.4 s of picture)
+    playhead: 9.01
+```
+
 ### removed-transition-leaves-its-time
 
 **Time a transition had inserted stays empty when the transition goes.**
@@ -461,7 +618,7 @@ through the track model
 - Track model: A deletion closes the time its pictures covered and no more, and setting another opening moves no picture: the time the transition had inserted stays, without picture.
 - Visible effect: A stretch of black where the still or the hold was, after its clip is deleted, moved or cut away, or after the opening is changed.
 - Rule: YouRec/TrackTimeline.swift:771-799 (what closes is the time the removed pictures covered); YouRec/Transitions.swift:364-377
-- Seen in: `RangeEditing.delete` 150, `RangeEditing.cut` 150, `TimelineEditing.move` 42, `TimelineEditing.delete` 23, `TimelineEditing.setJoin` 74, `TimelineEditing.insert` 25 (292 not expressible; 147 together with another kind)
+- Seen in: `RangeEditing.delete` 136, `RangeEditing.cut` 136, `TimelineEditing.move` 42, `TimelineEditing.delete` 23, `TimelineEditing.setJoin` 74, `TimelineEditing.insert` 3 (262 not expressible; 144 together with another kind)
 - Accepted: no
 
 `TimelineEditing.delete(clip 1)` on `golden everything, step 2`:
@@ -486,6 +643,55 @@ through the track model
     sound of c2 1–8
     sound of c3 8–16
     sound of c4 16–21
+```
+
+### close-that-holds-pushes-nothing
+
+**A close that takes time of its own, set on a clip that is not the last, pushes nothing later.**
+
+- Today: Clips follow one another: a close that holds a frame or a color after its clip makes the next clip begin that much later.
+- Track model: Setting a transition moves the picture it leads into and what follows that. A close leads into nothing, so nothing moves, and the time it holds lies over the beginning of the next clip.
+- Visible effect: The still or the hold of the close plays together with the first moments of the next clip. It takes a clip that carries a close and is not the last, which moving the last clip earlier leaves.
+- Rule: YouRec/Transitions.swift:375-380
+- Seen in: `TimelineEditing.setJoin` 1 (1 not expressible; 0 together with another kind)
+- Accepted: no
+
+`TimelineEditing.setJoin(the close of clip 1, still of 1.5 s)` on `generated 24, step 10`:
+
+```
+before
+    c1 @0 S3 0–6 (closes: hitchcock 1) [fades 0.5/1] 3 words
+    c2 @6 S1 0–5.633 10 words 1 titles
+    c3 @11.633 S1 5.633–12 10 words
+    c4 @18 S2 0–7.071 marks 3.758 5 words
+    c5 @25.071 S2 7.071–8
+    a1 @8.5 M2 0–5
+    a2 @23.733 M1 0–30
+    (26 s of picture, with the look of its captions)
+today
+    c1 @0 S3 0–6 (closes: still 1.5) [fades 0.5/1] 3 words
+    c2 @7.5 S1 0–5.633 10 words 1 titles
+    c3 @13.133 S1 5.633–12 10 words
+    c4 @19.5 S2 0–7.071 marks 3.758 5 words
+    c5 @26.571 S2 7.071–8
+    a1 @8.5 M2 0–5
+    a2 @23.733 M1 0–30
+    (27.5 s of picture, with the look of its captions)
+through the track model
+    no sequence: two pictures play at once without a transition between them
+    picture c1 0–6 layer 0
+    picture c2 6–11.633 layer 1
+    picture c3 11.633–18 layer 2
+    picture c4 18–25.071 layer 3
+    picture c5 25.071–26 layer 4
+    sound of c1 0–6 [fade in 0.5 from 0, fade out 1 from 0]
+    sound of c2 6–11.633
+    sound of c3 11.633–18
+    sound of c4 18–25.071
+    sound of c5 25.071–26
+    sound a1 8.5–13.5 (follows nothing)
+    sound a2 23.733–53.733 (follows nothing)
+    transition c1 → – from 6
 ```
 
 ### bookmark-also-marks-the-unlinked-sound
@@ -560,6 +766,48 @@ through the track model
     sound a3 0–30 (follows nothing)
 ```
 
+### sound-tracks-are-laid-anew
+
+**A sound is not kept from a place by the track it is on.**
+
+- Today: A sound item stays on its track. A move is refused where its own track and the other are both busy, even when the items would fit on two tracks laid out again.
+- Track model: There are no tracks: any sounds may play at once. Written as a sequence the sounds are laid on two tracks anew, so a move applies whenever no more than two sounds play at once after it.
+- Visible effect: A move of a sound that today is refused goes through, and other items change track.
+- Rule: YouRec/TrackTimeline.swift:217-222 (plan: N7)
+- Seen in: `TimelineEditing.moveAudio` 1 (0 not expressible; 0 together with another kind)
+- Accepted: no
+
+`TimelineEditing.moveAudio(the item at 3.226 to 0)` on `generated 25, step 10`:
+
+```
+before
+    c1 @0 S1 0–0.972
+    c2 @0.972 S1 3.226–10.336
+    c3 @8.082 S1 11.176–12 [muted]
+    c4 @8.906 S2 0–8 (into next: hitchcock 2.5 ×0.72) marks 6.989
+    c5 @15.106 S3 0–1.8
+    c6 @16.906 S3 2.4–3.6
+    c7 @18.106 S3 4.2–6
+    a1 @0.667 M1 0–0.305
+    a2 @3.226 M1 2.559–30
+    a3 @18.233 M1 0–30
+    (19.906 s of picture)
+today
+    does not apply
+through the track model
+    c1 @0 S1 0–0.972
+    c2 @0.972 S1 3.226–10.336
+    c3 @8.082 S1 11.176–12 [muted]
+    c4 @8.906 S2 0–8 (into next: hitchcock 2.5 ×0.72) marks 6.989
+    c5 @15.106 S3 0–1.8
+    c6 @16.906 S3 2.4–3.6
+    c7 @18.106 S3 4.2–6
+    a2 @0 M1 2.559–30
+    a1 @0.667 M1 0–0.305
+    a3 @18.233 M1 0–30
+    (19.906 s of picture)
+```
+
 ### split-refused-near-an-edge
 
 **A cut within 0.1 s of an edge is made instead of refused.**
@@ -616,11 +864,11 @@ through the track model
 
 **A range end within a frame of a cut is not put on the cut.**
 
-- Today: An end of a range closer than one frame to a clip's or an item's edge is that edge: no sliver is cut, copied or left behind.
-- Track model: The items are cut exactly where the range ends, so a piece shorter than a frame is made, kept or copied.
-- Visible effect: A range marked a hair inside a clip leaves or copies a sliver of a few hundredths of a second.
+- Today: An end of a range closer than one frame to a clip's or an item's edge, or to where a transition begins or ends, is that place: no sliver is cut, copied or left behind, and a paste that close goes exactly there.
+- Track model: The items are cut exactly where the range ends, or where the paste is asked for, so a piece shorter than a frame is made, kept or copied. An opening stays on the sliver, away from what is copied.
+- Visible effect: A range marked a hair inside a clip leaves or copies a sliver of a few hundredths of a second, and what is copied comes without the opening of its clip.
 - Rule: YouRec/EditorView.swift:1125-1130; YouRec/TrackTimeline.swift:1080-1094
-- Seen in: `RangeEditing.delete` 341, `RangeEditing.copy` 390, `RangeEditing.cut` 341, `RangeEditing.paste` 1323, `RangeEditing.scoped` 601 (0 not expressible; 290 together with another kind)
+- Seen in: `RangeEditing.delete` 345, `RangeEditing.copy` 389, `RangeEditing.cut` 345, `RangeEditing.paste` 1238, `RangeEditing.scoped` 581 (0 not expressible; 262 together with another kind)
 - Accepted: no
 
 `RangeEditing.copy(range 0.02–6)` on `one take`:
@@ -645,7 +893,7 @@ through the track model
 - Track model: With nothing selected, everything under the playhead is cut: the picture, its sound, and every other sound playing there.
 - Visible effect: The music is in two pieces after a split. They play on without a break, and each can then be moved or deleted by itself.
 - Rule: YouRec/TimelineEditing.swift:45-62
-- Seen in: `TimelineEditing.split` 343 (0 not expressible; 153 together with another kind)
+- Seen in: `TimelineEditing.split` 343 (0 not expressible; 160 together with another kind)
 - Accepted: no
 
 `TimelineEditing.split(at 15.2)` on `unlinked sound`:
@@ -682,7 +930,7 @@ through the track model
 - Track model: A range over everything names every item: the sounds playing across an end of the range are cut there too.
 - Visible effect: Music is in pieces after a tool was applied to a marked range. The pieces play on without a break.
 - Rule: YouRec/TrackTimeline.swift:556-558, :1080-1094
-- Seen in: `RangeEditing.scoped` 316 (0 not expressible; 20 together with another kind)
+- Seen in: `RangeEditing.scoped` 315 (0 not expressible; 20 together with another kind)
 - Accepted: no
 
 `RangeEditing.scoped(range 16.42–17.453)` on `unlinked sound`:
@@ -816,6 +1064,34 @@ through the track model
     (22.4 s of picture)
 ```
 
+### unlinked-clip-remembers-no-sound
+
+**A clip whose sound is unlinked remembers no sound of its own.**
+
+- Today: Unlinking mutes the clip and leaves on it the level and the fades it had, for linking again. A piece cut from that clip, and the clip itself once its unlinked sound is deleted, is an ordinary muted clip with those settings: unmuting it plays the sound of its footage again.
+- Track model: A picture whose sound is unlinked has no sound. Its pieces are pictures without sound, and deleting the unlinked sound leaves a picture without sound; in the sequence form each is a muted clip that remembers nothing.
+- Visible effect: None while the clip is muted. Today Unmute on such a piece brings the recorded sound back at the level it had (a second time, beside the unlinked sound, while that is still there); through the track model there is no sound to unmute.
+- Rule: YouRec/TrackTimeline.swift:575-579 (unlinking removes the link; level, mute and fades are the sound's, :174-177), :771-776 (a sound deleted by itself is gone) (plan: N9)
+- Seen in: `TimelineEditing.split` 12, `TimelineEditing.insert` 7, `TimelineEditing.removeAudio` 4, `RangeEditing.scoped` 7, `RangeEditing.paste` 24, `RangeEditing.copy` 6, `RangeEditing.delete` 4, `RangeEditing.cut` 4 (0 not expressible; 25 together with another kind)
+- Accepted: no
+
+`RangeEditing.copy(selected: clip 2)` on `golden unlinked-sound, step 2`:
+
+```
+before
+    c1 @0 S1 0–6
+    c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
+    c3 @12 S3 0–6
+    sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
+    (18 s of picture)
+today
+    c4 @0 S2 0–6 [muted, -3 dB, fades 0/0.5]
+    (6 s of picture)
+through the track model
+    c4 @0 S2 0–6 [muted]
+    (6 s of picture)
+```
+
 ### fade-no-longer-than-its-item
 
 **A fade set longer than its item is cut to the item's length.**
@@ -861,7 +1137,7 @@ through the track model
 - Track model: When a clip gets shorter than its fade (a trim, a faster speed), the fade is scaled to the new length. A cut inside a fade leaves each piece its part of the slope.
 - Visible effect: The same sound in most cases. Where a clip is trimmed inside its fade, the level at the new edge differs.
 - Rule: YouRec/TrackTimeline.swift:133-151, :196-204, :1326-1329 (plan: N4)
-- Seen in: `TimelineEditing.trim` 67, `TimelineEditing.removeIntervals` 47, `RangeEditing.copy` 24, `RangeEditing.paste` 57, `TimelineEditing.insert` 7, `TimelineEditing.removeAudio` 4, `RangeEditing.scoped` 7, `RangeEditing.delete` 4, `RangeEditing.cut` 4, `TimelineEditing.split` 15 (0 not expressible; 124 together with another kind)
+- Seen in: `TimelineEditing.trim` 67, `TimelineEditing.removeIntervals` 47, `RangeEditing.copy` 15, `RangeEditing.paste` 37, `TimelineEditing.split` 15 (0 not expressible; 69 together with another kind)
 - Accepted: no
 
 `TimelineEditing.trim(clip 1, the end in by a third)` on `fades and levels`:
@@ -948,6 +1224,91 @@ through the track model
     sound of c3 20–26 (follows nothing)
 ```
 
+### sync-is-measured-on-footage-that-shows
+
+**How far an unlinked sound is out of sync is known only while its picture shows the second the sound begins with.**
+
+- Today: The offset is where second 0 of the recording would fall for the sound, less where it would fall for the picture, whatever either was trimmed to.
+- Track model: The offset is the sound's start less the place where a picture of the same occurrence shows the source second the sound begins with. When the picture was trimmed past that second there is no such place: no offset is known, and restoring the sync does not apply.
+- Visible effect: After the start of a clip is trimmed while its unlinked sound still begins earlier in the recording, Restore sync is not offered, where today it moves the sound by the difference.
+- Rule: YouRec/TrackTimeline.swift:1605-1615 (plan: N9)
+- Seen in: `AudioUnlinking.restoreSync` 1, `AudioUnlinking.syncOffset` 1 (0 not expressible; 0 together with another kind)
+- Accepted: no
+
+`AudioUnlinking.restoreSync(clip 5)` on `generated 9, step 6`:
+
+```
+before
+    c1 @0 S1 0–3.6 (opens: whip 0.3)
+    c2 @3.6 S1 4.8–7.2
+    c3 @6 S1 8.4–12
+    c4 @9.6 S2 0–8
+    c5 @17.6 S3 0.295–4.423 [muted]
+    c6 @21.728 S4 0–5.3
+    c7 @27.028 S4 5.3–19.825
+    sound of c5 @17.6 S3 0–6
+    (41.553 s of picture)
+today
+    c1 @0 S1 0–3.6 (opens: whip 0.3)
+    c2 @3.6 S1 4.8–7.2
+    c3 @6 S1 8.4–12
+    c4 @9.6 S2 0–8
+    c5 @17.6 S3 0.295–4.423 [muted]
+    c6 @21.728 S4 0–5.3
+    c7 @27.028 S4 5.3–19.825
+    sound of c5 @17.305 S3 0–6
+    (41.553 s of picture)
+through the track model
+    does not apply
+```
+
+### noise-reduction-stays-on-its-footage
+
+**Noise reduction does not reach footage a trim reveals.**
+
+- Today: Noise reduction is a setting of the clip: it applies to whatever footage the clip plays, also after the clip is made longer.
+- Track model: Noise reduction is a chain on a stretch of the sound, and stays on the recorded seconds it was set on. Footage revealed by a trim outwards is outside it.
+- Visible effect: The revealed part of the clip is heard without noise reduction. The result, a chain over part of a sound, cannot be saved as a sequence.
+- Rule: YouRec/TrackTimeline.swift:1275-1300
+- Seen in: `TimelineEditing.trim` 7 (7 not expressible; 0 together with another kind)
+- Accepted: no
+
+`TimelineEditing.trim(clip 3, the start out by 1 s)` on `generated 16, step 9`:
+
+```
+before
+    c1 @0 S1 0–12
+    c2 @12 S2 0–4.423 [-6 dB]
+    c3 @16.423 S2 5.957–8 at ×0.5 [noise reduction 0.6]
+    c4 @20.509 S3 0–2.034 [muted]
+    c5 @22.543 S3 2.034–6 [muted] marks 2.62
+    sound of c4 @18.466 S3 0–6
+    a1 @32.433 M2 0–5
+    (26.509 s of picture)
+today
+    c1 @0 S1 0–12
+    c2 @12 S2 0–4.423 [-6 dB]
+    c3 @16.423 S2 4.957–8 at ×0.5 [noise reduction 0.6]
+    c4 @22.509 S3 0–2.034 [muted]
+    c5 @24.543 S3 2.034–6 [muted] marks 2.62
+    sound of c4 @18.466 S3 0–6
+    a1 @32.433 M2 0–5
+    (28.509 s of picture)
+through the track model
+    no sequence: a sound has a chain of effects other than one noise reduction over all of it, or a censor
+    picture c1 0–12 layer 0
+    picture c2 12–16.423 layer 1
+    picture c3 16.423–22.509 layer 5
+    picture c4 20.509–22.543 layer 3
+    picture c5 24.543–28.509 layer 4
+    sound of c1 0–12
+    sound of c2 12–16.423
+    sound of c3 16.423–22.509
+    sound of c4 18.466–24.466 (follows nothing)
+    sound of c5 24.543–28.509
+    sound a1 32.433–37.433 (follows nothing)
+```
+
 ### sound-settings-of-an-unlinked-clip
 
 **The sound settings of a clip whose sound is unlinked have nowhere to go.**
@@ -1015,7 +1376,7 @@ through the track model
 - Track model: A cut gives the later piece a new id and the earlier piece keeps the old one, so when the earlier piece is then deleted, what stays has the new id.
 - Visible effect: None on screen. A selection, or anything else that remembers the item by id, no longer finds it.
 - Rule: YouRec/TrackTimeline.swift:1015-1017, :1036-1039
-- Seen in: `TimelineEditing.trim, as a handle` 511, `RangeEditing.delete` 82, `RangeEditing.cut` 82, `TimelineEditing.trimAudio` 214, `RangeEditing.paste` 7, `RangeEditing.copy` 23, `TimelineEditing.delete` 3 (0 not expressible; 168 together with another kind)
+- Seen in: `TimelineEditing.trim, as a handle` 511, `RangeEditing.delete` 82, `RangeEditing.cut` 82, `TimelineEditing.trimAudio` 214, `RangeEditing.paste` 7, `RangeEditing.copy` 22, `TimelineEditing.delete` 3 (0 not expressible; 166 together with another kind)
 - Accepted: no
 
 `TimelineEditing.trim, as a handle(clip 1, the start in by a third)` on `one take`:
@@ -1050,19 +1411,19 @@ before
     c1 @0 S1 0–12 10 words
     c2 @12 S2 0–8 5 words
     c3 @20 S3 0–6 3 words
-    (26 s of picture)
+    (26 s of picture, with the look of its captions)
 today
     c1 @0 S1 0–12 10 words
     c2 @12 S2 0–8 5 words
     c3 @20 S3 0–6 3 words
     a1 @0 M1 0–30
-    (26 s of picture)
+    (26 s of picture, with the look of its captions)
 through the track model
     c1 @0 S1 0–12 10 words
     c2 @12 S2 0–8 5 words
     c3 @20 S3 0–6 3 words
     a2 @0 M1 0–30
-    (26 s of picture)
+    (26 s of picture, with the look of its captions)
 ```
 
 ### duration-with-sound
@@ -1094,1057 +1455,7 @@ through the track model
 
 ## Not explained
 
-265 calls differ in something no kind above accounts for. They are listed by function and by what is left over, each with its shortest example; none of them can be accepted in the gate.
-
-- **RangeEditing.copy: captions: settings**: 37 calls (also showing words-of-unlinked-sound, range-inside-a-transition, later-piece-new-identity, range-end-within-a-frame-of-a-cut)
-
-  `RangeEditing.copy(range 25.871–26.419)` on `captions`:
-  
-  ```
-  before
-      c1 @0 S1 0–12 10 words
-      c2 @12 S2 0–8 5 words
-      c3 @20 S3 0–6 3 words
-      (26 s of picture)
-  today
-      c4 @0 S3 5.871–6 3 words
-      (0.129 s of picture)
-  through the track model
-      c4 @0 S3 5.871–6 3 words
-      (0.129 s of picture)
-  ```
-
-- **RangeEditing.scoped: answer: clips a tool applies to, clips: more through the track model**: 24 calls (also showing scope-cuts-sound-items)
-
-  `RangeEditing.scoped(range 14.4–22.4)` on `golden everything, step 6`:
-  
-  ```
-  before
-      c1 @0 S1 0–9 (opens: fadecolor 0.5) (into next: still 1)
-      c2 @10 S2 0–7 at ×1.5 (into next: whip 0.267)
-      c3 @14.4 S3 0–8 (into next: dissolve 1)
-      c4 @21.1 S4 0–5 (closes: dissolve 0.75)
-      (26.1 s of picture)
-  today
-      c1 @0 S1 0–9 (opens: fadecolor 0.5) (into next: still 1)
-      c2 @10 S2 0–7 at ×1.5 (into next: whip 0.267)
-      c3 @14.4 S3 0–8 (into next: dissolve 1)
-      c4 @21.1 S4 0–5 (closes: dissolve 0.75)
-      (26.1 s of picture)
-      clips a tool applies to: []
-  through the track model
-      c1 @0 S1 0–9 (opens: fadecolor 0.5) (into next: still 1)
-      c2 @10 S2 0–6.6 at ×1.5
-      c5 @14.4 S2 6.6–7 at ×1.5 (into next: whip 0.267)
-      c3 @14.4 S3 0–8 (into next: dissolve 1)
-      c4 @21.1 S4 0–1.3
-      c6 @22.4 S4 1.3–5 (closes: dissolve 0.75)
-      (26.1 s of picture)
-      clips a tool applies to: [3, 4, 5]
-  ```
-
-- **RangeEditing.paste: clip: level or mute**: 24 calls (also showing fades-through-retimes-and-cuts, range-end-within-a-frame-of-a-cut)
-
-  `RangeEditing.paste(a copy of range 0.801–1.293, at 8.716)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c1 @0 S1 0–6
-      c2 @6 S2 0–2.716 [muted]
-      c4 @8.716 S1 0.801–1.293
-      c5 @9.208 S2 2.716–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12.492 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18.492 s of picture)
-      begins at: 8.716
-  through the track model
-      c1 @0 S1 0–6
-      c2 @6 S2 0–2.716 [muted]
-      c6 @8.716 S1 0.801–1.293
-      c7 @9.208 S2 2.716–6 [muted]
-      c3 @12.492 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18.492 s of picture)
-      begins at: 8.716
-  ```
-
-- **RangeEditing.copy: sound item: place**: 21 calls (also showing range-inside-a-transition)
-
-  `RangeEditing.copy(range 20.767–22.767)` on `generated 6, step 8`:
-  
-  ```
-  before
-      c1 @0 S2 0–8 (into next: flashcut 0.3)
-      c2 @7.7 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @19.7 S3 0–5.075 (closes: still 1)
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.775 s of picture)
-  today
-      c4 @0 S3 0–3.067
-      a3 @1.067 M1 16.767–18.767
-      a4 @1.067 M2 2.4–4.4
-      (3.067 s of picture)
-  through the track model
-      c4 @0 S3 1.067–3.067
-      a3 @0 M1 16.767–18.767
-      a4 @0 M2 2.4–4.4
-      (2 s of picture)
-  ```
-
-- **TimelineEditing.insert: no sequence: Gap**: 17 calls
-
-  `TimelineEditing.insert(a clip of 2.5 s at 13.5)` on `golden sound-tracks, step 5`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6
-      a1 @2.5 S3 2.5–30 [-12 dB, fades 0/2]
-      a2 @6.5 S4 0–4
-      (12 s of picture)
-  today
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6
-      c3 @12 S1 0–2.5
-      a1 @2.5 S3 2.5–30 [-12 dB, fades 0/2]
-      a2 @6.5 S4 0–4
-      (14.5 s of picture)
-  through the track model
-      no sequence: there is time without picture before a picture
-      picture c1 0–6 layer 0
-      picture c2 6–12 layer 1
-      picture c4 13.5–16 layer 2
-      sound of c1 0–6
-      sound of c2 6–12
-      sound a1 2.5–13.5 (follows nothing)
-      sound a3 16–32.5 (follows nothing) [fade out 2 from 0]
-      sound a2 6.5–10.5 (follows nothing)
-      sound of c4 13.5–16
-  ```
-
-- **RangeEditing.copy: clip: level or mute**: 15 calls (also showing fades-through-retimes-and-cuts, later-piece-new-identity)
-
-  `RangeEditing.copy(range 5.324–7.452)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c4 @0 S1 5.324–6
-      c5 @0.676 S2 0–1.452 [muted, -3 dB]
-      a1 @0.676 S2 0–1.452 [-3 dB]
-      (2.128 s of picture)
-  through the track model
-      c4 @0 S1 5.324–6
-      c5 @0.676 S2 0–1.452 [muted]
-      a1 @0.676 S2 0–1.452 [-3 dB]
-      (2.128 s of picture)
-  ```
-
-- **TimelineEditing.toggleBookmark: clip: bookmarks**: 11 calls
-
-  `TimelineEditing.toggleBookmark(clip 3 at source second 3.252)` on `captions, then the sound of a clip unlinked`:
-  
-  ```
-  before
-      c1 @0 S1 0–12 10 words
-      c2 @12 S2 0–8 [muted] 5 words
-      c3 @20 S3 0–6 3 words
-      sound of c2 @12 S2 0–8
-      (26 s of picture)
-  today
-      c1 @0 S1 0–12 10 words
-      c2 @12 S2 0–8 [muted] 5 words
-      c3 @20 S3 0–6 marks 3.252 3 words
-      sound of c2 @12 S2 0–8
-      (26 s of picture)
-  through the track model
-      c1 @0 S1 0–12 10 words
-      c2 @12 S2 0–8 [muted] 5 words
-      c3 @20 S3 0–6 marks 3.252 3 words
-      sound of c2 @12 S2 0–8
-      (26 s of picture)
-  ```
-
-- **TimelineEditing.move: applies only today**: 11 calls
-
-  `TimelineEditing.move(clip 1 to place 2)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c2 @0 S2 0–6 [muted]
-      c1 @6 S1 0–6
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  through the track model
-      does not apply
-  ```
-
-- **RangeEditing.paste: answer: begins at, clip: source bounds**: 10 calls
-
-  `RangeEditing.paste(a copy of selected: clip 1, at 12.017)` on `a speed`:
-  
-  ```
-  before
-      c1 @0 S1 0–12 (into next: dissolve 1)
-      c2 @11 S2 0–8 at ×2
-      c3 @15 S3 0–6
-      (21 s of picture)
-  today
-      c1 @0 S1 0–12 (into next: dissolve 1)
-      c2 @11 S2 0–2 at ×2
-      c4 @12 S1 0–12
-      c5 @24 S2 2–8 at ×2
-      c3 @27 S3 0–6
-      (33 s of picture)
-      begins at: 12
-  through the track model
-      c1 @0 S1 0–12 (into next: dissolve 1)
-      c2 @11 S2 0–2.034 at ×2
-      c6 @12.017 S1 0–12
-      c7 @24.017 S2 2.034–8 at ×2
-      c3 @27 S3 0–6
-      (33 s of picture)
-      begins at: 12.017
-  ```
-
-- **RangeEditing.paste: opening: only today**: 9 calls (also showing range-end-within-a-frame-of-a-cut)
-
-  `RangeEditing.paste(a copy of range 2.52–8.5, at 6.566)` on `generated 26, step 5`:
-  
-  ```
-  before
-      c1 @2.5 S1 0–12 (opens: still 2.5) marks 7.262
-      c2 @14.5 S2 0–8
-      c3 @22.5 S3 0–6
-      a1 @20.533 M1 0–30
-      a2 @26 S4 0–20
-      (28.5 s of picture)
-  today
-      c1 @2.5 S1 0–4.066 (opens: still 2.5)
-      c4 @9.066 S1 0–6 (opens: still 2.5)
-      c5 @15.066 S1 4.066–12 marks 7.262
-      c2 @23 S2 0–8
-      c3 @31 S3 0–6
-      a1 @20.533 M1 0–30
-      a2 @26 S4 0–20
-      (37 s of picture)
-      begins at: 9.066
-  through the track model
-      c1 @2.5 S1 0–4.066 (opens: still 2.5)
-      c6 @6.566 S1 0.02–6
-      c7 @12.546 S1 4.066–12 marks 7.262
-      c2 @20.48 S2 0–8
-      c3 @28.48 S3 0–6
-      a1 @20.533 M1 0–30
-      a2 @26 S4 0–20
-      (34.48 s of picture)
-      begins at: 6.566
-  ```
-
-- **TimelineEditing.trim, as a handle: no sequence: Timing**: 8 calls
-
-  `TimelineEditing.trim, as a handle(clip 2, the end in by a third)` on `golden range-one-frame, step 3`:
-  
-  ```
-  before
-      c1 @0 S1 0–2
-      c2 @2 S1 3–3.033
-      c3 @2.033 S1 5–10
-      c4 @7.033 S2 0–10
-      a1 @0 S3 0–2
-      a2 @4 S3 4–20
-      (17.033 s of picture)
-  today
-      c1 @0 S1 0–2
-      c2 @2 S1 3–3.1
-      c3 @2.1 S1 5–10
-      c4 @7.1 S2 0–10
-      a1 @0 S3 0–2
-      a2 @4 S3 4–20
-      (17.1 s of picture)
-  through the track model
-      no sequence: a picture or a sound plays in several runs, or a sound of its own plays at another speed
-      picture c1 0–2 layer 0
-      picture c2 2–2.1 layer 4
-      picture c3 2.033–7.033 layer 2
-      picture c4 7.033–17.033 layer 3
-      sound of c1 0–2
-      sound of c2 2–2.1
-      sound of c3 2.033–7.033
-      sound of c4 7.033–17.033
-      sound a1 0–2 (follows nothing)
-      sound a2 4–20 (follows nothing)
-  ```
-
-- **TimelineEditing.insert: clip: level or mute**: 7 calls (also showing insert-moves-sound-items, fades-through-retimes-and-cuts, insert-new-identity)
-
-  `TimelineEditing.insert(a clip of 2.5 s at 9.967)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c1 @0 S1 0–6
-      c2 @6 S2 0–3.967 [muted]
-      c4 @9.967 S1 0–2.5
-      c5 @12.467 S2 3.967–6 [muted, -3 dB, fades 0/0.5]
-      c3 @14.5 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (20.5 s of picture)
-  through the track model
-      c1 @0 S1 0–6
-      c2 @6 S2 0–3.967 [muted]
-      c6 @9.967 S1 0–2.5
-      c7 @12.467 S2 3.967–6 [muted]
-      c3 @14.5 S3 0–6
-      sound of c2 @6 S2 0–3.967 [-3 dB]
-      sound of c7 @12.467 S2 3.967–6 [-3 dB, fades 0/0.5]
-      (20.5 s of picture)
-  ```
-
-- **RangeEditing.scoped: clip: level or mute**: 7 calls (also showing scope-cuts-sound-items, fades-through-retimes-and-cuts)
-
-  `RangeEditing.scoped(range 5.324–7.452)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c1 @0 S1 0–5.324
-      c4 @5.324 S1 5.324–6
-      c2 @6 S2 0–1.452 [muted]
-      c5 @7.452 S2 1.452–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-      clips a tool applies to: [2, 3]
-  through the track model
-      c1 @0 S1 0–5.324
-      c6 @5.324 S1 5.324–6
-      c2 @6 S2 0–1.452 [muted]
-      c7 @7.452 S2 1.452–6 [muted]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–1.452 [-3 dB]
-      sound of c7 @7.452 S2 1.452–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-      clips a tool applies to: [2, 3]
-  ```
-
-- **TimelineEditing.trim: no sequence: Sound**: 7 calls
-
-  `TimelineEditing.trim(clip 3, the start out by 1 s)` on `generated 16, step 9`:
-  
-  ```
-  before
-      c1 @0 S1 0–12
-      c2 @12 S2 0–4.423 [-6 dB]
-      c3 @16.423 S2 5.957–8 at ×0.5 [noise reduction 0.6]
-      c4 @20.509 S3 0–2.034 [muted]
-      c5 @22.543 S3 2.034–6 [muted] marks 2.62
-      sound of c4 @18.466 S3 0–6
-      a1 @32.433 M2 0–5
-      (26.509 s of picture)
-  today
-      c1 @0 S1 0–12
-      c2 @12 S2 0–4.423 [-6 dB]
-      c3 @16.423 S2 4.957–8 at ×0.5 [noise reduction 0.6]
-      c4 @22.509 S3 0–2.034 [muted]
-      c5 @24.543 S3 2.034–6 [muted] marks 2.62
-      sound of c4 @18.466 S3 0–6
-      a1 @32.433 M2 0–5
-      (28.509 s of picture)
-  through the track model
-      no sequence: a sound has a chain of effects other than one noise reduction over all of it, or a censor
-      picture c1 0–12 layer 0
-      picture c2 12–16.423 layer 1
-      picture c3 16.423–22.509 layer 5
-      picture c4 20.509–22.543 layer 3
-      picture c5 24.543–28.509 layer 4
-      sound of c1 0–12
-      sound of c2 12–16.423
-      sound of c3 16.423–22.509
-      sound of c4 18.466–24.466 (follows nothing)
-      sound of c5 24.543–28.509
-      sound a1 32.433–37.433 (follows nothing)
-  ```
-
-- **SubtitleEditing.install: no sequence: Words**: 7 calls
-
-  `SubtitleEditing.install(a transcription of every take)` on `generated 26, step 4`:
-  
-  ```
-  before
-      c1 @0 S1 0–12 marks 7.262
-      c2 @12 S2 0–8
-      c3 @20 S3 0–6
-      a1 @20.533 M1 0–30
-      a2 @26 S4 0–20
-      (26 s of picture)
-  today
-      c1 @0 S1 0–12 marks 7.262 6 words
-      c2 @12 S2 0–8 6 words
-      c3 @20 S3 0–6 6 words
-      a1 @20.533 M1 0–30
-      a2 @26 S4 0–20
-      (26 s of picture)
-  through the track model
-      no sequence: a sound of its own has words
-      picture c1 0–12 layer 0
-      picture c2 12–20 layer 1
-      picture c3 20–26 layer 2
-      sound of c1 0–12
-      sound of c2 12–20
-      sound of c3 20–26
-      sound a1 20.533–50.533 (follows nothing)
-      sound a2 26–46 (follows nothing)
-  ```
-
-- **RangeEditing.delete: clip: source bounds**: 4 calls (also showing removed-transition-leaves-its-time)
-
-  `RangeEditing.delete(range 21.269–23.806 of clip 3, the playhead at 15.683)` on `generated 6, step 6`:
-  
-  ```
-  before
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.075 s of picture)
-  today
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–1.25
-      c4 @21.25 S3 3.806–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (22.519 s of picture)
-      playhead: 15.683
-  through the track model
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–1.269
-      c5 @21.269 S3 3.806–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (22.538 s of picture)
-      playhead: 15.683
-  ```
-
-- **RangeEditing.copy: clip: source bounds**: 4 calls
-
-  `RangeEditing.copy(range 21.269–23.806 of clip 3)` on `generated 6, step 6`:
-  
-  ```
-  before
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.075 s of picture)
-  today
-      c4 @0 S3 1.25–3.806
-      (2.556 s of picture)
-  through the track model
-      c4 @0 S3 1.269–3.806
-      (2.538 s of picture)
-  ```
-
-- **RangeEditing.cut: clip: source bounds**: 4 calls (also showing removed-transition-leaves-its-time)
-
-  `RangeEditing.cut(range 21.269–23.806 of clip 3, the playhead at 15.683)` on `generated 6, step 6`:
-  
-  ```
-  before
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.075 s of picture)
-  today
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–1.25
-      c4 @21.25 S3 3.806–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (22.519 s of picture)
-      playhead: 15.683
-  through the track model
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–1.269
-      c5 @21.269 S3 3.806–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (22.538 s of picture)
-      playhead: 15.683
-  ```
-
-- **RangeEditing.scoped: clip: source bounds**: 4 calls
-
-  `RangeEditing.scoped(range 21.269–23.806 of clip 3)` on `generated 6, step 6`:
-  
-  ```
-  before
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.075 s of picture)
-  today
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–1.25
-      c4 @21.25 S3 1.25–3.806
-      c5 @23.806 S3 3.806–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.075 s of picture)
-      clips a tool applies to: [4]
-  through the track model
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–1.269
-      c6 @21.269 S3 1.269–3.806
-      c7 @23.806 S3 3.806–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.075 s of picture)
-      clips a tool applies to: [4]
-  ```
-
-- **TimelineEditing.removeAudio: clip: level or mute**: 4 calls (also showing fades-through-retimes-and-cuts)
-
-  `TimelineEditing.removeAudio(the unlinked sound of clip 2)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      (18 s of picture)
-  through the track model
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted]
-      c3 @12 S3 0–6
-      (18 s of picture)
-  ```
-
-- **RangeEditing.delete: clip: level or mute**: 4 calls (also showing fades-through-retimes-and-cuts)
-
-  `RangeEditing.delete(selected: a sound item, the playhead at 1.653)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      (18 s of picture)
-      playhead: 1.653
-  through the track model
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted]
-      c3 @12 S3 0–6
-      (18 s of picture)
-      playhead: 1.653
-  ```
-
-- **RangeEditing.cut: clip: level or mute**: 4 calls (also showing fades-through-retimes-and-cuts)
-
-  `RangeEditing.cut(selected: a sound item, the playhead at 1.653)` on `golden unlinked-sound, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-      (18 s of picture)
-  today
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted, -3 dB, fades 0/0.5]
-      c3 @12 S3 0–6
-      (18 s of picture)
-      playhead: 1.653
-  through the track model
-      c1 @0 S1 0–6
-      c2 @6 S2 0–6 [muted]
-      c3 @12 S3 0–6
-      (18 s of picture)
-      playhead: 1.653
-  ```
-
-- **RangeEditing.paste: opening: only through the track model**: 3 calls (also showing range-end-within-a-frame-of-a-cut)
-
-  `RangeEditing.paste(a copy of range 6–18, at 12.021)` on `an opening on a middle clip`:
-  
-  ```
-  before
-      c1 @0 S3 0–6
-      c2 @6 S1 0–12 (opens: fadecolor 1)
-      c3 @18 S2 0–8
-      (26 s of picture)
-  today
-      c1 @0 S3 0–6
-      c2 @6 S1 0–6.021 (opens: fadecolor 1)
-      c4 @12.021 S1 1–12
-      c5 @23.021 S1 6.021–12
-      c3 @29 S2 0–8
-      (37 s of picture)
-      begins at: 12.021
-  through the track model
-      c1 @0 S3 0–6
-      c2 @6 S1 0–6.021 (opens: fadecolor 1)
-      c6 @12.021 S1 0–12 (opens: fadecolor 1)
-      c7 @24.021 S1 6.021–12
-      c3 @30 S2 0–8
-      (38 s of picture)
-      begins at: 12.021
-  ```
-
-- **RangeEditing.copy: opening: only today**: 3 calls (also showing range-end-within-a-frame-of-a-cut)
-
-  `RangeEditing.copy(range 2.52–8.5)` on `generated 26, step 5`:
-  
-  ```
-  before
-      c1 @2.5 S1 0–12 (opens: still 2.5) marks 7.262
-      c2 @14.5 S2 0–8
-      c3 @22.5 S3 0–6
-      a1 @20.533 M1 0–30
-      a2 @26 S4 0–20
-      (28.5 s of picture)
-  today
-      c4 @2.5 S1 0–6 (opens: still 2.5)
-      (8.5 s of picture)
-  through the track model
-      c4 @0 S1 0.02–6
-      (5.98 s of picture)
-  ```
-
-- **RangeEditing.paste: clip: source bounds**: 3 calls
-
-  `RangeEditing.paste(a copy of range 21.269–23.806 of clip 3, at 11.741)` on `generated 6, step 6`:
-  
-  ```
-  before
-      c1 @0 S2 0–8
-      c2 @8 S1 0–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @20 S3 0–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (25.075 s of picture)
-  today
-      c1 @0 S2 0–8
-      c2 @8 S1 0–3.741
-      c4 @11.741 S3 1.25–3.806
-      c5 @14.297 S1 3.741–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @22.556 S3 0–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (27.631 s of picture)
-      begins at: 11.741
-  through the track model
-      c1 @0 S2 0–8
-      c2 @8 S1 0–3.741
-      c6 @11.741 S3 1.269–3.806
-      c7 @14.278 S1 3.741–12 (into next: fadecolor 2.5) marks 8.69
-      c3 @22.538 S3 0–5.075
-      a1 @4 M1 0–30
-      a2 @18.367 M2 0–5
-      (27.613 s of picture)
-      begins at: 11.741
-  ```
-
-- **RangeEditing.paste: sound item: place**: 2 calls (also showing range-inside-a-transition)
-
-  `RangeEditing.paste(a copy of range 10.255–11.166, at 8.458)` on `golden everything, step 10`:
-  
-  ```
-  before
-      c1 @0 S1 0–9 (opens: fadecolor 0.5) (into next: still 1) 1 titles
-      c2 @10 S2 0–7 at ×1.5 (into next: whip 0.267)
-      c3 @14.4 S3 0–8 (into next: dissolve 1)
-      c4 @21.1 S4 0–5 (closes: dissolve 0.75)
-      a1 @0.5 S5 0–40
-      (26.1 s of picture)
-  today
-      c1 @0 S1 0–8.458 (opens: fadecolor 0.5) 1 titles
-      c5 @8.458 S2 0–1.75 at ×1.5
-      c6 @9.625 S1 8.458–9 (into next: still 1) 1 titles
-      c2 @11.166 S2 0–7 at ×1.5 (into next: whip 0.267)
-      c3 @15.566 S3 0–8 (into next: dissolve 1)
-      c4 @22.266 S4 0–5 (closes: dissolve 0.75)
-      a1 @0.5 S5 0–40
-      a2 @8.713 S5 9.755–10.666
-      (27.266 s of picture)
-      begins at: 8.458
-  through the track model
-      c1 @0 S1 0–8.458 (opens: fadecolor 0.5) 1 titles
-      c7 @8.458 S2 0.382–1.75 at ×1.5
-      c8 @9.37 S1 8.458–9 (into next: still 1) 1 titles
-      c2 @10.912 S2 0–7 at ×1.5 (into next: whip 0.267)
-      c3 @15.312 S3 0–8 (into next: dissolve 1)
-      c4 @22.012 S4 0–5 (closes: dissolve 0.75)
-      a1 @0.5 S5 0–40
-      a3 @8.458 S5 9.755–10.666
-      (27.012 s of picture)
-      begins at: 8.458
-  ```
-
-- **RangeEditing.delete: clips: more today**: 1 calls
-
-  `RangeEditing.delete(range 6–18, the playhead at 0.474)` on `an opening on a middle clip`:
-  
-  ```
-  before
-      c1 @0 S3 0–6
-      c2 @6 S1 0–12 (opens: fadecolor 1)
-      c3 @18 S2 0–8
-      (26 s of picture)
-  today
-      c1 @0 S3 0–6
-      c2 @6 S1 0–1 (opens: fadecolor 1)
-      c3 @7 S2 0–8
-      (15 s of picture)
-      playhead: 0.474
-  through the track model
-      c1 @0 S3 0–6
-      c3 @6 S2 0–8
-      (14 s of picture)
-      playhead: 0.474
-  ```
-
-- **RangeEditing.copy: opening: only through the track model**: 1 calls (also showing range-end-within-a-frame-of-a-cut)
-
-  `RangeEditing.copy(range 6–18)` on `an opening on a middle clip`:
-  
-  ```
-  before
-      c1 @0 S3 0–6
-      c2 @6 S1 0–12 (opens: fadecolor 1)
-      c3 @18 S2 0–8
-      (26 s of picture)
-  today
-      c4 @0 S1 1–12
-      (11 s of picture)
-  through the track model
-      c4 @0 S1 0–12 (opens: fadecolor 1)
-      (12 s of picture)
-  ```
-
-- **RangeEditing.cut: clips: more today**: 1 calls
-
-  `RangeEditing.cut(range 6–18, the playhead at 0.474)` on `an opening on a middle clip`:
-  
-  ```
-  before
-      c1 @0 S3 0–6
-      c2 @6 S1 0–12 (opens: fadecolor 1)
-      c3 @18 S2 0–8
-      (26 s of picture)
-  today
-      c1 @0 S3 0–6
-      c2 @6 S1 0–1 (opens: fadecolor 1)
-      c3 @7 S2 0–8
-      (15 s of picture)
-      playhead: 0.474
-  through the track model
-      c1 @0 S3 0–6
-      c3 @6 S2 0–8
-      (14 s of picture)
-      playhead: 0.474
-  ```
-
-- **RangeEditing.scoped: clips: more today**: 1 calls (also showing range-end-within-a-frame-of-a-cut)
-
-  `RangeEditing.scoped(range 6–18)` on `an opening on a middle clip`:
-  
-  ```
-  before
-      c1 @0 S3 0–6
-      c2 @6 S1 0–12 (opens: fadecolor 1)
-      c3 @18 S2 0–8
-      (26 s of picture)
-  today
-      c1 @0 S3 0–6
-      c2 @6 S1 0–1 (opens: fadecolor 1)
-      c4 @7 S1 1–12
-      c3 @18 S2 0–8
-      (26 s of picture)
-      clips a tool applies to: [3]
-  through the track model
-      c1 @0 S3 0–6
-      c2 @6 S1 0–12 (opens: fadecolor 1)
-      c3 @18 S2 0–8
-      (26 s of picture)
-      clips a tool applies to: [2]
-  ```
-
-- **SubtitleEditing.regroup: applies only through the track model**: 1 calls
-
-  `SubtitleEditing.regroup(4 words a caption)` on `golden subtitles, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–6 10 words
-      c2 @6 S2 0–4 5 words
-      (10 s of picture)
-  today
-      does not apply
-  through the track model
-      c1 @0 S1 0–6 10 words
-      c2 @6 S2 0–4 5 words
-      (10 s of picture)
-  ```
-
-- **RangeEditing.paste: answer: begins at, clip: source bounds, sound item: place**: 1 calls
-
-  `RangeEditing.paste(a copy of everything, at 8.205)` on `generated 7, step 10`:
-  
-  ```
-  before
-      c1 @0 S1 5.142–7.135 at ×2 3 words
-      c2 @0.997 S1 0–3.6 3 words
-      c3 @4.597 S1 8.4–9.957 2 words
-      c4 @6.153 S1 9.957–12 (into next: defocus 0.3) 2 words
-      c5 @7.897 S2 0–3.299 3 words
-      c6 @11.195 S2 3.299–8 2 words
-      c7 @15.897 S3 0–6 [fades 0.5/1] 3 words
-      a1 @10.067 M2 0–5
-      (21.897 s of picture)
-  today
-      c1 @0 S1 5.142–7.135 at ×2 3 words
-      c2 @0.997 S1 0–3.6 3 words
-      c3 @4.597 S1 8.4–9.957 2 words
-      c4 @6.153 S1 9.957–12 (into next: defocus 0.3) 2 words
-      c5 @7.897 S2 0–0.3 3 words
-      c8 @8.197 S1 5.142–7.135 at ×2 3 words
-      c9 @9.193 S1 0–3.6 3 words
-      c10 @12.793 S1 8.4–9.957 2 words
-      c11 @14.35 S1 9.957–12 (into next: defocus 0.3) 2 words
-      c12 @16.093 S2 0–3.299 3 words
-      c13 @19.392 S2 3.299–8 2 words
-      c14 @24.093 S3 0–6 [fades 0.5/1] 3 words
-      c15 @30.093 S2 0.3–3.299 3 words
-      c6 @33.092 S2 3.299–8 2 words
-      c7 @37.793 S3 0–6 [fades 0.5/1] 3 words
-      a1 @10.067 M2 0–5
-      a2 @18.263 M2 0–5
-      (43.793 s of picture)
-      begins at: 8.197
-  through the track model
-      c1 @0 S1 5.142–7.135 at ×2 3 words
-      c2 @0.997 S1 0–3.6 3 words
-      c3 @4.597 S1 8.4–9.957 2 words
-      c4 @6.153 S1 9.957–12 (into next: defocus 0.3) 2 words
-      c5 @7.897 S2 0–0.308 3 words
-      c16 @8.205 S1 5.142–7.135 at ×2 3 words
-      c17 @9.201 S1 0–3.6 3 words
-      c18 @12.801 S1 8.4–9.957 2 words
-      c19 @14.358 S1 9.957–12 (into next: defocus 0.3) 2 words
-      c20 @16.101 S2 0–3.299 3 words
-      c21 @19.4 S2 3.299–8 2 words
-      c22 @24.101 S3 0–6 [fades 0.5/1] 3 words
-      c23 @30.101 S2 0.308–3.299 3 words
-      c6 @33.092 S2 3.299–8 2 words
-      c7 @37.793 S3 0–6 [fades 0.5/1] 3 words
-      a1 @10.067 M2 0–5
-      a3 @18.272 M2 0–5
-      (43.793 s of picture)
-      begins at: 8.205
-  ```
-
-- **AudioUnlinking.restoreSync: applies only today**: 1 calls
-
-  `AudioUnlinking.restoreSync(clip 5)` on `generated 9, step 6`:
-  
-  ```
-  before
-      c1 @0 S1 0–3.6 (opens: whip 0.3)
-      c2 @3.6 S1 4.8–7.2
-      c3 @6 S1 8.4–12
-      c4 @9.6 S2 0–8
-      c5 @17.6 S3 0.295–4.423 [muted]
-      c6 @21.728 S4 0–5.3
-      c7 @27.028 S4 5.3–19.825
-      sound of c5 @17.6 S3 0–6
-      (41.553 s of picture)
-  today
-      c1 @0 S1 0–3.6 (opens: whip 0.3)
-      c2 @3.6 S1 4.8–7.2
-      c3 @6 S1 8.4–12
-      c4 @9.6 S2 0–8
-      c5 @17.6 S3 0.295–4.423 [muted]
-      c6 @21.728 S4 0–5.3
-      c7 @27.028 S4 5.3–19.825
-      sound of c5 @17.305 S3 0–6
-      (41.553 s of picture)
-  through the track model
-      does not apply
-  ```
-
-- **AudioUnlinking.syncOffset: answer: seconds late**: 1 calls
-
-  `AudioUnlinking.syncOffset(clip 5)` on `generated 9, step 6`:
-  
-  ```
-  before
-      c1 @0 S1 0–3.6 (opens: whip 0.3)
-      c2 @3.6 S1 4.8–7.2
-      c3 @6 S1 8.4–12
-      c4 @9.6 S2 0–8
-      c5 @17.6 S3 0.295–4.423 [muted]
-      c6 @21.728 S4 0–5.3
-      c7 @27.028 S4 5.3–19.825
-      sound of c5 @17.6 S3 0–6
-      (41.553 s of picture)
-  today
-      seconds late: 0.295
-  through the track model
-      seconds late: null
-  ```
-
-- **TimelineEditing.setJoin: no sequence: Overlap**: 1 calls
-
-  `TimelineEditing.setJoin(the close of clip 1, still of 1.5 s)` on `generated 24, step 10`:
-  
-  ```
-  before
-      c1 @0 S3 0–6 (closes: hitchcock 1) [fades 0.5/1] 3 words
-      c2 @6 S1 0–5.633 10 words 1 titles
-      c3 @11.633 S1 5.633–12 10 words
-      c4 @18 S2 0–7.071 marks 3.758 5 words
-      c5 @25.071 S2 7.071–8
-      a1 @8.5 M2 0–5
-      a2 @23.733 M1 0–30
-      (26 s of picture)
-  today
-      c1 @0 S3 0–6 (closes: still 1.5) [fades 0.5/1] 3 words
-      c2 @7.5 S1 0–5.633 10 words 1 titles
-      c3 @13.133 S1 5.633–12 10 words
-      c4 @19.5 S2 0–7.071 marks 3.758 5 words
-      c5 @26.571 S2 7.071–8
-      a1 @8.5 M2 0–5
-      a2 @23.733 M1 0–30
-      (27.5 s of picture)
-  through the track model
-      no sequence: two pictures play at once without a transition between them
-      picture c1 0–6 layer 0
-      picture c2 6–11.633 layer 1
-      picture c3 11.633–18 layer 2
-      picture c4 18–25.071 layer 3
-      picture c5 25.071–26 layer 4
-      sound of c1 0–6 [fade in 0.5 from 0, fade out 1 from 0]
-      sound of c2 6–11.633
-      sound of c3 11.633–18
-      sound of c4 18–25.071
-      sound of c5 25.071–26
-      sound a1 8.5–13.5 (follows nothing)
-      sound a2 23.733–53.733 (follows nothing)
-      transition c1 → – from 6
-  ```
-
-- **TimelineEditing.moveAudio: applies only through the track model**: 1 calls
-
-  `TimelineEditing.moveAudio(the item at 3.226 to 0)` on `generated 25, step 10`:
-  
-  ```
-  before
-      c1 @0 S1 0–0.972
-      c2 @0.972 S1 3.226–10.336
-      c3 @8.082 S1 11.176–12 [muted]
-      c4 @8.906 S2 0–8 (into next: hitchcock 2.5 ×0.72) marks 6.989
-      c5 @15.106 S3 0–1.8
-      c6 @16.906 S3 2.4–3.6
-      c7 @18.106 S3 4.2–6
-      a1 @0.667 M1 0–0.305
-      a2 @3.226 M1 2.559–30
-      a3 @18.233 M1 0–30
-      (19.906 s of picture)
-  today
-      does not apply
-  through the track model
-      c1 @0 S1 0–0.972
-      c2 @0.972 S1 3.226–10.336
-      c3 @8.082 S1 11.176–12 [muted]
-      c4 @8.906 S2 0–8 (into next: hitchcock 2.5 ×0.72) marks 6.989
-      c5 @15.106 S3 0–1.8
-      c6 @16.906 S3 2.4–3.6
-      c7 @18.106 S3 4.2–6
-      a2 @0 M1 2.559–30
-      a1 @0.667 M1 0–0.305
-      a3 @18.233 M1 0–30
-      (19.906 s of picture)
-  ```
-
-- **RangeEditing.copy: sound item: source**: 1 calls (also showing range-end-within-a-frame-of-a-cut, later-piece-new-identity)
-
-  `RangeEditing.copy(range 26.02–36)` on `generated 26, step 2`:
-  
-  ```
-  before
-      c1 @0 S1 0–12
-      c2 @12 S2 0–8
-      c3 @20 S3 0–6
-      c4 @26 S4 0–20 [muted]
-      a1 @20.533 M1 0–30
-      sound of c4 @26 S4 0–20
-      (46 s of picture)
-  today
-      c5 @0 S4 0–10 [muted]
-      a2 @0 S4 0–10
-      a3 @0.02 M1 5.487–15.467
-      (10 s of picture)
-  through the track model
-      c5 @0 S4 0.02–10 [muted]
-      a2 @0 S4 0.02–10
-      a3 @0 M1 5.487–15.467
-      (9.98 s of picture)
-  ```
+Every difference found is of one of the kinds above.
 
 ## Fades
 
@@ -2168,35 +1479,41 @@ Of the 76288 timelines the operations of the track model answered in the suite, 
 ## The sample
 
 What the tests check when nothing is set in the environment: the calls on 68 of the edits (the 18 small ones, every 8th step of the golden projects, every 9th seeded edit), the same calls the whole suite makes on them.
-15642 calls: 12648 identical, 1880 different, 1114 not expressible, 49 with something not explained.
+15642 calls: 12651 identical, 1877 different, 1114 not expressible, 0 with something not explained.
 
 | Kind | Calls in the sample |
 |---|---:|
 | unlinked-picture-does-not-ripple | 581 |
 | trim-removes-an-opening-of-a-middle-clip | 1 |
-| range-inside-a-transition | 327 |
+| range-inside-a-transition | 350 |
 | pauses-leave-a-transition-without-footage | 48 |
 | handle-trim-outwards-overlaps | 34 |
 | handle-trim-inwards-is-a-deletion | 52 |
 | insert-inside-a-transition | 47 |
-| words-of-unlinked-sound | 146 |
+| words-of-unlinked-sound | 148 |
 | transcription-hears-sound-items | 16 |
+| caption-look-travels-with-any-words | 2 |
+| copy-keeps-time-that-sound-fills | 2 |
+| footage-put-after-the-picture | 4 |
 | paste-opens-the-length-of-the-fragment | 26 |
-| removed-transition-leaves-its-time | 51 |
+| playhead-in-time-a-transition-holds | 2 |
+| removed-transition-leaves-its-time | 47 |
 | bookmark-also-marks-the-unlinked-sound | 22 |
 | third-sound | 55 |
 | split-refused-near-an-edge | 240 |
 | split-on-the-grid | 123 |
-| range-end-within-a-frame-of-a-cut | 441 |
+| range-end-within-a-frame-of-a-cut | 427 |
 | split-cuts-sound-items | 51 |
 | scope-cuts-sound-items | 50 |
 | insert-moves-sound-items | 153 |
 | bookmark-at-the-last-second | 111 |
 | bookmark-outlives-its-footage | 6 |
+| unlinked-clip-remembers-no-sound | 22 |
 | fade-no-longer-than-its-item | 5 |
-| fades-through-retimes-and-cuts | 39 |
+| fades-through-retimes-and-cuts | 24 |
 | unlink-does-not-bake-the-transition | 20 |
 | unlink-is-never-refused | 7 |
+| noise-reduction-stays-on-its-footage | 3 |
 | sound-settings-of-an-unlinked-clip | 25 |
 | insert-new-identity | 345 |
 | later-piece-new-identity | 153 |

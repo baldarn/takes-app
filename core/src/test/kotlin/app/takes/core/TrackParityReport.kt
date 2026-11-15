@@ -147,7 +147,7 @@ internal object TrackParityReport {
         appendLine("Every function of `TimelineEditing`, `RangeEditing`, `SubtitleEditing` and `AudioUnlinking` that changes an edit, and the questions among them that the track model also answers, is called twice on the same edit with the same arguments:")
         appendLine("as it is today, and through the track model (`TrackSequenceView`: the edit is converted to a timeline, the operation the function is to become is run, and the result is brought back to a sequence).")
         appendLine("Today's answer is read as the conversion reads it (fits saved, settings that do not play dropped, sound tracks repacked), so only what plays differently counts.")
-        appendLine("Ids made during the call, the track of a sound item, the order of a clip's bookmarks, and times less than three ticks (1/80000 s) apart are not differences.")
+        appendLine("Ids made during the call, the track of a sound item, the order of a clip's bookmarks, and times less than three ticks (1/80000 s) apart are not differences. Where a sound is muted on both sides, its level, fades and noise reduction are compared as one thing: what it would sound like unmuted.")
         appendLine()
         appendLine("- **identical**: the same edit and the same answer, or neither applies.")
         appendLine("- **different**: both give a sequence, and the two differ.")
