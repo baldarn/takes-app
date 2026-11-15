@@ -255,3 +255,162 @@ class TitleDesignTest {
         assertEquals(listOf("system", "modern", "classic", "mono", "condensed"), text(SubtitleFont.serializer(), SubtitleFont.entries))
     }
 }
+
+/** Titles with a design or a motion in a project: the saved form, the schema and the motion's clock. */
+class TitleProjectTest {
+    private val take = SourceMedia(id = "S1", filename = "take.mp4", duration = 10.0, recordedAt = 5)
+    private val fade = TitleMotion(entrance = TitleMove.Fade, exit = TitleMove.Fade, inSeconds = 0.5, outSeconds = 0.5)
+
+    private fun project(vararg texts: TextOverlay): Project {
+        val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
+        val clip = base.edit.clips[0].copy(id = "C1", texts = texts.toList())
+        return base.commit(EditState(listOf(clip), base.edit.captureBase), now = 3)
+    }
+
+    @Test fun aTitleWithoutDesignIsWrittenAsBeforeAndKeepsItsSchema() {
+        val project = project(TextOverlay(id = "T", text = "Hello", start = 1.0, end = 3.0, y = 0.15, size = 0.1))
+        assertEquals(2, project.schemaVersion)
+        assertEquals(
+            """{"state":{"clips":[{"id":"C1","sourceID":"S1","start":0.0,"end":10.0,"texts":[{"id":"T","text":"Hello","start":1.0,"end":3.0,"x":0.5,"y":0.15,"size":0.1}]}]},"captureCursor":1}""",
+            project.snapshots[1].data().decodeToString(),
+        )
+        // And what an older version wrote reads back as the same title, with no design.
+        val read = documentJson.decodeFromString(TextOverlay.serializer(), """{"id":"T","text":"Hello","start":1.0,"end":3.0,"x":0.5,"y":0.15,"size":0.1}""")
+        assertEquals(TextOverlay(id = "T", text = "Hello", start = 1.0, end = 3.0, y = 0.15, size = 0.1), read)
+        assertFalse(read.styled)
+        assertEquals(TitleDesign.plain, read.design)
+    }
+
+    @Test fun aDesignOrAMotionRaisesTheSchemaSoOlderReadersRefuse() {
+        val plain = TextOverlay(id = "T", text = "Hello", start = 1.0, end = 3.0)
+        for (title in listOf(plain.copy(appearance = TitleDesign()), plain.copy(motion = fade), plain.copy(appearance = TitleDesign.looks[2].second, motion = fade))) {
+            val project = project(title)
+            assertEquals(12, project.schemaVersion)
+            assertEquals(12, Project.LATEST_READABLE_SCHEMA)
+            project.validate()
+            val files = mutableMapOf<String, ByteArray>()
+            val manifest = project.manifest { name, data -> files[name] = data }
+            val read = Project.readManifest(manifest) { files.getValue(it) }
+            assertEquals(project, read)
+            assertEquals(title, read.edit.clips[0].texts!![0])
+            // A reader that knows schemas up to 11 checks the number first and stops.
+            assertTrue(manifest.decodeToString().startsWith("""{"schemaVersion":12,"""))
+        }
+        // The other titles of a styled project are still written the old way.
+        val mixed = project(plain, plain.copy(id = "U", motion = fade))
+        assertTrue(mixed.snapshots[1].data().decodeToString().contains(""""texts":[{"id":"T","text":"Hello","start":1.0,"end":3.0,"x":0.5,"y":0.5,"size":0.065},{"id":"U","""))
+        // Undoing the design does not lower the schema: the history still holds it.
+        assertEquals(12, project(plain.copy(motion = fade)).undo().schemaVersion)
+    }
+
+    @Test fun aMotionIsWrittenWithTheOriginalFieldNames() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 0.0, end = 2.0, motion = TitleMotion(entrance = TitleMove.Wipe, inDirection = TitleDirection.Left))
+        assertEquals(
+            """{"id":"T","text":"Hi","start":0.0,"end":2.0,"x":0.5,"y":0.5,"size":0.065,"motion":{"entrance":"wipe","exit":"none","inSeconds":0.35,"outSeconds":0.35,"inDirection":"left"}}""",
+            documentJson.encodeToString(TextOverlay.serializer(), title),
+        )
+        val designed = documentJson.encodeToString(TextOverlay.serializer(), title.copy(motion = null, appearance = TitleDesign()))
+        assertTrue(designed.contains(""""appearance":{"face":"system","weight":700,"italic":false,"alignment":"center""""))
+    }
+
+    @Test fun invalidDesignsAndMotionsAreRefused() {
+        val title = TextOverlay(text = "Hi", start = 0.0, end = 2.0)
+        assertTrue(title.copy(appearance = TitleDesign(), motion = fade).valid)
+        assertFalse(title.copy(appearance = TitleDesign(borderWidth = 0.5)).valid)
+        assertFalse(title.copy(appearance = TitleDesign(tracking = Double.NaN)).valid)
+        assertFalse(title.copy(appearance = TitleDesign(fill = TitleInk(-1))).valid)
+        assertFalse(title.copy(appearance = TitleDesign(gradient = TitleGradient(TitleInk.WHITE, TitleInk(0x1ffffffffL), 10.0))).valid)
+        assertFalse(title.copy(motion = fade.copy(inSeconds = 9.0)).valid)
+        assertFalse(title.copy(motion = fade.copy(outSeconds = Double.NaN)).valid)
+        val state = project(title).edit
+        assertNull(TimelineEditing.setText(state, 0, title.copy(appearance = TitleDesign(weight = 5))))
+    }
+
+    @Test fun plainLookIsWhatAnUndesignedTitleShows() {
+        val plain = TitleDesign.plain
+        assertTrue(plain.valid && plain.outlined && !plain.shadow)
+        assertEquals("system", plain.face)
+        assertEquals(700, plain.weight)
+        assertEquals(TitleInk.WHITE, plain.fill)
+        assertEquals(TitleInk.BLACK, plain.border)
+    }
+
+    private fun clip(id: String, start: Double, end: Double, title: TextOverlay?, rate: Double = 1.0, join: ClipTransition? = null) = TimelineClip(
+        id = id, sourceID = "S1", start = start, end = end, texts = title?.let { listOf(it) }, transition = join,
+        speed = if (rate == 1.0) null else SpeedSettings(rate = rate),
+    )
+
+    @Test fun motionRunsOnTheMovieClockAtAnySpeed() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 2.0, end = 6.0, motion = fade)
+        val normal = TitleMotionRanges(listOf(clip("A", 0.0, 10.0, title)))
+        assertEquals(2.0..6.0, normal.range(title, 3.0))
+        assertNull(normal.range(title, 6.5))
+        assertEquals(0.5, normal.pose(title, 2.25).opacity, 1e-9)
+        assertEquals(1.0, normal.pose(title, 4.0).opacity, 0.0)
+        assertEquals(0.5, normal.pose(title, 5.75).opacity, 1e-9)
+        // Twice as fast: on screen from 1 s to 3 s, and the fade still takes half a second.
+        val fast = listOf(clip("A", 0.0, 10.0, title, rate = 2.0))
+        val quick = TitleMotionRanges(fast)
+        assertEquals(1.0..3.0, quick.range(title, 2.0))
+        assertEquals(0.5, quick.pose(title, 1.25).opacity, 1e-9)
+        assertEquals(1.0, quick.pose(title, 1.5).opacity, 0.0)
+        assertEquals(listOf(title), quick.shown(fast, 1.25).map { it.title })
+        assertTrue(quick.shown(fast, 3.1).isEmpty())
+        // A clip that starts inside the title begins the run where the title is first seen.
+        val late = TitleMotionRanges(listOf(clip("A", 3.0, 10.0, title)))
+        assertEquals(0.0..3.0, late.range(title, 1.0))
+        assertEquals(0.5, late.pose(title, 0.25).opacity, 1e-9)
+    }
+
+    @Test fun aStillTitleHasNoRunAndIsDrawnWhole() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 2.0, end = 6.0)
+        val clips = listOf(clip("A", 0.0, 10.0, title))
+        val ranges = TitleMotionRanges(clips)
+        assertTrue(ranges.isEmpty)
+        assertNull(ranges.range(title, 3.0))
+        assertEquals(listOf(TitleMotionRanges.Shown(title, 1.0, TitleMotion.Pose())), ranges.shown(clips, 2.0))
+        assertTrue(TitleMotionRanges(listOf(clip("A", 0.0, 10.0, title.copy(motion = TitleMotion())))).isEmpty)
+    }
+
+    @Test fun aSplitTitleArrivesOnceAndLeavesOnce() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 2.0, end = 6.0, motion = fade)
+        val whole = EditState(listOf(clip("A", 0.0, 10.0, title)))
+        val split = TimelineEditing.split(whole, 4.0)!!
+        assertEquals(listOf(listOf(title), listOf(title)), split.clips.map { it.texts })
+        val ranges = TitleMotionRanges(split.clips)
+        assertEquals(2.0..6.0, ranges.range(title, 3.9))
+        assertEquals(2.0..6.0, ranges.range(title, 4.1))
+        assertEquals(1.0, ranges.pose(title, 4.0).opacity, 0.0) // no second entrance at the cut
+        // Moved apart, each piece is a run of its own.
+        val apart = split.clips + clip("B", 0.0, 1.0, null)
+        val moved = TimelineEditing.move(EditState(apart), 2, 1)!!.clips
+        val separate = TitleMotionRanges(moved)
+        assertEquals(2.0..4.0, separate.range(title, 3.0))
+        assertEquals(5.0..7.0, separate.range(title, 6.0))
+        assertNull(separate.range(title, 4.5))
+        // A motion changed on one piece only also starts a new run.
+        val other = title.copy(motion = fade.copy(inSeconds = 1.0))
+        val changed = TitleMotionRanges(listOf(split.clips[0], split.clips[1].copy(texts = listOf(other))))
+        assertEquals(2.0..4.0, changed.range(title, 3.0))
+        assertEquals(4.0..6.0, changed.range(other, 5.0))
+    }
+
+    @Test fun aTitleOnBothSidesOfADissolveIsDrawnOnce() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 0.0, end = 10.0, motion = fade)
+        val first = clip("A", 0.0, 4.0, title, join = ClipTransition(nextClipID = "B", style = ClipTransition.Style.Dissolve, duration = 1.0))
+        val clips = listOf(first, clip("B", 4.0, 10.0, title))
+        val ranges = TitleMotionRanges(clips)
+        // 4 s + 6 s with one second shared: a single run of nine seconds.
+        assertEquals(0.0..9.0, ranges.range(title, 3.5))
+        val during = ranges.shown(clips, 3.5)
+        assertEquals(1, during.size)
+        assertEquals(1.0, during[0].share, 1e-9)
+        assertEquals(1.0, during[0].pose.opacity, 0.0)
+        // Different titles on the two clips keep their own shares.
+        val next = TextOverlay(id = "U", text = "There", start = 4.0, end = 10.0)
+        val mixed = listOf(first, clip("B", 4.0, 10.0, next))
+        val shares = TitleMotionRanges(mixed).shown(mixed, 3.25).associate { it.title.id to it.share }
+        assertEquals(0.75, shares.getValue("T"), 1e-9)
+        assertEquals(0.25, shares.getValue("U"), 1e-9)
+    }
+}

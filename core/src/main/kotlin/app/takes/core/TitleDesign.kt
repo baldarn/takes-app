@@ -161,9 +161,16 @@ data class TitleDesign(
     val valid: Boolean
         get() = face.isNotEmpty() && face.toByteArray().size <= 255 && weight in 100..1000 && tracking in -0.05..0.25 &&
             lineSpacing in 0.0..0.8 && borderWidth in 0.0..0.20 && shadowBlur in 0.0..0.6 && shadowOffset in -0.5..0.5 &&
-            padding in 0.0..0.8 && radius in 0.0..0.8 && (gradient?.angle ?: 0.0) in 0.0..360.0
+            padding in 0.0..0.8 && radius in 0.0..0.8 && (gradient?.angle ?: 0.0) in 0.0..360.0 &&
+            listOfNotNull(fill, border, shade, backing, gradient?.first, gradient?.last).all { it.valid }
 
     companion object {
+        /**
+         * The look of a title saved without a design, as this app has always
+         * drawn it: bold white system letters with a dark outline and no shadow.
+         */
+        val plain = TitleDesign(outlined = true, borderWidth = 0.06, shadow = false)
+
         /** What an older title, saved as a style and a color, looks like as a design. */
         fun legacy(style: TextStyle, color: TextColor, font: SubtitleFont? = null): TitleDesign {
             val base = TitleDesign(

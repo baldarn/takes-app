@@ -89,10 +89,21 @@ data class TextOverlay(
     val y: Double = 0.5,
     // Font size relative to the shorter canvas dimension; consistent on rotation.
     val size: Double = 0.065,
+    /** Null draws the title as before designs existed: bold white letters with a dark outline. */
+    val appearance: TitleDesign? = null,
+    /** How it arrives and leaves. Null stays still. */
+    val motion: TitleMotion? = null,
 ) {
     val valid: Boolean
         get() = start.isFinite() && end.isFinite() && start >= 0 && end > start && text.length <= 500 &&
-            x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 && size.isFinite() && size in 0.02..0.3
+            x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 && size.isFinite() && size in 0.02..0.3 &&
+            appearance?.valid != false && motion?.valid != false
+
+    /** True when the title uses a design or a motion, which readers before schema 12 would draw wrongly. */
+    val styled: Boolean get() = appearance != null || motion != null
+
+    /** What the design tools start from: the title's own design, or the look of a title without one. */
+    val design: TitleDesign get() = appearance ?: TitleDesign.plain
 }
 
 /** A mark on the footage, at a source second. It follows its clip through trims, splits and moves. */
@@ -157,6 +168,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        texts.orEmpty().any { it.styled } -> 12
         !subtitleWords.isNullOrEmpty() -> 11
         speed != null -> 9
         crop != null -> 8
@@ -474,7 +486,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 11
+        const val LATEST_READABLE_SCHEMA = 12
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

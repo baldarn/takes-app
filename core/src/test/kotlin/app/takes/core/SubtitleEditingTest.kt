@@ -45,7 +45,7 @@ class SubtitleEditingTest {
     @Test fun subtitlesRaiseTheSchemaSoOlderReadersRefuse() {
         val saved = project.commit(transcribed)
         assertEquals(11, saved.schemaVersion)
-        assertEquals(Project.LATEST_READABLE_SCHEMA, saved.schemaVersion)
+        assertTrue(saved.schemaVersion <= Project.LATEST_READABLE_SCHEMA)
         // A reader that stops at 10, as before this feature, refuses it as it refuses any newer schema.
         assertThrows(ProjectException::class.java) { saved.copy(schemaVersion = Project.LATEST_READABLE_SCHEMA + 1).validate() }
         assertEquals(11, transcribed.clips[0].schema)

@@ -412,7 +412,7 @@ class RecordingInsertionTest {
         assertEquals(1, plain.beginRecordingInsertion(10.0).schemaVersion)
         // An older reader would replay the take at the end of every history step.
         assertEquals(10, plain.beginRecordingInsertion(10.0).addRecording(b).schemaVersion)
-        assertEquals(11, Project.LATEST_READABLE_SCHEMA) // subtitles came after
+        assertEquals(12, Project.LATEST_READABLE_SCHEMA) // subtitles and title designs came after
     }
 
     @Test fun aProjectWithoutInsertionsIsSavedAsBefore() {

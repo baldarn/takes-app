@@ -183,3 +183,78 @@ class OverlayTiming private constructor(
         }
     }
 }
+
+/**
+ * When each moving title is on screen, in timeline seconds. A title's motion
+ * runs on the movie's clock, not the footage's: on a clip played twice as fast
+ * the title lasts half as long and still takes the same time to arrive.
+ *
+ * Like the picture, a clock can span a straight cut or a dissolve: the pieces
+ * of a split clip carry the same title, and it arrives once and leaves once.
+ * A real gap, or a motion changed on one piece only, starts a new run.
+ */
+class TitleMotionRanges(clips: List<TimelineClip>) {
+    private data class Key(val id: String, val motion: TitleMotion)
+
+    private val runs: Map<Key, List<ClosedFloatingPointRange<Double>>>
+
+    init {
+        val parts = mutableMapOf<Key, MutableList<ClosedFloatingPointRange<Double>>>()
+        var start = 0.0
+        clips.forEachIndexed { index, clip ->
+            for (title in clip.texts.orEmpty()) {
+                val motion = title.motion?.takeIf { it.active } ?: continue
+                if (!(title.end > clip.start && title.start < clip.end)) continue
+                val a = start + clip.offset(maxOf(clip.start, title.start))
+                val b = start + clip.offset(minOf(clip.end, title.end))
+                if (b > a) parts.getOrPut(Key(title.id, motion)) { mutableListOf() }.add(a..b)
+            }
+            start += clip.duration - TimelineEditing.overlap(clips, index)
+        }
+        runs = parts.mapValues { (_, pieces) ->
+            val joined = mutableListOf<ClosedFloatingPointRange<Double>>()
+            for (piece in pieces.sortedBy { it.start }) {
+                val previous = joined.lastOrNull()
+                if (previous != null && piece.start <= previous.endInclusive + TICK) {
+                    joined[joined.lastIndex] = previous.start..maxOf(previous.endInclusive, piece.endInclusive)
+                } else {
+                    joined.add(piece)
+                }
+            }
+            joined
+        }
+    }
+
+    val isEmpty: Boolean get() = runs.isEmpty()
+
+    /** The run of [title] that timeline second [time] falls in; null for a still title. */
+    fun range(title: TextOverlay, time: Double): ClosedFloatingPointRange<Double>? {
+        val motion = title.motion?.takeIf { it.active } ?: return null
+        return runs[Key(title.id, motion)]?.firstOrNull { time >= it.start - 0.00001 && time <= it.endInclusive + 0.00001 }
+    }
+
+    /** How [title] is posed at timeline second [time]: still unless it is arriving or leaving. */
+    fun pose(title: TextOverlay, time: Double): TitleMotion.Pose {
+        val range = range(title, time) ?: return TitleMotion.Pose()
+        return title.motion!!.pose(time - range.start, range.endInclusive - range.start)
+    }
+
+    /** One title to draw: how opaque its clip makes it, and how its motion poses it. */
+    data class Shown(val title: TextOverlay, val share: Double, val pose: TitleMotion.Pose)
+
+    /**
+     * Every title to draw at timeline second [time], as [TimelineEditing.titlesAt]
+     * lists them. A title on both clips of a dissolve is drawn once, whole.
+     */
+    fun shown(clips: List<TimelineClip>, time: Double): List<Shown> {
+        val listed = TimelineEditing.titlesAt(clips, time)
+        return listed.distinctBy { it.first }.map { (title, _) ->
+            Shown(title, minOf(1.0, listed.filter { it.first == title }.sumOf { it.second }), pose(title, time))
+        }
+    }
+
+    private companion object {
+        /** One tick of the editor's clock. */
+        const val TICK = 1 / 240_000.0
+    }
+}
