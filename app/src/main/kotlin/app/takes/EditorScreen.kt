@@ -68,7 +68,6 @@ import app.takes.core.PauseDetector
 import app.takes.core.PauseSettings
 import app.takes.core.SourceInterval
 import app.takes.core.SourceWaveform
-import app.takes.core.SubtitleEditing
 import android.os.Build
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -79,7 +78,6 @@ import app.takes.core.CropSettings
 import app.takes.core.CropViewport
 import app.takes.core.PictureFrame
 import app.takes.core.PictureFraming
-import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
@@ -174,18 +172,19 @@ import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.RangeEditing
 import app.takes.core.RangeMarks
+import app.takes.core.RenderPlan
 import app.takes.core.ReviewWindows
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TimelineNavigation
 import app.takes.core.TimelineSnapping
 import app.takes.core.TitleMotionRanges
+import app.takes.core.TrackRenderPlan
 import app.takes.core.TransitionAxis
 import app.takes.core.TransitionDefaults
 import app.takes.core.TransitionFraming
 import app.takes.core.TransitionGeometry
 import app.takes.core.TransitionLayout
-import app.takes.core.TransitionPicture
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionTiming
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -216,7 +215,8 @@ internal fun preciseLabel(seconds: Double): String {
 }
 
 /**
- * Plays the edit, addressed by timeline seconds. Clips that follow one another
+ * Plays the edit, addressed by timeline seconds, as its [RenderPlan] arranges
+ * it: nothing about the edit is decided here. Clips that follow one another
  * without a break form a chain that one player runs as a gapless playlist.
  * Most transitions need two pictures at once, and a freeze needs the frame it
  * holds while the next clip waits, so chains alternate between two decks, like
@@ -234,16 +234,15 @@ private class EditorPlayer(private val context: Context) {
     }
     private val sources = DefaultMediaSourceFactory(context)
 
-    /** The clip as something to play: its own file, or its picture merged with its cleaned sound when that is ready. */
-    private fun source(clip: TimelineClip, file: File): MediaSource {
-        val clean = clip.audio?.denoise?.takeIf { it > 0 }?.let { Denoiser.ready(file, it) }
-            ?: return sources.createMediaSource(clippedItem(clip, file))
+    /** The clip as something to play: its own file, or its picture merged with its cleaned sound when that plays in place of the recorded one. */
+    private fun source(clip: RenderPlan.Picture, file: File, clean: File?): MediaSource {
+        if (clean == null) return sources.createMediaSource(clippedItem(clip, file))
         val merged = MergingMediaSource(
             /* adjustPeriodTimeOffsets = */ true, /* clipDurations = */ true,
             sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(file))), sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(clean))),
         )
         return ClippingMediaSource.Builder(merged)
-            .setStartPositionUs(cutMicros(clip.start)).setEndPositionUs(cutMicros(clip.end)).build()
+            .setStartPositionUs(clip.sourceStartUs).setEndPositionUs(clip.sourceEndUs).build()
     }
     // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
     private val boosts = decks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
@@ -253,7 +252,6 @@ private class EditorPlayer(private val context: Context) {
     private val tracks = List(AudioItem.TRACKS) { ExoPlayer.Builder(context).build().apply { audioSessionId = sessions.generateAudioSessionId() } }
     private val trackBoosts = tracks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
     private val cued = arrayOfNulls<AudioItem>(AudioItem.TRACKS)
-    private var sounds = emptyList<AudioItem>()
     private var files = emptyMap<String, File>()
 
     private fun apply(player: ExoPlayer, boost: LoudnessEnhancer?, level: Double) {
@@ -275,7 +273,7 @@ private class EditorPlayer(private val context: Context) {
     /** Lines a track up with [time]: inside its item, or waiting at the start of the next one. */
     private fun cue(track: Int, time: Double, play: Boolean) {
         val player = tracks[track]
-        val item = TimelineEditing.audioAt(sounds, track, time) ?: sounds.filter { it.track == track && it.start > time }.minByOrNull { it.start }
+        val item = plan.cued(track, time)
         if (item == null) { player.pause(); cued[track] = null; return }
         val inside = time >= item.start
         if (cued[track] != item) {
@@ -289,10 +287,11 @@ private class EditorPlayer(private val context: Context) {
     }
     var playing by mutableStateOf(false); private set
 
-    private var clips = emptyList<TimelineClip>()
-    private var chains = emptyList<TimelineEditing.Chain>()
+    private var plan = RenderPlan.of(EditState())
+    private val clips get() = plan.pictures
+    private val chains get() = plan.chains
     private var items = List(2) { emptyList<Int>() } // clip index of each playlist item, per deck
-    private var duration = 0.0
+    private val duration get() = plan.duration
     private var loaded: Any? = null
     private var time = 0.0      // where the movie is
     private var ticked = 0L     // when it was last advanced, for the stretches no deck is the clock of
@@ -315,36 +314,26 @@ private class EditorPlayer(private val context: Context) {
     // The deck is standing on the frame this freeze holds: a seek put it there while nothing played.
     private val parked = arrayOfNulls<Sounding>(2)
 
-    fun load(clips: List<TimelineClip>, sounds: List<AudioItem>, files: Map<String, File>, time: Double) {
+    /**
+     * Takes the [plan] of the edit to play, with each source's file in [files] and the cleaned sound of the
+     * clips that play it in [clean], by index, and goes to [time].
+     */
+    fun load(plan: RenderPlan, files: Map<String, File>, clean: Map<Int, File>, time: Double) {
         pause()
-        this.sounds = sounds
+        this.plan = plan
         this.files = files
         cued.fill(null)
-        this.clips = clips
-        chains = TimelineEditing.chains(clips)
-        duration = TimelineEditing.duration(clips)
-        items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
-        val layout = TimelineEditing.layout(clips)
-        val deckOf = TransitionScene.decks(clips)
-        sounding = layout.all.filter { it.transition != null && it.outgoing != null && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
-            val placement = layout.placements[join.outgoing!!]
-            TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)
-                ?.takeIf { placement.end > it.from + 0.001 }?.let { held ->
-                    val clip = clips[placement.index]
-                    Sounding(deckOf[placement.index], held.from, held.until, held.shown, files.getValue(clip.sourceID), clip.sourceTime(held.offset))
-                }
-        }
+        items = plan.decks.map { it.clips }
+        sounding = plan.freezes.filter { it.sounding }.map { Sounding(it.deck, it.from, it.until, it.shown, files.getValue(clips[it.clip].sourceID), it.sourceTime) }
         for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
         // The frames themselves, read ahead: a deck that is playing shows a frame near the freeze, not always the one before it.
         for (freeze in sounding) reading.execute { if (freeze in sounding) freeze.picture = heldFrame(freeze.file, freeze.source) }
         // What the decks hold. A change that leaves it as it is, such as a title or the angle of a wipe, needs no new playlists.
-        val media = items to clips.map { clip ->
-            listOf(clip.id, clip.sourceID, clip.start, clip.end, clip.rate, clip.audio?.denoise?.takeIf { it > 0 }?.let { Denoiser.ready(files.getValue(clip.sourceID), it) })
-        }
+        val media = items to clips.map { clip -> listOf(clip.id, clip.sourceID, clip.sourceStart, clip.sourceEnd, clip.rate, clean[clip.index]) }
         if (media != loaded) {
             loaded = media
             decks.forEachIndexed { deck, player ->
-                player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID)) })
+                player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID), clean[it]) })
                 player.prepare()
             }
         }
@@ -358,14 +347,10 @@ private class EditorPlayer(private val context: Context) {
     }
 
     /** The chain [deck] is inside at [time], and the clip of it that is playing. */
-    private fun playing(deck: Int, time: Double): Pair<TimelineEditing.Chain, Int>? {
-        val chain = chains.withIndex().lastOrNull { it.index % 2 == deck && time >= it.value.start && time < it.value.end }?.value ?: return null
-        return chain to ((chain.first..chain.last).lastOrNull { TimelineEditing.clipStart(clips, it) <= time } ?: chain.first)
-    }
+    private fun playing(deck: Int, time: Double): Pair<TimelineEditing.Chain, Int>? = plan.playing(deck, time)?.let { (chain, clip) -> chains[chain] to clip }
 
     /** The frame [deck] has to keep showing at [time] though its clip is over: the one a still holds. */
-    private fun held(deck: Int, time: Double): TransitionScene.Source.Held? = TransitionScene.moment(clips, time)
-        .let { listOf(it.first, it.second) }.filterIsInstance<TransitionScene.Source.Held>().firstOrNull { it.deck == deck }
+    private fun held(deck: Int, time: Double): TransitionScene.Source.Held? = plan.held(deck, time)
 
     // A deck stops by itself on the last frame of its chain: what follows in its playlist belongs to a later moment.
     private fun stopAtChainEnd(deck: Int) {
@@ -399,14 +384,14 @@ private class EditorPlayer(private val context: Context) {
                 pace(player, frozen.index)
             } else if (active != null) {
                 val clip = active.second
-                val offset = (time - TimelineEditing.clipStart(clips, clip)).coerceIn(0.0, clips[clip].duration)
+                val offset = (time - clips[clip].start).coerceIn(0.0, clips[clip].duration)
                 // A deck's position runs in recorded seconds; a clip at another speed covers them faster or slower.
                 player.seekTo(items[deck].indexOf(clip), (offset * clips[clip].rate * 1000).toLong())
                 pace(player, clip)
             } else if (frozen != null) {
                 player.seekTo(items[deck].indexOf(frozen.index), (frozen.offset * clips[frozen.index].rate * 1000).toLong())
             } else {
-                chains.withIndex().firstOrNull { it.index % 2 == deck && it.value.start > time }?.let { player.seekTo(items[deck].indexOf(it.value.first), 0) }
+                plan.coming(deck, time)?.let { player.seekTo(items[deck].indexOf(chains[it].first), 0) }
             }
             stopAtChainEnd(deck)
         }
@@ -435,10 +420,10 @@ private class EditorPlayer(private val context: Context) {
         val passed = ((now - ticked) / 1e9).coerceIn(0.0, 0.1)
         ticked = now
         // The clock is the deck that began playing last; where none plays, time runs on by itself.
-        val leading = chains.withIndex().lastOrNull { time >= it.value.start && time < it.value.end }
+        val leading = plan.leading(time)
         time = if (leading == null) time + passed else {
-            val chain = leading.value
-            val deck = leading.index % 2
+            val chain = chains[leading]
+            val deck = clips[chain.first].deck
             val player = decks[deck]
             val clip = items[deck].getOrNull(player.currentMediaItemIndex)
             when {
@@ -449,7 +434,7 @@ private class EditorPlayer(private val context: Context) {
                 !player.playWhenReady && clip == chain.last && player.playbackState == Player.STATE_READY &&
                     player.currentPosition >= player.duration - 30 -> chain.end
                 player.playbackState == Player.STATE_ENDED -> chain.end
-                else -> (TimelineEditing.clipStart(clips, clip) + player.currentPosition.coerceAtLeast(0) / 1000.0 / clips[clip].rate).coerceAtMost(chain.end)
+                else -> (clips[clip].start + player.currentPosition.coerceAtLeast(0) / 1000.0 / clips[clip].rate).coerceAtMost(chain.end)
             }
         }
         if (time >= duration) {
@@ -482,7 +467,7 @@ private class EditorPlayer(private val context: Context) {
                 items[deck].getOrNull(player.currentMediaItemIndex)?.let { pace(player, it) }
             } else if (held(deck, time) == null) {
                 // The deck that finished waits at the start of its next chain, once its last frame is no longer shown.
-                val next = chains.withIndex().firstOrNull { it.index % 2 == deck && it.value.start > time }?.value
+                val next = plan.coming(deck, time)?.let { chains[it] }
                 if (next != null && clip != next.first) {
                     player.pause()
                     player.seekTo(items[deck].indexOf(next.first), 0)
@@ -614,7 +599,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val sounds = edit.audio.orEmpty()
     // Noise reduction runs in the background, one recording at a time. Until a clip's
     // cleaned sound is ready the preview plays the recorded sound; then the players reload.
-    val cleaning = clips.mapNotNull { clip -> clip.audio?.denoise?.takeIf { it > 0 }?.let { files.getValue(clip.sourceID) to it } }.distinct()
+    // The render plan of the edit as it is shown, before any cleaned sound is at hand: it marks every clip that asks for noise reduction.
+    val asked = remember(edit) { TrackRenderPlan.of(edit) }
+    val cleaning = asked.pictures.filter { it.soundRemoved }.map { files.getValue(it.sourceID) to (asked.clips[it.index].audio?.denoise ?: 0.0) }.distinct()
     var cleaned by remember { mutableIntStateOf(0) }
     var cleaningProgress by remember { mutableStateOf<Float?>(null) }
     LaunchedEffect(cleaning) {
@@ -628,9 +615,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             cleaningProgress = null
         }
     }
+    // The cleaned sound that is ready, by clip, and the plan the preview plays: a clip whose cleaned sound is not ready yet plays its recorded sound.
+    val clean = remember(asked, cleaned, files) {
+        asked.pictures.filter { it.soundRemoved }.mapNotNull { clip ->
+            Denoiser.ready(files.getValue(clip.sourceID), asked.clips[clip.index].audio?.denoise ?: 0.0)?.let { clip.index to it }
+        }.toMap()
+    }
+    val plan = remember(asked, clean) { if (asked.pictures.none { it.soundRemoved }) asked else TrackRenderPlan.of(edit, clean.keys) }
     LaunchedEffect(clips, sounds, cleaned) {
         playhead = playhead.coerceIn(0.0, duration)
-        editor.load(clips, sounds, files, playhead)
+        editor.load(plan, files, clean, playhead)
     }
     // The Crop tool: the framing it is working on and the clips it goes on, shown in the preview and not saved until applied.
     var cropping by remember { mutableStateOf<Cropping?>(null) }
@@ -788,7 +782,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     val ceiling = project.exportSettings.frameRate
     val frames = remember(clips, rates, ceiling) {
-        val movie = TransitionScene.frameRate(clips.map { rates[it.sourceID] }, ceiling).toDouble()
+        val movie = plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling).toDouble()
         val rate: (TransitionLayout.Join) -> Double = { movie }
         rate
     }
@@ -800,27 +794,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val current = location?.let { clips[it.index] }
     val sourceTime = if (location != null && current != null) current.sourceTime(location.offset) else 0.0
     // Which deck shows each clip, and the clip each deck is playing now or holding the last frame of.
-    val deckOf = remember(clips) { TransitionScene.decks(clips) }
-    val deckPlaying = List(2) { deck ->
-        clips.indices.lastOrNull { deckOf[it] == deck && playhead >= TimelineEditing.clipStart(clips, it) && playhead < TimelineEditing.clipStart(clips, it) + clips[it].duration }
-    }
     val deckClips = List(2) { deck ->
-        deckPlaying[deck]
-            ?: TransitionScene.moment(clips, playhead, decks = deckOf).let { listOf(it.first, it.second) }.firstNotNullOfOrNull { (it as? TransitionScene.Source.Held)?.takeIf { held -> held.deck == deck }?.index }
-            ?: location?.index?.takeIf { deckOf[it] == deck }
+        plan.onDeck(deck, playhead)?.index ?: plan.held(deck, playhead)?.index ?: location?.index?.takeIf { plan.pictures[it].deck == deck }
     }
     // What each deck sounds like: its clip's own level and what the transitions at its ends leave of it.
-    val deckSounds = List(2) { deck ->
-        deckPlaying[deck]?.let { TimelineEditing.soundLevel(clips, it, playhead - TimelineEditing.clipStart(clips, it)) } ?: 0.0
-    }
+    val deckSounds = List(2) { deck -> plan.deckLevel(deck, playhead) }
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
-    val deckColors = deckClips.map { index -> index?.let { clips[it].color } }
+    val deckColors = deckClips.map { index -> index?.let { plan.pictures[it].color } }
     // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
     // is open what the tool would leave on it.
     val cropOf = { index: Int ->
-        val clip = clips[index]
-        val start = TimelineEditing.clipStart(clips, index)
+        val clip = plan.clips[index]
+        val start = plan.pictures[index].start
         val offset = (playhead - start).coerceIn(0.0, clip.duration)
         val shows = PictureFraming.motionTime(clip, offset)
         val framed = cropping
@@ -829,7 +815,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The framing each deck shows at this moment, for a frame of the size it is drawn in: a crop is sampled at the
     // source second its clip shows, so one that moves between two poses moves as the footage plays or is scrubbed.
     val deckFrames = deckClips.map { index ->
-        val size = index?.let { sizes[clips[it].sourceID] }
+        val size = index?.let { sizes[plan.pictures[it].sourceID] }
         val (crop, shows) = index?.let(cropOf) ?: (null to 0.0)
         if (crop == null || size == null) null else {
             val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame) }
@@ -839,13 +825,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     SideEffect {
         deckSounds.forEachIndexed(editor::setSound)
         for (track in 0 until AudioItem.TRACKS) {
-            editor.setTrackSound(track, TimelineEditing.audioAt(sounds, track, playhead)?.let { TimelineEditing.soundLevel(it, playhead - it.start) } ?: 0.0)
+            editor.setTrackSound(track, plan.trackLevel(track, playhead))
         }
     }
     // The titles under the playhead, with the one being worked on as it is now.
-    val titled = titling?.applied(edit)?.clips ?: clips
-    val titleRanges = remember(titled) { TitleMotionRanges(titled) }
-    val shownTitles = titleRanges.shown(titled, playhead, frames)
+    val titledEdit = titling?.applied(edit)
+    val titled = titledEdit?.clips ?: clips
+    val titlePlan = remember(titledEdit, plan) { titledEdit?.let { TrackRenderPlan.of(it) } ?: plan }
+    val shownTitles = titlePlan.titlesShown(playhead, frames)
     val titlePainter = remember { TitlePainter(context.assets) }
     // Taking a color from the picture: the preview as it is on screen, without the titles over it.
     var previewBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
@@ -871,12 +858,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     // Subtitles, laid out once for the movie's shape and drawn by the code the export uses.
-    val captioned = subtitling ?: edit
-    val captions = remember(captioned.clips, captioned.subtitles == null) { SubtitleEditing.cues(captioned) }
-    val captionLayout = remember(captions, captioned.subtitles?.style, captioned.subtitles?.resolvedFont, canvas) {
-        val look = captioned.subtitles
+    val captionPlan = remember(subtitling, plan) { subtitling?.let { TrackRenderPlan.of(it) } ?: plan }
+    val captions = captionPlan.captions
+    val captionLayout = remember(captions, captionPlan.subtitles?.style, captionPlan.subtitles?.resolvedFont, canvas) {
+        val look = captionPlan.subtitles
         val shape = canvas
-        if (look == null || shape == null || captions.isEmpty()) null else SubtitleLayout(captions, look, shape.first, shape.second)
+        if (look == null || shape == null) null else SubtitleLayout(captions, look, shape.first, shape.second)
     }
     val scope = rememberCoroutineScope()
     val jump = { time: Double ->
@@ -939,15 +926,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                 }
                 // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
-                val content = { index: Int, frame: FrameSize ->
-                    val source = sizes[clips[index].sourceID]
-                    val framed = cropOf(index).first != null
-                    if (framed || source == null) FrameRect(0.0, 0.0, frame.width, frame.height) else {
-                        val fitted = minOf(frame.width / source.width, frame.height / source.height)
-                        FrameRect((frame.width - source.width * fitted) / 2, (frame.height - source.height * fitted) / 2, source.width * fitted, source.height * fitted)
-                    }
-                }
-                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf, frames) }, content = content, held = editor.heldPictures)
+                val content = { index: Int, frame: FrameSize -> RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = cropOf(index).first != null) }
+                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
                 // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
                 val work by rememberUpdatedState(titling)
                 var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle
@@ -1015,7 +995,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (cropping != null) cropGuides()
                     drawIntoCanvas { target ->
                         titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
-                        captioned.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
+                        captionPlan.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                     }
                 }
             }
