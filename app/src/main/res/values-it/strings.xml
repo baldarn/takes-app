@@ -553,6 +553,10 @@
     <string name="subtitles_row_hint">Tocca un sottotitolo per andarci, toccalo di nuovo per modificarlo.</string>
     <string name="subtitles_current">Visibile ora</string>
     <string name="subtitles_edit_title">Testo del sottotitolo</string>
+    <string name="subtitles_following">Segue la riproduzione</string>
+    <string name="subtitles_pause_in_speech">Pausa nel parlato</string>
+    <string name="subtitles_cancel_edit">Annulla modifica</string>
+    <string name="subtitles_save_text">Salva testo</string>
     <string name="subtitles_remove_all">Rimuovi tutti i sottotitoli</string>
     <string name="subtitles_remove_all_title">Rimuovere tutti i sottotitoli da questo progetto? Sono compresi i testi corretti e i tempi. Con Annulla tornano.</string>
     <string name="subtitles_replace_title">Sostituire i sottotitoli? I testi corretti verranno sostituiti. Dopo aver applicato puoi usare Annulla.</string>

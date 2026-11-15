@@ -263,7 +263,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Transcribe a marked selection only | O/SubtitleEditor.swift:232-236 | MISSING | Whole project | Needs range selection | M | Yes |
 | Transcribes the mix, including sound on audio tracks | O/Subtitles.swift:205-247 | PARTIAL | Clips' own sound only (C/SubtitleEditing.kt:17, README "Not ported yet") | Audio items | M | Yes |
 | Max words per subtitle | O/SubtitleEditor.swift:246-254 | DONE | A/SubtitlesPanel.kt (strings `subtitles_max_words`), C/SubtitleEditing.kt:106 | — | | |
-| Correct or delete a caption's text; transcript list that follows playback | O/SubtitleEditor.swift:306-347 | DONE | A/SubtitlesPanel.kt, C/SubtitleEditing.kt:116-129 | — | | |
+| Correct or delete a caption's text in place ("Cancel edit", "Save text"); "Following playback" block of five captions; full list where a first tap seeks and a second edits | O/SubtitleEditor.swift:73-75, 143-147, 306-347 | DONE | A/SubtitlesPanel.kt (`CueRow`), C/SubtitleEditing.kt (`correct`, `delete`); an empty text removes the caption, as in the original | — | | |
 | Copy full transcript | O/SubtitleEditor.swift:256-274 | DONE | A/SubtitlesPanel.kt (`subtitles_copy`) | — | | |
 | Remove all subtitles | O/SubtitleEditor.swift:178-181 | DONE | A/SubtitlesPanel.kt (`subtitles_remove_all`) | — | | |
 | Placement by dragging and pinching on the preview | O/SubtitleEditor.swift:84-89, 183-200 | PARTIAL | Sliders for size, horizontal, vertical; reset (A/SubtitlesPanel.kt:483) | Drag and pinch | S | Yes |
