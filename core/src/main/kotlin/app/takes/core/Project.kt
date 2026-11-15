@@ -262,7 +262,12 @@ data class Project(
 
     val edit: EditState get() = materialized(snapshots[historyCursor])
     val history: List<EditState> get() = snapshots.map(::materialized)
-    val mediaFiles: List<String> get() = sources.map { it.filename }
+    /** Files an edit refers to that are not recordings, such as imported LUTs, from any step of the history. */
+    val effectFiles: List<String>
+        get() = snapshots.flatMap { it.state.clips }.plus(captureLedger).mapNotNull { it.color?.imported?.filename }.distinct().sorted()
+
+    /** Every file the project owns and needs: its recordings and sounds, then what its edits refer to. */
+    val mediaFiles: List<String> get() = sources.map { it.filename } + effectFiles
     /** The footage, without imported sound files. */
     val recordings: List<SourceMedia> get() = sources.filter { it.audioOnly != true }
     val capturedDuration: Double get() = recordings.sumOf { it.duration }

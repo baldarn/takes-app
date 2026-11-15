@@ -82,6 +82,12 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { videos ->
         store.importVideos(importInto.ifEmpty { null }, videos)
     }
+    // The project being zipped, while the user chooses where to save it.
+    var zipping by rememberSaveable { mutableStateOf("") }
+    val saveZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { destination ->
+        val project = store.projects.firstOrNull { it.id == zipping }
+        if (destination != null && project != null) store.archive(project, destination)
+    }
     val pickVideos = { projectID: String ->
         importInto = projectID
         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
@@ -101,7 +107,8 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
             item { Text("Nothing here yet. Record something or import videos; each becomes a project you can continue later.", color = Muted) }
         }
         items(store.projects, key = { it.id }) { project ->
-            ProjectCard(project, store, open, rename = { renaming = project }, addVideos = { pickVideos(project.id) })
+            ProjectCard(project, store, open, rename = { renaming = project }, addVideos = { pickVideos(project.id) },
+                zip = { zipping = project.id; saveZip.launch(project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { "Project" } + ".zip") })
         }
         items(store.unavailable.toList(), key = { "unavailable-" + it.first }) { (folder, reason) ->
             Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp)) {
@@ -157,7 +164,7 @@ private fun summary(project: Project): String {
 }
 
 @Composable
-private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit) {
+private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit, zip: () -> Unit) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(12.dp)) {
@@ -177,11 +184,13 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
             TextButton(onClick = rename, contentPadding = tight) { Text("Rename", maxLines = 1, softWrap = false) }
             TextButton(onClick = { store.delete(project) }, contentPadding = tight) { Text("Delete", color = RecordRed, maxLines = 1, softWrap = false) }
         }
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.SpaceBetween) {
+            val tight = PaddingValues(horizontal = 8.dp)
             if (project.sources.isNotEmpty()) {
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide original recordings" else "Original recordings") }
+                TextButton(onClick = { expanded = !expanded }, contentPadding = tight) { Text(if (expanded) "Hide originals" else "Originals", maxLines = 1, softWrap = false) }
             }
-            TextButton(onClick = addVideos) { Text("Add videos") }
+            TextButton(onClick = addVideos, contentPadding = tight) { Text("Add videos", maxLines = 1, softWrap = false) }
+            if (project.sources.isNotEmpty()) TextButton(onClick = zip, contentPadding = tight) { Text("Zip project", maxLines = 1, softWrap = false) }
         }
         if (expanded) {
             project.sources.forEachIndexed { index, source ->

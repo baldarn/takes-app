@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +15,7 @@ import app.takes.core.ImportedLUT
 import app.takes.core.LUTException
 import app.takes.core.ExportSettings
 import app.takes.core.Project
+import app.takes.core.ProjectArchive
 import app.takes.core.ProjectDisk
 import app.takes.core.SourceMedia
 import app.takes.core.TimelineEditing
@@ -136,6 +138,37 @@ class ProjectStore(context: Context) {
                 file(project, source).delete()
                 error = "Both audio tracks are busy here. Move the playhead or remove a sound first."
             } else update(added.commit(edit))
+        }
+    }
+
+    /**
+     * Writes the project as a ZIP to a document the user chose: its recordings
+     * and sounds, its editing history, and the current edit as an
+     * OpenTimelineIO file that other editors can open.
+     */
+    fun archive(project: Project, destination: Uri) {
+        if (importing != null) return
+        scope.launch {
+            importing = "Zipping the project…"
+            val problem = withContext(Dispatchers.IO) {
+                try {
+                    var shown = -1
+                    resolver.openOutputStream(destination)!!.use { stream ->
+                        // write() flushes; use() closes the document.
+                        ProjectArchive.write(disk.folder(project.id), project, stream.buffered(1 shl 16)) { written, total ->
+                            val percent = if (total > 0) (written * 100 / total).toInt() else 100
+                            if (percent != shown) { shown = percent; importing = "Zipping the project… $percent%" }
+                        }
+                    }
+                    null
+                } catch (failure: Exception) {
+                    // A partial archive would look like a backup and not be one.
+                    runCatching { DocumentsContract.deleteDocument(resolver, destination) }
+                    failure.message ?: "unknown error"
+                }
+            }
+            importing = null
+            error = if (problem == null) "The project was saved as a ZIP." else "The project could not be zipped: $problem"
         }
     }
 

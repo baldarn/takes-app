@@ -58,6 +58,8 @@ for the `rnnoise` module.
   (Android 13 or newer) and the export.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
+- Zip project: the recordings, sounds, imported LUTs, editing history and the current
+  edit as an OpenTimelineIO file, saved wherever the system file picker allows.
 - Recently Deleted with restore and permanent deletion; damaged manifests fall back to
   the previous revision; finished takes missing from a manifest are indexed at launch.
 
@@ -66,5 +68,5 @@ for the `rnnoise` module.
 More than one video layer, unlinking a clip's sound from its picture, the other transitions (wipe, split screen and so on), title fonts,
 colors and motion, Log footage and highlight recovery, subtitles, speed,
 crop, video effects, audio restoration models, stabilization, dual camera, follow face,
-HDR/Log capture, microphone selection, manual focus, bookmarks, project ZIP/OTIO.
+HDR/Log capture, microphone selection, manual focus, bookmarks.
 The project file format is this port's own and is not interchangeable with iOS.

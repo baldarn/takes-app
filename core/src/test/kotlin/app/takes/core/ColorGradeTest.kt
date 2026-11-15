@@ -90,4 +90,14 @@ class ColorGradeTest {
         assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
         assertTrue(files.values.any { it.decodeToString().contains("\"look\":\"ink\"") }) // the original app's names
     }
+
+    @Test fun importedLutsBelongToTheProjectEvenAfterUndo() {
+        var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 10.0))
+        val lut = ImportedLUT("effect-0a1b.cube", "Film")
+        project = project.commit(TimelineEditing.setColor(project.edit, 0, ColorSettings(imported = lut))!!)
+        assertEquals(listOf("a.mp4", "effect-0a1b.cube"), project.mediaFiles)
+        // Undo can bring the LUT back, so its file is still part of the project and of its archive.
+        assertEquals(listOf("effect-0a1b.cube"), project.undo().effectFiles)
+        project.validate()
+    }
 }
