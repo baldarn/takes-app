@@ -182,6 +182,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        crop?.reframed == true -> 14
         openingTransition != null || transition?.legacy == false -> 13
         texts.orEmpty().any { it.styled } -> 12
         !subtitleWords.isNullOrEmpty() -> 11
@@ -502,7 +503,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = 13
+        const val LATEST_READABLE_SCHEMA = 14
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

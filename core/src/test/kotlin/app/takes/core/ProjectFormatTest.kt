@@ -152,4 +152,62 @@ class ProjectFormatTest {
             try { project.validate(); org.junit.Assert.fail("accepted") } catch (_: ProjectException) { }
         }
     }
+
+    // MARK: Crop
+
+    private val plainCrop = CropSettings(id = "K", x = 0.25, y = 0.5, zoom = 2.0)
+    private val plainCropStep = """{"state":{"clips":[{"id":"C1","sourceID":"S1","start":0.0,"end":10.0,"crop":{"id":"K","x":0.25,"y":0.5,"zoom":2.0,"rotation":0.0}}]},"captureCursor":1}"""
+
+    private fun cropped(crop: CropSettings): Project {
+        val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
+        return base.commit(EditState(listOf(base.edit.clips[0].copy(id = "C1", crop = crop)), base.edit.captureBase), now = 3)
+    }
+
+    /** A crop that is neither turned nor moving is written as versions 0.4 to 0.7 wrote it, and they still open it. */
+    @Test fun aPlainCropIsWrittenAsBefore() {
+        val project = cropped(plainCrop)
+        assertEquals(8, project.schemaVersion)
+        val files = mutableMapOf<String, ByteArray>()
+        val manifest = project.manifest { name, data -> files[name] = data }
+        assertEquals(plainCropStep, saved(project).second[1])
+        assertEquals(true, manifest.decodeToString().startsWith("""{"schemaVersion":8,"""))
+        // Read and written again, every file has the bytes it had.
+        val read = Project.readManifest(manifest) { files.getValue(it) }
+        val again = mutableMapOf<String, ByteArray>()
+        assertEquals(manifest.decodeToString(), read.manifest { name, data -> again[name] = data }.decodeToString())
+        assertEquals(files.mapValues { it.value.decodeToString() }, again.mapValues { it.value.decodeToString() })
+        // Another plain crop on top leaves the project where older versions read it.
+        assertEquals(8, read.commit(TimelineEditing.setCrop(read.edit, 0, plainCrop.copy(zoom = 3.0))!!, now = 4).schemaVersion)
+        // A rotation written as −0 is upright all the same.
+        assertEquals(8, cropped(plainCrop.copy(rotation = -0.0)).schemaVersion)
+    }
+
+    /**
+     * Versions 0.4 to 0.7 read a turned or moving crop and keep it, but draw
+     * it upright and still. So such a crop raises the schema past the one
+     * they read, and they refuse the project instead of showing it wrongly.
+     */
+    @Test fun aTurnedOrMovingCropRaisesTheSchemaSoOlderReadersRefuse() {
+        val motion = EffectAnimation(a = plainCrop.pose, b = plainCrop.copy(x = 0.6, zoom = 3.0).pose, duration = 10.0)
+        for (crop in listOf(plainCrop.copy(rotation = 17.0), plainCrop.copy(rotation = -180.0), plainCrop.copy(motion = motion), plainCrop.copy(rotation = 90.0, motion = motion))) {
+            val project = cropped(crop)
+            assertEquals(14, project.edit.clips[0].schema)
+            assertEquals(14, project.schemaVersion)
+            assertEquals(14, Project.LATEST_READABLE_SCHEMA)
+            project.validate()
+            val files = mutableMapOf<String, ByteArray>()
+            val manifest = project.manifest { name, data -> files[name] = data }
+            val read = Project.readManifest(manifest) { files.getValue(it) }
+            assertEquals(project.edit.clips, read.edit.clips)
+            assertEquals(14, read.schemaVersion)
+            // What a reader that knows one schema less makes of it.
+            val older = manifest.decodeToString().replaceFirst("\"schemaVersion\":14", "\"schemaVersion\":${Project.LATEST_READABLE_SCHEMA + 1}")
+            try { Project.readManifest(older.toByteArray()) { files.getValue(it) }; org.junit.Assert.fail("opened") } catch (refused: ProjectException) {
+                assertEquals(ProjectException.Reason.NewerVersion, refused.reason)
+            }
+        }
+        // The motion is saved under the original's names.
+        val step = saved(cropped(plainCrop.copy(motion = motion))).second[1]
+        assertEquals(true, step.contains(""""motion":{"a":{"values":{"x":0.25,"y":0.5,"zoom":2.0,"rotation":0.0}},"b":{"values":{"x":0.6,"y":0.5,"zoom":3.0,"rotation":0.0}},"timing":{"curve":"linear","rise":1.0,"release":1.0,"ramp":"linear"},"duration":10.0,"frame":"""))
+    }
 }

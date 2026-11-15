@@ -83,6 +83,13 @@ data class CropSettings(
             abs(area.height - source.height) < maxOf(2.0, source.height * 0.0025)
     }
 
+    /**
+     * True when the crop is turned or moves between two framings. Readers
+     * before schema 14 keep both but draw the crop upright and still, so
+     * such a crop raises the schema and they refuse the project.
+     */
+    val reframed: Boolean get() = motion != null || normalizedRotation(rotation) != 0.0
+
     /** The ranges a saved project may hold, for the crop and for both ends of its motion. */
     val valid: Boolean
         get() = x.isFinite() && y.isFinite() && zoom.isFinite() && rotation.isFinite() &&
