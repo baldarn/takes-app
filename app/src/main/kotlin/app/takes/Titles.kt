@@ -101,10 +101,15 @@ class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int
      * handed over with their colors not multiplied.
      */
     private fun straightened(drawn: Bitmap): Bitmap {
-        val buffer = pixels ?: IntArray(width * height).also { pixels = it }
+        // A band of rows at a time: a whole 4K frame of numbers would be a large thing to keep.
+        val band = minOf(height, 64)
+        val buffer = pixels ?: IntArray(width * band).also { pixels = it }
         val result = straight ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { it.isPremultiplied = false; straight = it }
-        drawn.getPixels(buffer, 0, width, 0, 0, width, height) // read as plain colors
-        result.setPixels(buffer, 0, width, 0, 0, width, height) // and stored as they are
+        for (top in 0 until height step band) {
+            val rows = minOf(band, height - top)
+            drawn.getPixels(buffer, 0, width, 0, top, width, rows) // read as plain colors
+            result.setPixels(buffer, 0, width, 0, top, width, rows) // and stored as they are
+        }
         return result
     }
 }
