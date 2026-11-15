@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -76,6 +77,7 @@ import java.util.Date
 
 private val Card = Color(0xFF1B1D21)
 private val Muted = Color(0xFFA0A4AB)
+private val SelectedGreen = Color(0xFF34C759)
 
 private fun dateLabel(time: Long) = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(time))
 
@@ -191,9 +193,15 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
 
 @Composable
 private fun summary(project: Project): String {
+    // As the original's card: the takes, the sound files when there are any, and the length of the edit.
     val takes = project.recordings.size
-    return if (takes == 0) stringResource(R.string.projects_summary_empty)
-    else pluralStringResource(R.plurals.projects_summary, takes, takes, timeLabel(project.capturedDuration))
+    val sounds = project.sources.size - takes
+    val parts = mutableListOf<String>()
+    if (takes > 0) parts += pluralStringResource(R.plurals.projects_summary_takes, takes, takes)
+    else if (sounds == 0) parts += stringResource(R.string.projects_summary_empty)
+    if (sounds > 0) parts += pluralStringResource(R.plurals.projects_summary_sounds, sounds, sounds)
+    parts += stringResource(R.string.projects_summary_edited, timeLabel(project.edit.duration))
+    return parts.joinToString(" · ")
 }
 
 @Composable
@@ -212,6 +220,8 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                 Text(summary(project), color = Muted, fontSize = 13.sp)
                 Text(dateLabel(project.updatedAt), color = Muted, fontSize = 12.sp)
             }
+            // The project Record and Edit act on, as the original's check mark.
+            if (store.selectedID == project.id) Icon(Icons.Filled.CheckCircle, stringResource(R.string.projects_selected), Modifier.padding(start = 8.dp).size(22.dp), tint = SelectedGreen)
         }
         // As in the original: the two main actions stay visible, the rest is in a menu.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

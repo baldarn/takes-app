@@ -42,10 +42,16 @@
         <item quantity="other">Its %1$d recordings will be erased. This cannot be undone.</item>
     </plurals>
     <string name="projects_summary_empty">No recordings</string>
-    <plurals name="projects_summary">
-        <item quantity="one">%1$d recording · %2$s</item>
-        <item quantity="other">%1$d recordings · %2$s</item>
+    <plurals name="projects_summary_takes">
+        <item quantity="one">%1$d recording</item>
+        <item quantity="other">%1$d recordings</item>
     </plurals>
+    <plurals name="projects_summary_sounds">
+        <item quantity="one">%1$d sound file</item>
+        <item quantity="other">%1$d sound files</item>
+    </plurals>
+    <string name="projects_summary_edited">%1$s edited</string>
+    <string name="projects_selected">Selected project</string>
     <string name="projects_continue_recording">Continue recording</string>
     <string name="projects_edit">Edit</string>
     <string name="projects_originals">Originals</string>

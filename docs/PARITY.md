@@ -61,7 +61,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | First launch creates a project; last project re-selected | O/ContentView.swift:341, O/ProjectStore.swift:64 | PARTIAL | A/CaptureController.kt:401 creates on first Record; A/ProjectStore.kt:95 `select` | Verify the selection is persisted across launches (not confirmed, see last section) | S | Yes |
 | New project | O/ContentView.swift:629 | DONE | A/ProjectsScreen.kt:123, A/ProjectStore.kt:100 | — | | |
 | Project list sorted by last update | O/ProjectStore.swift:328 | DONE | A/ProjectStore.kt:418 | — | | |
-| Card: thumbnail, title, takes and duration | O/ContentView.swift:636-678 | PARTIAL | A/ProjectsScreen.kt:198-209, 254-276 | Summary shows captured duration, not edited duration; no count of audio files; no mark on the selected project | S | Yes |
+| Card: thumbnail, title, takes and duration | O/ContentView.swift:636-678 | DONE | A/ProjectsScreen.kt (`ProjectCard`, `summary`) | — | | |
 | Rename (120 chars) | O/ContentView.swift:493-505 | DONE | A/ProjectsScreen.kt (rename dialog, tap on the title), A/ProjectStore.kt (`rename`) | — | | |
 | Continue recording / Edit buttons on the card | O/ContentView.swift:591-622 | DONE | A/ProjectsScreen.kt:213-217 | — | | |
 | Export from the project card | O/ContentView.swift:598, O/MovieExportPanel.swift:212 | MISSING | Export only from the editor (A/EditorScreen.kt:614) | Export icon on the card | S | Yes |

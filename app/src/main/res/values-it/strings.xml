@@ -42,11 +42,18 @@
         <item quantity="other">Le sue %1$d riprese verranno cancellate. L\'operazione non si può annullare.</item>
     </plurals>
     <string name="projects_summary_empty">Nessuna ripresa</string>
-    <plurals name="projects_summary">
-        <item quantity="one">%1$d ripresa · %2$s</item>
-        <item quantity="many">%1$d riprese · %2$s</item>
-        <item quantity="other">%1$d riprese · %2$s</item>
+    <plurals name="projects_summary_takes">
+        <item quantity="one">%1$d ripresa</item>
+        <item quantity="many">%1$d riprese</item>
+        <item quantity="other">%1$d riprese</item>
     </plurals>
+    <plurals name="projects_summary_sounds">
+        <item quantity="one">%1$d file audio</item>
+        <item quantity="many">%1$d file audio</item>
+        <item quantity="other">%1$d file audio</item>
+    </plurals>
+    <string name="projects_summary_edited">%1$s di montaggio</string>
+    <string name="projects_selected">Progetto selezionato</string>
     <string name="projects_continue_recording">Continua ripresa</string>
     <string name="projects_edit">Modifica</string>
     <string name="projects_originals">Originali</string>
