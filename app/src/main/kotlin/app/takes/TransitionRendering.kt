@@ -298,6 +298,16 @@ class TransitionEffect(private val clips: List<TimelineClip>, private val canvas
     /** A moment whose last frame before it is kept: the start of a freeze, or the end of a chain. */
     private class Keep(val at: Double, val deck: Int, val until: Double)
 
+    // The kept frames belong to the export, not to one program: with a single sequence Media3 makes
+    // the program again for every clip and for the empty stretch after the last one, and a freeze
+    // that closes the movie shows a frame kept by the program before. They go with the export's
+    // graphics context when it ends.
+    private val kept = IntArray(2)
+    private val keptFramebuffers = IntArray(2)
+    private val keptFor = DoubleArray(2) { Double.NaN }
+    private var spare = 0
+    private var spareFramebuffer = 0
+
     private inner class Program : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
         private val deckOf = TransitionScene.decks(clips)
         private val size = FrameSize(canvas.width.toDouble(), canvas.height.toDouble())
@@ -310,18 +320,13 @@ class TransitionEffect(private val clips: List<TimelineClip>, private val canvas
                 ?.let { Keep(it.from, deckOf[placement.index], it.until) }
         }
 
-        // Media3 ends a clip a frame or two early (its frame-rate limit holds one back and drops it
-        // at the end), and the sequence is black from there. A transition still showing the clip
-        // in those frames gets the last one that came instead.
+        // Should a sequence end a clip a frame early, it is black from there. A transition still
+        // showing the clip in those frames gets the last one that came instead. (Media3's own
+        // frame-rate limit did that to every clip; FrameCeilingEffect does not.)
         private val endings = TimelineEditing.chains(clips).mapIndexed { index, chain -> Keep(chain.end, index % 2, chain.end) }
 
         private var program = 0
         private var position = 0
-        private val kept = IntArray(2)
-        private val keptFramebuffers = IntArray(2)
-        private val keptFor = DoubleArray(2) { Double.NaN }
-        private var spare = 0
-        private var spareFramebuffer = 0
         private val gone = BooleanArray(2)
         private val pixel = java.nio.ByteBuffer.allocateDirect(4)
         private val quad = GlUtil.createBuffer(floatArrayOf(-1f, -1f, 0f, 1f, 1f, -1f, 0f, 1f, -1f, 1f, 0f, 1f, 1f, 1f, 0f, 1f))
@@ -434,12 +439,6 @@ class TransitionEffect(private val clips: List<TimelineClip>, private val canvas
         override fun release() {
             super.release()
             if (program != 0) GLES20.glDeleteProgram(program)
-            for ((texture, framebuffer) in listOf(kept[0] to keptFramebuffers[0], kept[1] to keptFramebuffers[1], spare to spareFramebuffer)) {
-                if (texture != 0) {
-                    GlUtil.deleteTexture(texture)
-                    GlUtil.deleteFbo(framebuffer)
-                }
-            }
         }
     }
 
