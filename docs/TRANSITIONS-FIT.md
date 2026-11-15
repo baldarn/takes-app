@@ -435,3 +435,25 @@ Clips are 4 s unless said; "saved without a fit" means clips built with their tr
 12. **An opening or a close is never checked for footage by the prune** (section 3, step 3), only by the trim and speed rules. The editor's inward trim of the far end of the first clip can therefore leave an opening longer than its clip in the original. With 6.1 that cannot happen here.
 13. **Removing a transition keeps positions in the original** (2.1, step 1) and `restoringStraightCut` closes them; here the clips always close. Unchanged.
 14. **Not determined:** the original's tests were read, not run; and no test of the original pins what a trim does to a clip with a transition on each side when only one of them lacks footage (the source removes both, `TrackTimeline.swift:1374-1375`).
+
+## 8. As carried out
+
+Sections 5 and 6 as written, with the choices below. The citations of sections 1 to 4 were checked again against the original at `faf1815` while implementing; none needed correcting.
+
+**Saved.** `TimelineClip.transitionFit` and `TimelineClip.openingTransitionFit`, each a `TransitionFit(factor)`; `origin` is not saved (5.1). A fit never raises a clip's schema (5.4, open point 10 left as recommended). `Project.validate` refuses a factor that is not a finite number in 0…1.
+
+**A project without fits** (5.2, option A). `TransitionLayout.sequence` takes the saved factors as a fourth argument and derives the missing ones by the sequence rule; `TimelineEditing.fitted` saves what the layout found, and is where `split`, `delete`, `move`, `insert`, `trim`, `setSpeed`, `removeIntervals`, `setJoin`, and `RangeEditing.delete`, `copy`, `paste` and `scoped` start. Opening, playing, exporting, and edits that move no footage (titles, color, crop, sound, bookmarks, subtitles) save nothing: the step keeps its bytes and its file name.
+
+**Open points, as decided by the product owner or taken from the recommendation.**
+
+1. *Which trim.* The rule of the original's function that changes source bounds (2.4, first path), and the timeline strip gives no trim grip to a clip edge that lies under a transition playing two clips at once (`EditorScreen.kt`, `ClipStrip` and the `handle` of `Timeline`), as the original's editor has none there. An edge beside a fade through color or a still keeps its grip. While a grip is dragged the strip shows what `TimelineEditing.trim` would leave, so a transition the clip no longer has footage for disappears during the drag and is back if the drag returns before it is released.
+2. *A take inserted inside a transition* (record here, unused takes) follows the paste rule: `TimelineEditing.insert` and `RangeEditing.paste` share `TimelineEditing.opened`.
+3. *Removing pauses* refits each transition to the piece it is left on. This is the reading of section 6.1, not something the original states: there a clip with pauses removed stays one clip.
+4. *The slack inside the halvings* is not kept: `TransitionLayout.fit` allows 10⁻⁸ s only for "fits whole". None of the five tests listed for the other choice changed.
+8. *Setting a transition that does not fit a frame* returns null and changes nothing, as before.
+
+Points 5, 6, 7, 9, 11, 12 and 13 are as the document leaves them.
+
+**One addition.** `setJoin` with the settings a join already has finds its fit again by halving, which gives the same factor to about fifteen digits and not to the last one. A factor within 10⁻⁹ of the saved one is the same fit, so pressing Apply in the transition tool without changing anything is not an Undo step.
+
+**Tests.** `TransitionFitTest` holds the cases of 6.5 and those for moves, pause removal, the opening and the close, recorded and unused takes, and the agreement of `insert` and `paste`. The five tests of 6.4 changed as listed there and no other did.

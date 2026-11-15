@@ -185,6 +185,17 @@ class TransitionFitTest {
         assertNull(TimelineEditing.setJoin(state, 1, TransitionSettings(id = "J", duration = 3.0)))
     }
 
+    @Test fun applyingTheSettingsOfAFittedTransitionUnchangedChangesNothing() {
+        // The fit of a project saved without one, found by the sequence rule, and the same fit found by setting it again.
+        val fitted = EditState(TimelineEditing.fitted(chain.clips))
+        for (join in 1..2) {
+            assertNull(TimelineEditing.setJoin(chain, join, chain.clips[join - 1].transition))
+            assertNull(TimelineEditing.setJoin(fitted, join, fitted.clips[join - 1].transition))
+        }
+        val split = TimelineEditing.split(chain, 1.5)!!
+        assertNull(TimelineEditing.setJoin(split, 2, split.clips[1].transition))
+    }
+
     @Test fun aTransitionUnderOneFrameIsNotSetAndNothingChanges() {
         val state = TimelineEditing.setJoin(EditState(listOf(clip("A"), clip("B", 1.0), clip("C"))), 1, TransitionSettings(duration = 3.0))!!
         assertNull(TimelineEditing.setJoin(state, 2, TransitionSettings(duration = 3.0)))

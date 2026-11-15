@@ -75,6 +75,9 @@ object TimelineEditing {
 
     private const val PRUNE_SLACK = 0.00001
 
+    /** Factors closer than this are the same fit. */
+    private const val SAME_FIT = 0.000000001
+
     /**
      * After the clip at [index] was made shorter without losing footage (a
      * faster speed, pauses taken out): when the transition into it and the
@@ -373,7 +376,8 @@ object TimelineEditing {
         val rightFree = TransitionLayout.free(clips.getOrNull(join)?.duration, if (join < clips.size) joins[join + 1].timing.leftCost else 0.0)
         val fit = TransitionLayout.fit(value, TransitionLayout.edge(join, clips.size), leftFree, rightFree) ?: return null
         val fitted = (if (join == 0) clips[0].openingTransitionFit else clips[join - 1].transitionFit)?.factor
-        if (value == joinSettings(clips, join) && fit.factor == fitted) return null
+        // Found again by halving, the same fit comes out a hair different: that is no change.
+        if (value == joinSettings(clips, join) && fitted != null && kotlin.math.abs(fit.factor - fitted) < SAME_FIT) return null
         return state.copy(clips = withJoin(clips, join, value, TransitionFit(fit.factor)))
     }
 
