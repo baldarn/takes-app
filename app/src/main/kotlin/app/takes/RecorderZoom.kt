@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
@@ -64,6 +65,81 @@ import kotlin.math.abs
 internal val ControlYellow = Color(0xFFFFD60A)
 /** The plate of a group of controls that sits on the picture. */
 internal val StripPlate = Color(0xB3262628)
+
+/**
+ * The gestures on the picture, as in the original: two fingers zoom, measured from where they went down,
+ * and one short touch that does not travel is a tap. A third finger gives the gesture up.
+ * [show] is given the pinch while it lasts, for the badge, and null when it ends.
+ */
+internal fun Modifier.pictureGestures(capture: CaptureController, show: (PinchZoom?) -> Unit, tap: (Offset) -> Unit): Modifier =
+    pointerInput(capture) {
+        awaitEachGesture {
+            val down = awaitFirstDown()
+            val lens = capture.cameraID
+            var startSpan = 0.0
+            var startMid = Offset.Zero
+            var two = false // a second finger landed: this touch is no longer a tap
+            var pinch: PinchZoom? = null
+            var travelled = false
+            fun end(apply: Boolean) {
+                pinch?.let { if (apply && capture.cameraID == lens) capture.endPinch(it) }
+                pinch = null
+                show(null)
+            }
+            while (true) {
+                val event = awaitPointerEvent()
+                val pressed = event.changes.filter { it.pressed }
+                if (pressed.isEmpty()) {
+                    val up = event.changes.firstOrNull { it.id == down.id }
+                    if (!two && !travelled && up != null && up.uptimeMillis - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis) tap(up.position)
+                    end(apply = true)
+                    break
+                }
+                if (pressed.size == 1 && !two) {
+                    if ((pressed[0].position - down.position).getDistance() > viewConfiguration.touchSlop) travelled = true
+                    continue
+                }
+                event.changes.forEach { it.consume() }
+                if (pressed.size != 2) {
+                    // A finger lifted, which ends the pinch exactly once, or a third one landed, which gives it up.
+                    if (pinch != null) end(apply = pressed.size < 2 || pinch?.timed == false)
+                    two = true
+                    startSpan = -1.0
+                    continue
+                }
+                val mid = (pressed[0].position + pressed[1].position) / 2f / density
+                val span = maxOf(PinchZoom.MINIMUM_SPAN, ((pressed[0].position - pressed[1].position).getDistance() / density).toDouble())
+                if (!two) { two = true; startSpan = span; startMid = mid }
+                // After a pinch ended, the fingers still down do not begin another.
+                if (startSpan < 0) continue
+                if (pinch == null && PinchZoom.begins(startSpan, span, (mid - startMid).getDistance().toDouble())) {
+                    pinch = capture.beginPinch(startSpan)
+                    if (pinch == null) startSpan = -1.0
+                }
+                pinch?.let { current ->
+                    if (capture.cameraID != lens || !capture.canPinch) { end(apply = false); startSpan = -1.0; return@let }
+                    val step = current.moved(span)
+                    pinch = step.pinch
+                    step.apply?.let(capture::pinchZoom)
+                    show(step.pinch)
+                }
+            }
+        }
+    }
+
+/**
+ * The read-out of a pinch, a quarter of the way down the picture: the zoom the fingers have reached and,
+ * when a zoom time is set, that the move waits for the release.
+ */
+@Composable
+internal fun PinchBadge(pinch: PinchZoom, modifier: Modifier = Modifier) {
+    val zoom = PinchZoom.readout(pinch.zoom)
+    Text(
+        if (pinch.timed) stringResource(R.string.recorder_pinch_on_release, zoom, compactSeconds(pinch.seconds)) else zoom,
+        color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, maxLines = 1,
+        modifier = modifier.height(28.dp).background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(14.dp)).padding(horizontal = 10.dp).wrapContentSize(),
+    )
+}
 
 /** The zoom in the camera strip: shows the magnification and opens the presets. */
 @Composable

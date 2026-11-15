@@ -16,7 +16,6 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,12 +66,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -98,6 +97,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.CaptureController.Phase
+import app.takes.core.PinchZoom
 import app.takes.core.Project
 import kotlinx.coroutines.delay
 
@@ -140,6 +140,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     val settings = capture.settings
     var settingsOpen by remember { mutableStateOf(false) }
     var zoomOpen by remember { mutableStateOf(false) }
+    var pinch by remember { mutableStateOf<PinchZoom?>(null) }
     val switchCamera = { id: String, nativeZoom: Boolean ->
         if (id != capture.cameraID && capture.phase != Phase.Saving) capture.switchCamera(id, nativeZoom)
     }
@@ -173,13 +174,15 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     }
 
     Box(
-        Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
-            detectTransformGestures { _, _, scale, _ -> capture.pinch(scale) }
-        },
+        Modifier.fillMaxSize().background(Color.Black).pictureGestures(capture, show = { pinch = it }, tap = {}),
     ) {
         // The whole recorded frame, or the screen filled with it: a setting, as in the original.
         AndroidView({ previewView }, Modifier.fillMaxSize()) {
             it.scaleType = if (settings.fitFrame) PreviewView.ScaleType.FIT_CENTER else PreviewView.ScaleType.FILL_CENTER
+        }
+        pinch?.let {
+            // 27 % of the way down, centred, as in the original.
+            PinchBadge(it, Modifier.align(BiasAlignment(0f, (PinchZoom.BADGE_HEIGHT * 2 - 1).toFloat())))
         }
         // Clear of the camera cutout, which stays when the status bar is hidden.
         Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
