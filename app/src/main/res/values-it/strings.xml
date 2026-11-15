@@ -124,8 +124,6 @@
 
     <!-- Crop -->
     <string name="crop_zoom">Zoom</string>
-    <string name="crop_left_right">Orizzontale</string>
-    <string name="crop_up_down">Verticale</string>
     <string name="crop_remove">Rimuovi ritaglio</string>
 
     <!-- Color -->
@@ -652,4 +650,20 @@
     <string name="editor_snap_off">Non attivo</string>
     <string name="editor_snap_note">L\'aggancio allinea il cursore ai bordi delle clip e ai segnalibri vicini. Spegni la calamita per posizionarlo liberamente.</string>
     <string name="crop_rotation">Rotazione</string>
+    <string name="crop_apply">Applica</string>
+    <string name="crop_hint">Pizzica per ritagliare · trascina per inquadrare</string>
+    <string name="crop_rotation_reset">Azzera rotazione</string>
+    <string name="crop_rotate_90">Ruota di 90 gradi in senso orario</string>
+    <string name="crop_rotation_slider">Rotazione del ritaglio</string>
+    <string name="crop_rotation_note">I bordi restano pieni. Tocca l\'angolo per azzerarlo.</string>
+    <string name="crop_zoom_slider">Zoom del ritaglio</string>
+    <string name="crop_reset_framing">Ripristina inquadratura</string>
+    <string name="crop_source_area">Area della ripresa: %1$d per %2$d pixel</string>
+    <string name="crop_position">Posizione</string>
+    <string name="crop_across">Orizzontale</string>
+    <string name="crop_down">Verticale</string>
+    <string name="crop_across_slider">Posizione orizzontale del ritaglio</string>
+    <string name="crop_down_slider">Posizione verticale del ritaglio</string>
+    <string name="crop_edges_note">L\'inquadratura cambia di colpo ai bordi di questa selezione.</string>
+    <string name="crop_clips_note">Le modifiche all\'inquadratura valgono per tutte le %1$d clip selezionate.</string>
 </resources>

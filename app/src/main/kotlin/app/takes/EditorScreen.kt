@@ -74,7 +74,7 @@ import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.ImportedLUT
 import app.takes.core.CropSettings
-import app.takes.core.CropGestures
+import app.takes.core.CropViewport
 import app.takes.core.PictureFrame
 import app.takes.core.PictureFraming
 import app.takes.core.Rect as FrameRect
@@ -629,6 +629,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         playhead = playhead.coerceIn(0.0, duration)
         editor.load(clips, sounds, files, playhead)
     }
+    // The Crop tool: the framing it is working on and the clips it goes on, shown in the preview and not saved until applied.
+    var cropping by remember { mutableStateOf<Cropping?>(null) }
     // The timeline scrolls under a fixed playhead. Playback and edits move the
     // scroll position; a drag moves the playhead and seeks.
     LaunchedEffect(clips, pixelsPerSecond, editor.playing) {
@@ -786,8 +788,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val rate: (TransitionLayout.Join) -> Double = { TransitionScene.frameRate(clips, it, footage, ceiling, decks) }
         rate
     }
-    // Reframing in progress: the clip being framed and the framing not saved yet, shown live.
-    var cropping by remember { mutableStateOf<Pair<String, CropSettings>?>(null) }
     var pacing by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     val unusedFailed = stringResource(R.string.unused_failed)
@@ -812,14 +812,22 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
     val deckColors = deckClips.map { index -> index?.let { clips[it].color } }
+    // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
+    // is open what the tool would leave on it.
+    val cropOf = { index: Int ->
+        val clip = clips[index]
+        val start = TimelineEditing.clipStart(clips, index)
+        val offset = (playhead - start).coerceIn(0.0, clip.duration)
+        val shows = PictureFraming.motionTime(clip, offset)
+        val framed = cropping
+        (if (framed != null) framed.shown(clip, shows, start + offset) else clip.crop) to shows
+    }
     // The framing each deck shows at this moment, for a frame of the size it is drawn in: a crop is sampled at the
     // source second its clip shows, so one that moves between two poses moves as the footage plays or is scrubbed.
     val deckFrames = deckClips.map { index ->
-        val clip = index?.let { clips[it] }
-        val crop = clip?.let { cropping?.takeIf { (id, _) -> id == clip.id }?.second ?: clip.crop }
-        val size = clip?.let { sizes[it.sourceID] }
-        if (clip == null || crop == null || size == null) null else {
-            val shows = PictureFraming.motionTime(clip, (playhead - TimelineEditing.clipStart(clips, index)).coerceIn(0.0, clip.duration))
+        val size = index?.let { sizes[clips[it].sourceID] }
+        val (crop, shows) = index?.let(cropOf) ?: (null to 0.0)
+        if (crop == null || size == null) null else {
             val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame) }
             framing
         }
@@ -927,7 +935,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
                 val content = { index: Int, frame: FrameSize ->
                     val source = sizes[clips[index].sourceID]
-                    val framed = cropping?.first == clips[index].id || clips[index].crop != null
+                    val framed = cropOf(index).first != null
                     if (framed || source == null) FrameRect(0.0, 0.0, frame.width, frame.height) else {
                         val fitted = minOf(frame.width / source.width, frame.height / source.height)
                         FrameRect((frame.width - source.width * fitted) / 2, (frame.height - source.height * fitted) / 2, source.width * fitted, source.height * fitted)
@@ -981,8 +989,24 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         detectTapGestures(onDoubleTap = { at -> framed(at, size.width, size.height) { _, _, _ -> TransitionFraming() } })
                     }
                 }
-                Canvas(Modifier.fillMaxSize().then(moving).then(framing)) {
+                // While a clip is being cropped, a drag on the picture moves the footage under the frame and a pinch zooms it.
+                val framed by rememberUpdatedState(cropping)
+                val sized by rememberUpdatedState(sizes to canvas)
+                val reframing = if (cropping == null) Modifier else Modifier.pointerInput(Unit) {
+                    cropGestures(
+                        viewport = {
+                            val (known, shape) = sized
+                            val source = framed?.on?.active(playhead)?.let { known[it.clip.sourceID] }
+                            if (source == null || shape == null) null
+                            else CropViewport(FrameSize(size.width.toDouble(), size.height.toDouble()), source, FrameSize(shape.first.toDouble(), shape.second.toDouble()), inset = 0.0)
+                        },
+                        crop = { framed?.draft?.crop ?: CropSettings() },
+                        change = { next -> framed?.let { cropping = it.copy(draft = it.draft.adjusted(next)) } },
+                    )
+                }
+                Canvas(Modifier.fillMaxSize().then(moving).then(framing).then(reframing)) {
                     if (sampling) return@Canvas
+                    if (cropping != null) cropGuides()
                     drawIntoCanvas { target ->
                         titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
                         captioned.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
@@ -1076,17 +1100,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         )
         val framing = cropping
         if (framing != null) {
+            val shape = canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) }
+            // The tool closes when the edit changes under it, as with Undo.
+            LaunchedEffect(edit) { if (cropping?.on?.base != edit) cropping = null }
             CropPanel(
-                framing.second, removable = clips.firstOrNull { it.id == framing.first }?.crop != null,
-                change = { cropping = framing.first to it },
-                done = { crop ->
-                    val index = clips.indexOfFirst { it.id == framing.first }
+                framing, source = framing.on.active(playhead)?.let { sizes[it.clip.sourceID] }, canvas = shape,
+                whole = framing.on.start <= 0.0005 && framing.on.end >= duration - 0.0005,
+                change = { cropping = framing.copy(draft = it) },
+                apply = { removing ->
+                    val next = shape?.let { framing.applied(sizes, it, removing) }
                     cropping = null
-                    if (toolScope != null) applyScoped(toolScope, applied(toolScope) { state, at -> TimelineEditing.setCrop(state, at, crop) }, playhead)
-                    else commit(TimelineEditing.setCrop(edit, index, crop), playhead)
+                    framing.on.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
                 },
                 cancel = { cropping = null },
-                appliesTo = toolScopeLabel,
+                modifier = Modifier.weight(1f), appliesTo = toolScopeLabel,
             )
         } else if (titling != null) {
             val work = titling!!
@@ -1316,7 +1343,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                     shownAt?.let(jump)
                     val framed = toolSubject ?: current
-                    TimelineEditing.locate(clips, shownAt ?: playhead)?.let { cropping = clips[it.index].id to (framed?.crop ?: CropSettings()) }
+                    if (framed != null) cropping = Cropping.opening(edit, toolScope, framed)
                 }, compact, enabled = current != null && sizes[current.sourceID] != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
                 TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
             }
@@ -1857,34 +1884,6 @@ private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected:
     Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
     Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
-    }
-}
-
-/**
- * Reframes a clip in place of the tools, so the picture stays visible and
- * follows the sliders. A crop fills the movie's frame with part of the clip.
- */
-@Composable
-private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSettings) -> Unit, done: (CropSettings?) -> Unit, cancel: () -> Unit, appliesTo: String? = null) {
-    @Composable
-    fun Level(label: String, shown: String, value: Double, range: ClosedFloatingPointRange<Float>, set: (Double) -> Unit) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("$label  $shown", color = Color.White, fontSize = 13.sp, modifier = Modifier.width(120.dp))
-            Slider(value = value.toFloat(), onValueChange = { set(it.toDouble()) }, valueRange = range,
-                modifier = Modifier.weight(1f).semantics { contentDescription = label })
-        }
-    }
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        appliesTo?.let { Text(it, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp)) }
-        Level(stringResource(R.string.crop_zoom), "%.1f×".format(crop.zoom), crop.zoom, 1f..CropSettings.MAXIMUM_ZOOM.toFloat()) { change(crop.copy(zoom = (it * 10).roundToInt() / 10.0)) }
-        Level(stringResource(R.string.crop_left_right), "${(crop.x * 100).roundToInt()}", crop.x, 0f..1f) { change(crop.copy(x = (it * 100).roundToInt() / 100.0)) }
-        Level(stringResource(R.string.crop_up_down), "${(crop.y * 100).roundToInt()}", crop.y, 0f..1f) { change(crop.copy(y = (it * 100).roundToInt() / 100.0)) }
-        Level(stringResource(R.string.crop_rotation), "%.1f°".format(crop.rotation), crop.rotation, -180f..180f) { change(CropGestures.rotated(crop, (it * 10).roundToInt() / 10.0)) }
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
-            TextButton(onClick = cancel) { Text(stringResource(R.string.common_cancel)) }
-            if (removable) TextButton(onClick = { done(null) }) { Text(stringResource(R.string.crop_remove), color = RecordRed) }
-            Button(onClick = { done(crop) }) { Text(stringResource(R.string.common_done)) }
-        }
     }
 }
 

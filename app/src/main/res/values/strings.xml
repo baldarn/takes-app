@@ -122,8 +122,6 @@
 
     <!-- Crop -->
     <string name="crop_zoom">Zoom</string>
-    <string name="crop_left_right">Left–right</string>
-    <string name="crop_up_down">Up–down</string>
     <string name="crop_remove">Remove crop</string>
 
     <!-- Color -->
@@ -644,4 +642,20 @@
     <string name="editor_snap_off">Off</string>
     <string name="editor_snap_note">Snap aligns the playhead with nearby clip edges and bookmarks. Turn the magnet off for free positioning.</string>
     <string name="crop_rotation">Rotation</string>
+    <string name="crop_apply">Apply</string>
+    <string name="crop_hint">Pinch to crop · drag to frame</string>
+    <string name="crop_rotation_reset">Reset rotation</string>
+    <string name="crop_rotate_90">Rotate 90 degrees clockwise</string>
+    <string name="crop_rotation_slider">Crop rotation</string>
+    <string name="crop_rotation_note">Edges stay filled. Tap the angle to reset.</string>
+    <string name="crop_zoom_slider">Crop zoom</string>
+    <string name="crop_reset_framing">Reset framing</string>
+    <string name="crop_source_area">Source area %1$d by %2$d pixels</string>
+    <string name="crop_position">Position</string>
+    <string name="crop_across">Across</string>
+    <string name="crop_down">Down</string>
+    <string name="crop_across_slider">Crop horizontal position</string>
+    <string name="crop_down_slider">Crop vertical position</string>
+    <string name="crop_edges_note">Framing changes instantly at the edges of this selection.</string>
+    <string name="crop_clips_note">Framing changes apply to all %1$d selected clips.</string>
 </resources>
