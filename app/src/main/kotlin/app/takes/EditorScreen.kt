@@ -45,7 +45,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import app.takes.core.TextOverlay
-import android.view.LayoutInflater
 import androidx.compose.ui.draw.alpha
 import app.takes.core.TransitionSettings
 import app.takes.core.TransitionStyle
@@ -76,7 +75,6 @@ import app.takes.core.SubtitleEditing
 import android.os.Build
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.ImportedLUT
@@ -163,14 +161,12 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import app.takes.core.EditState
 import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TitleMotionRanges
-import app.takes.core.TransitionFrame
 import app.takes.core.TransitionAxis
 import app.takes.core.TransitionDefaults
 import app.takes.core.TransitionFraming
@@ -483,7 +479,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The Transition tool: the join it is working on and the settings not saved yet. The whole
     // editor shows the timeline as it would be with them, since a transition moves what follows it.
     var transitioning by remember { mutableStateOf<Transitioning?>(null) }
-    val edit = transitioning?.let { drafted(project.edit, it.join, it.shown) } ?: project.edit
+    val saved = project.edit
+    val edit = remember(saved, transitioning?.join, transitioning?.shown) { transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved }
     val clips = edit.clips
     val duration = edit.duration
     val files = remember(project.sources) { project.sources.associate { it.id to store.file(project, it) } }
@@ -886,7 +883,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             )
         } else if (transitioning != null) {
             val work = transitioning!!
-            val saved = project.edit
             val join = TimelineEditing.join(clips, work.join)?.takeIf { it.transition == work.shown.copy(nextClipID = it.transition?.nextClipID) }
             val middle = { TimelineEditing.layout(clips).joins.getOrNull(work.join)?.let { if (join != null) it.origin + it.timing.videoDuration / 2 else it.time } ?: playhead }
             // The picture goes to the middle of the transition whenever its place or its length changes.
