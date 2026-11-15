@@ -367,7 +367,8 @@ object RangeEditing {
             from += 1
             if (targeted(lower.index)) { pieces = pieces.dividedAt(lower.index, lower.offset); until += 1 }
         }
-        return Resolved(pieces, from, until)
+        // Both ends inside one clip that is not a target: it is not cut, and no piece lies between them.
+        return Resolved(pieces, from, maxOf(from, until))
     }
 
     // MARK: Cutting sound

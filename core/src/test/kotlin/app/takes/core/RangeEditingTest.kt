@@ -1251,4 +1251,27 @@ class RangeEditingTest {
         assertEquals(10.0, late.clips[1].end, 0.0)
         assertEquals(3.05, late.duration, 1e-12)
     }
+
+    /**
+     * A range limited to sound whose two ends fall inside one clip: the clip is
+     * not cut, and no clip lies between the ends. This used to throw.
+     */
+    @Test
+    fun aRangeOfSoundAloneInsideOneClipCutsOnlyTheSound() {
+        val picture = clip("a", 0.0, 10.0)
+        val music = AudioItem(sourceID = "m", sourceStart = 0.0, sourceEnd = 8.0, start = 1.0, track = 0)
+        val state = EditState(listOf(picture), audio = listOf(music))
+        val scope = EditScope.Range(TimeRange(3.0, 5.0), EditTargets(audio = setOf(music.id)))
+
+        val copy = RangeEditing.copy(state, scope)!!
+        assertTrue(copy.clips.isEmpty())
+        assertEquals(listOf(2.0), copy.audio.map { it.duration })
+
+        val cut = RangeEditing.cut(state, scope)!!
+        assertEquals(listOf(picture), cut.state.clips)
+        assertEquals(listOf(1.0 to 3.0, 5.0 to 9.0), cut.state.audio.orEmpty().sortedBy { it.start }.map { it.start to it.end })
+
+        assertEquals(listOf(picture), RangeEditing.scoped(state, scope).state.clips)
+        assertTrue(RangeEditing.paste(state, copy, 6.0) != null)
+    }
 }
