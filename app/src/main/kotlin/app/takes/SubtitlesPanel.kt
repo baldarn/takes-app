@@ -48,6 +48,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -139,7 +140,7 @@ fun SubtitlesPanel(
     var language by remember { mutableStateOf(Languages.firstOrNull { it.first == saved.subtitles?.language }?.first ?: "Auto") }
     // The model in use and how much of it is on the phone; read again after anything that changes either.
     var model by remember { mutableStateOf(SubtitleModel.selected(context)) }
-    var present by remember { mutableStateOf(SubtitleModel.present(context, model)) }
+    var present by remember { mutableLongStateOf(SubtitleModel.present(context, model)) }
     var installed by remember { mutableStateOf(SubtitleModel.installed(context, model)) }
     val megabytes = SubtitleModel.megabytes(model)
     val left = SubtitleModel.megabytes(model.bytes - present) // what a download still has to fetch
