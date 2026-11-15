@@ -112,6 +112,7 @@ internal fun CameraSettings(capture: CaptureController, project: Project?, close
                     .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp)).clickable(quiet, null) {},
             ) {
                 TitleBar(title, close, null)
+                QuickSettings(capture)
                 HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
                 Row(
                     Modifier.fillMaxWidth().clickable(role = Role.Button) { more = true }.heightIn(min = 48.dp).padding(horizontal = 20.dp),
@@ -136,6 +137,75 @@ private fun TitleBar(title: String, close: () -> Unit, back: (() -> Unit)?) {
         }
         Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).semantics { heading() })
         TextButton(onClick = close) { Text(stringResource(R.string.common_done), color = SettingsCyan, fontWeight = FontWeight.SemiBold) }
+    }
+}
+
+/**
+ * What is changed often: the assists as tiles, then the recording colour. Each is there only where a
+ * camera of this phone has it, and can be used when the camera in use has it.
+ */
+@Composable
+private fun QuickSettings(capture: CaptureController) {
+    var help by remember { mutableStateOf<String?>(null) }
+    val tiles = buildList<@Composable (Modifier) -> Unit> {
+        if (capture.offersStabilization) add { modifier ->
+            val on = capture.format.stabilization != CaptureFormat.Stabilization.Off
+            val status = stringResource(when {
+                !capture.offers.stabilization -> R.string.recorder_stabilize_unavailable
+                on -> R.string.recorder_stabilize_active
+                else -> R.string.recorder_stabilize_inactive
+            })
+            AssistTile(
+                stringResource(R.string.recorder_stabilize), Icons.Filled.CenterFocusWeak, on,
+                enabled = capture.canChangeFormat && (capture.offers.stabilization || capture.settings.stabilization),
+                details = status + "\n\n" + stringResource(R.string.recorder_stabilize_help), explain = { help = it }, modifier = modifier,
+            ) { capture.chooseStabilization(!capture.settings.stabilization) }
+        }
+    }
+    if (tiles.isEmpty()) return
+    Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (tiles.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                tiles.forEach { it(Modifier.weight(1f)) }
+                // Tiles keep the width they have when there are four of them, as in the original.
+                repeat(maxOf(0, 4 - tiles.size)) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+    help?.let { text ->
+        AlertDialog(
+            onDismissRequest = { help = null },
+            confirmButton = { TextButton(onClick = { help = null }) { Text(stringResource(R.string.common_ok)) } },
+            title = { Text(stringResource(R.string.recorder_assist_title)) }, text = { Text(text) },
+        )
+    }
+}
+
+/** One assist: a tap turns it on or off, holding it explains it. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun AssistTile(
+    title: String, icon: ImageVector, on: Boolean, enabled: Boolean, details: String, explain: (String) -> Unit, modifier: Modifier = Modifier, toggle: () -> Unit,
+) {
+    val color = if (on) SettingsCyan else Color.White
+    val explainLabel = stringResource(R.string.recorder_assist_explain)
+    Box(
+        modifier.heightIn(min = 62.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(10.dp))
+            .background(if (on) SettingsCyan.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.07f))
+            // Holding explains the assist also where it cannot be used.
+            .combinedClickable(role = Role.Switch, onLongClick = { explain(details) }) { if (enabled) toggle() }
+            .semantics(mergeDescendants = true) {
+                toggleableState = ToggleableState(on)
+                if (!enabled) disabled()
+                customActions = listOf(CustomAccessibilityAction(explainLabel) { explain(details); true })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.padding(vertical = 8.dp, horizontal = 4.dp), Arrangement.spacedBy(5.dp), Alignment.CenterHorizontally) {
+            Icon(icon, null, Modifier.size(22.dp), tint = color)
+            Text(title, color = color, fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, textAlign = TextAlign.Center)
+        }
+        if (on) Icon(Icons.Filled.CheckCircle, null, Modifier.align(Alignment.TopEnd).padding(6.dp).size(12.dp), tint = SettingsCyan)
     }
 }
 
