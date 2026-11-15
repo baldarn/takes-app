@@ -265,7 +265,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val rates = withContext(Dispatchers.IO) { clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::frameRate) } }
             val footage = clips.map { rates[it.sourceID] }
             val frames = { join: TransitionLayout.Join -> TransitionScene.frameRate(clips, join, footage, settings.frameRate) }
-            val fit = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
+            // One for every item: a Presentation keeps the matrix it worked out for the size of its last input, and
+            // two items of different shapes that play at once, one in each sequence, would be drawn with each other's.
+            fun fit() = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
             val items = clips.mapIndexed { index, clip ->
                 val picture = buildList<Effect> {
                     // A ceiling for high frame rate footage; frames are never invented, and footage
@@ -281,7 +283,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                             FrameSize(source.first.toDouble(), source.second.toDouble()), FrameSize(canvas.first.toDouble(), canvas.second.toDouble()),
                         ))
                     }
-                    add(fit)
+                    add(fit())
                 }
                 // Sound follows the clip's own level and fades and any transition at its ends, sample by sample, and fades for a
                 // few milliseconds at every cut.
