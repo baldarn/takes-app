@@ -10,6 +10,7 @@ import app.takes.core.SubtitleTiming
 import app.takes.core.SubtitleWord
 import app.takes.core.TimelineClip
 import app.takes.speech.SpeechRecognizer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -195,10 +196,13 @@ object SubtitleTranscriber {
                             while (missing > 0) { val count = minOf(missing, silence.size.toLong()).toInt(); write(silence, count); missing -= count }
                         }
                         val channel = mono!!
-                        write(channel.samples, channel.read(block))
+                        val count = channel.read(block) // first: reading may replace the array
+                        write(channel.samples, count)
                         if (length > 0) progress((time.toFloat() / length).coerceIn(0f, 1f))
                     },
                 )
+            } catch (stopped: CancellationException) {
+                throw stopped // it is an IllegalStateException too, and must not pass for a broken file
             } catch (problem: IllegalStateException) {
                 null // a decoder that gave up in the middle
             } catch (problem: java.io.IOException) {

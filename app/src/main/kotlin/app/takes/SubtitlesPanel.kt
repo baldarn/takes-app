@@ -53,12 +53,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.core.EditState
@@ -401,7 +405,11 @@ fun SubtitlesPanel(
     }
 
     editing?.let { cue ->
-        var text by remember(cue.id) { mutableStateOf(cue.text) }
+        // The cursor waits at the end of the text, with the keyboard up.
+        var field by remember(cue.id) { mutableStateOf(TextFieldValue(cue.text, TextRange(cue.text.length))) }
+        val text = field.text
+        val focus = remember { FocusRequester() }
+        LaunchedEffect(cue.id) { runCatching { focus.requestFocus() } }
         val finish = { next: EditState? ->
             next?.let(change)
             editing = null
@@ -410,7 +418,7 @@ fun SubtitlesPanel(
         AlertDialog(
             onDismissRequest = { editing = null },
             title = { Text(stringResource(R.string.subtitles_edit_title)) },
-            text = { OutlinedTextField(text, { text = it.take(SubtitleWord.MAXIMUM_TEXT) }, label = { Text(cueTime(cue.start)) }, minLines = 2, maxLines = 6) },
+            text = { OutlinedTextField(field, { if (it.text.length <= SubtitleWord.MAXIMUM_TEXT) field = it }, Modifier.focusRequester(focus), label = { Text(cueTime(cue.start)) }, minLines = 2, maxLines = 6) },
             confirmButton = { TextButton(onClick = { finish(SubtitleEditing.correct(draft, cue, text)) }) { Text(stringResource(R.string.common_save)) } },
             dismissButton = {
                 Row {

@@ -17,7 +17,9 @@ YouRec name and icon are reserved by its author, so this port has its own.
 - or the APK attached to each [GitHub release](https://github.com/baldarn/takes-app/releases).
   The two are signed with different keys, so one cannot update the other.
 
-Android 8 or newer. The app has no network access: everything stays on the device.
+Android 8 or newer. Recordings, projects and what is said in them stay on the device.
+The app uses the network for one thing: downloading the speech model for subtitles (about
+161 MB, from Hugging Face) when you ask for it.
 
 The port is still in progress. What works today is listed under
 [What it does](#what-it-does), what is missing under [Not ported yet](#not-ported-yet).
@@ -64,6 +66,13 @@ The port is still in progress. What works today is listed under
   the sliders live; a cropped clip fills the movie's frame.
 - Clip speed from a quarter to four times, picture and sound, with the pitch kept, in
   preview and export.
+- Subtitles: the speech of the clips is transcribed on the phone with Whisper (through
+  sherpa-onnx), in the language you choose or one it detects. The model is downloaded
+  once on request, verified, kept out of backups, and can be removed. Captions follow
+  their footage through splits, trims, moves and speed changes; their text can be
+  corrected or deleted, regrouped by words per caption, and styled (plain, bold, box or
+  highlight, six colors, five fonts, size and position). Preview and export draw them
+  with the same code, and everything done in the tool is one Undo step.
 - Duplicate a project with its recordings and editing history.
 - Bookmarks: one tap while recording marks the moment; the editor shows the marks on
   the timeline, steps between them, and adds or removes them with undo.
@@ -77,7 +86,8 @@ The port is still in progress. What works today is listed under
 
 More than one video layer, unlinking a clip's sound from its picture, the other
 transitions (wipe, split screen and so on), title fonts, colors and motion, Log footage
-and highlight recovery, subtitles, rotated and animated crops, video
+and highlight recovery, subtitles for sound on the audio tracks or for a selected range
+only, placing captions by dragging them, caption designs and motion, rotated and animated crops, video
 effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log
 capture, manual focus.
 
@@ -90,6 +100,7 @@ Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3
 for the `rnnoise` module.
 
     ./gradlew :core:test            # project model, storage and zoom curve
+    ./gradlew :speech:testDebugUnitTest   # speech model download and recognizer; see speech/README.md
     ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
 
 ## Layout
@@ -99,6 +110,8 @@ for the `rnnoise` module.
   Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
   `TimelineEditing` (split, delete, move, trim, transitions, titles, bookmarks), `WaveformBuilder` (audio peaks).
 - `rnnoise/` — the RNNoise C library with a small Kotlin API, built with the NDK.
+- `speech/` — speech recognition for subtitles: Whisper through sherpa-onnx, and the
+  verified download of its model. The first build fetches sherpa-onnx from its GitHub release.
 - `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
   take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
   Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.

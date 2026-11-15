@@ -1,6 +1,7 @@
 package app.takes
 
 import android.content.Context
+import android.util.Log
 import app.takes.speech.SpeechModel
 import app.takes.speech.SpeechModelFetcher
 import app.takes.speech.SpeechModelSource
@@ -91,7 +92,10 @@ private class HttpsSource : SpeechModelSource {
         // Compression would make the byte positions meaningless.
         connection.setRequestProperty("Accept-Encoding", "identity")
         if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
-        return when (val status = connection.responseCode) {
+        val status = connection.responseCode
+        // The whole of what the app does on the network, for anyone reading the log. After redirects, the host is the one that answered.
+        Log.i("Subtitles", "${url.substringAfterLast('/')} from byte $offset: HTTP $status from ${connection.url.host}")
+        return when (status) {
             HttpURLConnection.HTTP_PARTIAL -> SpeechModelSource.Opened(connection.inputStream, offset)
             HttpURLConnection.HTTP_OK -> SpeechModelSource.Opened(connection.inputStream, 0)
             else -> { connection.disconnect(); throw IOException("HTTP $status") }

@@ -32,7 +32,7 @@ private const val PRIVACY = "https://github.com/baldarn/takes-app/blob/main/PRIV
 
 /**
  * Where the app comes from and the licenses of everything shipped in it. The
- * texts are bundled: the app has no internet access, links open in a browser.
+ * texts are bundled; links open in a browser.
  */
 @Composable
 fun CreditsScreen(report: (String) -> Unit, close: () -> Unit) {
