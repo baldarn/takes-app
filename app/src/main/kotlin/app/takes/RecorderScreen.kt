@@ -11,14 +11,12 @@ import android.view.RoundedCorner
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.CameraSelector
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,7 +35,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,7 +42,11 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
@@ -80,7 +81,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,9 +99,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.CaptureController.Phase
 import app.takes.core.Project
-import app.takes.core.ZoomTransition
 import kotlinx.coroutines.delay
-import kotlin.math.abs
 
 private val Scrim = Color(0x99000000)
 /** The plate under a control that sits on the picture, as in the original. */
@@ -138,6 +139,10 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     val previewView = remember { PreviewView(context) }
     val settings = capture.settings
     var settingsOpen by remember { mutableStateOf(false) }
+    var zoomOpen by remember { mutableStateOf(false) }
+    val switchCamera = { id: String, nativeZoom: Boolean ->
+        if (id != capture.cameraID && capture.phase != Phase.Saving) capture.switchCamera(id, nativeZoom)
+    }
     LaunchedEffect(owner) { capture.attach(owner, previewView.surfaceProvider) }
     DisposableEffect(owner) {
         // In the background the take is paused and its segment saved, as in the original: the take, and a run
@@ -181,8 +186,11 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         SettingsButton(Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))) { settingsOpen = true }
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             ProjectChip(capture, store, openEditor)
-            ZoomRow(capture)
-            CameraRow(capture)
+            val usable = capture.ready && capture.phase != Phase.Saving
+            if (zoomOpen && capture.hasZoom) {
+                Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
+            }
+            CameraStrip(capture, usable, zoomOpen, { zoomOpen = !zoomOpen }, switchCamera)
             Controls(capture)
         }
         TakeFrame(capture.phase, Modifier.matchParentSize())
@@ -369,52 +377,64 @@ private fun MicrophoneChooser(capture: CaptureController) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * The camera strip above the bottom row, as in the original: flip to the other side of the phone,
+ * the menu of cameras, the zoom read-out that opens the presets.
+ */
 @Composable
-private fun ZoomRow(capture: CaptureController) {
+private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: Boolean, toggleZoom: () -> Unit, switchCamera: (String, Boolean) -> Unit) {
+    if (capture.cameras.isEmpty()) return
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically,
+        Modifier.padding(bottom = 14.dp).background(StripPlate, RoundedCornerShape(50)).padding(horizontal = 5.dp),
+        Arrangement.spacedBy(6.dp), Alignment.CenterVertically,
     ) {
+        val opposite = capture.oppositeCamera
+        val flipLabel = stringResource(
+            if (opposite?.info?.lensFacing == CameraSelector.LENS_FACING_FRONT) R.string.recorder_flip_front else R.string.recorder_flip_back,
+        )
+        val flips = usable && opposite != null
+        Box(
+            Modifier.size(44.dp).alpha(if (flips) 1f else 0.4f).clip(CircleShape)
+                .clickable(enabled = flips, role = Role.Button) { opposite?.let { switchCamera(it.id, false) } }
+                .semantics { opposite?.let { stateDescription = it.label } },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Cameraswitch, flipLabel, Modifier.size(22.dp), tint = Color.White)
+        }
         var choosing by remember { mutableStateOf(false) }
+        val current = capture.cameras.firstOrNull { it.id == capture.cameraID }
+        val cameraLabel = stringResource(R.string.recorder_camera)
         Box {
-            Chip(zoomTimeLabel(capture.zoomDuration), false,
-                Modifier.clickable(onClickLabel = stringResource(R.string.recorder_zoom_time_change), role = Role.Button) { choosing = true })
+            Row(
+                Modifier.heightIn(min = 44.dp).widthIn(min = 64.dp, max = 118.dp).alpha(if (usable) 1f else 0.4f)
+                    .clickable(enabled = usable, onClickLabel = stringResource(R.string.recorder_switch_camera), role = Role.DropdownList) { choosing = true }
+                    .padding(end = 8.dp).semantics(mergeDescendants = true) { contentDescription = cameraLabel; current?.let { stateDescription = it.label } },
+                Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally), Alignment.CenterVertically,
+            ) {
+                Text(current?.label ?: cameraLabel, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false).clearAndSetSemantics {})
+                Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(14.dp), tint = Color.White)
+            }
             DropdownMenu(choosing, { choosing = false }) {
-                ZoomTransition.durationPresets.forEach { seconds ->
-                    DropdownMenuItem({ Text(zoomTimeLabel(seconds)) }, { capture.chooseZoomDuration(seconds); choosing = false })
+                capture.cameras.forEach { choice ->
+                    DropdownMenuItem(
+                        { Text(choice.label) }, { choosing = false; switchCamera(choice.id, false) },
+                        leadingIcon = { Icon(if (choice.id == capture.cameraID) Icons.Filled.Check else Icons.Filled.PhotoCamera, null) },
+                        modifier = Modifier.semantics { selected = choice.id == capture.cameraID },
+                    )
                 }
             }
         }
-        val zoomLabel = stringResource(R.string.recorder_zoom)
-        val presets = ZoomTransition.presets(capture.zoomRange.start, capture.zoomRange.endInclusive)
-        presets.forEach { preset ->
-            // Tap uses the saved time; double tap always takes one second.
-            Chip(ZoomTransition.zoomLabel(preset), abs(capture.zoom - preset) < 0.005,
-                Modifier.combinedClickable(
-                    role = Role.Button, onClickLabel = zoomLabel, onDoubleClick = { capture.zoomTo(preset, 1.0) },
-                ) { capture.zoomTo(preset) })
-        }
-        if (presets.none { abs(capture.zoom - it) < 0.005 }) {
-            Text(ZoomTransition.zoomLabel(capture.zoom), color = Color.White, fontWeight = FontWeight.Bold)
+        if (capture.hasZoom) {
+            StripDivider()
+            ZoomButton(capture, zoomOpen, usable, toggleZoom)
         }
     }
 }
 
 @Composable
-private fun CameraRow(capture: CaptureController) {
-    if (capture.cameras.size < 2) return
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-    ) {
-        capture.cameras.forEach { choice ->
-            Chip(choice.label, choice.id == capture.cameraID,
-                Modifier.clickable(enabled = capture.phase != Phase.Saving, onClickLabel = stringResource(R.string.recorder_switch_camera), role = Role.Button) {
-                    capture.switchCamera(choice.id)
-                })
-        }
-    }
+private fun StripDivider() {
+    Box(Modifier.size(1.dp, 16.dp).background(Color.White.copy(alpha = 0.2f)))
 }
 
 /**
@@ -492,8 +512,3 @@ private fun SideButton(icon: ImageVector, label: Int, action: () -> Unit) {
         Icon(icon, stringResource(label), Modifier.size(24.dp), tint = Color.White)
     }
 }
-
-/** The zoom transition time as the chip shows it; the core's own label is English only. */
-@Composable
-private fun zoomTimeLabel(seconds: Double): String =
-    if (seconds == 0.0) stringResource(R.string.recorder_zoom_instant) else ZoomTransition.durationLabel(seconds)
