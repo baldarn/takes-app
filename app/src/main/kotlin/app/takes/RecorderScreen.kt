@@ -200,7 +200,12 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     }
 
     Box(
-        Modifier.fillMaxSize().background(Color.Black).pictureGestures(capture, show = { pinch = it }, tap = {}),
+        Modifier.fillMaxSize().background(Color.Black).pictureGestures(capture, show = { pinch = it }) { at ->
+            // A tap on the picture focuses there, as in the original.
+            if (capture.ready && capture.phase != Phase.Saving && cover == null) {
+                capture.focus.tap(previewView.meteringPointFactory.createPoint(at.x, at.y), at)
+            }
+        },
     ) {
         // The whole recorded frame, or the screen filled with it: a setting, as in the original.
         AndroidView({ previewView }, Modifier.fillMaxSize()) {
@@ -209,6 +214,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         cover?.let {
             Image(it, null, Modifier.fillMaxSize(), contentScale = if (settings.fitFrame) ContentScale.Fit else ContentScale.Crop)
         }
+        FocusBox(capture.focus)
         pinch?.let {
             // 27 % of the way down, centred, as in the original.
             PinchBadge(it, Modifier.align(BiasAlignment(0f, (PinchZoom.BADGE_HEIGHT * 2 - 1).toFloat())))
@@ -411,7 +417,7 @@ private fun MicrophoneChooser(capture: CaptureController) {
 
 /**
  * The camera strip above the bottom row, as in the original: flip to the other side of the phone,
- * the menu of cameras, the zoom read-out that opens the presets.
+ * the menu of cameras, the zoom read-out that opens the presets, the focus.
  */
 @Composable
 private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: Boolean, toggleZoom: () -> Unit, switchCamera: (String, Boolean) -> Unit) {
@@ -461,6 +467,8 @@ private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: B
             StripDivider()
             ZoomButton(capture, zoomOpen, usable, toggleZoom)
         }
+        StripDivider()
+        FocusButton(capture.focus, usable)
     }
 }
 

@@ -137,6 +137,7 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
             SettingsRow { Text(project?.title ?: stringResource(R.string.recorder_new_project), color = Color.White) }
             SettingsRow { Note(stringResource(R.string.recorder_settings_captured, clock(project?.capturedDuration ?: 0.0))) }
         }
+        FocusSettings(capture.focus, capture.ready && capture.phase != Phase.Saving)
         Section(stringResource(R.string.recorder_settings_zoom)) {
             var choosing by remember { mutableStateOf(false) }
             val transition = stringResource(R.string.recorder_settings_transition)

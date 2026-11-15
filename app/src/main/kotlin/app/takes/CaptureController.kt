@@ -19,6 +19,7 @@ import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraInfo
@@ -84,10 +85,14 @@ class CaptureController(private val context: Context, private val store: Project
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
     /** The settings of the recorder: global, as in the original, and kept with the camera and the zooms. */
     val settings = RecorderSettings(prefs)
+    /** The focus of the camera in use: tap to focus, the lock and manual focus. */
+    val focus = CameraFocus(context, settings)
     private val scope = MainScope()
     // Same shape as the recorded movie, so the preview shows the real frame.
     private val preview = Preview.Builder()
         .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
+        // The focus reads the position of the lens from what the camera reports with each frame.
+        .also { Camera2Interop.Extender(it).setSessionCaptureCallback(focus.results) }
         .build()
     private var recorder = recorder(MediaRecorder.AudioSource.CAMCORDER)
     private var videoCapture = VideoCapture.withOutput(recorder)
@@ -223,6 +228,7 @@ class CaptureController(private val context: Context, private val store: Project
         microphoneWarning = null
         provider?.unbindAll()
         camera = null
+        focus.unbound()
         owner = null
     }
 
@@ -268,6 +274,7 @@ class CaptureController(private val context: Context, private val store: Project
             provider.bindToLifecycle(owner, choice.info.cameraSelector, preview, videoCapture)
         } catch (_: Exception) {
             camera = null
+            focus.unbound()
             message = context.getString(R.string.recorder_camera_failed, choice.label)
             // Never leave the recording indicator on with no valid capture.
             if (phase == Phase.Recording) pause()
@@ -283,6 +290,7 @@ class CaptureController(private val context: Context, private val store: Project
         // Never past ten times, whatever the lens offers, as in the original.
         zoomRange = minimum..maxOf(minimum, PinchZoom.maximum((state?.maxZoomRatio ?: 1f).toDouble()))
         applyZoom(prefs.getFloat("zoom.${choice.id}", 1f).toDouble())
+        focus.bound(bound, choice.id)
     }
 
     private fun lens(choice: CameraChoice) =

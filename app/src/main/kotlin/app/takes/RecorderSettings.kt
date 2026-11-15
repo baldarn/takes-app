@@ -3,6 +3,7 @@ package app.takes
 import android.content.SharedPreferences
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import app.takes.core.FocusControl
 import app.takes.core.ZoomTransition
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -24,6 +25,15 @@ class RecorderSettings(private val prefs: SharedPreferences) {
     /** The camera used last on each side of the phone, for the flip button (the original's `lastFrontCamera`, `lastRearCamera`). */
     var lastFrontCamera: String? by text("lastFrontCamera")
     var lastRearCamera: String? by text("lastRearCamera")
+
+    /** Each camera remembers whether its focus was locked and where its lens was (the original's `locked` and `lens` under `camera.<id>`). */
+    fun focusLocked(camera: String): Boolean = prefs.getBoolean("focusLocked.$camera", false)
+
+    fun focusLens(camera: String): Double = FocusControl.bounded(prefs.getFloat("focusLens.$camera", FocusControl.DEFAULT.toFloat()).toDouble())
+
+    fun rememberFocus(camera: String, locked: Boolean, lens: Double) {
+        prefs.edit().putBoolean("focusLocked.$camera", locked).putFloat("focusLens.$camera", lens.toFloat()).apply()
+    }
 
     private fun text(key: String) = stored(prefs.getString(key, null)) { putString(key, it) }
 
