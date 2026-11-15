@@ -195,7 +195,7 @@ class ProjectStore(context: Context) {
             }?.substringBeforeLast('.')?.take(120)?.ifBlank { null } ?: "Imported LUT"
             val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
             val folder = disk.folder(projectID).apply { mkdirs() }
-            val file = File(folder, "effect-$hash.cube")
+            val file = File(folder, "effect-lut-$hash.cube")
             if (!file.isFile) ProjectDisk.writeAtomically(bytes, file)
             ImportedLUT(file.name, name)
         } catch (problem: LUTException) {

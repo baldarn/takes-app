@@ -1,57 +1,6 @@
 package app.takes.core
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlin.math.pow
-
-/** The built-in looks, with the original app's names and math. */
-@Serializable
-enum class ColorLook(val title: String) {
-    @SerialName("natural") Natural("Natural"),
-    @SerialName("warm") Warm("Warm"),
-    @SerialName("cool") Cool("Cool shadows"),
-    @SerialName("cinema") Cinema("Cinema"),
-    @SerialName("mono") Mono("Mono"),
-    @SerialName("portrait") Portrait("Portrait"),
-    @SerialName("daylight") Daylight("Daylight"),
-    @SerialName("goldenHour") GoldenHour("Golden hour"),
-    @SerialName("mutedFilm") MutedFilm("Muted film"),
-    @SerialName("richContrast") RichContrast("Rich contrast"),
-    @SerialName("pastel") Pastel("Pastel"),
-    @SerialName("night") Night("Night"),
-    @SerialName("silver") Silver("Silver"),
-    @SerialName("ink") Ink("Ink"),
-}
-
-/** A .cube file copied into the project. Its output must be Rec.709. */
-@Serializable
-data class ImportedLUT(val filename: String, val name: String) {
-    val valid: Boolean
-        get() = name.length <= 120 && filename.startsWith("effect-") && filename.endsWith(".cube") &&
-            filename.none { it == '/' || it == '\\' }
-}
-
-/**
- * A clip's color: a look or an imported LUT at some strength, over an
- * exposure, warmth and tint correction that stays in place at zero strength.
- */
-@Serializable
-data class ColorSettings(
-    val look: ColorLook = ColorLook.Natural,
-    val amount: Double = 1.0,
-    val imported: ImportedLUT? = null,
-    /** Stops, as in a camera: +1 doubles the light. */
-    val exposure: Double = 0.0,
-    val warmth: Double = 0.0,
-    val tint: Double = 0.0,
-) {
-    val hasBalance: Boolean get() = exposure != 0.0 || warmth != 0.0 || tint != 0.0
-    val isIdentity: Boolean get() = !hasBalance && look == ColorLook.Natural && imported == null
-    val title: String get() = imported?.name ?: if (look == ColorLook.Natural && hasBalance) "Color balance" else look.title
-    val valid: Boolean
-        get() = amount.isFinite() && amount in 0.0..1.0 && exposure.isFinite() && exposure in -4.0..4.0 &&
-            warmth.isFinite() && warmth in -1.0..1.0 && tint.isFinite() && tint in -1.0..1.0 && (imported?.valid ?: true)
-}
 
 /**
  * Turns color settings into one lookup table that both the preview and the
@@ -121,11 +70,15 @@ object ColorGrade {
      * Exposure, warmth and tint. Exposure multiplies the light itself, so it
      * is applied in linear terms. Warmth and tint are simple channel gains: an
      * approximation of the original's temperature filter, not a match for it.
+     * Highlights and local recovery are in the model but not applied yet.
      */
     fun balance(settings: ColorSettings, red: Double, green: Double, blue: Double): DoubleArray {
-        if (!settings.hasBalance) return doubleArrayOf(red, green, blue)
-        val gain = 2.0.pow(settings.exposure)
-        val gains = doubleArrayOf(1 + 0.12 * settings.warmth, 1 - 0.10 * settings.tint, 1 - 0.12 * settings.warmth)
+        val exposure = settings.exposure ?: 0.0
+        val warmth = settings.warmth ?: 0.0
+        val tint = settings.tint ?: 0.0
+        if (exposure == 0.0 && warmth == 0.0 && tint == 0.0) return doubleArrayOf(red, green, blue)
+        val gain = 2.0.pow(exposure)
+        val gains = doubleArrayOf(1 + 0.12 * warmth, 1 - 0.10 * tint, 1 - 0.12 * warmth)
         val input = doubleArrayOf(red, green, blue)
         return DoubleArray(3) { toDisplay((toLinear(input[it].coerceIn(0.0, 1.0)) * gain * gains[it]).coerceIn(0.0, 1.0)) }
     }

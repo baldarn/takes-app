@@ -25,7 +25,7 @@ object ColorLuts {
 
     /** [folder] is the project folder, where an imported LUT's file lives. A LUT file that cannot be read leaves only the balance. */
     fun table(settings: ColorSettings, folder: File): FloatArray {
-        val key = folder.path + settings
+        val key = folder.path + settings.copy(id = "") // the same grade on another clip is the same table
         tables.get(key)?.let { return it }
         val imported = settings.imported?.let { runCatching { CubeLUT.parse(File(folder, it.filename).readBytes()) }.getOrNull() }
         val effective = if (settings.imported != null && imported == null) settings.copy(amount = 0.0) else settings
@@ -47,7 +47,7 @@ object ColorLuts {
     // The table as a picture for the preview shader: the blue slices side by side,
     // red across each slice and green down.
     private fun strip(settings: ColorSettings, folder: File): Bitmap {
-        val key = folder.path + settings
+        val key = folder.path + settings.copy(id = "") // the same grade on another clip is the same table
         strips.get(key)?.let { return it }
         val table = table(settings, folder)
         val pixels = IntArray(SIZE * SIZE * SIZE)

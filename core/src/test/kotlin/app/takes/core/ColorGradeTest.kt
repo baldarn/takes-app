@@ -64,7 +64,7 @@ class ColorGradeTest {
     @Test fun anImportedLutReplacesTheLook() {
         // A 2-point cube that swaps red and blue.
         val swap = CubeLUT.parse("LUT_3D_SIZE 2\n" + listOf("0 0 0", "0 0 1", "0 1 0", "0 1 1", "1 0 0", "1 0 1", "1 1 0", "1 1 1").joinToString("\n"))
-        val settings = ColorSettings(look = ColorLook.Mono, imported = ImportedLUT("effect-abc.cube", "Swap"))
+        val settings = ColorSettings(look = ColorLook.Mono, imported = ImportedLUT("effect-lut-abc.cube", "Swap"))
         assertArrayEquals(doubleArrayOf(0.0, 0.25, 1.0), ColorGrade.apply(settings, swap, 1.0, 0.25, 0.0), 1e-6)
         assertEquals("Swap", settings.title)
         assertEquals("Color balance", ColorSettings(exposure = 0.5).title)
@@ -93,11 +93,11 @@ class ColorGradeTest {
 
     @Test fun importedLutsBelongToTheProjectEvenAfterUndo() {
         var project = Project("x").addRecording(SourceMedia(filename = "a.mp4", duration = 10.0))
-        val lut = ImportedLUT("effect-0a1b.cube", "Film")
+        val lut = ImportedLUT("effect-lut-0a1b.cube", "Film")
         project = project.commit(TimelineEditing.setColor(project.edit, 0, ColorSettings(imported = lut))!!)
-        assertEquals(listOf("a.mp4", "effect-0a1b.cube"), project.mediaFiles)
+        assertEquals(listOf("a.mp4", "effect-lut-0a1b.cube"), project.mediaFiles)
         // Undo can bring the LUT back, so its file is still part of the project and of its archive.
-        assertEquals(listOf("effect-0a1b.cube"), project.undo().effectFiles)
+        assertEquals(listOf("effect-lut-0a1b.cube"), project.undo().effectFiles)
         project.validate()
     }
 }

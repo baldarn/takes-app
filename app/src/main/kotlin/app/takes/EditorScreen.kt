@@ -971,15 +971,19 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
                     if (lut != null) TextButton(onClick = { color = color.copy(imported = null) }) { Text("Use a look") }
                 }
                 Level("Strength", color.amount, 0f..1f, "${(color.amount * 100).roundToInt()}%") { color = color.copy(amount = it) }
-                Level("Exposure", color.exposure, -2f..2f, "%+.1f".format(color.exposure)) { color = color.copy(exposure = it) }
-                Level("Warmth", color.warmth, -1f..1f, "%+.0f".format(color.warmth * 100)) { color = color.copy(warmth = it) }
-                Level("Tint", color.tint, -1f..1f, "%+.0f".format(color.tint * 100)) { color = color.copy(tint = it) }
+                // A correction left at zero is stored as nothing, as in the original.
+                val exposure = color.exposure ?: 0.0
+                val warmth = color.warmth ?: 0.0
+                val tint = color.tint ?: 0.0
+                Level("Exposure", exposure, -2f..2f, "%+.1f".format(exposure)) { color = color.copy(exposure = it.takeIf { it != 0.0 }) }
+                Level("Warmth", warmth, -1f..1f, "%+.0f".format(warmth * 100)) { color = color.copy(warmth = it.takeIf { it != 0.0 }) }
+                Level("Tint", tint, -1f..1f, "%+.0f".format(tint * 100)) { color = color.copy(tint = it.takeIf { it != 0.0 }) }
             }
         },
         confirmButton = { TextButton(onClick = { save(color) }) { Text("Save") } },
         dismissButton = {
             Row {
-                TextButton(onClick = { color = ColorSettings() }, enabled = !color.isIdentity) { Text("Reset") }
+                TextButton(onClick = { color = ColorSettings(id = color.id) }, enabled = !color.isIdentity) { Text("Reset") }
                 TextButton(onClick = dismiss) { Text("Cancel") }
             }
         },

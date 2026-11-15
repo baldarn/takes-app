@@ -21,24 +21,6 @@ data class SubtitleWord(
     val end: Double,
 )
 
-@Serializable
-enum class SubtitleFont {
-    @SerialName("system") System,
-    @SerialName("modern") Modern,
-    @SerialName("classic") Classic,
-    @SerialName("mono") Mono,
-    @SerialName("condensed") Condensed;
-
-    val title: String
-        get() = when (this) {
-            System -> "System"
-            Modern -> "Modern"
-            Classic -> "Classic"
-            Mono -> "Mono"
-            Condensed -> "Narrow"
-        }
-}
-
 /**
  * How the whole caption series looks, and what was transcribed. One per project.
  * [x] and [font] are optional so projects written before direct caption
