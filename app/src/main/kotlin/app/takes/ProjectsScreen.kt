@@ -27,7 +27,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -105,8 +118,8 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                 Text(stringResource(R.string.projects_title), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { pickVideos("") }) { Text(stringResource(R.string.projects_import)) }
-                    Button(onClick = { store.create()?.let { open(it, 0) } }) { Text(stringResource(R.string.projects_new_recording)) }
+                    TextButton(onClick = { pickVideos("") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Icon(Icons.Outlined.FileDownload, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_import), Modifier.padding(start = 4.dp)) }
+                    Button(onClick = { store.create()?.let { open(it, 0) } }, contentPadding = PaddingValues(horizontal = 14.dp)) { Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_new_recording), Modifier.padding(start = 4.dp)) }
                 }
             }
         }
@@ -193,21 +206,29 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                 Text(dateLabel(project.updatedAt), color = Muted, fontSize = 12.sp)
             }
         }
-        // Four actions on one line: tight padding, labels that never wrap, and a scroll as the last resort.
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.SpaceBetween) {
+        // As in the original: the two main actions stay visible, the rest is in a menu.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val tight = PaddingValues(horizontal = 8.dp)
             TextButton(onClick = { open(project, 0) }, contentPadding = tight) { Text(stringResource(R.string.projects_continue_recording), maxLines = 1, softWrap = false) }
-            if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }, contentPadding = tight) { Text(stringResource(R.string.projects_edit), maxLines = 1, softWrap = false) }
-            TextButton(onClick = rename, contentPadding = tight) { Text(stringResource(R.string.projects_rename), maxLines = 1, softWrap = false) }
-            TextButton(onClick = { store.delete(project) }, contentPadding = tight) { Text(stringResource(R.string.common_delete), color = RecordRed, maxLines = 1, softWrap = false) }
-        }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.SpaceBetween) {
-            val tight = PaddingValues(horizontal = 8.dp)
-            if (project.sources.isNotEmpty()) {
-                TextButton(onClick = { expanded = !expanded }, contentPadding = tight) { Text(stringResource(if (expanded) R.string.projects_hide_originals else R.string.projects_originals), maxLines = 1, softWrap = false) }
+            if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }, contentPadding = tight) {
+                Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp))
+                Text(stringResource(R.string.projects_edit), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false)
             }
-            TextButton(onClick = addVideos, contentPadding = tight) { Text(stringResource(R.string.projects_add_videos), maxLines = 1, softWrap = false) }
-            if (project.sources.isNotEmpty()) TextButton(onClick = zip, contentPadding = tight) { Text(stringResource(R.string.projects_zip), maxLines = 1, softWrap = false) }
+            Box(Modifier.weight(1f))
+            Box {
+                var menu by remember { mutableStateOf(false) }
+                val choose = { action: () -> Unit -> menu = false; action() }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, stringResource(R.string.projects_actions, project.title), tint = Color.White) }
+                DropdownMenu(menu, { menu = false }) {
+                    DropdownMenuItem({ Text(stringResource(R.string.projects_rename)) }, { choose(rename) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) })
+                    if (project.sources.isNotEmpty()) DropdownMenuItem(
+                        { Text(stringResource(if (expanded) R.string.projects_hide_originals else R.string.projects_originals)) }, { choose { expanded = !expanded } },
+                        leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) })
+                    DropdownMenuItem({ Text(stringResource(R.string.projects_add_videos)) }, { choose(addVideos) }, leadingIcon = { Icon(Icons.Filled.Add, null) })
+                    if (project.sources.isNotEmpty()) DropdownMenuItem({ Text(stringResource(R.string.projects_zip)) }, { choose(zip) }, leadingIcon = { Icon(Icons.Outlined.Inventory2, null) })
+                    DropdownMenuItem({ Text(stringResource(R.string.common_delete), color = RecordRed) }, { choose { store.delete(project) } }, leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = RecordRed) })
+                }
+            }
         }
         if (expanded) {
             val playLabel = stringResource(R.string.common_play)

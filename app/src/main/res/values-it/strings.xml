@@ -28,6 +28,7 @@
     <string name="projects_restore">Ripristina</string>
     <string name="projects_delete_permanently">Elimina definitivamente</string>
     <string name="projects_rename_title">Rinomina progetto</string>
+    <string name="projects_actions">Azioni per %1$s</string>
     <string name="projects_rename">Rinomina</string>
     <string name="projects_erase_title">Eliminare definitivamente “%1$s”?</string>
     <plurals name="projects_erase_message">

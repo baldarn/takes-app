@@ -20,7 +20,19 @@ import androidx.compose.ui.input.pointer.positionChange
 import app.takes.core.WaveformBuilder
 import kotlin.math.sqrt
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -562,8 +574,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo) { Text(stringResource(R.string.editor_undo)) }
-            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo) { Text(stringResource(R.string.editor_redo)) }
+            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
             Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty()) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
@@ -616,19 +628,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val previousLabel = stringResource(R.string.editor_bookmark_previous)
                 val toggleLabel = stringResource(if (under == null) R.string.editor_bookmark_add else R.string.editor_bookmark_remove)
                 val nextLabel = stringResource(R.string.editor_bookmark_next)
-                TextButton(onClick = { before?.let(jump) }, small.semantics { contentDescription = previousLabel }, enabled = before != null, contentPadding = tight) { Text("⇤", fontSize = 18.sp) }
+                TextButton(onClick = { before?.let(jump) }, small.semantics { contentDescription = previousLabel }, enabled = before != null, contentPadding = tight) { Icon(Icons.Filled.SkipPrevious, null) }
                 TextButton(
                     onClick = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
                     small.semantics { contentDescription = toggleLabel }, enabled = location != null, contentPadding = tight,
-                ) { Text(if (under == null) "◇" else "◆", fontSize = 18.sp, color = if (location != null) BookmarkColor else Color.Unspecified) }
-                TextButton(onClick = { after?.let(jump) }, small.semantics { contentDescription = nextLabel }, enabled = after != null, contentPadding = tight) { Text("⇥", fontSize = 18.sp) }
+                ) { Icon(if (under == null) Icons.Outlined.BookmarkAdd else Icons.Filled.Bookmark, null, tint = if (location != null) BookmarkColor else LocalContentColor.current) }
+                TextButton(onClick = { after?.let(jump) }, small.semantics { contentDescription = nextLabel }, enabled = after != null, contentPadding = tight) { Icon(Icons.Filled.SkipNext, null) }
             }
             TextButton(
                 onClick = {
                     if (editor.playing) editor.pause() else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
                 },
                 enabled = clips.isNotEmpty(), contentPadding = tight,
-            ) { Text(stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), fontSize = 17.sp) }
+            ) { Icon(if (editor.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), Modifier.size(32.dp)) }
             Row {
                 val zoomOutLabel = stringResource(R.string.editor_zoom_timeline_out)
                 val zoomInLabel = stringResource(R.string.editor_zoom_timeline_in)
@@ -691,7 +703,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     ) { Text(label) }
                 }
                 TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
-                    enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.common_delete), color = if (location != null) RecordRed else Color.Unspecified) }
+                    enabled = location != null, contentPadding = tight) { Icon(Icons.Outlined.Delete, stringResource(R.string.common_delete), tint = if (location != null) RecordRed else LocalContentColor.current) }
             }
         }
     }
