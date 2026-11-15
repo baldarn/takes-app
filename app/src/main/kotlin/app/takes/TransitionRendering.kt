@@ -47,7 +47,7 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val WIPE = 3
 
         /** The styles the shader draws. The editor offers these; any other is shown as a dissolve, and cannot be made here. */
-        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe)
+        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.FlashCut)
 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
@@ -319,7 +319,9 @@ class TransitionEffect(private val clips: List<TimelineClip>, private val canvas
 
         override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
             prepare()
-            val time = presentationTimeUs / 1e6
+            // Frame times arrive cut to whole microseconds, a hair before the thirtieths they stand for;
+            // a flash cut counts frames from them, so they are taken a microsecond later.
+            val time = (presentationTimeUs + 1) / 1e6
             gone.fill(false)
             for (deck in 0 until decks) {
                 // While a still is holding a deck's frame, that frame stays.
