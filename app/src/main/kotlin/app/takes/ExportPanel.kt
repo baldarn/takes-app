@@ -3,11 +3,13 @@ package app.takes
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
@@ -29,15 +31,18 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import app.takes.core.ExportProgress
+import app.takes.core.ExportReceipt
 import app.takes.core.ExportSettings
 import app.takes.core.Project
 import java.io.File
 
 private val Muted = Color(0xFFA0A4AB)
+private val Warning = Color(0xFFFF9F0A)
 
 /** What the status line of an export says, in the person's language. */
 private val ExportProgress.Label.caption: Int
@@ -183,6 +188,15 @@ private fun ExportPausedDialog(paused: PausedExport, resume: () -> Unit, discard
     )
 }
 
+/** Said with a movie whose sound goes over full scale, as the original says it. */
+@Composable
+private fun ExportAudioWarning(warning: ExportReceipt.AudioWarning) {
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp).background(Warning.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(12.dp)) {
+        Text(stringResource(R.string.export_audio_warning_title), color = Warning, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text(stringResource(R.string.export_audio_warning, warning.decibels), color = Warning, fontSize = 13.sp)
+    }
+}
+
 /** The finished movie, to play, share or save. */
 @Composable
 private fun ExportedDialog(file: File, exporter: Exporter, context: Context, report: (String) -> Unit) {
@@ -198,6 +212,7 @@ private fun ExportedDialog(file: File, exporter: Exporter, context: Context, rep
         text = {
             Column {
                 Text(file.name, color = Muted, fontSize = 13.sp)
+                exporter.warning?.let { ExportAudioWarning(it) }
                 TextButton(onClick = { open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4")) }) { Text(stringResource(R.string.common_play)) }
                 TextButton(onClick = {
                     open(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, uri), null))

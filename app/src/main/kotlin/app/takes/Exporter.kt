@@ -47,6 +47,7 @@ import app.takes.core.AudioItem
 import app.takes.core.SoundEnvelope
 import app.takes.core.ExportCheckpoint
 import app.takes.core.ExportProgress
+import app.takes.core.ExportReceipt
 import app.takes.core.ExportSections
 import app.takes.core.ExportSpace
 import app.takes.core.ExportSpaceException
@@ -346,6 +347,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
 
     var result by mutableStateOf<File?>(null)
 
+    /** Set with [result] when the sound of that movie goes over full scale and may distort. */
+    var warning by mutableStateOf<ExportReceipt.AudioWarning?>(null); private set
+
     init {
         // An export does not run behind another app, as in the original: it pauses when the app is no longer
         // on screen. Turning the device recreates the screen without leaving it.
@@ -395,6 +399,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         paused = null
         pausing = false
         result = null
+        warning = null
         val duration = project.edit.duration
         status = checkpoint.startingProgress(duration)
         job = scope.launch {
@@ -420,6 +425,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     cancelled = false, outOfSpace = outOfSpace(problem), foreground = foreground, paused = pausing,
                 )
             }
+            val peak = checkpoint.measuredPeak
             val stays = ending is ExportCheckpoint.Failure.PausedInBackground || ending is ExportCheckpoint.Failure.PausedForSpace
             when (checkpoint.finish(paused = stays, published = published != null)) {
                 // The saved parts have served.
@@ -433,7 +439,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             }
             status = null
             job = null
-            if (published != null) result = published
+            if (published != null) {
+                warning = ExportReceipt.AudioWarning.of(peak)
+                result = published
+            }
         }
     }
 
@@ -497,6 +506,13 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
         val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
         val sections = ExportSections.sections(duration)
+
+        // How loud the mix gets, measured once before anything is encoded and kept with the saved work.
+        if (checkpoint.measuredPeak == null) {
+            report(ExportProgress.of(ExportProgress.Step.AudioPeak))
+            ExportCheck.peak(project.edit, files) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
+                ?.let { peak -> withContext(Dispatchers.IO) { checkpoint.savePeak(peak) } }
+        }
 
         // The sound, once for the whole movie.
         if (!checkpoint.audioFile.isFile) {
@@ -567,9 +583,12 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             )
         }
 
+        // The movie is proved before it is offered: every picture is in it, it is as long as the edit, and its
+        // first and last picture decode. One that fails is reported and never published.
         report(ExportProgress.of(ExportProgress.Step.Verifying))
         withContext(Dispatchers.IO) {
             if (ExportTrack.read(joined, "video/")?.samples != tracks.sumOf { it.samples }) throw IOException("The exported movie is not complete.")
+            ExportCheck.verify(joined, duration, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Verifying, 0.5)) }
         }
 
         report(ExportProgress.of(ExportProgress.Step.Saving))
