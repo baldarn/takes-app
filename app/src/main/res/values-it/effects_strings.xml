@@ -28,6 +28,7 @@
     <string name="effects_not_drawn">Questa versione dell’app non lo disegna.</string>
     <plurals name="effects_section_count">
         <item quantity="one">%1$d effetto</item>
+        <item quantity="many">%1$d effetti</item>
         <item quantity="other">%1$d effetti</item>
     </plurals>
 
@@ -53,18 +54,18 @@
     <string name="correction_reset_value">Azzera %1$s</string>
     <string name="correction_got_it">Ho capito</string>
     <string name="correction_help_exposure">Schiarisce o scurisce tutta l’immagine in stop. +1 EV raddoppia la luce. Corregge l’immagine, non cambia l’esposizione della fotocamera. Le alte luci si attenuano dolcemente.</string>
-    <string name="correction_help_contrast">Separa i toni chiari e scuri attorno al perno del contrasto. 100% lascia com’è. Le proporzioni dei colori restano.</string>
+    <string name="correction_help_contrast" formatted="false">Separa i toni chiari e scuri attorno al perno del contrasto. 100% lascia com’è. Le proporzioni dei colori restano.</string>
     <string name="correction_help_shadows">Alza o abbassa i toni più scuri, mantenendo il punto del nero. Usa Neri per schiarire o scurire le zone più buie.</string>
     <string name="correction_help_highlights">Alza o abbassa i toni più chiari, mantenendo il punto del bianco. Usa Bianchi per cambiare le zone più luminose.</string>
     <string name="correction_help_blacks">Schiarisce o scurisce il punto più scuro. Valori positivi ammorbidiscono il nero; negativi lo rendono più profondo con un piede morbido.</string>
     <string name="correction_help_whites">Alza o abbassa il punto più luminoso. Valori positivi schiariscono i bianchi con un’attenuazione morbida.</string>
-    <string name="correction_help_pivot">Il tono che resta fermo quando il contrasto cambia. 50% è un tono medio. Non ha effetto con il contrasto al 100%.</string>
+    <string name="correction_help_pivot" formatted="false">Il tono che resta fermo quando il contrasto cambia. 50% è un tono medio. Non ha effetto con il contrasto al 100%.</string>
     <string name="correction_help_temperature">Bilanciamento del bianco relativo: negativo è più freddo (blu), positivo più caldo (ambra). Zero mantiene il bilanciamento registrato; i bianchi molto luminosi restano bianchi. Non è un valore in Kelvin.</string>
     <string name="correction_help_tint">Bilanciamento del bianco relativo: negativo aggiunge verde, positivo magenta. Utile per correggere una dominante.</string>
-    <string name="correction_help_saturation">Regola l’intensità di tutti i colori. 100% lascia com’è; 0% è bianco e nero.</string>
+    <string name="correction_help_saturation" formatted="false">Regola l’intensità di tutti i colori. 100% lascia com’è; 0% è bianco e nero.</string>
     <string name="correction_help_vibrance">Regola i colori spenti più di quelli già vivaci. Le regolazioni positive sono più delicate sulle tonalità della pelle.</string>
     <string name="correction_help_hue">Ruota tutti i colori sulla ruota cromatica mantenendo la luminanza. Zero mantiene le tinte originali.</string>
-    <string name="correction_help_intensity">Mescola questa correzione con l’immagine di partenza. 100% applica tutta la correzione; 0% la esclude.</string>
+    <string name="correction_help_intensity" formatted="false">Mescola questa correzione con l’immagine di partenza. 100% applica tutta la correzione; 0% la esclude.</string>
 
     <string name="kaleidoscope_fine">Regolazioni fini</string>
     <string name="kaleidoscope_reset_split">Azzera divisione</string>
@@ -105,7 +106,7 @@
     <string name="effect_color_isolation_history">Il colore selettivo contrappone un dettaglio a colori a un ambiente monocromo, come in Rusty il selvaggio (1983).</string>
     <string name="effect_rgb_offset">Scostamento RGB</string>
     <string name="effect_rgb_offset_summary">Sposta le immagini rossa, verde e blu fuori registro.</string>
-    <string name="effect_rgb_offset_help">Sposta ogni strato di colore con i suoi cursori X e Y. Zero è il registro originale; a fine corsa un canale si sposta del 12% del lato corto dell’immagine.</string>
+    <string name="effect_rgb_offset_help" formatted="false">Sposta ogni strato di colore con i suoi cursori X e Y. Zero è il registro originale; a fine corsa un canale si sposta del 12% del lato corto dell’immagine.</string>
     <string name="effect_rgb_offset_history">La stampa a colori per imbibizione allineava tre matrici separate per mettere a registro l’immagine.</string>
     <string name="effect_negative_strobe">Negativo stroboscopico</string>
     <string name="effect_negative_strobe_summary">Alterna l’immagine originale e il suo negativo a colori.</string>
