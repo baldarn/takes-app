@@ -23,11 +23,11 @@ the original's behaviour arrives in the later stage named, where it is announced
 | unlinked-picture-does-not-ripple | Unreachable | The largest kind. Decide in S6 how an ordinary edit after Unlink should look to the person; black time or two pictures on top of each other must be shown as such on the timeline. |
 | move-finds-no-cut-among-unlinked-pictures | Unreachable | S6. |
 | trim-removes-an-opening-of-a-middle-clip | Not adopted | The original sends the clip to time zero over the earlier clips (`TrackTimeline.swift:1387-1391`): a defect. Keep the picture where it was when the relation removed is an opening. |
-| range-inside-a-transition | Kept until S4 | Today a range end inside a transition snaps to its join. The original cuts both pictures there and leaves an overlap; adopt it together with the trim model, with the overlap drawn. |
-| pauses-leave-a-transition-without-footage | Not adopted | An overlap with no transition is not something the original's editor produces: there a clip with pauses stays one clip and the transition is refitted. Keep the refit per piece until pauses become a setting of the clip (plan decision on pauses, after S4). |
+| range-inside-a-transition | Kept until S9 | The original's editor also moves a mark inside a transition onto its join (`YouRec/EditorView.swift:1115`); the difference is what an end on the join then does: there both pictures are cut, the transition is dropped and half the overlap stays, covered. That needs overlapping pictures to be drawn, so it waits for picture layers. See `docs/TRACKS-EDITOR-CHECK.md`. |
+| pauses-leave-a-transition-without-footage | Not adopted | Not reachable in the original's editor: there pauses are a setting of the clip and both transitions are scaled to fit it, never removed. Keep the refit until pauses become a setting of the clip. One difference to close then: the port refits to the last piece, the original to the whole clip, so the port's dissolve can come out shorter. |
 | handle-trim-outwards-overlaps | Kept until S4 | Changes what a daily gesture does: a handle dragged outwards covers the next clip instead of pushing it. Announce it. |
-| handle-trim-inwards-is-a-deletion | Kept until S4 | With the one above. |
-| insert-inside-a-transition | Kept until S4 | Today's result (transition removed, clip cut) follows the original's paste; the track model's "time opened on every lane" leaves an overlap. Check against the original's editor before adopting: `RangeEditing.paste` and `insert` must keep agreeing. |
+| handle-trim-inwards-is-a-deletion | Kept until S4 | With the one above. The original's editor offers no handle on the edge a transition between two clips is on, as the port does since 0.6, so trimming "the edge a dissolve is on" arises only for an opening or a close. |
+| insert-inside-a-transition | Not adopted | In the original, Paste restores the straight cut first and says "Replaces transition", while Add video inserts at the raw playhead and leaves the two clips overlapping with their sound doubled, a route no test of the original covers. The port keeps the Paste rule for every insertion; that insert and paste agree is the port's own rule. See `docs/TRACKS-EDITOR-CHECK.md`. |
 | words-of-unlinked-sound | Unreachable | S6 and S8. Also fixes the latent defect that Unlink hides a clip's captions. |
 | transcription-hears-sound-items | Kept until S8 | Wanted, and already asked for by the review of the subtitles; it needs words on sound items, which the present format cannot hold. |
 | caption-look-travels-with-any-words | Invisible | |
@@ -69,7 +69,7 @@ the original's behaviour arrives in the later stage named, where it is announced
 kind marked "Kept until" and "Not adopted" has to be absent, because the wrapper reproduces
 today's result. A kind that appears and is in neither group stops S2-B.
 
-Three kinds need a check against the original's editor, not only its model, before their
-stage adopts them: `insert-inside-a-transition`, `range-inside-a-transition` and
-`pauses-leave-a-transition-without-footage`. In each the model allows a state (two pictures
-overlapping with no transition between them) that the editor may never produce.
+The three kinds that needed a check against the original's editor, not only its model, have
+had it: `docs/TRACKS-EDITOR-CHECK.md`. Two pictures overlapping with no transition between
+them can be reached in the original for an insertion and for a range end on a join, and
+cannot for pauses. The rows above say what follows for each.
