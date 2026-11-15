@@ -57,6 +57,17 @@ object ExportFormat {
 class ExportSpaceException(val missing: Long) : IOException("There is not enough free space to finish this export.")
 
 /**
+ * Why an export failed, as a reason the app turns into a text in the
+ * person's language. Still an [IOException], so every catch of one holds it.
+ */
+class ExportProblem(val reason: Reason, cause: Throwable? = null) : IOException(reason.name, cause) {
+    enum class Reason {
+        WrongLength, Incomplete, FirstPicture, LastPicture, Unreadable, NotPrepared, SoundNotRendered,
+        SectionIncomplete, SectionsMismatch, SavedSoundUnreadable, SavedSectionUnreadable, SectionsNotWhole, PausedNotRemoved,
+    }
+}
+
+/**
  * How much room each stage of an export asks for before it starts, and how
  * much of the device is never used. These are deliberate over-estimates, not
  * predictions of the movie's size.

@@ -2,6 +2,7 @@
 
 package app.takes
 
+import app.takes.core.ExportProblem
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Build
@@ -138,8 +139,8 @@ object ExportJoin {
     ) {
         val before = frames.runningFold(0) { sum, count -> sum + count }
         fun instant(frame: Int) = Math.round(frame * 1e6 / framesPerSecond)
-        val picture = ExportTrack.read(pictures.first(), "video/") ?: throw IOException("A saved section of the export cannot be read.")
-        val voice = ExportTrack.read(sound, "audio/") ?: throw IOException("The saved sound of the export cannot be read.")
+        val picture = ExportTrack.read(pictures.first(), "video/") ?: throw ExportProblem(ExportProblem.Reason.SavedSectionUnreadable)
+        val voice = ExportTrack.read(sound, "audio/") ?: throw ExportProblem(ExportProblem.Reason.SavedSoundUnreadable)
         val muxer = Mp4Muxer.Builder(FileOutputStream(output)).build()
         var video: Reader? = null
         var audio: Reader? = null
@@ -170,7 +171,7 @@ object ExportJoin {
                     }
                 }
             }
-            if (video.count != before.last()) throw IOException("The saved sections of the export do not hold the whole movie.")
+            if (video.count != before.last()) throw ExportProblem(ExportProblem.Reason.SectionsNotWhole)
             // An empty sample marked as the end tells the muxer how long the last picture lasts.
             muxer.writeSampleData(pictureTrack, ByteBuffer.allocateDirect(0), BufferInfo(instant(before.last()), 0, C.BUFFER_FLAG_END_OF_STREAM))
             writing()

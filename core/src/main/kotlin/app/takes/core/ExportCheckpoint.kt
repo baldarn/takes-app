@@ -172,7 +172,7 @@ class ExportCheckpoint(folder: File) {
     fun prepare(project: Project) {
         if (matches(project)) return
         discard()
-        if (!directory.mkdirs() && !directory.isDirectory) throw IOException("The export could not be prepared.")
+        if (!directory.mkdirs() && !directory.isDirectory) throw ExportProblem(ExportProblem.Reason.NotPrepared)
         writeAtomically(ticketFile, documentJson.encodeToString(Ticket.serializer(), Ticket(project)))
     }
 
@@ -189,7 +189,7 @@ class ExportCheckpoint(folder: File) {
 
     /** Removes the saved work. */
     fun discard() {
-        if (directory.exists() && !directory.deleteRecursively()) throw IOException("The paused export could not be removed.")
+        if (directory.exists() && !directory.deleteRecursively()) throw ExportProblem(ExportProblem.Reason.PausedNotRemoved)
     }
 
     /**
