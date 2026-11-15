@@ -65,6 +65,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -358,17 +359,28 @@ internal fun FocusButton(focus: CameraFocus, enabled: Boolean) {
             )
             if (manual) Icon(Icons.Filled.KeyboardArrowDown, null, Modifier.size(11.dp), tint = color)
         }
-        val bubble = adjusted?.let { stringResource(R.string.recorder_focus_percent, FocusControl.percent(it)) } ?: focus.hint
-        if (bubble != null) {
+        // The lens position while it is dragged: short enough to stay beside the chip above the strip.
+        adjusted?.let {
             Text(
-                bubble, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                fontFamily = if (adjusted != null) FontFamily.Monospace else null,
+                stringResource(R.string.recorder_focus_percent, FocusControl.percent(it)), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, fontFamily = FontFamily.Monospace,
                 modifier = Modifier.align(Alignment.TopEnd).wrapContentSize(Alignment.TopEnd, unbounded = true).offset(y = (-34).dp)
-                    .background(Color.Black.copy(alpha = 0.82f), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 6.dp)
-                    .semantics { if (adjusted == null) liveRegion = LiveRegionMode.Polite },
+                    .background(Color.Black.copy(alpha = 0.82f), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
     }
+}
+
+/** What the focus button has to say, a line of its own above the chip of the project, which it would cover beside the button. */
+@Composable
+internal fun FocusHint(focus: CameraFocus) {
+    val hint = focus.hint ?: return
+    Text(
+        hint, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+        modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 6.dp)
+            .background(Color.Black.copy(alpha = 0.82f), RoundedCornerShape(16.dp)).padding(horizontal = 10.dp, vertical = 6.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite },
+    )
 }
 
 /** The "Focus" section of More settings: the lock, and the position of the lens where it can be set. */
