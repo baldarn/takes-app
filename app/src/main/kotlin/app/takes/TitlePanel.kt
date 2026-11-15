@@ -291,10 +291,13 @@ private fun Cell(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Mo
 }
 
 @Composable
-private fun <T> Segments(options: List<Pair<String, T>>, selected: T, choose: (T) -> Unit) {
-    Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(4.dp)) {
-        for ((name, value) in options) {
-            Cell(value == selected, { choose(value) }, Modifier.weight(1f)) { Text(name, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+private fun <T> Segments(options: List<Pair<String, T>>, selected: T, columns: Int = options.size, choose: (T) -> Unit) {
+    for (row in options.chunked(columns)) {
+        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(4.dp)) {
+            for ((name, value) in row) {
+                Cell(value == selected, { choose(value) }, Modifier.weight(1f)) { Text(name, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -408,7 +411,7 @@ private fun Looks(draft: TextOverlay, memory: TitleMemory, setDesign: (TitleDesi
     var deleting by remember { mutableStateOf<String?>(null) }
     // Outline is a tool of its own: a look never changes it. A title that has no design yet shows a
     // look as it was made, without the dark outline such a title is drawn with.
-    val applied = { look: TitleDesign -> if (draft.appearance == null) look else design.applyingLook(look) }
+    val applied = { look: TitleDesign -> (if (draft.appearance == null) TitleDesign() else design).applyingLook(look) }
 
     @Composable
     fun look(label: String, value: TitleDesign, modifier: Modifier) {
@@ -519,7 +522,7 @@ private fun Fonts(sample: String, design: TitleDesign, memory: TitleMemory, setD
     val weights = family?.weights.orEmpty()
     if (weights.size > 1) {
         Text(stringResource(R.string.title_weight), color = Soft, fontSize = 13.sp)
-        Segments(weights.map { (weightLabel(it)?.let { name -> stringResource(name) } ?: it.toString()) to it }, design.weight) { setDesign(design.copy(weight = it)) }
+        Segments(weights.map { (weightLabel(it)?.let { name -> stringResource(name) } ?: it.toString()) to it }, design.weight, columns = 3) { setDesign(design.copy(weight = it)) }
     }
     if (family?.slanted != null) Toggle(stringResource(R.string.title_italic), design.italic) { setDesign(design.copy(italic = it)) }
     Text(stringResource(R.string.title_alignment), color = Soft, fontSize = 13.sp)

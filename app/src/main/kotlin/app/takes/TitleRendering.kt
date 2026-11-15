@@ -56,7 +56,12 @@ object TitleFonts {
 
     private fun weighted(base: Typeface, weight: Int, italic: Boolean): Typeface =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) Typeface.create(base, weight.coerceIn(1, 1000), italic)
-        else Typeface.create(base, (if (weight >= 600) Typeface.BOLD else Typeface.NORMAL) or (if (italic) Typeface.ITALIC else 0))
+        else Typeface.create(base, when {
+            weight >= 600 && italic -> Typeface.BOLD_ITALIC
+            weight >= 600 -> Typeface.BOLD
+            italic -> Typeface.ITALIC
+            else -> Typeface.NORMAL
+        })
 
     private fun load(assets: AssetManager, design: TitleDesign): Typeface {
         val family = TitleTypeface.family(design.face)
