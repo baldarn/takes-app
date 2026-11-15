@@ -6,9 +6,10 @@ Written by `TrackParityTest` (`core/src/test/kotlin/app/takes/core/TrackParity*.
 
 The suite is one test of the core tests: `./gradlew :core:test`, or by itself with `--tests app.takes.core.TrackParityTest`. What it does is chosen in the environment:
 
-- **Nothing set.** It makes every call and compares what it finds with this file. It fails when the file is not what it finds now, or when the track model answers a timeline its invariants refuse. It does not fail on a difference between today and the track model: a difference that is written down here is expected.
-- **`TAKES_RECORD_PARITY=1`.** It writes this file anew instead of comparing. Read what changed (`git diff docs/TRACKS-PARITY.md`) and commit the file with the change that caused it.
-- **`TAKES_PARITY_GATE=1`.** As with nothing set, and it also fails on every call that shows a kind of difference not listed in `TrackParityAccepted.kt`, or a difference no kind explains: the failure names each such kind with the number of calls that show it, then what is not explained. While that list is empty it fails on every kind below. A kind goes into the list once it is decided what the function that shows it does when it runs on the track model.
+- **Nothing set.** It makes the calls of a sample of the edits, about a seventh of them and the same every run, and compares what it finds with the section [The sample](#the-sample) of this file. It fails when that section is not what it finds now, or when the track model answers a timeline its invariants refuse. It does not fail on a difference between today and the track model: a difference that is written down here is expected. This is what the ordinary run of the tests, and the CI, pays for: the whole suite takes about as long as all the other core tests together.
+- **`TAKES_PARITY_FULL=1`.** It makes every call and compares the whole of this file, examples included, in the same way. Run it before and after a change to the editing functions or to the track model.
+- **`TAKES_RECORD_PARITY=1`.** It makes every call and writes this file anew instead of comparing. Read what changed (`git diff docs/TRACKS-PARITY.md`) and commit the file with the change that caused it.
+- **`TAKES_PARITY_GATE=1`.** As `TAKES_PARITY_FULL=1`, and it also fails on every call that shows a kind of difference not listed in `TrackParityAccepted.kt`, or a difference no kind explains: the failure names each such kind with the number of calls that show it, then what is not explained. While that list is empty it fails on every kind below. A kind goes into the list once it is decided what the function that shows it does when it runs on the track model.
 
 ## What is compared
 
@@ -2229,6 +2230,44 @@ Today the id of a bookmark and of a transition is unique within its clip; the tr
 ## Timelines the track model answered
 
 Of the 76288 timelines the operations of the track model answered in the suite, the invariants (`TrackInvariants.violation`) refuse 0.
+
+## The sample
+
+What the tests check when nothing is set in the environment: the calls on 68 of the edits (the 18 small ones, every 8th step of the golden projects, every 9th seeded edit), the same calls the whole suite makes on them.
+15642 calls: 12646 identical, 1882 different, 1114 not expressible, 49 with something not explained.
+
+| Kind | Calls in the sample |
+|---|---:|
+| unlinked-picture-does-not-ripple | 581 |
+| trim-removes-an-opening-of-a-middle-clip | 1 |
+| range-inside-a-transition | 327 |
+| pauses-leave-a-transition-without-footage | 48 |
+| handle-trim-outwards-overlaps | 34 |
+| handle-trim-inwards-is-a-deletion | 52 |
+| insert-inside-a-transition | 47 |
+| words-of-unlinked-sound | 146 |
+| transcription-hears-sound-items | 16 |
+| paste-opens-the-length-of-the-fragment | 26 |
+| removed-transition-leaves-its-time | 51 |
+| bookmark-also-marks-the-unlinked-sound | 22 |
+| third-sound | 55 |
+| split-refused-near-an-edge | 240 |
+| split-on-the-grid | 123 |
+| range-end-within-a-frame-of-a-cut | 443 |
+| split-cuts-sound-items | 51 |
+| scope-cuts-sound-items | 50 |
+| insert-moves-sound-items | 153 |
+| bookmark-at-the-last-second | 111 |
+| bookmark-outlives-its-footage | 6 |
+| fade-no-longer-than-its-item | 5 |
+| fades-through-retimes-and-cuts | 39 |
+| unlink-does-not-bake-the-transition | 20 |
+| unlink-is-never-refused | 7 |
+| sound-settings-of-an-unlinked-clip | 25 |
+| insert-new-identity | 345 |
+| later-piece-new-identity | 153 |
+| captions-fingerprint | 37 |
+| duration-with-sound | 16 |
 
 ## Not compared
 

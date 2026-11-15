@@ -5,9 +5,30 @@ import app.takes.core.TrackParity.Verdict
 
 /** The parity suite run on every subject, and its findings as text. */
 internal object TrackParityReport {
+    /** A group of edits: how many of each kind of argument its calls are tried with, the seed they are chosen by, and which of its edits the sample takes. */
+    private class Group(val subjects: List<TrackParity.Subject>, val samples: Int, val seed: Long, val every: Int)
+
+    private val groups: List<Group> by lazy {
+        listOf(
+            Group(TrackParityCases.probes, 3, 11, 1),
+            Group(TrackParityCases.golden, 2, 23, GOLDEN_EVERY),
+            Group(TrackParityCases.generated, 1, 37, GENERATED_EVERY),
+        )
+    }
+
+    /** The sample takes every small edit, one step in this many of the golden projects' histories, and one in this many of the seeded edits (not a divisor of their steps, so every depth of a sequence is taken). */
+    const val GOLDEN_EVERY = 8
+    const val GENERATED_EVERY = 9
+
+    /** The calls made on [subject], the [index]-th of [group]: the same whether or not the other edits are run. */
+    private fun judged(group: Group, index: Int, subject: TrackParity.Subject): List<Case> {
+        val rng = TrackFixtures.Random(group.seed + index * 104729L)
+        return TrackParityCases.runs(subject, rng, group.samples).map { TrackParity.judge(subject, it) }
+    }
+
+    /** Every call on every edit. Of each kind the shortest case keeps its answers, to be shown; the others keep what is counted. */
     val cases: List<Case> by lazy {
         val result = ArrayList<Case>()
-        // Of each kind the shortest case keeps its answers, to be shown; the others keep what is counted.
         val shown = HashMap<String, Case>()
         fun keep(key: String, case: Case): Boolean {
             val best = shown[key]
@@ -15,10 +36,8 @@ internal object TrackParityReport {
             shown[key] = case
             return true
         }
-        fun run(subjects: List<TrackParity.Subject>, samples: Int, seed: Long) = subjects.forEachIndexed { index, subject ->
-            val rng = TrackFixtures.Random(seed + index * 104729L)
-            for (run in TrackParityCases.runs(subject, rng, samples)) {
-                val case = TrackParity.judge(subject, run)
+        for (group in groups) group.subjects.forEachIndexed { index, subject ->
+            for (case in judged(group, index, subject)) {
                 result += case
                 if (case.verdict == Verdict.Identical) { case.drop(); continue }
                 // The shortest call that shows a kind by itself is its example; so is the shortest of each unexplained signature.
@@ -26,13 +45,46 @@ internal object TrackParityReport {
                 if (keys.map { keep(it, case) }.none { it }) case.drop()
             }
         }
-        run(TrackParityCases.probes, 3, 11)
-        run(TrackParityCases.golden, 2, 23)
-        run(TrackParityCases.generated, 1, 37)
         val kept = shown.values.toSet()
         for (case in result) if (case !in kept) case.drop()
         result
     }
+
+    /** The edits of the sample: a part of the edits that is the same every run, with the calls the whole suite makes on them. */
+    private val sampled: Set<TrackParity.Subject> by lazy {
+        groups.flatMapTo(HashSet()) { group -> group.subjects.filterIndexed { index, _ -> index % group.every == 0 } }
+    }
+
+    /** The calls on the edits of the sample alone, with what is counted of each. They are among [cases], call for call. */
+    val sampleCases: List<Case> by lazy {
+        groups.flatMap { group ->
+            group.subjects.withIndex().filter { it.value in sampled }.flatMap { (index, subject) -> judged(group, index, subject).onEach { it.drop() } }
+        }
+    }
+
+    /**
+     * What the sample finds, as the section of the report the ordinary run
+     * of the tests checks: the calls on its edits by verdict, and how many
+     * show each kind. [cases] are the sample's own, or all, of which the
+     * sample's are taken.
+     */
+    fun sample(cases: List<Case>): String = buildString {
+        val found = cases.filter { it.subject in sampled }
+        val subjects = found.map { it.subject }.distinct()
+        appendLine("## The sample")
+        appendLine()
+        appendLine("What the tests check when nothing is set in the environment: the calls on ${subjects.size} of the edits (the ${subjects.count { it.small }} small ones, every ${ordinal(GOLDEN_EVERY)} step of the golden projects, every ${ordinal(GENERATED_EVERY)} seeded edit), the same calls the whole suite makes on them.")
+        appendLine("${found.size} calls: ${found.count { it.verdict == Verdict.Identical }} identical, ${found.count { it.verdict == Verdict.Different }} different, ${found.count { it.verdict == Verdict.NotExpressible }} not expressible, ${found.count { it.unexplained.isNotEmpty() }} with something not explained.")
+        appendLine()
+        appendLine("| Kind | Calls in the sample |")
+        appendLine("|---|---:|")
+        for (kind in TrackParityKinds.all) {
+            val count = found.count { kind.id in it.kinds }
+            if (count > 0) appendLine("| ${kind.id} | $count |")
+        }
+    }
+
+    private fun ordinal(number: Int) = "$number" + when { number % 100 in 11..13 -> "th"; number % 10 == 1 -> "st"; number % 10 == 2 -> "nd"; number % 10 == 3 -> "rd"; else -> "th" }
 
     private fun leftover(case: Case): String? = if (case.unexplained.isEmpty()) null else "${case.function}: ${case.unexplained.sorted().joinToString(", ")}"
 
@@ -85,9 +137,10 @@ internal object TrackParityReport {
         appendLine()
         appendLine("The suite is one test of the core tests: `./gradlew :core:test`, or by itself with `--tests app.takes.core.TrackParityTest`. What it does is chosen in the environment:")
         appendLine()
-        appendLine("- **Nothing set.** It makes every call and compares what it finds with this file. It fails when the file is not what it finds now, or when the track model answers a timeline its invariants refuse. It does not fail on a difference between today and the track model: a difference that is written down here is expected.")
-        appendLine("- **`TAKES_RECORD_PARITY=1`.** It writes this file anew instead of comparing. Read what changed (`git diff docs/TRACKS-PARITY.md`) and commit the file with the change that caused it.")
-        appendLine("- **`TAKES_PARITY_GATE=1`.** As with nothing set, and it also fails on every call that shows a kind of difference not listed in `TrackParityAccepted.kt`, or a difference no kind explains: the failure names each such kind with the number of calls that show it, then what is not explained. While that list is empty it fails on every kind below. A kind goes into the list once it is decided what the function that shows it does when it runs on the track model.")
+        appendLine("- **Nothing set.** It makes the calls of a sample of the edits, about a seventh of them and the same every run, and compares what it finds with the section [The sample](#the-sample) of this file. It fails when that section is not what it finds now, or when the track model answers a timeline its invariants refuse. It does not fail on a difference between today and the track model: a difference that is written down here is expected. This is what the ordinary run of the tests, and the CI, pays for: the whole suite takes about as long as all the other core tests together.")
+        appendLine("- **`TAKES_PARITY_FULL=1`.** It makes every call and compares the whole of this file, examples included, in the same way. Run it before and after a change to the editing functions or to the track model.")
+        appendLine("- **`TAKES_RECORD_PARITY=1`.** It makes every call and writes this file anew instead of comparing. Read what changed (`git diff docs/TRACKS-PARITY.md`) and commit the file with the change that caused it.")
+        appendLine("- **`TAKES_PARITY_GATE=1`.** As `TAKES_PARITY_FULL=1`, and it also fails on every call that shows a kind of difference not listed in `TrackParityAccepted.kt`, or a difference no kind explains: the failure names each such kind with the number of calls that show it, then what is not explained. While that list is empty it fails on every kind below. A kind goes into the list once it is decided what the function that shows it does when it runs on the track model.")
         appendLine()
         appendLine("## What is compared")
         appendLine()
@@ -172,6 +225,8 @@ internal object TrackParityReport {
         appendLine("## Timelines the track model answered")
         appendLine()
         appendLine("Of the ${cases.count { it.trackAnswered }} timelines the operations of the track model answered in the suite, the invariants (`TrackInvariants.violation`) refuse ${cases.count { it.refused != null }}.")
+        appendLine()
+        append(sample(cases))
         appendLine()
         appendLine("## Not compared")
         appendLine()
