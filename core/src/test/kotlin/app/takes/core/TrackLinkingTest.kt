@@ -128,11 +128,11 @@ class TrackLinkingTest {
         assertEquals(all.audio, a.timeline.selection(detached.audio[1].id).ids)
         settled(v.timeline)
         settled(a.timeline)
-        val removeV = TrackArrangeSupport.remove(v.timeline, v.selection).timeline
+        val removeV = TrackEditing.removing(v.timeline, v.selection).timeline
         assertTrue(removeV.video.isEmpty())
         assertEquals(detached.audio, removeV.audio)
         assertEquals(t(12.0), removeV.duration)
-        val removeA = TrackArrangeSupport.remove(a.timeline, a.selection).timeline
+        val removeA = TrackEditing.removing(a.timeline, a.selection).timeline
         assertTrue(removeA.audio.isEmpty())
         assertEquals(detached.video, removeA.video)
     }
@@ -140,7 +140,7 @@ class TrackLinkingTest {
     /** Tests/TrackTimelineTests.swift:416-419: "Bulk linked deletion closes both vacated ranges exactly once". */
     @Test
     fun deletingTwoLinkedPairsClosesBothStretchesOnce() {
-        val bulk = TrackArrangeSupport.remove(original, original.selection(setOf(clips[0].id, clips[2].id))).timeline
+        val bulk = TrackEditing.removing(original, original.selection(setOf(clips[0].id, clips[2].id))).timeline
         assertEquals(1, bulk.video.size)
         assertEquals(1, bulk.audio.size)
         assertEquals(t(4.0), bulk.duration)
@@ -156,7 +156,7 @@ class TrackLinkingTest {
         bed = done(bed.joining(TimelineSelection(audio = bed.audio.drop(1).mapTo(LinkedHashSet()) { it.id }))).timeline
         val sounds = bed.audio.drop(1)
         val pair = TimelineSelection(video = setOf(clips[0].id), audio = setOf(original.audio[0].id))
-        val removed = TrackArrangeSupport.remove(bed, pair).timeline
+        val removed = TrackEditing.removing(bed, pair).timeline
         assertEquals(sounds, removed.audio)
         settled(removed)
     }
@@ -165,12 +165,12 @@ class TrackLinkingTest {
     @Test
     fun aCutKeepsLinksOfOtherLanesAndDividesTheLinkItCuts() {
         val horizontal = done(detached.joining(videos)).timeline
-        val unrelated = TrackArrangeSupport.split(horizontal, t(6.0), TimelineSelection(audio = setOf(horizontal.audio[1].id))).timeline
+        val unrelated = TrackEditing.split(horizontal, t(6.0), TimelineSelection(audio = setOf(horizontal.audio[1].id))).timeline
         assertEquals(horizontal.links, unrelated.links)
         assertEquals(4, unrelated.audio.size)
 
         val together = done(original.joining(all))
-        val divided = TrackArrangeSupport.split(together.timeline, t(6.0), together.selection).timeline
+        val divided = TrackEditing.split(together.timeline, t(6.0), together.selection).timeline
         assertEquals(2, divided.links.size)
         assertTrue(divided.links.all { it.members.size == 4 })
         settled(divided)
@@ -202,8 +202,8 @@ class TrackLinkingTest {
     fun picturesCutDifferentlyFromTheirSoundLinkWithoutAQuestion() {
         var partitioned = EditState(listOf(TimelineClip(uuid(20), source.id, 0.0, 12.0))).toTimeline()
         partitioned = partitioned.unlinked(partitioned.entireSelection())
-        partitioned = TrackArrangeSupport.split(partitioned, t(4.0), TimelineSelection(video = setOf(partitioned.video[0].id))).timeline
-        partitioned = TrackArrangeSupport.split(partitioned, t(8.0), TimelineSelection(video = partitioned.video.mapTo(LinkedHashSet()) { it.id })).timeline
+        partitioned = TrackEditing.split(partitioned, t(4.0), TimelineSelection(video = setOf(partitioned.video[0].id))).timeline
+        partitioned = TrackEditing.split(partitioned, t(8.0), TimelineSelection(video = partitioned.video.mapTo(LinkedHashSet()) { it.id })).timeline
         assertEquals(3, partitioned.video.size)
         val plan = done(partitioned.linkPlan(partitioned.entireSelection()))
         assertFalse(plan.needsIntersection)
@@ -332,7 +332,7 @@ class TrackLinkingTest {
     @Test
     fun syncIsMeasuredAgainstThePieceThatShowsTheSoundsFirstSecond() {
         // The sound of the second half of a cut clip, early by a quarter of a second.
-        var cut = TrackArrangeSupport.split(EditState(listOf(clips[0])).toTimeline(), t(1.5), TimelineSelection(video = setOf(clips[0].id))).timeline
+        var cut = TrackEditing.split(EditState(listOf(clips[0])).toTimeline(), t(1.5), TimelineSelection(video = setOf(clips[0].id))).timeline
         cut = cut.unlinked(cut.entireSelection())
         val late = cut.audio[1].id
         assertEquals(EditTime.ZERO, cut.syncOffset(late))

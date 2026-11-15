@@ -263,7 +263,7 @@ object TrackMove {
             stops += lane.interval.end
         }
         if (timeline.transitions.isNotEmpty()) {
-            for (join in TrackArrangeSupport.joins(timeline)) {
+            for (join in TrackLayout.of(timeline).joins) {
                 if (join.transition == null) continue
                 if (listOfNotNull(join.outgoingID, join.incomingID).any { it !in members }) stops += EditTime.of(join.time)
             }
