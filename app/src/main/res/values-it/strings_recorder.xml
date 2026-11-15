@@ -36,6 +36,9 @@
     <string name="recorder_settings_microphone">Microfono</string>
     <string name="recorder_settings_microphone_note">La scelta vale dal prossimo segmento e dura finché l\'app non viene chiusa.</string>
     <string name="recorder_settings_microphone_busy">Metti in pausa la ripresa per cambiare microfono.</string>
+    <string name="recorder_settings_framing">Inquadratura</string>
+    <string name="recorder_settings_fit">Mostra tutto il fotogramma registrato</string>
+    <string name="recorder_settings_fit_note">La vista a schermo intero riempie il display. Con questa opzione si vede il fotogramma registrato per intero.</string>
     <string name="recorder_settings_about">Informazioni</string>
     <string name="recorder_settings_credits">Crediti</string>
 </resources>

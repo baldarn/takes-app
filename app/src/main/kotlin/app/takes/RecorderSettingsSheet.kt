@@ -34,6 +34,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -166,6 +168,10 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
                 SettingsRow { Note(stringResource(if (free) R.string.recorder_settings_microphone_note else R.string.recorder_settings_microphone_busy)) }
             }
         }
+        Section(stringResource(R.string.recorder_settings_framing)) {
+            SwitchRow(stringResource(R.string.recorder_settings_fit), settings.fitFrame) { settings.fitFrame = it }
+            SettingsRow { Note(stringResource(R.string.recorder_settings_fit_note)) }
+        }
         Section(stringResource(R.string.recorder_settings_about)) {
             SettingsRow(Modifier.clickable(role = Role.Button) { credits = true }) {
                 Text(stringResource(R.string.recorder_settings_credits), color = Color.White, modifier = Modifier.weight(1f))
@@ -197,6 +203,17 @@ internal fun SettingsRow(modifier: Modifier = Modifier, content: @Composable and
 @Composable
 internal fun Note(text: String) {
     Text(text, color = Secondary, fontSize = 12.sp, lineHeight = 16.sp)
+}
+
+@Composable
+internal fun SwitchRow(label: String, on: Boolean, enabled: Boolean = true, change: (Boolean) -> Unit) {
+    SettingsRow(Modifier.alpha(if (enabled) 1f else 0.4f)) {
+        Text(label, color = Color.White, modifier = Modifier.weight(1f))
+        Switch(
+            on, change, enabled = enabled,
+            colors = SwitchDefaults.colors(checkedTrackColor = SettingsCyan, checkedThumbColor = Color.White, disabledCheckedTrackColor = SettingsCyan),
+        )
+    }
 }
 
 /** One of several, with a check on the one in use. */
