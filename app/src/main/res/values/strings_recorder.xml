@@ -106,4 +106,23 @@
     <string name="recorder_quality_4k">4K · 30 fps</string>
     <string name="recorder_quality_note">4K uses more storage and power. Quality stays fixed until Stop.</string>
     <string name="recorder_quality_note_camera">The camera in use has no 4K and records 1080p. Quality stays fixed until Stop.</string>
+    <!-- Front light: a ring of light at the edge of the recorder, its tile and its controls. -->
+    <string name="recorder_light">Front light</string>
+    <string name="recorder_light_help">Lights your face with the edge of the display. Tap the bulb on the border to adjust its width, color, or opacity, even during a take.</string>
+    <string name="recorder_light_adjust">Adjust front light</string>
+    <string name="recorder_light_value">%1$s, %2$s, %3$d%%</string>
+    <string name="recorder_light_close">Close front light controls</string>
+    <string name="recorder_light_width">Border width</string>
+    <string name="recorder_light_thin">Thin</string>
+    <string name="recorder_light_medium">Medium</string>
+    <string name="recorder_light_wide">Wide</string>
+    <string name="recorder_light_color">Color</string>
+    <string name="recorder_light_white">White</string>
+    <string name="recorder_light_warm">Warm</string>
+    <string name="recorder_light_cool">Cool</string>
+    <string name="recorder_light_custom">Custom</string>
+    <string name="recorder_light_hue">Hue of the custom color</string>
+    <string name="recorder_light_opacity">Opacity</string>
+    <string name="recorder_light_opacity_label">Front light opacity</string>
+    <string name="recorder_light_off">Turn off front light</string>
 </resources>
