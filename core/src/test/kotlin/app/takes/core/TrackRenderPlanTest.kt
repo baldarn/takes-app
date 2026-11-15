@@ -291,6 +291,45 @@ class TrackRenderPlanTest {
         assertNull(TrackRenderPlan.of(timeline.copy(audio = timeline.audio + music + music.copy(id = "M2", occurrenceID = "M2") + music.copy(id = "M3", occurrenceID = "M3"))))
     }
 
+    /**
+     * Tests/TrackTimelineTests.swift:936-938: "Moved fades are anchored to
+     * their own picture", "A moved opening fade leaves the adjacent cut
+     * available", as the plan draws them. The original moves the picture
+     * twelve seconds later and leaves time before it; here the clip is moved
+     * to the end, where the clips still follow one another and the fade
+     * plays where the picture now begins. The original's own move, with its
+     * gap, is pinned on the timeline in TrackTransitionsTest; a timeline with
+     * a gap has no plan of two decks.
+     */
+    @Test fun aMovedOpeningIsDrawnOnItsOwnPicture() {
+        val ids = List(3) { TrackFixtures.uuid(700 + it) }
+        val clips = List(3) { TimelineClip(id = TrackFixtures.uuid(700 + it), sourceID = TrackFixtures.sources.first().id, start = 0.0, end = 4.0) }
+        val opened = TimelineEditing.setJoin(EditState(clips), 0, TransitionSettings(duration = 1.0))!!
+        val moved = TimelineEditing.move(opened, 0, 2)!!
+        assertEquals(listOf(ids[1], ids[2], ids[0]), moved.clips.map { it.id })
+        val timeline = moved.toTimeline()
+        assertEquals(listOf(null to ids[0]), timeline.transitions.map { it.outgoing to it.incoming })
+        for (plan in listOf(TrackRenderPlan.of(moved), TrackRenderPlan.of(timeline)!!)) {
+            val fade = plan.transitions.single()
+            assertEquals(listOf(-1, null, ids[0]), listOf(fade.edge, fade.outgoingID, fade.incomingID))
+            assertEquals(8.0, fade.time, 0.0)
+            assertEquals(8.0, fade.origin, 0.0)
+            // Nothing at the start of the movie, and the cut before the moved picture is a cut.
+            assertEquals(TransitionFrame.First, plan.moment(0.25).frame)
+            val before = plan.moment(7.9)
+            assertNull(before.join)
+            assertEquals(1, (before.first as TransitionScene.Source.Clip).index)
+            val boundary = TimelineEditing.layout(plan.clips).joins[2]
+            assertEquals(listOf(null, ids[2], ids[0]), listOf(boundary.transition, boundary.outgoingID, boundary.incomingID))
+            // The picture comes from black on its own clip.
+            val arriving = plan.moment(8.25)
+            assertEquals(TransitionScene.Source.Fill(TransitionColor.BLACK), arriving.first)
+            assertEquals(TransitionScene.Source.Clip(2, plan.deckOf[2], 0.25), arriving.second)
+            assertEquals(1.0, plan.moment(10.0).firstShare, 0.0)
+        }
+        assertEquals(8.0, timeline.transitions.single().origin.seconds, tick)
+    }
+
     // MARK: The plan against what the timeline compiles to
 
     /**
@@ -326,6 +365,14 @@ class TrackRenderPlanTest {
                 assertEquals(name, listOf(relation.outgoing, relation.incoming), listOf(join.outgoing?.let { plan.clips[it].id }, join.incoming?.let { plan.clips[it].id }))
             }
             assertEquals(name, joins.filter { TransitionLayout.longEnough(it.timing) }.map { it.transition!!.id }, plan.transitions.map { it.transition!!.id })
+            // The plan takes each transition by the pictures its relation names, and so does the plan of the timeline by itself.
+            for (join in plan.transitions) {
+                val relation = timeline.transitions.single { it.id == join.transition!!.id }
+                assertEquals("$name: ${relation.id} relates", listOf(relation.outgoing, relation.incoming), listOf(join.outgoingID, join.incomingID))
+                val (outgoing, incoming) = TransitionScene.related(plan.clips, join)
+                assertEquals(name, listOf(relation.outgoing, relation.incoming), listOf(outgoing?.let { plan.clips[it].id }, incoming?.let { plan.clips[it].id }))
+            }
+            assertTrue(name, TrackRenderPlan.related(timeline, plan))
 
             val followed = timeline.audio.mapNotNull { it.followsVideo }.toSet()
             for (part in timeline.compile()) {

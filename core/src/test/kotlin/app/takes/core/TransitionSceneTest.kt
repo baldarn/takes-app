@@ -237,6 +237,22 @@ class TransitionSceneTest {
      * TrackTimeline.swift:881-885): moved, or with a clip put before the
      * first or after the last, they play on where the picture is.
      */
+    /** A transition is drawn between the pictures it relates, as the original's compile names its pair (TrackTimeline.swift:989-998). */
+    @Test fun aTransitionIsTakenByThePicturesItRelates() {
+        val clips = joined(TransitionSettings(duration = 1.0))
+        val join = TimelineEditing.layout(clips).joins[1]
+        assertEquals("A" to "B", join.outgoingID to join.incomingID)
+        assertEquals(0 to 1, TransitionScene.related(clips, join))
+        // Whatever places it is numbered with, it is between its two pictures.
+        assertEquals(0 to 1, TransitionScene.related(clips, join.copy(outgoing = 1, incoming = 0)))
+        assertEquals(1 to 0, TransitionScene.related(clips.reversed(), join))
+        // A join of a layout made without ids is taken by its places.
+        assertEquals(1 to 0, TransitionScene.related(clips, join.copy(outgoing = 1, incoming = 0, outgoingID = null, incomingID = null)))
+        val opening = TimelineEditing.layout(TimelineEditing.setJoin(pair, 0, TransitionSettings(duration = 0.5))!!.clips).joins[0]
+        assertEquals(null to "A", opening.outgoingID to opening.incomingID)
+        assertEquals(null to 0, TransitionScene.related(clips, opening))
+    }
+
     @Test fun anOpeningAndACloseStayWithTheirClip() {
         var state = TimelineEditing.setJoin(pair, 0, TransitionSettings(duration = 0.5))!!
         state = TimelineEditing.setJoin(state, 2, TransitionSettings(duration = 0.5))!!

@@ -425,8 +425,9 @@ data class RenderPlan(
             }
 
             val joins = layout.all.filter { it.transition != null && TransitionLayout.longEnough(it.timing) }
-            val freezes = joins.filter { it.outgoing != null }.mapNotNull { join ->
-                val placement = layout.placements[join.outgoing!!]
+            val freezes = joins.mapNotNull { join ->
+                // The picture it leads out of, taken by the relation and not by the join's number.
+                val placement = TransitionScene.related(clips, join).first?.let { layout.placements[it] } ?: return@mapNotNull null
                 TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)?.let { held ->
                     Freeze(
                         join.index, placement.index, deckOf[placement.index], held.from, held.until, held.shown, held.offset,
