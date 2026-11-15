@@ -480,7 +480,7 @@
     <string name="recorder_stop">Stop</string>
     <string name="recorder_pause">Pausa</string>
     <string name="recorder_resume">Riprendi la registrazione</string>
-    <string name="recorder_record">Registra</string>
+    <string name="recorder_record">Avvia registrazione</string>
     <string name="recorder_mark">Segna</string>
     <string name="recorder_mark_count">Segna · %1$d</string>
     <string name="editor_record_here">Registra qui</string>
