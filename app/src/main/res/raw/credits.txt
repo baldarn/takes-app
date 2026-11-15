@@ -24,6 +24,8 @@ Guava, Error Prone annotations, J2ObjC annotations, AutoValue annotations and Da
 
 sherpa-onnx, which runs the speech recognition for subtitles. Copyright Xiaomi Corporation and the sherpa-onnx contributors. It includes kaldi-decoder and kaldifst (Copyright Xiaomi Corporation), OpenFst (Copyright Google LLC and the OpenFst authors), Abseil (Copyright The Abseil Authors) and simple-sentencepiece, under the same license.
 
+Qwen3-ASR, a speech model for subtitles. Copyright Alibaba Cloud. The model is not part of the app. It is downloaded when you ask for subtitles, as converted for sherpa-onnx (export by Wasser1462, published by the sherpa-onnx project), and can be removed again.
+
 JSpecify annotations. Copyright The JSpecify Authors. JetBrains annotations. Copyright JetBrains s.r.o. javax.inject and jakarta.inject. Copyright The JSR-330 Expert Group and Eclipse Foundation contributors.
 
 CHECKER FRAMEWORK QUALIFIERS

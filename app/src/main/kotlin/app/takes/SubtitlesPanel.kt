@@ -35,9 +35,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,7 +74,9 @@ import app.takes.core.SubtitleEditing
 import app.takes.core.SubtitleFont
 import app.takes.core.SubtitleSettings
 import app.takes.core.SubtitleWord
+import app.takes.speech.SpeechModel
 import app.takes.speech.SpeechModelCorrupt
+import app.takes.speech.SpeechModels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -131,15 +135,25 @@ fun SubtitlesPanel(
     val scope = rememberCoroutineScope()
     val settings = draft.subtitles
     val cues = remember(draft.clips, settings == null) { SubtitleEditing.cues(draft) }
-    val megabytes = SubtitleModel.megabytes
 
     var language by remember { mutableStateOf(Languages.firstOrNull { it.first == saved.subtitles?.language }?.first ?: "Auto") }
-    var installed by remember { mutableStateOf(SubtitleModel.installed(context)) }
+    // The model in use and how much of it is on the phone; read again after anything that changes either.
+    var model by remember { mutableStateOf(SubtitleModel.selected(context)) }
+    var present by remember { mutableStateOf(SubtitleModel.present(context, model)) }
+    var installed by remember { mutableStateOf(SubtitleModel.installed(context, model)) }
+    val megabytes = SubtitleModel.megabytes(model)
+    val left = SubtitleModel.megabytes(model.bytes - present) // what a download still has to fetch
+    val refresh = {
+        model = SubtitleModel.selected(context)
+        present = SubtitleModel.present(context, model)
+        installed = SubtitleModel.installed(context, model)
+    }
     var job by remember { mutableStateOf<Job?>(null) }
     var stopping by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var step by remember { mutableStateOf<SubtitleTranscriber.Step?>(null) } // null while downloading
     var failure by remember { mutableStateOf<String?>(null) }
+    var lighter by remember { mutableStateOf<SpeechModel?>(null) } // offered under a failure the model's size caused
     var selected by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<SubtitleCue?>(null) }
     var showAppearance by remember { mutableStateOf(false) }
@@ -149,7 +163,8 @@ fun SubtitlesPanel(
     var askMetered by remember { mutableStateOf(false) }
     var askRemoveAll by remember { mutableStateOf(false) }
     var askDiscard by remember { mutableStateOf(false) }
-    var askRemoveModel by remember { mutableStateOf(false) }
+    var askRemoveModel by remember { mutableStateOf<SpeechModel?>(null) }
+    var choosingModel by remember { mutableStateOf(false) }
     val busy = job != null
 
     // A job ends long after it was started: it must reach the draft as it is then.
@@ -175,19 +190,29 @@ fun SubtitlesPanel(
 
     val downloadFailed = stringResource(R.string.subtitles_download_failed)
     val downloadCorrupt = stringResource(R.string.subtitles_download_corrupt)
-    val noRoom = stringResource(R.string.subtitles_no_room, megabytes + 20)
+    val noRoom = stringResource(R.string.subtitles_no_room, SubtitleModel.megabytes(model.bytes - present + SubtitleModel.RESERVE))
     val unknown = stringResource(R.string.common_unknown_error)
     val reasons = mapOf(
         SubtitleTranscriber.Failure.Reason.NoSound to stringResource(R.string.subtitles_no_sound),
         SubtitleTranscriber.Failure.Reason.NoSpeech to stringResource(R.string.subtitles_no_speech),
         SubtitleTranscriber.Failure.Reason.NoWords to stringResource(R.string.subtitles_no_words),
         SubtitleTranscriber.Failure.Reason.Model to stringResource(R.string.subtitles_model_failed),
+        SubtitleTranscriber.Failure.Reason.Memory to stringResource(R.string.subtitles_model_memory, model.name),
     )
+    // A job the app did not survive, most likely for lack of memory: said once, with the way out.
+    val stopped = stringResource(R.string.subtitles_model_stopped)
+    LaunchedEffect(Unit) {
+        val interrupted = SubtitleModel.interrupted(context) ?: return@LaunchedEffect
+        SubtitleModel.running(context, null)
+        failure = stopped.format(interrupted.name)
+        lighter = SpeechModels.lighter(interrupted)?.takeIf { interrupted == model }
+    }
     val transcribeFailed = stringResource(R.string.subtitles_transcribe_failed)
 
     fun run(first: SubtitleTranscriber.Step?, work: suspend () -> Unit) {
         if (job != null) return
         failure = null
+        lighter = null
         progress = 0f
         step = first
         job = scope.launch {
@@ -200,34 +225,40 @@ fun SubtitlesPanel(
         }
     }
     val download = {
-        if (!SubtitleModel.hasRoom(context)) failure = noRoom else run(null) {
+        val wanted = model
+        if (!SubtitleModel.hasRoom(context, wanted)) failure = noRoom else run(null) {
             try {
-                SubtitleModel.download(context) { progress = it }
-                installed = SubtitleModel.installed(context)
+                progress = present.toFloat() / wanted.bytes
+                SubtitleModel.download(context, wanted) { progress = it.toFloat() / wanted.bytes }
             } catch (stopped: CancellationException) {
                 throw stopped
             } catch (_: SpeechModelCorrupt) {
                 failure = downloadCorrupt
             } catch (problem: IOException) {
                 failure = downloadFailed.format(problem.message ?: unknown)
+            } finally {
+                refresh() // what arrived stays, also after a stop: the button then says how much is left
             }
         }
     }
     val transcribe = {
         val spoken = language
+        val with = model
         selected = null
         run(SubtitleTranscriber.Step.Reading) {
             try {
-                val result = SubtitleTranscriber.transcribe(context, latest.clips, files, Languages.first { it.first == spoken }.second) { fraction, at ->
+                val result = SubtitleTranscriber.transcribe(context, with, latest.clips, files, Languages.first { it.first == spoken }.second) { fraction, at ->
                     progress = fraction
                     step = at
                 }
-                Log.i("Subtitles", "%.1f s of speech recognized in %.1f s".format(result.speechSeconds, result.recognizingSeconds))
+                Log.i("Subtitles", "%.1f s of speech recognized in %.1f s with %s".format(result.speechSeconds, result.recognizingSeconds, with.name))
                 onChange(SubtitleEditing.install(latest, result.words, spoken))
             } catch (stopped: CancellationException) {
                 throw stopped
             } catch (problem: SubtitleTranscriber.Failure) {
                 failure = reasons[problem.reason]
+                // Too large for this phone, or broken: the smaller model is one tap away.
+                if (problem.reason == SubtitleTranscriber.Failure.Reason.Memory || problem.reason == SubtitleTranscriber.Failure.Reason.Model) lighter = SpeechModels.lighter(with)
             } catch (problem: Exception) {
                 failure = transcribeFailed.format(problem.message ?: unknown)
             }
@@ -265,7 +296,7 @@ fun SubtitlesPanel(
                         val at = step
                         val status = when {
                             stopping -> stringResource(R.string.subtitles_stopping)
-                            at == null -> stringResource(R.string.subtitles_downloading, (progress * megabytes).roundToInt(), megabytes)
+                            at == null -> stringResource(R.string.subtitles_downloading, model.name, (progress * megabytes).roundToInt(), megabytes)
                             at is SubtitleTranscriber.Step.Reading -> stringResource(R.string.subtitles_reading)
                             at is SubtitleTranscriber.Step.Loading -> stringResource(R.string.subtitles_loading)
                             at is SubtitleTranscriber.Step.Section -> stringResource(R.string.subtitles_section, at.index, at.count) + " · " + (at.remaining?.let {
@@ -301,12 +332,20 @@ fun SubtitlesPanel(
                             }
                         }
                         if (!installed) {
-                            Text(stringResource(R.string.subtitles_download_note, megabytes), color = Soft, fontSize = 14.sp)
+                            Text(stringResource(R.string.subtitles_download_note, model.name, megabytes), color = Soft, fontSize = 14.sp)
                             // On a connection that counts the data used, such as mobile data, the person is asked first.
-                            Button(onClick = { if (metered(context)) askMetered = true else download() }, modifier = Modifier.padding(top = 6.dp)) { Text(stringResource(R.string.subtitles_download, megabytes)) }
+                            Button(onClick = { if (metered(context)) askMetered = true else download() }, modifier = Modifier.padding(top = 6.dp)) {
+                                // An interrupted download goes on from where it stopped, and says how much is left.
+                                Text(if (present > 0) stringResource(R.string.subtitles_download_continue, left) else stringResource(R.string.subtitles_download, megabytes))
+                            }
                         }
                     }
                     failure?.let { Text(it, color = Warning, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp)) }
+                    lighter?.takeIf { !busy }?.let { other ->
+                        OutlinedButton(onClick = { SubtitleModel.choose(context, other); refresh(); failure = null; lighter = null }, modifier = Modifier.padding(top = 6.dp)) {
+                            Text(stringResource(R.string.subtitles_model_use, other.name, SubtitleModel.megabytes(other)))
+                        }
+                    }
                     if (settings != null) {
                         if (cues.isNotEmpty()) {
                             TextButton(
@@ -397,8 +436,12 @@ fun SubtitlesPanel(
                         }
                     }
                     Text(stringResource(R.string.subtitles_note), color = Soft, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    // The choice of model: out of the way of someone who only wants subtitles.
+                    TextButton(onClick = { choosingModel = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        Text(stringResource(R.string.subtitles_model, model.name, megabytes), color = if (busy) Soft else Color.Unspecified, fontSize = 12.sp)
+                    }
                     if (installed) {
-                        TextButton(onClick = { askRemoveModel = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                        TextButton(onClick = { askRemoveModel = model }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
                             Text(stringResource(R.string.subtitles_remove_model, megabytes), color = if (busy) Soft else RecordRed, fontSize = 12.sp)
                         }
                     }
@@ -432,7 +475,7 @@ fun SubtitlesPanel(
         )
     }
     if (askMetered) Confirm(
-        stringResource(R.string.subtitles_metered_title), stringResource(R.string.subtitles_metered_message, megabytes),
+        stringResource(R.string.subtitles_metered_title), stringResource(R.string.subtitles_metered_message, left),
         stringResource(R.string.subtitles_metered_download), stringResource(R.string.common_cancel),
         confirm = { askMetered = false; download() }, dismiss = { askMetered = false },
     )
@@ -448,15 +491,64 @@ fun SubtitlesPanel(
         stringResource(R.string.subtitles_discard_title), null, stringResource(R.string.subtitles_discard_confirm), stringResource(R.string.subtitles_keep_editing), destructive = true,
         confirm = { askDiscard = false; close() }, dismiss = { askDiscard = false },
     )
-    if (askRemoveModel) Confirm(
-        stringResource(R.string.subtitles_remove_model_title), stringResource(R.string.subtitles_remove_model_message, megabytes),
-        stringResource(R.string.subtitles_remove_model_confirm), stringResource(R.string.common_cancel), destructive = true,
-        confirm = {
-            askRemoveModel = false
-            SubtitleModel.remove(context)
-            installed = SubtitleModel.installed(context)
+    askRemoveModel?.let { target ->
+        Confirm(
+            stringResource(R.string.subtitles_remove_model_title, target.name), stringResource(R.string.subtitles_remove_model_message, SubtitleModel.megabytes(target)),
+            stringResource(R.string.subtitles_remove_model_confirm), stringResource(R.string.common_cancel), destructive = true,
+            confirm = {
+                askRemoveModel = null
+                SubtitleModel.remove(context, target)
+                refresh()
+            },
+            dismiss = { askRemoveModel = null },
+        )
+    }
+    if (choosingModel && askRemoveModel == null) ModelChoice(
+        choices = remember(model, present) { SubtitleModel.choices(context).map { ModelRow(it, SubtitleModel.present(context, it)) } },
+        selected = model, recommended = SubtitleModel.recommended(context),
+        choose = { SubtitleModel.choose(context, it); refresh(); failure = null; lighter = null; choosingModel = false },
+        remove = { askRemoveModel = it }, dismiss = { choosingModel = false },
+    )
+}
+
+/** A model in the choice, with the bytes of it on the phone. */
+private class ModelRow(val model: SpeechModel, val present: Long)
+
+/**
+ * The short choice between the speech models: one line each with its size and
+ * whether it is on the phone, and the bin for what is. Picking one closes the
+ * choice; downloading it is the tool's own button.
+ */
+@Composable
+private fun ModelChoice(choices: List<ModelRow>, selected: SpeechModel, recommended: SpeechModel, choose: (SpeechModel) -> Unit, remove: (SpeechModel) -> Unit, dismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(stringResource(R.string.subtitles_model_title), fontSize = 18.sp) },
+        text = {
+            Column {
+                for (row in choices) {
+                    val megabytes = SubtitleModel.megabytes(row.model)
+                    val state = when {
+                        row.present >= row.model.bytes -> stringResource(R.string.subtitles_model_downloaded)
+                        row.present > 0 -> stringResource(R.string.subtitles_model_partly, SubtitleModel.megabytes(row.present), megabytes)
+                        row.model == recommended -> stringResource(R.string.subtitles_model_recommended)
+                        else -> null
+                    }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { choose(row.model) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = row.model == selected, onClick = { choose(row.model) })
+                        Column(Modifier.weight(1f)) {
+                            Text(stringResource(R.string.subtitles_model_row, row.model.name, megabytes))
+                            state?.let { Text(it, color = Soft, fontSize = 12.sp) }
+                        }
+                        if (row.present > 0) IconButton(onClick = { remove(row.model) }) {
+                            Icon(Icons.Outlined.Delete, stringResource(R.string.subtitles_model_remove, row.model.name), tint = RecordRed)
+                        }
+                    }
+                }
+                Text(stringResource(R.string.subtitles_model_note), color = Soft, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+            }
         },
-        dismiss = { askRemoveModel = false },
+        confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_done)) } },
     )
 }
 
