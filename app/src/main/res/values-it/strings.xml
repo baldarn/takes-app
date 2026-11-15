@@ -643,4 +643,12 @@
     <string name="subtitles_metered_title">Scaricare con una connessione a consumo?</string>
     <string name="subtitles_metered_message">Il modello vocale pesa circa %1$d MB. Questa connessione conteggia i dati che usi, come la rete mobile: il download può avere un costo o consumare il tuo piano dati.</string>
     <string name="subtitles_metered_download">Scarica comunque</string>
+    <string name="editor_bookmarks">Segnalibri</string>
+    <string name="editor_change_previous">Cambio precedente</string>
+    <string name="editor_change_next">Cambio successivo</string>
+    <string name="editor_change_hold">Salta i tagli</string>
+    <string name="editor_snap">Aggancia ai tagli</string>
+    <string name="editor_snap_on">Attivo</string>
+    <string name="editor_snap_off">Non attivo</string>
+    <string name="editor_snap_note">L\'aggancio allinea il cursore ai bordi delle clip e ai segnalibri vicini. Spegni la calamita per posizionarlo liberamente.</string>
 </resources>

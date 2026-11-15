@@ -29,12 +29,8 @@ import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material3.FilterChip
@@ -175,6 +171,8 @@ import app.takes.core.RangeMarks
 import app.takes.core.ReviewWindows
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
+import app.takes.core.TimelineNavigation
+import app.takes.core.TimelineSnapping
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TransitionAxis
 import app.takes.core.TransitionDefaults
@@ -185,6 +183,7 @@ import app.takes.core.TransitionPicture
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionTiming
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.DragInteraction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
@@ -867,6 +866,28 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         scope.launch { scroll.scrollTo((time * pixelsPerSecond).roundToInt()) }
         Unit
     }
+    // The stops of the previous and next change buttons, from the edit as it is shown.
+    val navigation = remember(edit) { TimelineNavigation.of(edit) }
+    // The magnet: when a scroll of the timeline by hand ends, the playhead settles on a clip edge or a bookmark
+    // within reach on screen, as in the original (EditorTimeline.swift:515-525).
+    val snap = remember { SnapSetting(context) }
+    val snapNote = stringResource(R.string.editor_snap_note)
+    val snapping by rememberUpdatedState(Triple(snap.on, edit, scale))
+    val settle by rememberUpdatedState(jump)
+    LaunchedEffect(scroll) {
+        var scrubbed = false
+        launch { scroll.interactionSource.interactions.collect { if (it is DragInteraction.Start) scrubbed = true } }
+        snapshotFlow { scroll.isScrollInProgress }.collect { moving ->
+            if (!moving && scrubbed) {
+                scrubbed = false
+                val (on, shown, zoom) = snapping
+                if (on && !editor.playing) {
+                    val target = TimelineSnapping.snap(playhead, zoom.toDouble(), TimelineSnapping.points(shown))
+                    if (target != playhead) settle(target.coerceIn(0.0, shown.duration))
+                }
+            }
+        }
+    }
     var choosingExport by remember { mutableStateOf(false) }
     var findingPauses by remember { mutableStateOf(false) }
     var editingColor by remember { mutableStateOf(false) }
@@ -884,7 +905,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
-            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null) { Text(stringResource(R.string.editor_export)) }
+            SnapToggle(snap.on, snap::toggle) { store.error = snapNote }
+            Button(onClick = { editor.pause(); choosingExport = true }, modifier = Modifier.padding(start = 4.dp), enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
@@ -965,20 +987,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
             val tight = PaddingValues(horizontal = 6.dp)
             val small = Modifier.defaultMinSize(minWidth = 40.dp)
+            // As the original's transport: the bookmarks in one menu, and on either side of Play the previous and the
+            // next change, which a tap takes to the nearest cut or change of treatment and a hold to the nearest change only.
+            val toChange = { forward: Boolean, effectsOnly: Boolean -> navigation.destination(playhead, forward, effectsOnly)?.let(jump); Unit }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Bookmarks: step to the previous or next one, and set or clear one at the playhead.
-                val before = TimelineEditing.previousBookmark(clips, playhead)
-                val after = TimelineEditing.nextBookmark(clips, playhead)
                 val under = location?.let { TimelineEditing.bookmarkAt(clips, it.index, sourceTime) }
-                val previousLabel = stringResource(R.string.editor_bookmark_previous)
-                val toggleLabel = stringResource(if (under == null) R.string.editor_bookmark_add else R.string.editor_bookmark_remove)
-                val nextLabel = stringResource(R.string.editor_bookmark_next)
-                TextButton(onClick = { before?.let(jump) }, small.semantics { contentDescription = previousLabel }, enabled = before != null, contentPadding = tight) { Icon(Icons.Filled.SkipPrevious, null) }
-                TextButton(
-                    onClick = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
-                    small.semantics { contentDescription = toggleLabel }, enabled = location != null, contentPadding = tight,
-                ) { Icon(if (under == null) Icons.Outlined.BookmarkAdd else Icons.Filled.Bookmark, null, tint = if (location != null) BookmarkColor else LocalContentColor.current) }
-                TextButton(onClick = { after?.let(jump) }, small.semantics { contentDescription = nextLabel }, enabled = after != null, contentPadding = tight) { Icon(Icons.Filled.SkipNext, null) }
+                BookmarksMenu(
+                    under = under != null, canToggle = location != null,
+                    toggle = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
+                    previous = TimelineEditing.previousBookmark(clips, playhead), next = TimelineEditing.nextBookmark(clips, playhead),
+                    times = TimelineEditing.bookmarkTimes(clips), label = ::preciseLabel, go = jump,
+                )
+                ChangeButton(forward = false, enabled = navigation.destination(playhead, false) != null) { toChange(false, it) }
             }
             TextButton(
                 onClick = {
@@ -987,7 +1007,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 },
                 enabled = clips.isNotEmpty(), contentPadding = tight,
             ) { Icon(if (editor.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), Modifier.size(32.dp)) }
-            Row {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ChangeButton(forward = true, enabled = navigation.destination(playhead, true) != null) { toChange(true, it) }
                 val zoomOutLabel = stringResource(R.string.editor_zoom_timeline_out)
                 val zoomInLabel = stringResource(R.string.editor_zoom_timeline_in)
                 TextButton(onClick = { scale = (scale / 1.5f).coerceAtLeast(6f) }, small, contentPadding = tight) { Text("−", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = zoomOutLabel }) }

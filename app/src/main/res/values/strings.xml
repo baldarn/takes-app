@@ -635,4 +635,12 @@
     <string name="subtitles_metered_title">Download on a metered connection?</string>
     <string name="subtitles_metered_message">The speech model is about %1$d MB. This connection counts the data you use, as mobile data does, so the download may cost you or use up your allowance.</string>
     <string name="subtitles_metered_download">Download anyway</string>
+    <string name="editor_bookmarks">Bookmarks</string>
+    <string name="editor_change_previous">Previous change</string>
+    <string name="editor_change_next">Next change</string>
+    <string name="editor_change_hold">Skip cuts</string>
+    <string name="editor_snap">Snap to cuts</string>
+    <string name="editor_snap_on">On</string>
+    <string name="editor_snap_off">Off</string>
+    <string name="editor_snap_note">Snap aligns the playhead with nearby clip edges and bookmarks. Turn the magnet off for free positioning.</string>
 </resources>
