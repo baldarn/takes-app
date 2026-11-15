@@ -25,6 +25,7 @@ import androidx.media3.effect.OverlayEffect
 import app.takes.core.AudioItem
 import app.takes.core.ExportSettings
 import app.takes.core.Size as FrameSize
+import app.takes.core.SubtitleEditing
 import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -244,10 +245,13 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 sequence.build()
             }
             val extra = soundtracks + cleaned
-            // Titles are drawn once, over the finished picture.
-            val titles = if (clips.any { !it.texts.isNullOrEmpty() }) {
-                Effects(emptyList(), listOf<Effect>(OverlayEffect(listOf(TitleOverlay(clips, canvas.first, canvas.second)))))
-            } else Effects.EMPTY
+            // Titles and subtitles are drawn once, over the finished picture; subtitles on top.
+            val captions = SubtitleEditing.cues(project.edit)
+            val written = listOfNotNull(
+                if (clips.any { !it.texts.isNullOrEmpty() }) TitleOverlay(clips, canvas.first, canvas.second) else null,
+                project.edit.subtitles?.takeIf { captions.isNotEmpty() }?.let { SubtitleOverlay(captions, it, canvas.first, canvas.second) },
+            )
+            val titles = if (written.isNotEmpty()) Effects(emptyList(), listOf<Effect>(OverlayEffect(written))) else Effects.EMPTY
             // An overlay in the same composition corrupts the blend of two
             // sequences, so a movie with both dissolves and titles is rendered
             // in two passes: the blend first, then the titles over it.

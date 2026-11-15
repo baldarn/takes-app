@@ -54,6 +54,7 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":core"))
     implementation(project(":rnnoise"))
+    implementation(project(":speech"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -64,6 +65,7 @@ import app.takes.core.PauseDetector
 import app.takes.core.PauseSettings
 import app.takes.core.SourceInterval
 import app.takes.core.SourceWaveform
+import app.takes.core.SubtitleEditing
 import android.os.Build
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -408,7 +410,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // Watching the movie or waiting for an export must not let the screen turn off.
     val view = LocalView.current
-    val busy = editor.playing || exporter.progress != null
+    // The Subtitles tool: the edit it is working on, shown in the preview and not saved until applied.
+    var subtitling by remember { mutableStateOf<EditState?>(null) }
+    var subtitleWork by remember { mutableStateOf(false) } // downloading the model or transcribing
+    val busy = editor.playing || exporter.progress != null || subtitleWork
     DisposableEffect(busy) {
         view.keepScreenOn = busy
         onDispose { view.keepScreenOn = false }
@@ -561,6 +566,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     val shownTitles = TimelineEditing.titlesAt(clips, playhead)
+    // Subtitles, laid out once for the movie's shape and drawn by the code the export uses.
+    val captioned = subtitling ?: edit
+    val captions = remember(captioned.clips, captioned.subtitles == null) { SubtitleEditing.cues(captioned) }
+    val captionLayout = remember(captions, captioned.subtitles?.style, captioned.subtitles?.resolvedFont, canvas) {
+        val look = captioned.subtitles
+        val shape = canvas
+        if (look == null || shape == null || captions.isEmpty()) null else SubtitleLayout(captions, look, shape.first, shape.second)
+    }
     val scope = rememberCoroutineScope()
     val jump = { time: Double ->
         editor.pause()
@@ -586,9 +599,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
-            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
-            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty()) { Text(stringResource(R.string.editor_export)) }
+            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
+            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty() && subtitling == null) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
@@ -622,6 +635,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 Canvas(Modifier.fillMaxSize()) {
                     drawIntoCanvas { target ->
                         shownTitles.forEach { (title, share) -> TitleRenderer.draw(target.nativeCanvas, size.width, size.height, title, share.toFloat()) }
+                        captioned.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                     }
                 }
                 if (level < 1) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1 - level).toFloat())))
@@ -664,10 +678,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
         Timeline(
-            shown, files, sounds, names, { editor.pause(); chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
+            shown, files, sounds, names, { editor.pause(); if (subtitling == null) chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
             shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
-            beginTrim = { leading -> location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
+            beginTrim = { leading -> if (subtitling == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
         )
         val framing = cropping
@@ -681,6 +695,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     commit(TimelineEditing.setCrop(edit, index, crop), playhead)
                 },
                 cancel = { cropping = null },
+            )
+        } else if (subtitling != null) {
+            SubtitlesPanel(
+                saved = edit, draft = subtitling ?: edit, change = { subtitling = it },
+                files = files, layout = captionLayout, playhead = playhead, playing = editor.playing,
+                seek = jump, working = { subtitleWork = it },
+                // One undo step for everything done in the tool.
+                apply = { val next = subtitling; subtitling = null; if (next != null && next != edit) commit(next, playhead) },
+                close = { subtitling = null },
+                modifier = Modifier.weight(1.5f),
             )
         } else {
             // Tools act on the clip under the playhead. Short rows, so nothing is cut off at any font size.
@@ -701,6 +725,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text(stringResource(R.string.editor_transition)) }
                 TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
                 TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
+                TextButton(onClick = { editor.pause(); subtitling = edit }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) {
+                    Icon(Icons.Outlined.Subtitles, stringResource(R.string.editor_subtitles), tint = if (edit.subtitles != null) TitleColor else LocalContentColor.current)
+                }
             }
             if (pacing && location != null && current != null) {
                 AlertDialog(

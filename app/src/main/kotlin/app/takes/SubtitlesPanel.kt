@@ -1,0 +1,481 @@
+package app.takes
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.util.Log
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.takes.core.EditState
+import app.takes.core.SubtitleCue
+import app.takes.core.SubtitleEditing
+import app.takes.core.SubtitleFont
+import app.takes.core.SubtitleSettings
+import app.takes.core.SubtitleWord
+import app.takes.speech.SpeechModelCorrupt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.io.File
+import java.io.IOException
+import kotlin.math.roundToInt
+
+private val Soft = Color(0xFFA0A4AB)
+private val Warning = Color(0xFFFFB454)
+private val Current = Color(0xFF4DD0E1)
+
+/** The languages the original offers, by the name it stores in the project, with Whisper's code for each. */
+private val Languages = listOf(
+    "Auto" to null, "Italian" to "it", "English" to "en", "French" to "fr", "German" to "de", "Spanish" to "es",
+    "Portuguese" to "pt", "Chinese" to "zh", "Japanese" to "ja", "Korean" to "ko", "Russian" to "ru", "Arabic" to "ar",
+)
+
+private fun languageLabel(name: String): Int = when (name) {
+    "Italian" -> R.string.subtitles_language_italian
+    "English" -> R.string.subtitles_language_english
+    "French" -> R.string.subtitles_language_french
+    "German" -> R.string.subtitles_language_german
+    "Spanish" -> R.string.subtitles_language_spanish
+    "Portuguese" -> R.string.subtitles_language_portuguese
+    "Chinese" -> R.string.subtitles_language_chinese
+    "Japanese" -> R.string.subtitles_language_japanese
+    "Korean" -> R.string.subtitles_language_korean
+    "Russian" -> R.string.subtitles_language_russian
+    "Arabic" -> R.string.subtitles_language_arabic
+    else -> R.string.subtitles_language_auto
+}
+
+private fun cueTime(seconds: Double): String {
+    val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
+    return "%d:%02d.%d".format(tenths / 600, tenths / 10 % 60, tenths % 10)
+}
+
+/**
+ * The Subtitles tool, in place of the editing tools so the picture stays in
+ * view: download the speech model, transcribe, correct and restyle. Everything
+ * happens on [draft], which the preview shows; [apply] makes it one undo step
+ * and [close] drops it.
+ *
+ * @param saved the edit as it is in the project, to tell whether anything changed.
+ * @param working told while a download or a transcription runs, to keep the screen on.
+ */
+@Composable
+fun SubtitlesPanel(
+    saved: EditState, draft: EditState, change: (EditState) -> Unit,
+    files: Map<String, File>, layout: SubtitleLayout?, playhead: Double, playing: Boolean,
+    seek: (Double) -> Unit, working: (Boolean) -> Unit, apply: () -> Unit, close: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settings = draft.subtitles
+    val cues = remember(draft.clips, settings == null) { SubtitleEditing.cues(draft) }
+    val megabytes = SubtitleModel.megabytes
+
+    var language by remember { mutableStateOf(Languages.firstOrNull { it.first == saved.subtitles?.language }?.first ?: "Auto") }
+    var installed by remember { mutableStateOf(SubtitleModel.installed(context)) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    var stopping by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var step by remember { mutableStateOf<SubtitleTranscriber.Step?>(null) } // null while downloading
+    var failure by remember { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<SubtitleCue?>(null) }
+    var showAppearance by remember { mutableStateOf(false) }
+    var showPosition by remember { mutableStateOf(false) }
+    var copied by remember { mutableStateOf(false) }
+    var askReplace by remember { mutableStateOf(false) }
+    var askRemoveAll by remember { mutableStateOf(false) }
+    var askDiscard by remember { mutableStateOf(false) }
+    var askRemoveModel by remember { mutableStateOf(false) }
+    val busy = job != null
+
+    // A job ends long after it was started: it must reach the draft as it is then.
+    val latest by rememberUpdatedState(draft)
+    val onChange by rememberUpdatedState(change)
+    DisposableEffect(busy) {
+        working(busy)
+        onDispose { working(false) }
+    }
+
+    // The series stays inside the picture whatever was just changed. A series never moved keeps "no position".
+    fun inside(value: SubtitleSettings): SubtitleSettings {
+        val fitted = layout?.placement?.constrained(value) ?: return value
+        return if (value.x == null && fitted.x == 0.5) fitted.copy(x = null) else fitted
+    }
+    fun restyle(next: SubtitleSettings) {
+        SubtitleEditing.restyle(draft, inside(next))?.let(change)
+    }
+    LaunchedEffect(layout) {
+        val current = latest.subtitles ?: return@LaunchedEffect
+        SubtitleEditing.restyle(latest, inside(current))?.let(onChange)
+    }
+
+    val downloadFailed = stringResource(R.string.subtitles_download_failed)
+    val downloadCorrupt = stringResource(R.string.subtitles_download_corrupt)
+    val noRoom = stringResource(R.string.subtitles_no_room, megabytes + 20)
+    val unknown = stringResource(R.string.common_unknown_error)
+    val reasons = mapOf(
+        SubtitleTranscriber.Failure.Reason.NoSound to stringResource(R.string.subtitles_no_sound),
+        SubtitleTranscriber.Failure.Reason.NoSpeech to stringResource(R.string.subtitles_no_speech),
+        SubtitleTranscriber.Failure.Reason.NoWords to stringResource(R.string.subtitles_no_words),
+        SubtitleTranscriber.Failure.Reason.Model to stringResource(R.string.subtitles_model_failed),
+    )
+    val transcribeFailed = stringResource(R.string.subtitles_transcribe_failed)
+
+    fun run(first: SubtitleTranscriber.Step?, work: suspend () -> Unit) {
+        if (job != null) return
+        failure = null
+        progress = 0f
+        step = first
+        job = scope.launch {
+            try {
+                work()
+            } finally {
+                job = null
+                stopping = false
+            }
+        }
+    }
+    val download = {
+        if (!SubtitleModel.hasRoom(context)) failure = noRoom else run(null) {
+            try {
+                SubtitleModel.download(context) { progress = it }
+                installed = SubtitleModel.installed(context)
+            } catch (stopped: CancellationException) {
+                throw stopped
+            } catch (_: SpeechModelCorrupt) {
+                failure = downloadCorrupt
+            } catch (problem: IOException) {
+                failure = downloadFailed.format(problem.message ?: unknown)
+            }
+        }
+    }
+    val transcribe = {
+        val spoken = language
+        selected = null
+        run(SubtitleTranscriber.Step.Reading) {
+            try {
+                val result = SubtitleTranscriber.transcribe(context, latest.clips, files, Languages.first { it.first == spoken }.second) { fraction, at ->
+                    progress = fraction
+                    step = at
+                }
+                Log.i("Subtitles", "%.1f s of speech recognized in %.1f s".format(result.speechSeconds, result.recognizingSeconds))
+                onChange(SubtitleEditing.install(latest, result.words, spoken))
+            } catch (stopped: CancellationException) {
+                throw stopped
+            } catch (problem: SubtitleTranscriber.Failure) {
+                failure = reasons[problem.reason]
+            } catch (problem: Exception) {
+                failure = transcribeFailed.format(problem.message ?: unknown)
+            }
+        }
+    }
+    val stop = {
+        job?.let {
+            stopping = true
+            it.cancel()
+        }
+        Unit
+    }
+    val leave = { if (busy || draft != saved) askDiscard = true else close() }
+
+    val current = cues.indexOfLast { it.start <= playhead && playhead < it.end }
+    val list = rememberLazyListState()
+    // While the movie plays the list follows it.
+    LaunchedEffect(current, playing) {
+        if (playing && current >= 0) list.animateScrollToItem(current + 1)
+    }
+    LaunchedEffect(copied) {
+        if (copied) { delay(2000); copied = false }
+    }
+
+    Column(modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = leave) { Text(stringResource(R.string.common_cancel)) }
+            Text(stringResource(R.string.subtitles_title), color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 8.dp))
+            Button(onClick = apply, enabled = !busy) { Text(stringResource(R.string.subtitles_apply)) }
+        }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), list, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            item(key = "controls") {
+                Column {
+                    if (busy) {
+                        val at = step
+                        val status = when {
+                            stopping -> stringResource(R.string.subtitles_stopping)
+                            at == null -> stringResource(R.string.subtitles_downloading, (progress * megabytes).roundToInt(), megabytes)
+                            at is SubtitleTranscriber.Step.Reading -> stringResource(R.string.subtitles_reading)
+                            at is SubtitleTranscriber.Step.Loading -> stringResource(R.string.subtitles_loading)
+                            at is SubtitleTranscriber.Step.Section -> stringResource(R.string.subtitles_section, at.index, at.count) + " · " + (at.remaining?.let {
+                                val left = if (it >= 90) stringResource(R.string.subtitles_minutes, (it / 60).roundToInt()) else stringResource(R.string.subtitles_seconds, maxOf(1, it.roundToInt()))
+                                stringResource(R.string.subtitles_time_left, left)
+                            } ?: stringResource(R.string.subtitles_estimating))
+                            else -> ""
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(status, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            OutlinedButton(onClick = stop, enabled = !stopping) { Text(stringResource(R.string.common_cancel)) }
+                        }
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                    } else {
+                        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                            var choosing by remember { mutableStateOf(false) }
+                            Box {
+                                TextButton(onClick = { choosing = true }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    Text(stringResource(R.string.subtitles_language, stringResource(languageLabel(language))))
+                                    Icon(Icons.Filled.ArrowDropDown, null)
+                                }
+                                DropdownMenu(choosing, onDismissRequest = { choosing = false }) {
+                                    for ((name, _) in Languages) {
+                                        DropdownMenuItem(text = { Text(stringResource(languageLabel(name))) }, onClick = { language = name; choosing = false })
+                                    }
+                                }
+                            }
+                            if (installed) {
+                                Button(onClick = { if (cues.isEmpty()) { transcribe() } else { askReplace = true } }, enabled = draft.clips.isNotEmpty()) {
+                                    Icon(Icons.Outlined.Subtitles, null, Modifier.size(18.dp))
+                                    Text(stringResource(if (cues.isEmpty()) R.string.subtitles_transcribe else R.string.subtitles_retranscribe), modifier = Modifier.padding(start = 6.dp))
+                                }
+                            }
+                        }
+                        if (!installed) {
+                            Text(stringResource(R.string.subtitles_download_note, megabytes), color = Soft, fontSize = 14.sp)
+                            Button(onClick = download, modifier = Modifier.padding(top = 6.dp)) { Text(stringResource(R.string.subtitles_download, megabytes)) }
+                        }
+                    }
+                    failure?.let { Text(it, color = Warning, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp)) }
+                    if (settings != null) {
+                        if (cues.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(null, SubtitleEditing.transcript(draft)))
+                                    copied = true
+                                },
+                                enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp),
+                            ) {
+                                Icon(if (copied) Icons.Filled.Check else Icons.Outlined.ContentCopy, null, Modifier.size(18.dp))
+                                Text(stringResource(if (copied) R.string.subtitles_copied else R.string.subtitles_copy), modifier = Modifier.padding(start = 6.dp))
+                            }
+                        }
+                        // How many words a caption holds at most. Punctuation and pauses end one sooner.
+                        val regroup = SubtitleEditing.groupingAvailable(draft)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.subtitles_max_words, settings.maxWords), color = if (regroup) Color.White else Soft, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            val fewer = stringResource(R.string.subtitles_fewer_words)
+                            val more = stringResource(R.string.subtitles_more_words)
+                            val small = Modifier.defaultMinSize(minWidth = 44.dp)
+                            TextButton(onClick = { SubtitleEditing.regroup(draft, settings.maxWords - 1)?.let(change) }, small.semantics { contentDescription = fewer },
+                                enabled = regroup && !busy && settings.maxWords > SubtitleSettings.MAX_WORDS.first) { Text("−", fontSize = 20.sp) }
+                            TextButton(onClick = { SubtitleEditing.regroup(draft, settings.maxWords + 1)?.let(change) }, small.semantics { contentDescription = more },
+                                enabled = regroup && !busy && settings.maxWords < SubtitleSettings.MAX_WORDS.last) { Text("+", fontSize = 20.sp) }
+                        }
+                        if (!regroup) Text(stringResource(R.string.subtitles_stale), color = Warning, fontSize = 12.sp)
+
+                        Disclosure(stringResource(R.string.subtitles_appearance), showAppearance) { showAppearance = !showAppearance }
+                        if (showAppearance) {
+                            Chips(stringResource(R.string.subtitles_style), listOf(
+                                R.string.subtitles_style_plain to SubtitleSettings.Style.Clean, R.string.subtitles_style_bold to SubtitleSettings.Style.Bold,
+                                R.string.subtitles_style_box to SubtitleSettings.Style.Box, R.string.subtitles_style_highlight to SubtitleSettings.Style.Highlight,
+                            ), settings.style, !busy) { restyle(settings.copy(style = it)) }
+                            Chips(stringResource(R.string.subtitles_color), listOf(
+                                R.string.subtitles_color_white to SubtitleSettings.Color.White, R.string.subtitles_color_yellow to SubtitleSettings.Color.Yellow,
+                                R.string.subtitles_color_coral to SubtitleSettings.Color.Coral, R.string.subtitles_color_mint to SubtitleSettings.Color.Mint,
+                                R.string.subtitles_color_blue to SubtitleSettings.Color.Blue, R.string.subtitles_color_black to SubtitleSettings.Color.Black,
+                            ), settings.color, !busy) { restyle(settings.copy(color = it)) }
+                            Chips(stringResource(R.string.subtitles_font), listOf(
+                                R.string.subtitles_font_system to SubtitleFont.System, R.string.subtitles_font_modern to SubtitleFont.Modern,
+                                R.string.subtitles_font_classic to SubtitleFont.Classic, R.string.subtitles_font_mono to SubtitleFont.Mono,
+                                R.string.subtitles_font_narrow to SubtitleFont.Condensed,
+                            ), settings.resolvedFont, !busy) { restyle(settings.copy(font = it)) }
+                            val smallest = (layout?.placement?.minimumSize ?: 0.012).toFloat()
+                            val largest = (layout?.placement?.maximumSize ?: 0.10).toFloat().coerceAtLeast(smallest + 0.0001f)
+                            Level(stringResource(R.string.subtitles_size), settings.size, smallest..largest, !busy) { restyle(settings.copy(size = it)) }
+                            Disclosure(stringResource(R.string.subtitles_position), showPosition) { showPosition = !showPosition }
+                            if (showPosition) {
+                                Level(stringResource(R.string.subtitles_horizontal), settings.centerX, 0f..1f, !busy) { restyle(settings.copy(x = it)) }
+                                Level(stringResource(R.string.subtitles_vertical), settings.y, 0f..1f, !busy) { restyle(settings.copy(y = it)) }
+                                TextButton(onClick = { restyle(settings.copy(x = 0.5, y = 0.86, size = 0.052)) }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    Text(stringResource(R.string.subtitles_reset_position))
+                                }
+                            }
+                        }
+                        Text(
+                            if (cues.isEmpty()) stringResource(R.string.subtitles_none) else stringResource(R.string.subtitles_all, cues.size),
+                            color = if (cues.isEmpty()) Soft else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                        )
+                        if (cues.isNotEmpty()) Text(stringResource(R.string.subtitles_row_hint), color = Soft, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
+                    }
+                }
+            }
+            if (settings != null) items(cues, key = { it.id }) { cue ->
+                val now = cues.getOrNull(current)?.id == cue.id
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(if (now) Current.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.035f))
+                        .clickable(enabled = !busy) {
+                            // The first tap goes to the caption; a tap on the chosen one edits it.
+                            if (selected == cue.id) editing = cue else {
+                                selected = cue.id
+                                seek(cue.start + 0.01)
+                            }
+                        }.padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(cueTime(cue.start), color = Soft, fontSize = 12.sp, modifier = Modifier.width(48.dp))
+                    Text(cue.text, color = if (now || selected == cue.id) Color.White else Soft, fontSize = 14.sp, fontWeight = if (now) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                    if (now) Icon(Icons.AutoMirrored.Filled.VolumeUp, stringResource(R.string.subtitles_current), Modifier.size(16.dp), tint = Current)
+                }
+            }
+            item(key = "footer") {
+                Column {
+                    if (settings != null) {
+                        TextButton(onClick = { askRemoveAll = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                            Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = if (busy) Soft else RecordRed)
+                            Text(stringResource(R.string.subtitles_remove_all), color = if (busy) Soft else RecordRed, modifier = Modifier.padding(start = 6.dp))
+                        }
+                    }
+                    Text(stringResource(R.string.subtitles_note), color = Soft, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    if (installed) {
+                        TextButton(onClick = { askRemoveModel = true }, enabled = !busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                            Text(stringResource(R.string.subtitles_remove_model, megabytes), color = if (busy) Soft else RecordRed, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    editing?.let { cue ->
+        var text by remember(cue.id) { mutableStateOf(cue.text) }
+        val finish = { next: EditState? ->
+            next?.let(change)
+            editing = null
+            selected = null
+        }
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            title = { Text(stringResource(R.string.subtitles_edit_title)) },
+            text = { OutlinedTextField(text, { text = it.take(SubtitleWord.MAXIMUM_TEXT) }, label = { Text(cueTime(cue.start)) }, minLines = 2, maxLines = 6) },
+            confirmButton = { TextButton(onClick = { finish(SubtitleEditing.correct(draft, cue, text)) }) { Text(stringResource(R.string.common_save)) } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { finish(SubtitleEditing.delete(draft, cue)) }) { Text(stringResource(R.string.common_delete), color = RecordRed) }
+                    TextButton(onClick = { editing = null }) { Text(stringResource(R.string.common_cancel)) }
+                }
+            },
+        )
+    }
+    if (askReplace) Confirm(
+        stringResource(R.string.subtitles_replace_title), null, stringResource(R.string.subtitles_retranscribe), stringResource(R.string.common_cancel),
+        confirm = { askReplace = false; transcribe() }, dismiss = { askReplace = false },
+    )
+    if (askRemoveAll) Confirm(
+        stringResource(R.string.subtitles_remove_all_title), null, stringResource(R.string.subtitles_remove_all), stringResource(R.string.common_cancel), destructive = true,
+        confirm = { askRemoveAll = false; selected = null; change(SubtitleEditing.remove(draft)) }, dismiss = { askRemoveAll = false },
+    )
+    if (askDiscard) Confirm(
+        stringResource(R.string.subtitles_discard_title), null, stringResource(R.string.subtitles_discard_confirm), stringResource(R.string.subtitles_keep_editing), destructive = true,
+        confirm = { askDiscard = false; close() }, dismiss = { askDiscard = false },
+    )
+    if (askRemoveModel) Confirm(
+        stringResource(R.string.subtitles_remove_model_title), stringResource(R.string.subtitles_remove_model_message, megabytes),
+        stringResource(R.string.subtitles_remove_model_confirm), stringResource(R.string.common_cancel), destructive = true,
+        confirm = {
+            askRemoveModel = false
+            SubtitleModel.remove(context)
+            installed = SubtitleModel.installed(context)
+        },
+        dismiss = { askRemoveModel = false },
+    )
+}
+
+@Composable
+private fun Confirm(title: String, message: String?, action: String, keep: String, destructive: Boolean = false, confirm: () -> Unit, dismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(title, fontSize = 18.sp) },
+        text = message?.let { { Text(it) } },
+        confirmButton = { TextButton(onClick = confirm) { Text(action, color = if (destructive) RecordRed else Color.Unspecified) } },
+        dismissButton = { TextButton(onClick = dismiss) { Text(keep) } },
+    )
+}
+
+/** A heading that opens and closes what is under it. */
+@Composable
+private fun Disclosure(label: String, open: Boolean, toggle: () -> Unit) {
+    TextButton(onClick = toggle, contentPadding = PaddingValues(horizontal = 4.dp)) {
+        Text((if (open) "▾ " else "▸ ") + label)
+    }
+}
+
+@Composable
+private fun <T> Chips(label: String, options: List<Pair<Int, T>>, selected: T, enabled: Boolean, choose: (T) -> Unit) {
+    Text(label, color = Soft, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+    Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
+        options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, enabled = enabled, label = { Text(stringResource(name)) }) }
+    }
+}
+
+@Composable
+private fun Level(label: String, value: Double, range: ClosedFloatingPointRange<Float>, enabled: Boolean, change: (Double) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Soft, fontSize = 13.sp, modifier = Modifier.width(96.dp))
+        Slider(value = value.toFloat().coerceIn(range), onValueChange = { change(it.toDouble()) }, valueRange = range, enabled = enabled,
+            modifier = Modifier.weight(1f).semantics { contentDescription = label })
+    }
+}
