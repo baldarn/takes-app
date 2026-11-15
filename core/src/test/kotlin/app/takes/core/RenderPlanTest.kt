@@ -236,4 +236,165 @@ class RenderPlanTest {
         assertEquals(TransitionScene.frameRate(listOf(60.0, 60.0, 24.0), 30), plan.frameRate(listOf(60.0, 60.0, 24.0), 30))
         assertEquals(30, plan.frameRate(listOf(60.0, 60.0, 24.0), 30))
     }
+
+    // MARK: What an export takes: sections, voices, envelopes
+
+    /** The whole movie as a stretch, in the words of [RenderPlan.sequences]. */
+    private fun asEntries(plan: RenderPlan, stretch: RenderPlan.Stretch): List<List<Entry>> = stretch.decks.map { deck ->
+        deck.map { part ->
+            when (part) {
+                is RenderPlan.Part.Black -> Entry.Gap(part.start, part.micros)
+                is RenderPlan.Part.Footage -> {
+                    val picture = plan.pictures[part.index]
+                    assertEquals(picture.start to picture.end, part.start to part.end)
+                    assertEquals(picture.sourceStartUs to picture.sourceEndUs, part.sourceStartUs to part.sourceEndUs)
+                    Entry.Clip(part.index)
+                }
+            }
+        }
+    }
+
+    @Test fun theWholeMovieAsAStretchIsThePictureSequences() {
+        val edits = TrackFixtures.all.values + GoldenProjects.all.filter { !it.large }.flatMap { it.project.history }
+        var compared = 0
+        for (state in edits) {
+            val plan = RenderPlan.of(state)
+            if (plan.pictures.any { it.sourceEndUs <= it.sourceStartUs }) continue
+            assertEquals(plan.sequences.map { it.entries }, asEntries(plan, plan.stretch(0.0, plan.duration)))
+            compared++
+        }
+        assertTrue(compared > 100)
+    }
+
+    @Test fun aStretchCutsTheClipsItHoldsPartOf() {
+        val state = joined(EditState(listOf(a, TimelineEditing.setSpeed(EditState(listOf(b)), 0, 2.0)!!.clips[0], c)), 1, TransitionSettings(id = "T", duration = 1.0))
+        val plan = RenderPlan.of(state)
+        // A plays 0 to 4, B at double speed 3 to 5, C 5 to 9.
+        assertEquals(listOf(0.0, 3.0, 5.0), plan.pictures.map { it.start })
+        val stretch = plan.stretch(3.5, 6.25)
+        assertEquals(3.5 to 6.25, stretch.from to stretch.to)
+        assertEquals(
+            listOf(
+                listOf(RenderPlan.Part.Footage(0, 3.5, 4.0, 3_500_000, 4_000_000), RenderPlan.Part.Black(4.0, 2_250_000)),
+                // Half a second into a clip at double speed is a second into its footage.
+                listOf(RenderPlan.Part.Footage(1, 3.5, 5.0, 1_000_000, 4_000_000), RenderPlan.Part.Footage(2, 5.0, 6.25, 1_000_000, 2_250_000)),
+            ),
+            stretch.decks,
+        )
+        // A deck with nothing in the stretch is black for all of it, and a sliver of a clip holds no frame.
+        assertEquals(listOf(RenderPlan.Part.Black(5.0, 1_000_000)), plan.stretch(5.0, 6.0).decks[0])
+        assertEquals(listOf(RenderPlan.Part.Black(4.0 - 1e-6, 1_000_001)), plan.stretch(4.0 - 1e-6, 5.0).decks[0])
+        // A cut is never later than the second it stands for, and a part always has footage.
+        val third = RenderPlan.of(EditState(listOf(a))).stretch(1.0 / 3, 2.0 / 3).decks.single().single() as RenderPlan.Part.Footage
+        assertEquals(333_333L to 666_666L, third.sourceStartUs to third.sourceEndUs)
+    }
+
+    @Test fun aSectionIsDrawnFromALittleBeforeItToALittleAfterIt() {
+        val plan = RenderPlan.of(EditState(listOf(a, b, c, a.copy(id = "D"), b.copy(id = "E"), c.copy(id = "F"), a.copy(id = "G"))))
+        assertEquals(28.0, plan.duration, tiny)
+        // The first twelve seconds at 30 frames a second, and half a second after them.
+        val first = plan.section(0, 360, 30)
+        assertEquals(listOf(0, 360, 0, 375), listOf(first.first, first.count, first.opens, first.closes))
+        assertEquals(0.0 to 12.5, first.stretch.from to first.stretch.to)
+        val second = plan.section(360, 360, 30)
+        assertEquals(345 to 735, second.opens to second.closes)
+        assertEquals(11.5 to 24.5, second.stretch.from to second.stretch.to)
+        // The last section ends with the movie.
+        val last = plan.section(720, 120, 30)
+        assertEquals(705 to 840, last.opens to last.closes)
+        assertEquals(28.0, last.stretch.to, tiny)
+        assertEquals(RenderPlan.Part.Footage(6, 24.0, 28.0, 0, 4_000_000), last.stretch.decks.single().last())
+    }
+
+    @Test fun aSectionThatBeginsInsideAFreezeIsDrawnFromBeforeTheFrameItHolds() {
+        // A plays to second 4 and its last frame is held for twenty seconds.
+        val state = joined(EditState(listOf(a, c)), 1, TransitionSettings(id = "T", style = TransitionStyle.Still, duration = 20.0))
+        val plan = RenderPlan.of(state)
+        val freeze = plan.freezes.single()
+        assertEquals(4.0 to 24.0, freeze.from to freeze.until)
+        val section = plan.section(360, 360, 30)
+        // Half a second before the frame the freeze shows, the last of the clip.
+        assertEquals(Math.floor((freeze.shown - 0.5) * 30).toInt(), section.opens)
+        assertEquals(104, section.opens)
+        assertTrue(section.stretch.decks[0].first() is RenderPlan.Part.Footage)
+        // A section that begins after the freeze is drawn from half a second before itself.
+        assertEquals(735, plan.section(750, 120, 30).opens)
+    }
+
+    @Test fun everyClipThatSoundsPlaysFromASequenceOfSoundAlone() {
+        val quiet = b.copy(sourceID = "Q")
+        val state = joined(EditState(listOf(a, quiet, c)), 1, TransitionSettings(id = "T", duration = 1.0))
+        val plan = RenderPlan.of(state)
+        // The clips of each chain, on the sequence of its deck.
+        assertEquals(
+            listOf(
+                RenderPlan.Sequence(Role.Voice, 0, listOf(Entry.Clip(0), Entry.Gap(4.0, 7_000_000))),
+                RenderPlan.Sequence(Role.Voice, 1, listOf(Entry.Gap(0.0, 3_000_000), Entry.Clip(1), Entry.Clip(2))),
+            ),
+            plan.voices { true },
+        )
+        // A recording without sound is left out, and a sequence with nothing in it is not made.
+        assertEquals(
+            listOf(
+                RenderPlan.Sequence(Role.Voice, 0, listOf(Entry.Clip(0), Entry.Gap(4.0, 7_000_000))),
+                RenderPlan.Sequence(Role.Voice, 1, listOf(Entry.Gap(0.0, 7_000_000), Entry.Clip(2))),
+            ),
+            plan.voices { it == "S" },
+        )
+        assertEquals(listOf(1), plan.voices { it == "Q" }.map { it.number })
+        assertTrue(plan.voices { false }.isEmpty())
+        // Cleaned sound is heard whatever the recording says, in place of the recorded one.
+        val cleaned = RenderPlan.of(state.copy(clips = state.clips.map { if (it.id == "B") it.copy(audio = ClipAudio(denoise = 0.6)) else it }))
+        assertEquals(listOf(RenderPlan.Sequence(Role.Voice, 1, listOf(Entry.Gap(0.0, 3_000_000), Entry.Clip(1), Entry.Gap(7.0, 4_000_000)))), cleaned.voices { false })
+        assertEquals(cleaned.cleaned.map { it.entries }, cleaned.voices { false }.map { it.entries })
+    }
+
+    @Test fun theEnvelopesAreThoseOfTheEditSampleBySample() {
+        val music = AudioItem(id = "M", sourceID = "X", start = 1.0, sourceStart = 0.0, sourceEnd = 10.0, track = 0, audio = ClipAudio(volumeDB = -6.0, fadeIn = 1.0))
+        val state = joined(EditState(listOf(a.copy(audio = ClipAudio(volumeDB = 6.0, fadeOut = 1.0)), b, c.copy(audio = ClipAudio(muted = true))), audio = listOf(music)), 1, TransitionSettings(id = "T", duration = 1.0))
+        val plan = RenderPlan.of(state)
+        assertEquals(SoundEnvelope.segments(state), plan.envelopes())
+        assertEquals(SoundEnvelope.clip(state.clips, 0), plan.clipEnvelope(0))
+        // A muted clip is silence.
+        assertNull(plan.clipEnvelope(2))
+        // The music is cut off where the picture ends, and fades there as at a cut.
+        assertEquals(SoundEnvelope.item(state.audio!!, music, state.duration), plan.soundEnvelope(music))
+        assertEquals(plan.duration, plan.soundEnvelope(music)!!.audibleEnd, tiny)
+        for (golden in GoldenProjects.all.filter { !it.large }) for (step in golden.project.history) assertEquals(SoundEnvelope.segments(step), RenderPlan.of(step).envelopes())
+    }
+
+    @Test fun theTitlesToDrawAreThoseOfTheClipsWithTheirPoses() {
+        val title = TextOverlay(id = "X", text = "Hello", start = 2.0, end = 6.0, motion = TitleMotion(entrance = TitleMove.Drift, exit = TitleMove.Fade, inSeconds = 1.0, outSeconds = 1.0))
+        val state = EditState(listOf(a, c.copy(texts = listOf(title))))
+        val plan = RenderPlan.of(state)
+        assertTrue(plan.titled)
+        assertFalse(RenderPlan.of(EditState(listOf(a, c))).titled)
+        val ranges = TitleMotionRanges(state.clips)
+        for (step in 0..90) assertEquals(ranges.shown(state.clips, step / 10.0), plan.titlesShown(step / 10.0))
+        assertEquals(1, plan.titlesShown(5.25).size)
+        assertTrue(plan.titlesShown(5.25).single().pose != TitleMotion.Pose())
+    }
+
+    @Test fun whatADeckOfThePreviewShowsAndWaitsFor() {
+        val state = joined(joined(EditState(listOf(a, b, c)), 1, TransitionSettings(id = "T", duration = 1.0)), 2, TransitionSettings(id = "U", style = TransitionStyle.Still, duration = 1.0))
+        val plan = RenderPlan.of(state)
+        // A 0 to 4 on deck 0, B 3 to 7 on deck 1, a second of B's last frame, C 8 to 12 on deck 0.
+        assertEquals(listOf(0, 1, 0), plan.deckOf)
+        assertEquals(0, plan.onDeck(0, 3.5)?.index)
+        assertEquals(1, plan.onDeck(1, 3.5)?.index)
+        assertNull(plan.onDeck(0, 5.0))
+        assertNull(plan.onDeck(1, 7.5))
+        assertEquals(1, plan.held(1, 7.5)?.index)
+        assertNull(plan.held(0, 7.5))
+        assertNull(plan.held(1, 5.0))
+        // Deck 0 waits at its next chain; deck 1 has none to come.
+        assertEquals(2, plan.coming(0, 5.0))
+        assertNull(plan.coming(1, 5.0))
+        assertEquals(1, plan.coming(1, 1.0))
+        // The clock is the chain that began last, and nobody's during the freeze.
+        assertEquals(0, plan.leading(2.0))
+        assertEquals(1, plan.leading(3.5))
+        assertNull(plan.leading(7.5))
+        assertEquals(2, plan.leading(8.0))
+    }
 }
