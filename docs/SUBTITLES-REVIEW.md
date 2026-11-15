@@ -85,7 +85,7 @@ Severity: **every use** (seen each time the tool is used), **specific cases**,
   in `S/SpeechModels.kt`, and the tool shows it as one line, "Model: … · n MB".
   Measured on a phone sold with 8 GB, on 88.5 s of Italian speech with English
   technical words, pieces of at most 12 s: Qwen3-ASR loads in 5 to 13 s, recognizes in
-  50 to 55 s (0.6 of real time) and takes 2.1 GB; Whisper small loads in 3 s, recognizes
+  45 to 55 s (0.5 to 0.6 of real time) and takes 2.1 GB; Whisper small loads in 3 s, recognizes
   in 57 s and takes 0.8 GB. By reading, with the language set to Italian, Qwen3-ASR
   wrote about 9 clearly wrong words out of 190 and Whisper small about 18; Qwen3-ASR
   got "porting dell'app", "computer", "ram" and "input" right, Whisper small wrote

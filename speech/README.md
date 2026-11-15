@@ -171,8 +171,8 @@ app, once a second; the app alone, before, is 0.2 GB.
 
 | | Qwen3-ASR 0.6B | Whisper small |
 |---|---|---|
-| Load | 5.5 to 12.9 s (three runs) | 2.7 to 3.1 s |
-| Recognize 88.5 s | 50.2 to 55.2 s: 0.57 to 0.62 of real time | 56.5 to 58.2 s: 0.64 to 0.66 |
+| Load | 5.5 to 12.9 s (four runs) | 2.7 to 3.1 s (two runs) |
+| Recognize 88.5 s | 44.6 to 55.2 s: 0.50 to 0.62 of real time | 56.5 to 58.2 s: 0.64 to 0.66 |
 | Peak memory of the app (PSS) | 2.15 to 2.25 GB | 0.95 to 0.98 GB |
 | … of which native heap | 1.96 to 2.06 GB | 0.76 to 0.79 GB |
 | Memory the phone had left, before and at the lowest | 3.6 GB, 1.8 GB | 3.7 GB, 3.2 GB |
