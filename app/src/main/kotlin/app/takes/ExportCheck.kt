@@ -5,9 +5,8 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.os.Build
-import app.takes.core.EditState
 import app.takes.core.ExportSections
-import app.takes.core.SoundEnvelope
+import app.takes.core.RenderPlan
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -26,25 +25,26 @@ object ExportCheck {
      * movie then makes no claim about its sound.
      *
      * The recordings are decoded and mixed for the measurement alone, through the envelopes the export applies
-     * ([SoundEnvelope]), as the Volume tool measures its headroom ([Headroom]): a clip at another speed is read
-     * at its rate without its pitch being kept, which is close to the export for levels and not a copy of its
-     * samples. [files] gives each source's file and [clean] the noise-reduced sound of a clip that has it.
+     * ([RenderPlan.envelopes]), as the Volume tool measures its headroom ([Headroom]): a clip at another speed is
+     * read at its rate without its pitch being kept, which is close to the export for levels and not a copy of
+     * its samples. [plan] is the movie's, [files] gives each source's file and [clean] the noise-reduced sound
+     * of the clips that play it, by index.
      */
-    suspend fun peak(state: EditState, files: Map<String, File>, clean: (File, Double) -> File? = Denoiser::ready, progress: (Double) -> Unit = {}): Float? = withContext(Dispatchers.IO) {
-        val segments = SoundEnvelope.segments(state)
-        val clips = state.clips.associateBy { it.id }
-        val items = state.audio.orEmpty().associateBy { it.id }
+    suspend fun peak(plan: RenderPlan, files: Map<String, File>, clean: Map<Int, File>, progress: (Double) -> Unit = {}): Float? = withContext(Dispatchers.IO) {
+        val segments = plan.envelopes()
+        val clips = plan.pictures.associateBy { it.id }
+        val items = plan.sounds.associateBy { it.id }
         class Voice(val index: Int, val file: File, val source: Double, val rate: Double)
         val voices = segments.mapIndexedNotNull { index, segment ->
             val clip = clips[segment.owner]
             val item = items[segment.owner]
             when {
-                clip != null -> files[clip.sourceID]?.let { file -> Voice(index, clip.audio?.denoise?.takeIf { it > 0 }?.let { clean(file, it) } ?: file, clip.start, clip.rate) }
+                clip != null -> files[clip.sourceID]?.let { file -> Voice(index, clean[clip.index]?.takeIf { clip.soundRemoved } ?: file, clip.sourceStart, clip.rate) }
                 item != null -> files[item.sourceID]?.let { Voice(index, it, item.sourceStart, 1.0) }
                 else -> null
             }
         }
-        val total = Math.ceil(state.duration * RATE).toLong()
+        val total = Math.ceil(plan.duration * RATE).toLong()
         val readers = arrayOfNulls<PcmReader>(voices.size)
         val block = 4096
         val mix = FloatArray(block * 2)
