@@ -59,7 +59,7 @@ class TrackClipboardTest {
 
     private val dissolve = TransitionSettings(id = uuid(50), duration = 0.5)
     private val blend = TimelineEditing.setJoin(EditState(clips), 2, dissolve)!!.toTimeline()
-    private val join = TrackArrangeSupport.joins(blend).first { it.transition != null }
+    private val join = TrackLayout.of(blend).joins.first { it.transition != null }
 
     // MARK: Tests/TrackTimelineTests.swift:103-112
 
@@ -195,7 +195,7 @@ class TrackClipboardTest {
     fun pictureAtASoundCutCutsThePictureThereAndLeavesTheMusic() {
         val music = score()
         var mix = base.copy(audio = base.audio + music)
-        mix = TrackArrangeSupport.split(mix, t(1.0), TimelineSelection(audio = setOf(music.id))).timeline
+        mix = TrackEditing.split(mix, t(1.0), TimelineSelection(audio = setOf(music.id))).timeline
         val pasted = mix.pasting(late, t(1.0), boundary(mix, 1.0, Kind.Sound)).timeline
         assertTrue(pasted.video.any { it.occurrenceID == base.video[0].occurrenceID && it.start == t(3.0) })
         assertEquals(EditTime.ZERO, pasted.audio.first { it.id == music.id }.start)
@@ -463,7 +463,7 @@ class TrackClipboardTest {
                 val operation = random.below(12)
                 when (operation) {
                     0 -> {
-                        val scoped = TrackArrangeSupport.scoped(timeline, pick())
+                        val scoped = TrackEditing.scoped(timeline, pick())
                         timeline = scoped.timeline.moved(scoped.selection, EditTime((random.next(-6.0, 6.0) * EditTime.SCALE).toLong()))
                     }
                     1 -> timeline = timeline.moveChoices(timeline.selection(anyItem())).let { timeline.moved(it[TimelineMoveScope.entries[random.below(4)]], t(random.next(-3.0, 3.0))) }
@@ -476,7 +476,7 @@ class TrackClipboardTest {
                     8 -> timeline = timeline.closingGap(time())
                     9 -> timeline.audio.takeIf { it.isNotEmpty() }?.let { timeline = timeline.restoringSync(it[random.below(it.size)].id) }
                     10 -> timeline = timeline.addingBookmark(time(), if (random.below(2) == 0) anyItem() else null)
-                    else -> timeline = TrackArrangeSupport.split(timeline, time(), pick()).timeline
+                    else -> timeline = TrackEditing.split(timeline, time(), pick()).timeline
                 }
                 val name = "round $round step $step operation $operation"
                 assertNull(name, TrackInvariants.violation(timeline, sources))

@@ -1,9 +1,7 @@
 package app.takes.core
 
 import app.takes.core.TrackEditingSupport.assertAtRest
-import app.takes.core.TrackEditingSupport.move
 import app.takes.core.TrackEditingSupport.ticks
-import app.takes.core.TrackEditingSupport.unlink
 import app.takes.core.TrackFixtures.uuid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -62,7 +60,7 @@ class TrackTransitionsTest {
         // Under one frame of picture there is no transition (YouRec/Transitions.swift:369-370).
         assertEquals(original, original.settingTransition(settings(0.01), 1))
         // Between pictures that do not meet there is nothing to join.
-        val gapped = move(original, TrackEditing.selection(original, pair[1].id), ticks(1.0))
+        val gapped = TrackMove.moved(original, TrackLinking.selection(original, pair[1].id), ticks(1.0))
         assertSame(gapped, gapped.settingTransition(dissolve, 1))
     }
 
@@ -235,7 +233,7 @@ class TrackTransitionsTest {
         val timeline = EditState(listOf(a, b, c)).toTimeline().settingTransition(settings(0.5), 1).settingTransition(settings(0.5), 2)
         assertEquals(ticks(5.0), timeline.duration)
         val priorLast = timeline.video[2].start
-        val removal = timeline.removing(TrackEditing.selection(timeline, b.id), priorLast + ticks(1.0))
+        val removal = timeline.removing(TrackLinking.selection(timeline, b.id), priorLast + ticks(1.0))
         val after = removal.timeline
         assertEquals(after.picture(c.id).start + ticks(1.0), removal.position)
         assertEquals(after.video[0].end, after.video[1].start)
@@ -250,7 +248,7 @@ class TrackTransitionsTest {
         val timeline = three.settingTransition(settings(3.0), 1).settingTransition(settings(3.0), 2)
         val shortened = timeline.transitions[1]
         assertTrue(shortened.factor < 1)
-        val without = timeline.removing(TrackEditing.selection(timeline, clips[0].id)).timeline
+        val without = timeline.removing(TrackLinking.selection(timeline, clips[0].id)).timeline
         assertEquals(listOf(shortened.id), without.transitions.map { it.id })
         // It keeps the fit it was given, though the middle clip now has room for all of it.
         assertEquals(shortened.factor, without.transitions[0].factor, 0.0)
@@ -296,7 +294,7 @@ class TrackTransitionsTest {
     @Test
     fun anOpeningGoesWhereItsPictureGoes() {
         val faded = three.settingTransition(settings(1.0), 0)
-        val moved = move(faded, TrackEditing.selection(faded, clips[0].id), ticks(12.0))
+        val moved = TrackMove.moved(faded, TrackLinking.selection(faded, clips[0].id), ticks(12.0))
         val layout = moved.layout()
         val fade = layout.joins.first { it.transition != null }
         assertEquals(12.0, fade.time, 0.0)
@@ -323,15 +321,15 @@ class TrackTransitionsTest {
         assertEquals(before.transitions.first { it.id == close.id }.origin, after.transitions.first { it.id == close.id }.origin)
         assertAtRest("after", after, listOf(long))
         // A split leaves the opening on the first piece and takes the close to the last.
-        val split = ends.split(ticks(2.0), TrackEditing.entire(ends)).timeline.split(ticks(10.0), TrackEditing.entire(ends)).timeline
+        val split = ends.split(ticks(2.0), TrackLinking.entireSelection(ends)).timeline.split(ticks(10.0), TrackLinking.entireSelection(ends)).timeline
         assertEquals(clips[0].id, split.transitions.first { it.id == opening.id }.incoming)
         assertEquals(split.video.last().id, split.transitions.first { it.id == close.id }.outgoing)
         // Deleting the picture deletes its fade; the other stays.
-        val gone = ends.removing(TrackEditing.selection(ends, clips[0].id)).timeline
+        val gone = ends.removing(TrackLinking.selection(ends, clips[0].id)).timeline
         assertEquals(listOf(close.id), gone.transitions.map { it.id })
         assertEquals(ticks(7.0), gone.transitions[0].origin)
         // An opening is never dropped for want of footage: its picture cut to less than it lasts keeps it.
-        val short = ends.scoped(TrackEditing.selection(ends, clips[0].id, range = EditInterval.of(0.5, 4.0))).let { it.timeline.removing(it.selection).timeline }
+        val short = ends.scoped(TrackLinking.selection(ends, clips[0].id, range = EditInterval.of(0.5, 4.0))).let { it.timeline.removing(it.selection).timeline }
         assertTrue(short.transitions.any { it.id == opening.id })
         assertAtRest("short", short, listOf(long))
     }
@@ -340,7 +338,7 @@ class TrackTransitionsTest {
     @Test
     fun aTransitionTakesThePlaceOfTheFadesOnItsSides() {
         var fades = three.settingTransition(settings(1.0, TransitionStyle.FadeColor), 0).settingTransition(settings(1.0, TransitionStyle.FadeColor), 3)
-        fades = move(fades, TrackEditing.selection(fades, clips[0].id), ticks(12.0))
+        fades = TrackMove.moved(fades, TrackLinking.selection(fades, clips[0].id), ticks(12.0))
         val replaced = fades.settingTransition(settings(1.0), fades.layout().boundary(12.0)!!.index)
         replaced.validate(listOf(long))
         assertEquals(1, replaced.transitions.size)
@@ -358,7 +356,7 @@ class TrackTransitionsTest {
     @Test
     fun aTransitionUnderOneFrameStillTakesTheFadesOnItsSidesAway() {
         var fades = three.settingTransition(settings(1.0, TransitionStyle.FadeColor), 0).settingTransition(settings(1.0, TransitionStyle.FadeColor), 3)
-        fades = move(fades, TrackEditing.selection(fades, clips[0].id), ticks(12.0))
+        fades = TrackMove.moved(fades, TrackLinking.selection(fades, clips[0].id), ticks(12.0))
         assertEquals(2, fades.generated.size)
         val none = fades.settingTransition(settings(0.01), fades.layout().boundary(12.0)!!.index)
         assertTrue(none.transitions.isEmpty())
@@ -373,9 +371,9 @@ class TrackTransitionsTest {
     /** Tests/TrackTimelineTests.swift:843-846: "Transition after Move edits the correct cut". */
     @Test
     fun aTransitionSetAfterAMoveJoinsThePicturesThatMeetThere() {
-        var reordered = move(three, TrackEditing.selection(three, clips[0].id), ticks(12.0))
-        reordered = move(reordered, TrackEditing.selection(reordered, clips[2].id), ticks(-8.0))
-        reordered = move(reordered, TrackEditing.selection(reordered, clips[0].id), ticks(-4.0))
+        var reordered = TrackMove.moved(three, TrackLinking.selection(three, clips[0].id), ticks(12.0))
+        reordered = TrackMove.moved(reordered, TrackLinking.selection(reordered, clips[2].id), ticks(-8.0))
+        reordered = TrackMove.moved(reordered, TrackLinking.selection(reordered, clips[0].id), ticks(-4.0))
         val dissolved = reordered.settingTransition(settings(1.0), reordered.layout().boundary(4.0)!!.index)
         dissolved.validate(listOf(long))
         assertEquals(clips[2].id, dissolved.transitions.first().outgoing)
@@ -387,7 +385,7 @@ class TrackTransitionsTest {
     fun aPictureLaidOverATransitionDoesNotHideIt() {
         val dissolved = three.settingTransition(settings(1.0), 1)
         var extra = EditState(listOf(TimelineClip(uuid(50), long.id, 0.0, 1.0))).toTimeline()
-        extra = move(extra, TrackEditing.entire(extra), ticks(1.0))
+        extra = TrackMove.moved(extra, TrackLinking.entireSelection(extra), ticks(1.0))
         val covered = dissolved.copy(video = dissolved.video + extra.video, audio = dissolved.audio + extra.audio, links = dissolved.links + extra.links)
         val layout = covered.layout()
         assertTrue(layout.joins.any { it.transition?.id == dissolved.transitions[0].id && it.outgoingID == clips[0].id })
@@ -455,7 +453,7 @@ class TrackTransitionsTest {
         // "Internal transition handles cannot masquerade as ordinary trim edges".
         assertTrue(outgoing.trimsLeft && !outgoing.trimsRight && !incoming.trimsLeft && incoming.trimsRight)
         // "Independently editable overlapping sound keeps separate lanes".
-        val detached = unlink(joined, TrackEditing.selection(joined, clips[0].id))
+        val detached = TrackLinking.unlinked(joined, TrackLinking.selection(joined, clips[0].id))
         assertEquals(2, detached.lanes().filter { it.audio }.map { it.row }.toSet().size)
         // "A deliberate overlay remains a complete separate card above the compact transition".
         val cover = TimelineClip(uuid(60), long.id, 8.0, 10.0)
@@ -464,7 +462,7 @@ class TrackTransitionsTest {
         assertEquals(EditInterval.of(2.0, 4.0), layers.first { it.id == cover.id }.interval)
         assertEquals(2, layers.filter { !it.audio }.map { it.row }.toSet().size)
         // "Move exposes full source extents for accurate placement".
-        assertTrue(joined.lanes(TrackEditing.selection(joined, clips[0].id).ids).all { it.interval == it.contentInterval })
+        assertTrue(joined.lanes(TrackLinking.selection(joined, clips[0].id).ids).all { it.interval == it.contentInterval })
         // "Removing the transition reveals the actual overlap instead of concealing a layer".
         assertEquals(2, joined.copy(transitions = emptyList()).pruned().lanes().filter { !it.audio }.map { it.row }.toSet().size)
     }
@@ -499,7 +497,7 @@ class TrackTransitionsTest {
                     } ?: timeline
                     3 -> join()?.let { timeline.restoringStraightCut(it) } ?: timeline
                     4 -> TrackEditing.splitAtPlayhead(timeline, time.seconds)
-                    5 -> item()?.let { timeline.removing(TrackEditing.selection(timeline, it), time).timeline } ?: timeline
+                    5 -> item()?.let { timeline.removing(TrackLinking.selection(timeline, it), time).timeline } ?: timeline
                     6 -> picture()?.let { TrackEditing.settingSpeed(timeline, it, SpeedSettings(rate = random.next(0.25, 4.0))) } ?: timeline
                     7 -> item()?.let { TrackEditing.trimming(timeline, it, random.next() < 0.5, random.next(-2.0, 2.0), all)?.timeline } ?: timeline
                     8 -> time.seconds.let { TrackEditing.removing(timeline, it, it + random.next(0.0, 3.0)).timeline }
@@ -508,7 +506,7 @@ class TrackTransitionsTest {
                         val item = timeline.video.first { it.id == id }
                         TrackEditing.settingSourceBounds(timeline, id, item.content.start, item.content.start + (item.content.end - item.content.start) * random.next(0.2, 1.0))
                     } ?: timeline
-                    else -> item()?.let { move(timeline, TrackEditing.selection(timeline, it), ticks(random.next(-5.0, 5.0))) } ?: timeline
+                    else -> item()?.let { TrackMove.moved(timeline, TrackLinking.selection(timeline, it), ticks(random.next(-5.0, 5.0))) } ?: timeline
                 }
                 assertAtRest("round $round, step $step, operation $operation", timeline, all)
                 assertFalse(timeline.transitions.any { relation -> timeline.generated.none { it.owner == relation.id } })

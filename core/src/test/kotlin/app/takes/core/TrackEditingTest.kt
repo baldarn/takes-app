@@ -2,9 +2,7 @@ package app.takes.core
 
 import app.takes.core.TrackEditingSupport.assertAtRest
 import app.takes.core.TrackEditingSupport.assertLanesAreDisjoint
-import app.takes.core.TrackEditingSupport.move
 import app.takes.core.TrackEditingSupport.ticks
-import app.takes.core.TrackEditingSupport.unlink
 import app.takes.core.TrackFixtures.uuid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,7 +24,7 @@ class TrackEditingTest {
     private val a = TimelineClip(uuid(2), source.id, 0.0, 2.0)
     private val b = TimelineClip(uuid(3), source.id, 2.0, 4.0)
     private val baseline = EditState(listOf(a, b)).toTimeline()
-    private val first = TrackEditing.selection(baseline, a.id)
+    private val first = TrackLinking.selection(baseline, a.id)
 
     // Tests/TrackTimelineTests.swift:539-541, :809-810: three clips of four seconds from one source.
     private val long = SourceMedia(id = uuid(20), filename = "source.mp4", duration = 20.0)
@@ -44,11 +42,11 @@ class TrackEditingTest {
     fun aLinkedSelectionIsThePictureAndItsSound() {
         assertEquals(setOf(a.id), first.video)
         assertEquals(setOf(TrackTimeline.counterpart(a.id)), first.audio)
-        assertEquals(first, TrackEditing.selection(baseline, setOf(baseline.audio[0].id)))
-        assertEquals(TimelineSelection(audio = setOf(baseline.audio[0].id)), TrackEditing.selection(baseline, baseline.audio[0].id, linked = false))
-        assertEquals(EditInterval(ticks(0.0), ticks(2.0)), TrackEditing.interval(baseline, first))
-        assertEquals(EditInterval(ticks(0.0), ticks(4.0)), TrackEditing.interval(baseline, TrackEditing.entire(baseline)))
-        assertNull(TrackEditing.interval(baseline, TimelineSelection()))
+        assertEquals(first, TrackLinking.selection(baseline, setOf(baseline.audio[0].id)))
+        assertEquals(TimelineSelection(audio = setOf(baseline.audio[0].id)), TrackLinking.selection(baseline, baseline.audio[0].id, linked = false))
+        assertEquals(EditInterval(ticks(0.0), ticks(2.0)), TrackLinking.interval(baseline, first))
+        assertEquals(EditInterval(ticks(0.0), ticks(4.0)), TrackLinking.interval(baseline, TrackLinking.entireSelection(baseline)))
+        assertNull(TrackLinking.interval(baseline, TimelineSelection()))
     }
 
     // MARK: Split
@@ -69,13 +67,13 @@ class TrackEditingTest {
     fun aCutAtTheEndCutsNothing() {
         assertEquals(baseline, TrackEditing.splitAtPlayhead(baseline, 4.0, first.ids))
         assertEquals(baseline, TrackEditing.splitAtPlayhead(baseline, 0.0))
-        assertEquals(baseline, baseline.split(ticks(2.0), TrackEditing.entire(baseline)).timeline)
+        assertEquals(baseline, baseline.split(ticks(2.0), TrackLinking.entireSelection(baseline)).timeline)
     }
 
     /** Tests/TrackTimelineTests.swift:43-48: "An explicitly selected detached audio part at the playhead still splits independently". */
     @Test
     fun aSelectedUnlinkedSoundIsCutOnItsOwn() {
-        val separate = unlink(baseline, first)
+        val separate = TrackLinking.unlinked(baseline, first)
         assertEquals(baseline.video, separate.video)
         assertEquals(baseline.audio.map { it.mapping }, separate.audio.map { it.mapping })
         val cut = TrackEditing.splitAtPlayhead(separate, 1.0, setOf(separate.audio[0].id))
@@ -87,7 +85,7 @@ class TrackEditingTest {
     @Test
     fun aSplitMakesLinkedPairsAndKeepsBookmarksOnTheirFootage() {
         val marked = baseline.copy(bookmarks = listOf(TimelineBookmark(uuid(9), anchor = BookmarkAnchor.Source(a.id, source.id, 1.0))))
-        val (cut, children) = marked.split(ticks(1.0), TrackEditing.selection(marked, a.id))
+        val (cut, children) = marked.split(ticks(1.0), TrackLinking.selection(marked, a.id))
         assertEquals(baseline.duration, cut.duration)
         assertEquals(3, cut.video.size)
         assertEquals(3, cut.audio.size)
@@ -103,7 +101,7 @@ class TrackEditingTest {
         assertEquals(setOf(a.id, TrackTimeline.counterpart(a.id)), cut.links.first { it.id == a.id }.members)
         assertEquals(right.id, cut.audio.first { it.id == children[TrackTimeline.counterpart(a.id)] }.followsVideo)
         assertEquals(listOf(ticks(1.0)), cut.resolvedBookmarks.map { it.time })
-        val moved = move(cut, TrackEditing.selection(cut, right.id), ticks(4.0))
+        val moved = TrackMove.moved(cut, TrackLinking.selection(cut, right.id), ticks(4.0))
         assertEquals(ticks(5.0), moved.resolvedBookmarks[0].time)
         moved.validate(listOf(source))
     }
@@ -119,13 +117,13 @@ class TrackEditingTest {
             val graph = EditState(listOf(clip)).toTimeline()
             val end = graph.duration
             val at = EditTime(maxOf(1L, (end.ticks.toDouble() * (0.1 + random.next() * 0.8)).toLong()))
-            val cut = graph.split(at, TrackEditing.entire(graph)).timeline
+            val cut = graph.split(at, TrackLinking.entireSelection(graph)).timeline
             assertEquals(at, cut.video[0].end)
             assertEquals(at, cut.video[1].start)
             assertEquals(end, cut.video[1].end)
             assertEquals(at, cut.audio[0].end)
             assertEquals(end, cut.audio[1].end)
-            val selected = cut.scoped(TrackEditing.entire(cut, EditInterval(at, end)))
+            val selected = cut.scoped(TrackLinking.entireSelection(cut, EditInterval(at, end)))
             assertEquals(1, selected.selection.video.size)
             assertEquals(1, selected.selection.audio.size)
         }
@@ -134,12 +132,12 @@ class TrackEditingTest {
     @Test
     fun aSplitOfOnePictureOfAPlacementKeepsThePlacementOnTheSideThatStillOverlaps() {
         // Clip 1 moved over the second half of clip 0.
-        val stacked = move(original, TrackEditing.selection(original, clips[1].id), ticks(-2.0))
+        val stacked = TrackMove.moved(original, TrackLinking.selection(original, clips[1].id), ticks(-2.0))
         val region = VideoPlacementRegion(uuid(60), setOf(clips[0].id, clips[1].id), mapOf(clips[0].id to VideoPlacement(), clips[1].id to VideoPlacement(width = 0.5, order = 1)))
         val placed = stacked.copy(placements = listOf(region))
         assertEquals(placed, placed.pruned())
         // Cut clip 0 at 1 s: only its later piece still plays with clip 1.
-        val (cut, children) = placed.split(ticks(1.0), TrackEditing.selection(placed, clips[0].id))
+        val (cut, children) = placed.split(ticks(1.0), TrackLinking.selection(placed, clips[0].id))
         val later = children.getValue(clips[0].id)
         assertEquals(listOf(setOf(later, clips[1].id)), cut.placements.map { it.participants })
         assertEquals(VideoPlacement(width = 0.5, order = 1), cut.placements[0].videos[clips[1].id])
@@ -156,7 +154,7 @@ class TrackEditingTest {
             assertEquals("$before", ticks(after), baseline.removing(first, ticks(before)).position)
         }
         // :33-34: "A later deletion leaves the playhead untouched".
-        assertEquals(ticks(0.75), baseline.removing(TrackEditing.selection(baseline, b.id), ticks(0.75)).position)
+        assertEquals(ticks(0.75), baseline.removing(TrackLinking.selection(baseline, b.id), ticks(0.75)).position)
         assertNull(baseline.removing(first).position)
         assertEquals(TrackEditing.Removal(baseline, ticks(1.0)), baseline.removing(TimelineSelection(), ticks(1.0)))
     }
@@ -185,13 +183,13 @@ class TrackEditingTest {
     /** Tests/TrackTimelineTests.swift:49-56: an unlinked sound or picture deleted on its own leaves a gap and moves nothing. */
     @Test
     fun anUnlinkedDeletionLeavesAGap() {
-        val separate = unlink(baseline, first)
-        val sound = separate.removing(TrackEditing.selection(separate, baseline.audio[0].id), ticks(3.0))
+        val separate = TrackLinking.unlinked(baseline, first)
+        val sound = separate.removing(TrackLinking.selection(separate, baseline.audio[0].id), ticks(3.0))
         assertEquals(ticks(3.0), sound.position)
         assertEquals(baseline.video, sound.timeline.video)
         assertEquals(listOf(baseline.audio[1]), sound.timeline.audio)
         assertEquals(ticks(4.0), sound.timeline.duration)
-        val picture = separate.removing(TrackEditing.selection(separate, a.id), ticks(1.0))
+        val picture = separate.removing(TrackLinking.selection(separate, a.id), ticks(1.0))
         assertEquals(ticks(1.0), picture.position)
         assertEquals(separate.audio, picture.timeline.audio)
         assertEquals(listOf(baseline.video[1]), picture.timeline.video)
@@ -201,7 +199,7 @@ class TrackEditingTest {
     /** Tests/TrackTimelineTests.swift:66-70: "Deleting a linked clip never cuts or shifts detached audio". */
     @Test
     fun aLinkedDeletionNeverMovesSoundThatWasUnlinked() {
-        val bed = unlink(baseline, TrackEditing.selection(baseline, b.id))
+        val bed = TrackLinking.unlinked(baseline, TrackLinking.selection(baseline, b.id))
         val detached = bed.audio[1]
         val removed = bed.removing(first).timeline
         assertTrue(detached in removed.audio)
@@ -212,7 +210,7 @@ class TrackEditingTest {
     /** Tests/TrackTimelineTests.swift:83-88: a range is cut out of linked picture and sound and the exact interval closes. */
     @Test
     fun aRangeDeletionClosesExactlyTheRange() {
-        val scope = baseline.scoped(TrackEditing.entire(baseline, EditInterval.of(0.5, 3.5)))
+        val scope = baseline.scoped(TrackLinking.entireSelection(baseline, EditInterval.of(0.5, 3.5)))
         assertEquals(2, scope.selection.video.size)
         assertEquals(2, scope.selection.audio.size)
         assertNull(scope.selection.range)
@@ -229,7 +227,7 @@ class TrackEditingTest {
     fun aDeletionCountsPlayedTimeNotSourceTime() {
         val retimed = EditState(listOf(a.copy(speed = SpeedSettings(rate = 1.5)), b)).toTimeline()
         val prior = retimed.video[1].start + ticks(0.5)
-        assertEquals(ticks(0.5), retimed.removing(TrackEditing.selection(retimed, a.id), prior).position)
+        assertEquals(ticks(0.5), retimed.removing(TrackLinking.selection(retimed, a.id), prior).position)
     }
 
     @Test
@@ -276,7 +274,7 @@ class TrackEditingTest {
     /** Tests/TrackTimelineTests.swift:186-187: "Close gap removes only time empty on every lane". */
     @Test
     fun closingAGapRemovesOnlyTimeThatIsEmptyOnEveryLane() {
-        val moved = move(baseline, TrackEditing.entire(baseline), ticks(1.0))
+        val moved = TrackMove.moved(baseline, TrackLinking.entireSelection(baseline), ticks(1.0))
         assertNull(TrackEditing.gap(moved, ticks(1.0)))
         assertNull(TrackEditing.gap(moved, ticks(5.0)))
         assertEquals(EditInterval(EditTime.ZERO, ticks(1.0)), TrackEditing.gap(moved, ticks(0.5)))
@@ -286,7 +284,7 @@ class TrackEditingTest {
         assertEquals(baseline.audio, closed.audio)
         assertEquals(listOf(EditTime.ZERO, ticks(2.0)), closed.resolvedBookmarks.map { it.time })
         // Sound alone under a picture gap is not empty time.
-        val separate = unlink(baseline, first)
+        val separate = TrackLinking.unlinked(baseline, first)
         val hole = separate.removing(TimelineSelection(video = setOf(a.id))).timeline
         assertNull(TrackEditing.gap(hole, ticks(1.0)))
         assertSame(hole, hole.closingGap(ticks(1.0)))
@@ -318,7 +316,7 @@ class TrackEditingTest {
     @Test
     fun clipsInsertedAtASiteUseFreePictureTimeFirst() {
         // A picture gap of one second after the first clip, with nothing else moved.
-        val gapped = move(baseline, TrackEditing.selection(baseline, b.id), ticks(1.0))
+        val gapped = TrackMove.moved(baseline, TrackLinking.selection(baseline, b.id), ticks(1.0))
         val short = TimelineClip(uuid(80), source.id, 0.0, 0.5)
         val fitted = TrackEditing.inserting(gapped, listOf(short), 0.0, VideoInsertionSite.Gap(2.0))
         assertEquals(gapped.duration, fitted.duration)
@@ -342,19 +340,19 @@ class TrackEditingTest {
     fun extendingRevealsTheSourceAndTheLinkedSoundFollows() {
         var reveal = EditState(listOf(TimelineClip(uuid(90), source.id, 1.0, 3.0))).toTimeline()
         val id = reveal.video[0].id
-        reveal = move(reveal, TrackEditing.entire(reveal), ticks(2.0))
-        reveal = reveal.extending(TrackEditing.selection(reveal, id), left = true, by = ticks(1.0), sources = listOf(source))
+        reveal = TrackMove.moved(reveal, TrackLinking.entireSelection(reveal), ticks(2.0))
+        reveal = reveal.extending(TrackLinking.selection(reveal, id), left = true, by = ticks(1.0), sources = listOf(source))
         assertEquals(ticks(1.0), reveal.video[0].start)
         assertEquals(0.0, reveal.video[0].content.start, 0.0)
         assertEquals(reveal.video[0].mapping, reveal.audio[0].mapping)
         assertEquals(ticks(3.0), reveal.video[0].mapping.duration)
         assertAtRest("reveal", reveal, listOf(source))
         // No more than the source has, and no further left than zero.
-        val all = reveal.extending(TrackEditing.selection(reveal, id), left = false, by = ticks(30.0), sources = listOf(source))
+        val all = reveal.extending(TrackLinking.selection(reveal, id), left = false, by = ticks(30.0), sources = listOf(source))
         assertEquals(4.0, all.video[0].content.end, 0.0)
         assertEquals(ticks(5.0), all.video[0].end)
-        assertSame(all, all.extending(TrackEditing.selection(all, id), left = false, by = ticks(1.0), sources = listOf(source)))
-        assertSame(all, all.extending(TrackEditing.selection(all, id), left = true, by = ticks(1.0), sources = listOf(source)))
+        assertSame(all, all.extending(TrackLinking.selection(all, id), left = false, by = ticks(1.0), sources = listOf(source)))
+        assertSame(all, all.extending(TrackLinking.selection(all, id), left = true, by = ticks(1.0), sources = listOf(source)))
     }
 
     /**
@@ -364,17 +362,17 @@ class TrackEditingTest {
     @Test
     fun extendingKeepsAChainOnTheSameSound() {
         var enhanced = EditState(listOf(TimelineClip(uuid(90), long.id, 2.0, 8.0))).toTimeline()
-        enhanced = move(enhanced, TrackEditing.entire(enhanced), ticks(2.0))
+        enhanced = TrackMove.moved(enhanced, TrackLinking.entireSelection(enhanced), ticks(2.0))
         val region = AudioEnhancementRegion(uuid(91), EditInterval.of(0.5, 5.1), listOf(AudioEffect.make(AudioEffectKind.HighPass, uuid(92))))
         enhanced = enhanced.copy(audio = listOf(enhanced.audio[0].copy(enhancements = listOf(region))))
         for (left in listOf(false, true)) {
-            val extended = enhanced.extending(TrackEditing.entire(enhanced), left, ticks(1.0), listOf(long))
+            val extended = enhanced.extending(TrackLinking.entireSelection(enhanced), left, ticks(1.0), listOf(long))
             extended.validate(listOf(long))
             assertEquals(listOf(region.id), extended.audio[0].enhancements.map { it.id })
             assertEquals(if (left) EditInterval.of(1.5, 6.1) else EditInterval.of(0.5, 5.1), extended.audio[0].enhancements[0].interval)
         }
         // The same for a sound that follows no picture: its own run grows, and on the left its regions move with the sound.
-        val separate = unlink(enhanced, TrackEditing.entire(enhanced))
+        val separate = TrackLinking.unlinked(enhanced, TrackLinking.entireSelection(enhanced))
         val sound = TimelineSelection(audio = setOf(separate.audio[0].id))
         val left = separate.extending(sound, true, ticks(1.0), listOf(long))
         assertEquals(EditInterval.of(1.5, 6.1), left.audio[0].enhancements[0].interval)
@@ -388,9 +386,9 @@ class TrackEditingTest {
     @Test
     fun extendingIntoANewOverlapComesInFront() {
         val lower = clips[0].id
-        val cut = original.split(ticks(2.0), TrackEditing.selection(original, lower)).timeline
+        val cut = original.split(ticks(2.0), TrackLinking.selection(original, lower)).timeline
         val child = cut.video.first { it.start == ticks(2.0) }
-        val reveal = cut.extending(TrackEditing.selection(cut, lower), left = false, by = ticks(1.0), sources = listOf(long))
+        val reveal = cut.extending(TrackLinking.selection(cut, lower), left = false, by = ticks(1.0), sources = listOf(long))
         val overlap = reveal.compile().first { lower in it.video && child.id in it.video }
         assertEquals(lower, overlap.video.last())
         val lanes = reveal.lanes()
@@ -460,7 +458,7 @@ class TrackEditingTest {
     /** Tests/TrackTimelineTests.swift:811-817: speed leaves a picture playing over it where it is and ripples the linked sequence. */
     @Test
     fun speedLeavesAConcurrentLayerInPlaceAndRipplesTheSequence() {
-        val overlapped = move(original, TrackEditing.selection(original, clips[1].id), ticks(-3.0))
+        val overlapped = TrackMove.moved(original, TrackLinking.selection(original, clips[1].id), ticks(-3.0))
         val fast = overlapped.withSpeed(0, 4.0)
         fast.validate(listOf(long))
         assertEquals(ticks(1.0), fast.picture(clips[1].id).start)
@@ -476,7 +474,7 @@ class TrackEditingTest {
     fun retimingAnOverlayNeverRipplesTheSequenceUnderIt() {
         val overlay = TimelineClip(uuid(110), long.id, 12.0, 14.0)
         var tracks = EditState(listOf(overlay)).toTimeline()
-        tracks = move(tracks, TrackEditing.entire(tracks), ticks(1.0))
+        tracks = TrackMove.moved(tracks, TrackLinking.entireSelection(tracks), ticks(1.0))
         tracks = tracks.copy(video = tracks.video.map { it.copy(layer = 9) })
         val composite = original.copy(video = original.video + tracks.video, audio = original.audio + tracks.audio, links = original.links + tracks.links)
         for (rate in listOf(0.5, 2.0)) {
@@ -495,7 +493,7 @@ class TrackEditingTest {
     /** Tests/TrackTimelineTests.swift:650-656: "Slowing detached picture reveals its extended footage instead of hiding it". */
     @Test
     fun slowingAnUnlinkedPictureMovesNothingAndComesInFront() {
-        val slowed = unlink(original, TrackEditing.entire(original)).withSpeed(0, 0.5)
+        val slowed = TrackLinking.unlinked(original, TrackLinking.entireSelection(original)).withSpeed(0, 0.5)
         assertEquals(original.video.map { it.start }, slowed.video.map { it.start })
         assertEquals(original.audio, slowed.audio.map { it.copy(followsVideo = it.id.let { id -> original.audio.first { o -> o.id == id }.followsVideo }) })
         assertEquals(clips[0].id, slowed.compile().first { clips[0].id in it.video && clips[1].id in it.video }.video.last())
@@ -544,7 +542,7 @@ class TrackEditingTest {
     @Test
     fun aMarkedRangeFollowsItsFootageThroughSpeedToolsAndSplits() {
         val whole = EditState(listOf(TimelineClip(uuid(140), long.id, 0.0, 20.0))).toTimeline()
-        val selected = TrackEditing.entire(whole, EditInterval.of(2.0, 8.0))
+        val selected = TrackLinking.entireSelection(whole, EditInterval.of(2.0, 8.0))
         val scope = whole.scoped(selected)
         val index = scope.timeline.projectedClips.indexOfFirst { it.id in scope.selection.video }
         val retimed = scope.timeline.withSpeed(index, 2.0)
@@ -572,9 +570,9 @@ class TrackEditingTest {
     /** Tests/TrackTimelineTests.swift:836-842: "Move derives joins from actual time order". */
     @Test
     fun theLayoutReadsJoinsFromTheOrderPicturesPlayIn() {
-        var reordered = move(original, TrackEditing.selection(original, clips[0].id), ticks(12.0))
-        reordered = move(reordered, TrackEditing.selection(reordered, clips[2].id), ticks(-8.0))
-        reordered = move(reordered, TrackEditing.selection(reordered, clips[0].id), ticks(-4.0))
+        var reordered = TrackMove.moved(original, TrackLinking.selection(original, clips[0].id), ticks(12.0))
+        reordered = TrackMove.moved(reordered, TrackLinking.selection(reordered, clips[2].id), ticks(-8.0))
+        reordered = TrackMove.moved(reordered, TrackLinking.selection(reordered, clips[0].id), ticks(-4.0))
         val layout = TrackLayout.of(reordered)
         assertEquals(listOf(0.0, 4.0, 8.0, 12.0), layout.joins.filter { it.selectable }.map { it.time })
         assertEquals(clips[2].id, layout.boundary(4.0)?.outgoingID)
@@ -588,11 +586,11 @@ class TrackEditingTest {
 
     @Test
     fun aPlaceBetweenPicturesThatDoNotMeetIsNoJoin() {
-        val gapped = move(original, TrackEditing.selection(original, clips[2].id), ticks(1.0))
+        val gapped = TrackMove.moved(original, TrackLinking.selection(original, clips[2].id), ticks(1.0))
         val layout = TrackLayout.of(gapped)
         assertEquals(listOf(true, true, false, true), layout.joins.map { it.selectable })
         assertNull(layout.boundary(8.0))
-        val late = move(original, TrackEditing.entire(original), ticks(1.0))
+        val late = TrackMove.moved(original, TrackLinking.entireSelection(original), ticks(1.0))
         assertFalse(TrackLayout.of(late).joins[0].selectable)
         val empty = TrackLayout.of(TrackTimeline())
         assertTrue(empty.joins.isEmpty() && empty.placements.isEmpty())
@@ -648,13 +646,13 @@ class TrackEditingTest {
                 fun picture(): String? = timeline.video.let { if (it.isEmpty()) null else it[random.below(it.size)].id }
                 val operation = random.below(13)
                 timeline = when (operation) {
-                    0 -> timeline.split(time, TrackEditing.entire(timeline)).timeline
-                    1 -> item()?.let { timeline.split(time, TrackEditing.selection(timeline, it)).timeline } ?: timeline
-                    2 -> item()?.let { timeline.removing(TrackEditing.selection(timeline, it), time).timeline } ?: timeline
-                    3 -> item()?.let { timeline.removing(TrackEditing.selection(timeline, it, linked = false)).timeline } ?: timeline
+                    0 -> timeline.split(time, TrackLinking.entireSelection(timeline)).timeline
+                    1 -> item()?.let { timeline.split(time, TrackLinking.selection(timeline, it)).timeline } ?: timeline
+                    2 -> item()?.let { timeline.removing(TrackLinking.selection(timeline, it), time).timeline } ?: timeline
+                    3 -> item()?.let { timeline.removing(TrackLinking.selection(timeline, it, linked = false)).timeline } ?: timeline
                     4 -> timeline.insertingTime(ticks(random.next(0.0, 2.0)), time, atPictureGap = random.next() < 0.3)
                     5 -> timeline.closingGap(time)
-                    6 -> item()?.let { timeline.extending(TrackEditing.selection(timeline, it), random.next() < 0.5, ticks(random.next(0.0, 3.0)), sources) } ?: timeline
+                    6 -> item()?.let { timeline.extending(TrackLinking.selection(timeline, it), random.next() < 0.5, ticks(random.next(0.0, 3.0)), sources) } ?: timeline
                     7 -> picture()?.let { TrackEditing.settingSpeed(timeline, it, SpeedSettings(rate = random.next(0.25, 4.0))) } ?: timeline
                     8 -> time.seconds.let { TrackEditing.removing(timeline, it, it + random.next(0.0, 3.0)).timeline }
                     9 -> item()?.let { TrackEditing.trimming(timeline, it, random.next() < 0.5, random.next(-2.0, 2.0), sources)?.timeline } ?: timeline
@@ -662,13 +660,62 @@ class TrackEditingTest {
                         timeline, listOf(TimelineClip(sourceID = TrackFixtures.second.id, start = 1.0, end = 1.0 + random.next(0.2, 3.0))), time.seconds,
                         listOf(null, VideoInsertionSite.Start, VideoInsertionSite.End, VideoInsertionSite.Gap(time.seconds))[random.below(4)],
                     )
-                    11 -> item()?.let { unlink(timeline, TrackEditing.selection(timeline, it)) } ?: timeline
-                    else -> item()?.let { move(timeline, TrackEditing.selection(timeline, it), ticks(random.next(-5.0, 5.0))) } ?: timeline
+                    11 -> item()?.let { TrackLinking.unlinked(timeline, TrackLinking.selection(timeline, it)) } ?: timeline
+                    else -> item()?.let { TrackMove.moved(timeline, TrackLinking.selection(timeline, it), ticks(random.next(-5.0, 5.0))) } ?: timeline
                 }
                 assertAtRest("round $round, step $step, operation $operation", timeline, sources)
                 // Nothing that was there is ever replaced by something else under its id.
                 if (operation in listOf(4, 5, 11)) assertEquals(before.allIDs, timeline.allIDs.intersect(before.allIDs))
             }
         }
+    }
+
+    // MARK: What the arranging operations build on
+
+    /** Tests/TrackTimelineTests.swift:29-34: the playhead through a deletion elsewhere, and no answer when none is asked for. */
+    @Test
+    fun aDeletionElsewhereLeavesThePlayheadAndNoneGivenAnswersNone() {
+        for ((before, after) in listOf(0.5 to 0.0, 2.0 to 0.0, 3.25 to 1.25, 4.0 to 2.0)) {
+            assertEquals("$before", ticks(after), TrackEditing.removing(baseline, first, ticks(before)).position)
+        }
+        assertEquals(ticks(0.75), TrackEditing.removing(baseline, TrackLinking.selection(baseline, b.id), ticks(0.75)).position)
+        assertNull(TrackEditing.removing(baseline, first).position)
+    }
+
+    /** Tests/TrackTimelineTests.swift:75-77: the later pieces are named, and nothing is cut on an edge or outside the selection. */
+    @Test
+    fun aCutNamesItsLaterPiecesAndCutsNothingOnAnEdgeOrOutsideTheSelection() {
+        val cut = TrackEditing.split(baseline, ticks(1.0), first)
+        assertEquals(setOf(a.id, TrackTimeline.counterpart(a.id)), cut.children.keys)
+        val right = cut.timeline.video[1]
+        assertEquals(a.id, right.occurrenceID)
+        assertEquals(ticks(1.0), right.localOrigin)
+        assertEquals(right.id, cut.timeline.audio[1].followsVideo)
+        assertEquals(baseline, TrackEditing.split(baseline, ticks(2.0), TrackLinking.entireSelection(baseline)).timeline)
+        assertEquals(baseline, TrackEditing.split(baseline, ticks(3.0), first).timeline)
+    }
+
+    /** Tests/TrackTimelineTests.swift:821-830: "Removing a linked transition restores the straight cut", by the transition's id. */
+    @Test
+    fun removingATransitionByItsIdRestoresTheStraightCut() {
+        val dissolve = TimelineEditing.setJoin(EditState(clips), 1, TransitionSettings(duration = 1.0))!!.toTimeline()
+        assertEquals(listOf(ticks(0.0), ticks(3.0), ticks(7.0)), dissolve.video.map { it.start })
+        assertEquals(original, TrackTransitions.removing(dissolve, dissolve.transitions[0].id))
+        assertEquals(dissolve, TrackTransitions.removing(dissolve, uuid(99)))
+    }
+
+    @Test
+    fun theJoinsOfASequenceAreItsCutsItsStartAndItsEnd() {
+        val joins = TrackLayout.of(baseline).joins
+        assertEquals(listOf(0.0, 2.0, 4.0), joins.map { it.time })
+        assertTrue(joins.all { it.selectable && it.transition == null })
+        assertEquals(listOf(null, a.id, b.id), joins.map { it.outgoingID })
+        assertEquals(listOf(a.id, b.id, null), joins.map { it.incomingID })
+        assertEquals(listOf(-1, 0, 1), joins.map { it.edge })
+        assertTrue(TrackLayout.of(TrackTimeline()).joins.isEmpty())
+        // Two pictures a tick apart follow one another and do not meet.
+        val apart = baseline.copy(video = baseline.video.map { if (it.id == b.id) it.copy(start = it.start + EditTime(1)) else it })
+        assertEquals(listOf(true, false, true), TrackLayout.of(apart).joins.map { it.selectable })
+        assertEquals(listOf(EditInterval.of(0.0, 2.0), EditInterval(ticks(2.0) + EditTime(1), ticks(4.0) + EditTime(1))), apart.videoCoverage)
     }
 }

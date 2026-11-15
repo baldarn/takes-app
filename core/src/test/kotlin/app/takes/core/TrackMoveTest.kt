@@ -82,7 +82,7 @@ class TrackMoveTest {
     @Test
     fun aBookmarkFollowsItsFootageThroughACutAndAMove() {
         var marks = baseline.addingBookmark(t(1.0))
-        marks = TrackArrangeSupport.split(marks, t(1.0), marks.selection(a.id)).timeline
+        marks = TrackEditing.split(marks, t(1.0), marks.selection(a.id)).timeline
         assertEquals(listOf(t(1.0)), marks.resolvedBookmarks.map { it.time })
         val right = marks.video.first { it.start == t(1.0) }
         marks = marks.moved(marks.selection(right.id), t(4.0))
@@ -159,7 +159,7 @@ class TrackMoveTest {
 
         // "An overlay cut exactly at a main edit follows its own continuation only"
         var stacked = detached.copy(video = detached.video + VideoTimelineItem.of(uuid(31), t(1.0), overlay, layer = 12))
-        stacked = TrackArrangeSupport.split(stacked, t(6.0), stacked.entireSelection()).timeline
+        stacked = TrackEditing.split(stacked, t(6.0), stacked.entireSelection()).timeline
         val overlayIDs = stacked.video.filter { it.layer == 12 }.mapTo(HashSet()) { it.id }
         assertEquals(2, overlayIDs.size)
         assertEquals(overlayIDs, stacked.moveChoices(stacked.selection(overlay.id)).right.video)
@@ -196,7 +196,7 @@ class TrackMoveTest {
     @Test
     fun aMarkedRangeRecruitsOutwardsFromItsOwnEnds() {
         val detached = timeline(five).let { it.unlinked(it.entireSelection()) }
-        val scoped = TrackArrangeSupport.scoped(detached, TimelineSelection(video = setOf(five[1].id), range = EditInterval.of(4.0, 5.0)))
+        val scoped = TrackEditing.scoped(detached, TimelineSelection(video = setOf(five[1].id), range = EditInterval.of(4.0, 5.0)))
         val range = scoped.timeline.moveChoices(scoped.selection)
         assertEquals(1, range.selected.video.size)
         assertEquals(3, range.left.video.size)
@@ -334,7 +334,7 @@ class TrackMoveTest {
                 base.selection(clips[1].id, range = EditInterval.of(5.0, 7.0)),
             )
             for (selection in selections) {
-                val scoped = TrackArrangeSupport.scoped(base, selection)
+                val scoped = TrackEditing.scoped(base, selection)
                 val moveRows = scoped.timeline.lanes(scoped.selection.ids).associate { it.id to it.row }
                 val priorVideo = scoped.timeline.video.associateBy { it.id }
                 val priorAudio = scoped.timeline.audio.associateBy { it.id }
@@ -357,7 +357,7 @@ class TrackMoveTest {
                     assertEquals(moved, TrackTimeline.decoded(moved.encoded()))
                     // Deleting what was moved shows what it covered, whole.
                     var deleted = moved.unlinked(moved.entireSelection())
-                    deleted = TrackArrangeSupport.remove(deleted, scoped.selection).timeline
+                    deleted = TrackEditing.removing(deleted, scoped.selection).timeline
                     for (item in deleted.video) {
                         assertEquals(priorVideo.getValue(item.id).content, item.content)
                         assertEquals(priorVideo.getValue(item.id).mapping, item.mapping)
@@ -375,7 +375,7 @@ class TrackMoveTest {
     fun aHundredMixedMovesKeepEveryItemAndAllItsFootage() {
         var sequence = original.moved(original.selection(clips[1].id), t(-2.0))
         lanesAreDisjoint(sequence)
-        sequence = TrackArrangeSupport.split(sequence, t(3.0), sequence.selection(clips[1].id)).timeline
+        sequence = TrackEditing.split(sequence, t(3.0), sequence.selection(clips[1].id)).timeline
         val secondPieces = sequence.video.filter { it.occurrenceID == clips[1].id }.mapTo(HashSet()) { it.id }
         val joined = done(sequence.joining(sequence.selection(secondPieces)))
         sequence = joined.timeline.moved(joined.selection, t(1.0))
@@ -429,7 +429,7 @@ class TrackMoveTest {
             video = timeline.video + over,
             placements = listOf(VideoPlacementRegion(participants = setOf(base.id, over.id), videos = mapOf(base.id to window, over.id to window))),
         )
-        timeline = TrackArrangeSupport.split(timeline, t(4.0), TimelineSelection(video = setOf(base.id))).timeline
+        timeline = TrackEditing.split(timeline, t(4.0), TimelineSelection(video = setOf(base.id))).timeline
         assertEquals(1, timeline.placements.size)
         val moved = timeline.moved(TimelineSelection(video = setOf(over.id)), t(4.0))
         val plan = moved.compile().first { t(5.5) in it.interval }
@@ -513,7 +513,7 @@ class TrackMoveTest {
         val blend = TimelineEditing.setJoin(EditState(scenes), 1, TransitionSettings(duration = 1.0))!!.toTimeline()
         val last = blend.selection(scenes[2].id)
         val folded = TrackMove.boundaries(blend, last, last)
-        val join = TrackArrangeSupport.joins(blend).first { it.transition != null }
+        val join = TrackLayout.of(blend).joins.first { it.transition != null }
         assertTrue(EditTime.of(join.time) in folded.times)
         assertFalse(blend.video[1].start in folded.times)
         assertFalse(blend.video[0].end in folded.times)
@@ -526,7 +526,7 @@ class TrackMoveTest {
     /** Tests/MoveBoundaryChecks.swift:60-67. */
     @Test
     fun aMarkedRangeIsAlignedFromItsOwnStartAndSeparatePartsMoveTogether() {
-        val scoped = TrackArrangeSupport.scoped(base, base.entireSelection(EditInterval.of(1.25, 3.25)))
+        val scoped = TrackEditing.scoped(base, base.entireSelection(EditInterval.of(1.25, 3.25)))
         val partial = TrackMove.boundaries(scoped.timeline, scoped.selection, scoped.selection)
         assertEquals(t(1.25), partial.anchor)
         assertEquals(t(3.25), partial.next(t(1.25)))
@@ -543,9 +543,10 @@ class TrackMoveTest {
         var reordered = original.moved(original.selection(clips[0].id), t(12.0))
         reordered = reordered.moved(reordered.selection(clips[2].id), t(-8.0))
         reordered = reordered.moved(reordered.selection(clips[0].id), t(-4.0))
-        val joins = TrackArrangeSupport.joins(reordered)
+        val layout = TrackLayout.of(reordered)
+        val joins = layout.joins
         assertEquals(listOf(0.0, 4.0, 8.0, 12.0), joins.filter { it.selectable }.map { it.time })
-        val boundary = TrackArrangeSupport.boundary(joins, 4.0)
+        val boundary = layout.boundary(4.0)
         assertEquals(clips[2].id, boundary?.outgoingID)
         assertEquals(clips[1].id, boundary?.incomingID)
     }
@@ -557,11 +558,12 @@ class TrackMoveTest {
         assertEquals(1, opened.transitions.size)
         val moved = opened.moved(opened.selection(clips[0].id), t(12.0))
         assertEquals(1, moved.transitions.size)
-        val joins = TrackArrangeSupport.joins(moved)
+        val layout = TrackLayout.of(moved)
+        val joins = layout.joins
         val fade = joins.first { it.transition != null }
         assertEquals(12.0, fade.time, 0.0)
-        assertNull(TrackArrangeSupport.boundary(joins, 0.0))
-        val boundary = TrackArrangeSupport.boundary(joins, 12.0)
+        assertNull(layout.boundary(0.0))
+        val boundary = layout.boundary(12.0)
         assertNotNull(boundary)
         assertEquals(clips[2].id, boundary?.outgoingID)
         assertEquals(clips[0].id, boundary?.incomingID)

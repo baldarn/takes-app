@@ -1,8 +1,6 @@
 package app.takes.core
 
-import app.takes.core.TrackEditingSupport.move
 import app.takes.core.TrackEditingSupport.ticks
-import app.takes.core.TrackEditingSupport.unlink
 import app.takes.core.TrackFixtures.uuid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -72,7 +70,7 @@ class TrackSubtitlesTest {
         assertTrue(TrackSubtitles.groupingAvailable(partial))
         partial.validate(listOf(source))
         // A stale fingerprint stays stale unless the new range covers every caption there was.
-        val cut = original.split(ticks(5.0), TrackEditing.entire(original)).timeline
+        val cut = original.split(ticks(5.0), TrackLinking.entireSelection(original)).timeline
         assertFalse(TrackSubtitles.groupingAvailable(TrackSubtitles.installing(cut, emptyList(), 0.0, 2.0, "English")))
         assertTrue(TrackSubtitles.groupingAvailable(TrackSubtitles.installing(cut, words, 0.0, 12.0, "English")))
     }
@@ -106,7 +104,7 @@ class TrackSubtitlesTest {
     /** Tests/SubtitleTests.swift:34-42: a split keeps the captions, makes regrouping stale, and each piece owns its words. */
     @Test
     fun aSplitKeepsTheCaptionsAndEachPieceOwnsItsWords() {
-        val divided = original.split(ticks(5.0), TrackEditing.entire(original)).timeline
+        val divided = original.split(ticks(5.0), TrackLinking.entireSelection(original)).timeline
         // "Split preserves captions and marks regrouping stale".
         assertFalse(TrackSubtitles.groupingAvailable(divided))
         assertTrue(divided.cues().isNotEmpty())
@@ -129,7 +127,7 @@ class TrackSubtitlesTest {
     /** Tests/SubtitleTests.swift:46-51: "Captions follow independent speech moves", "Captions follow pitch-preserved speed changes". */
     @Test
     fun captionsFollowTheirSoundWhenItMovesAndWhenItsSpeedChanges() {
-        val moved = move(unlink(original, TrackEditing.entire(original)), TimelineSelection(audio = setOf(firstAudio)), ticks(3.0))
+        val moved = TrackMove.moved(TrackLinking.unlinked(original, TrackLinking.entireSelection(original)), TimelineSelection(audio = setOf(firstAudio)), ticks(3.0))
         assertTrue(abs(moved.cues()[0].start - original.cues()[0].start - 3) < 0.00001)
         val faster = original.replacingVideoContents(original.projectedClips.map { it.copy(speed = SpeedSettings(rate = 2.0)) })
         assertTrue(abs(faster.cues()[0].start * 2 - original.cues()[0].start) < 0.0001)
@@ -148,11 +146,11 @@ class TrackSubtitlesTest {
         assertNull(TrackSubtitles.restyling(original, original.subtitles!!))
         assertNull(TrackSubtitles.restyling(original, original.subtitles!!.copy(size = 9.0)))
         assertNull(TrackSubtitles.restyling(bare, SubtitleSettings()))
-        assertTrue(TrackSubtitles.groupingAvailable(TrackAudio.settingVolume(original, -3.0, false, TrackEditing.entire(original))))
-        val chained = TrackAudio.enhancing(original, listOf(AudioEffect.make(AudioEffectKind.HighPass, uuid(20))), TrackEditing.entire(original))
+        assertTrue(TrackSubtitles.groupingAvailable(TrackAudio.settingVolume(original, -3.0, false, TrackLinking.entireSelection(original))))
+        val chained = TrackAudio.enhancing(original, listOf(AudioEffect.make(AudioEffectKind.HighPass, uuid(20))), TrackLinking.entireSelection(original))
         assertTrue(TrackSubtitles.groupingAvailable(chained))
         // Muting is structure: what is heard changed.
-        assertFalse(TrackSubtitles.groupingAvailable(TrackAudio.settingVolume(original, 0.0, true, TrackEditing.entire(original))))
+        assertFalse(TrackSubtitles.groupingAvailable(TrackAudio.settingVolume(original, 0.0, true, TrackLinking.entireSelection(original))))
     }
 
     @Test
@@ -163,7 +161,7 @@ class TrackSubtitlesTest {
         assertTrue(trimmed.cues().all { it.end <= 6.0 })
         // The words are still on the sound.
         assertEquals(words.size, trimmed.audio[0].subtitleWords?.size)
-        val revealed = trimmed.extending(TrackEditing.entire(trimmed), left = false, by = ticks(6.0), sources = listOf(source))
+        val revealed = trimmed.extending(TrackLinking.entireSelection(trimmed), left = false, by = ticks(6.0), sources = listOf(source))
         // The revealed footage is a run of its own, so a caption the cut at 6 s went through shows in two parts; every other is as it was.
         fun clear(cues: List<SubtitleCue>) = cues.filter { it.end <= 6.0 - 0.001 || it.start >= 6.0 + 0.001 }
         assertSameCaptions(clear(original.cues()), clear(revealed.cues()))
@@ -173,8 +171,8 @@ class TrackSubtitlesTest {
 
     @Test
     fun deletingOrMutingASoundTakesItsCaptionsAway() {
-        val divided = original.split(ticks(5.0), TrackEditing.entire(original)).timeline
-        val without = divided.removing(TrackEditing.selection(divided, firstAudio)).timeline
+        val divided = original.split(ticks(5.0), TrackLinking.entireSelection(original)).timeline
+        val without = divided.removing(TrackLinking.selection(divided, firstAudio)).timeline
         assertSameCaptions(divided.cues().filter { it.audioID != firstAudio }, without.cues()) { -5.0 }
         val muted = TrackAudio.settingVolume(divided, 0.0, true, TimelineSelection(audio = setOf(firstAudio)))
         assertTrue(muted.cues().none { it.audioID == firstAudio })
@@ -205,7 +203,7 @@ class TrackSubtitlesTest {
         val timeline = state.toTimeline()
         assertEquals(SubtitleEditing.stretches(state.clips), TrackSubtitles.stretches(timeline))
         // A cut does not divide what is listened to, and a muted sound is not listened to.
-        val cut = timeline.split(ticks(3.0), TrackEditing.entire(timeline)).timeline
+        val cut = timeline.split(ticks(3.0), TrackLinking.entireSelection(timeline)).timeline
         assertEquals(TrackSubtitles.stretches(timeline), TrackSubtitles.stretches(cut))
         val quiet = TrackAudio.settingVolume(timeline, 0.0, true, TimelineSelection(audio = setOf(timeline.audio[1].id)))
         assertEquals(setOf(TrackFixtures.take.id), TrackSubtitles.stretches(quiet).map { it.sourceID }.toSet())
@@ -219,7 +217,7 @@ class TrackSubtitlesTest {
         assertTrue(TrackSubtitles.groupingAvailable(installed))
         assertSameCaptions(original.cues(), installed.cues())
         // Each sound takes its own copy, under ids of its own.
-        val cut = bare.split(ticks(5.0), TrackEditing.entire(bare)).timeline
+        val cut = bare.split(ticks(5.0), TrackLinking.entireSelection(bare)).timeline
         val both = TrackSubtitles.installingSourceWords(cut, heard, "English")
         assertEquals(words.size, both.audio.sumOf { it.subtitleWords.orEmpty().size })
         assertTrue(both.audio[0].subtitleWords.orEmpty().map { it.id }.intersect(both.audio[1].subtitleWords.orEmpty().map { it.id }.toSet()).isEmpty())

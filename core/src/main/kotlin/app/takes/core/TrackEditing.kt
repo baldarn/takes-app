@@ -3,20 +3,6 @@ package app.takes.core
 import kotlin.math.abs
 
 /**
- * What an edit of the track timeline applies to: pictures, sounds, and
- * optionally only a stretch of the timeline. A link selects together
- * ([TrackEditing.expanded]). YouRec/TrackTimeline.swift:228-239.
- */
-data class TimelineSelection(
-    val video: Set<String> = emptySet(),
-    val audio: Set<String> = emptySet(),
-    val range: EditInterval? = null,
-) {
-    val ids: Set<String> get() = video + audio
-    val isEmpty: Boolean get() = video.isEmpty() && audio.isEmpty()
-}
-
-/**
  * The pictures as clips, in the order they start, each with the transitions
  * that belong to it put back on it: its own opening, and what leads out of it
  * with the clip it leads into and the fit it is saved at. Sound, bookmarks and
@@ -55,7 +41,7 @@ val TrackTimeline.videoCoverage: List<EditInterval>
 fun TrackTimeline.split(time: EditTime, selection: TimelineSelection): TrackEditing.Split = TrackEditing.split(this, time, selection)
 
 /** Cuts at both ends of the selection's range. See [TrackEditing.scoped]. */
-fun TrackTimeline.scoped(selection: TimelineSelection): TrackEditing.Scope = TrackEditing.scoped(this, selection)
+fun TrackTimeline.scoped(selection: TimelineSelection): SelectedTimeline = TrackEditing.scoped(this, selection)
 
 /** Deletes the selection. See [TrackEditing.removing]. */
 fun TrackTimeline.removing(selection: TimelineSelection, preserving: EditTime? = null): TrackEditing.Removal =
@@ -64,6 +50,9 @@ fun TrackTimeline.removing(selection: TimelineSelection, preserving: EditTime? =
 /** Opens [duration] of empty time at [time]. See [TrackEditing.insertingTime]. */
 fun TrackTimeline.insertingTime(duration: EditTime, time: EditTime, atPictureGap: Boolean = false): TrackTimeline =
     TrackEditing.insertingTime(this, duration, time, atPictureGap)
+
+/** The empty stretch around [time]. See [TrackEditing.gap]. */
+fun TrackTimeline.gap(time: EditTime): EditInterval? = TrackEditing.gap(this, time)
 
 /** Removes the empty time around [time]. See [TrackEditing.closingGap]. */
 fun TrackTimeline.closingGap(time: EditTime): TrackTimeline = TrackEditing.closingGap(this, time)
@@ -96,58 +85,6 @@ fun TrackTimeline.synchronizingFollowers(): TrackTimeline = TrackEditing.synchro
 object TrackEditing {
     /** The shortest stretch an edit of a range acts on: one frame of the original's 30 per second (YouRec/TimelineEditing.swift:42). */
     const val FRAME = 1.0 / 30
-
-    // MARK: Selection
-
-    /** [selection] with every item linked to one it names. YouRec/TrackTimeline.swift:540-547. */
-    fun expanded(timeline: TrackTimeline, selection: TimelineSelection): TimelineSelection {
-        if (timeline.links.isEmpty() || selection.isEmpty) return selection
-        val ids = selection.ids
-        val pictures = timeline.video.mapTo(HashSet()) { it.id }
-        val sounds = timeline.audio.mapTo(HashSet()) { it.id }
-        val video = selection.video.toMutableSet()
-        val audio = selection.audio.toMutableSet()
-        for (group in timeline.links) {
-            if (group.members.none { it in ids }) continue
-            for (member in group.members) {
-                if (member in pictures) video += member
-                if (member in sounds) audio += member
-            }
-        }
-        return selection.copy(video = video, audio = audio)
-    }
-
-    /** The item [id] with everything linked to it, or alone when not [linked]. YouRec/TrackTimeline.swift:548-551. */
-    fun selection(timeline: TrackTimeline, id: String, linked: Boolean = true, range: EditInterval? = null): TimelineSelection {
-        val members = (if (linked) timeline.links.firstOrNull { id in it.members }?.members else null) ?: setOf(id)
-        return TimelineSelection(
-            timeline.video.filter { it.id in members }.mapTo(LinkedHashSet()) { it.id },
-            timeline.audio.filter { it.id in members }.mapTo(LinkedHashSet()) { it.id },
-            range,
-        )
-    }
-
-    /** Every item. YouRec/TrackTimeline.swift:556-558. */
-    fun entire(timeline: TrackTimeline, range: EditInterval? = null): TimelineSelection =
-        TimelineSelection(timeline.video.mapTo(LinkedHashSet()) { it.id }, timeline.audio.mapTo(LinkedHashSet()) { it.id }, range)
-
-    /** The items among [ids] that are on the timeline, with what they are linked to. YouRec/TrackTimeline.swift:559-561. */
-    fun selection(timeline: TrackTimeline, ids: Set<String>): TimelineSelection = expanded(
-        timeline,
-        TimelineSelection(
-            timeline.video.filter { it.id in ids }.mapTo(LinkedHashSet()) { it.id },
-            timeline.audio.filter { it.id in ids }.mapTo(LinkedHashSet()) { it.id },
-        ),
-    )
-
-    /** The stretch a selection covers: its range, or from its first item to its last. YouRec/TrackTimeline.swift:569-574. */
-    fun interval(timeline: TrackTimeline, selection: TimelineSelection): EditInterval? {
-        selection.range?.let { return it }
-        val intervals = timeline.video.filter { it.id in selection.video }.map { it.interval } +
-            timeline.audio.filter { it.id in selection.audio }.map { it.interval }
-        if (intervals.isEmpty()) return null
-        return EditInterval(intervals.minOf { it.start }, intervals.maxOf { it.end })
-    }
 
     /** [ranges] in order, with those that touch or overlap made one; empty ones dropped. YouRec/TrackTimeline.swift:828-835. */
     fun union(ranges: List<EditInterval>): List<EditInterval> {
@@ -183,7 +120,7 @@ object TrackEditing {
      * frame by its length; a clip here holds no frame.
      */
     fun split(timeline: TrackTimeline, time: EditTime, selection: TimelineSelection): Split {
-        val chosen = expanded(timeline, selection)
+        val chosen = TrackLinking.expanded(timeline, selection)
         val children = LinkedHashMap<String, String>()
         val video = ArrayList<VideoTimelineItem>(timeline.video.size + 1)
         for (item in timeline.video) {
@@ -214,8 +151,8 @@ object TrackEditing {
             if (audio[index].start >= time) audio[index] = audio[index].copy(followsVideo = child)
         }
         val starts = HashMap<String, EditTime>()
-        for (item in audio) starts[item.id] = item.start
-        for (item in video) starts[item.id] = item.start
+        for (item in video) starts.putIfAbsent(item.id, item.start)
+        for (item in audio) starts.putIfAbsent(item.id, item.start)
         val ids = chosen.ids
         val links = ArrayList<TimelineLink>()
         for (group in timeline.links) {
@@ -233,17 +170,9 @@ object TrackEditing {
         }
         val transitions = timeline.transitions.map { relation -> relation.outgoing?.let { children[it] }?.let { relation.copy(outgoing = it) } ?: relation }
         // Every later piece starts at the same cut. A placement can live on either side; a mix of both never overlaps.
-        val later = timeline.placements.mapNotNull { region ->
-            val divided = region.participants.filter { it in children }
-            if (divided.isEmpty()) return@mapNotNull null
-            val participants = region.participants.mapTo(LinkedHashSet()) { children[it] ?: it }
-            VideoPlacementRegion(newID(), participants, region.videos.mapKeys { children[it.key] ?: it.key })
-        }
+        val later = TrackPlacements.carriedAcrossSplit(timeline.placements, children)
         return Split(timeline.copy(video = video, audio = audio, links = links, transitions = transitions, placements = timeline.placements + later).pruned(), children)
     }
-
-    /** A timeline cut at the ends of a range, and the pieces that lie inside it. */
-    data class Scope(val timeline: TrackTimeline, val selection: TimelineSelection)
 
     /**
      * The timeline cut at both ends of [selection]'s range, with the pieces
@@ -251,9 +180,9 @@ object TrackEditing {
      * as a selection without a range. With no range nothing is cut and the
      * selection is only expanded. YouRec/TrackTimeline.swift:1080-1094.
      */
-    fun scoped(timeline: TrackTimeline, selection: TimelineSelection): Scope {
-        val chosen = expanded(timeline, selection)
-        val range = chosen.range ?: return Scope(timeline, chosen)
+    fun scoped(timeline: TrackTimeline, selection: TimelineSelection): SelectedTimeline {
+        val chosen = TrackLinking.expanded(timeline, selection)
+        val range = chosen.range ?: return SelectedTimeline(timeline, chosen)
         var video = chosen.video
         var audio = chosen.audio
         fun adopt(children: Map<String, String>) {
@@ -265,7 +194,7 @@ object TrackEditing {
         val lower = split(upper.timeline, range.start, TimelineSelection(video, audio, range))
         adopt(lower.children)
         val result = lower.timeline
-        return Scope(
+        return SelectedTimeline(
             result,
             TimelineSelection(
                 result.video.filter { it.id in video && it.start >= range.start && it.end <= range.end }.mapTo(LinkedHashSet()) { it.id },
@@ -417,10 +346,10 @@ object TrackEditing {
         var mapped: EditTime? = null
         val picture = oldVideo.filter { holds(it.interval) }.maxByOrNull { it.layer }
         if (picture != null) {
-            video.firstOrNull { it.id == picture.id }?.let { mapped = position + it.start - picture.start }
+            result.video.firstOrNull { it.id == picture.id }?.let { mapped = position + it.start - picture.start }
         } else {
             val sound = oldAudio.firstOrNull { holds(it.interval) }
-            if (sound != null) audio.firstOrNull { it.id == sound.id }?.let { mapped = position + it.start - sound.start }
+            if (sound != null) result.audio.firstOrNull { it.id == sound.id }?.let { mapped = position + it.start - sound.start }
         }
         return Removal(result, minOf(result.duration, maxOf(EditTime.ZERO, mapped ?: (position - removedTime))))
     }
@@ -468,16 +397,14 @@ object TrackEditing {
      */
     fun insertingTime(timeline: TrackTimeline, duration: EditTime, time: EditTime, atPictureGap: Boolean = false): TrackTimeline {
         if (duration <= EditTime.ZERO) return timeline
-        val scope = if (atPictureGap) TimelineSelection(video = timeline.video.filter { it.start >= time }.mapTo(LinkedHashSet()) { it.id }) else entire(timeline)
+        val scope = if (atPictureGap) TimelineSelection(video = timeline.video.filter { it.start >= time }.mapTo(LinkedHashSet()) { it.id }) else TrackLinking.entireSelection(timeline)
         val cut = split(timeline, time, scope).timeline
         return cut.copy(
             video = cut.video.map { if (it.start >= time) it.copy(start = it.start + duration) else it },
             audio = cut.audio.map { if (it.start >= time) it.copy(start = it.start + duration) else it },
-            bookmarks = cut.bookmarks.map { mark ->
-                val anchor = mark.anchor
-                if (anchor is BookmarkAnchor.Project && anchor.time >= time) mark.copy(anchor = BookmarkAnchor.Project(anchor.time + duration)) else mark
-            },
+            bookmarks = TrackBookmarks.shiftingProjectMarks(cut.bookmarks, time, duration),
             transitions = cut.transitions.map { if (it.origin >= time) it.copy(origin = it.origin + duration) else it },
+            generated = cut.generated.map { if (it.interval.start >= time) it.copy(interval = EditInterval(it.interval.start + duration, it.interval.end + duration)) else it },
         ).pruned()
     }
 
@@ -559,12 +486,12 @@ object TrackEditing {
         val point = EditTime.of(RangeEditing.quantize(time))
         TrackLayout.of(timeline).transition(time)?.let { if (time > it.range.start + 0.00001 && time < it.range.endInclusive - 0.00001) return timeline }
         if (selectedItems.isNotEmpty()) {
-            val selected = selection(timeline, selectedItems)
+            val selected = TrackLinking.selection(timeline, selectedItems)
             val cutsVideo = timeline.video.any { it.id in selected.video && it.start < point && point < it.end }
             val cutsAudio = timeline.audio.any { it.id in selected.audio && it.start < point && point < it.end }
             if (cutsVideo || cutsAudio) return split(timeline, point, selected).timeline
         }
-        return split(timeline, point, entire(timeline)).timeline
+        return split(timeline, point, TrackLinking.entireSelection(timeline)).timeline
     }
 
     /** A timeline after a range was taken out, and the recipes of the pictures that were in it. */
@@ -583,7 +510,7 @@ object TrackEditing {
         val a = aligned(start)
         val b = aligned(end)
         if (b <= a) return Cut(timeline, emptyList())
-        val scope = scoped(timeline, entire(timeline, EditInterval.of(a, b)))
+        val scope = scoped(timeline, TrackLinking.entireSelection(timeline, EditInterval.of(a, b)))
         val copied = scope.timeline.video.filter { it.id in scope.selection.video }.map { it.content }
         return Cut(removing(scope.timeline, scope.selection).timeline, copied)
     }
@@ -598,8 +525,8 @@ object TrackEditing {
      * YouRec/EditorView.swift:1241-1258.
      */
     fun trimming(timeline: TrackTimeline, id: String, left: Boolean, delta: Double, sources: List<SourceMedia>, preserving: EditTime? = null): Removal? {
-        val chosen = selection(timeline, id)
-        val interval = interval(timeline, chosen) ?: return null
+        val chosen = TrackLinking.selection(timeline, id)
+        val interval = TrackLinking.interval(timeline, chosen) ?: return null
         if ((left && delta < 0) || (!left && delta > 0)) {
             val extended = extending(timeline, chosen, left, EditTime.of(abs(delta)), sources)
             return if (extended == timeline) null else Removal(extended, preserving)
@@ -638,7 +565,7 @@ object TrackEditing {
             val from = if (cut.start <= first.sourceStart) EditTime.ZERO else item.mapping.local(cut.start) ?: continue
             val to = if (cut.end >= last.sourceEnd) item.mapping.duration else item.mapping.local(cut.end) ?: continue
             if (to <= from) continue
-            val scope = scoped(result, selection(result, item.id, range = EditInterval(item.start + from, item.start + to)))
+            val scope = scoped(result, TrackLinking.selection(result, item.id, range = EditInterval(item.start + from, item.start + to)))
             result = removing(scope.timeline, scope.selection).timeline
         }
         return result.takeIf { it != timeline }
@@ -663,7 +590,7 @@ object TrackEditing {
      * YouRec/TrackTimeline.swift:1618-1675.
      */
     fun extending(timeline: TrackTimeline, selection: TimelineSelection, left: Boolean, requested: EditTime, sources: List<SourceMedia>): TrackTimeline {
-        val target = expanded(timeline, selection)
+        val target = TrackLinking.expanded(timeline, selection)
         val lengths = HashMap<String, Double>()
         for (source in sources) lengths.putIfAbsent(source.id, source.duration)
         fun available(map: SourcePlaybackMap, start: EditTime, source: String): EditTime {
@@ -730,8 +657,8 @@ object TrackEditing {
             item
         }
         var result = synchronizingFollowers(timeline.copy(video = video, audio = audio))
-        result = promotingNewOverlaps(result, target.video, timeline.video)
-        return retainingPlacementAcrossNewOverlaps(result, target.video).pruned()
+        result = result.copy(video = TrackMove.promotingNewOverlaps(result.video, target.video, timeline.video))
+        return TrackPlacements.retainingAcrossNewOverlaps(result, target.video).pruned()
     }
 
     // MARK: Followers
@@ -841,80 +768,6 @@ object TrackEditing {
         return muted.copy(audio = audio)
     }
 
-    // MARK: Overlaps (private copies; the originals are with Move and Placement)
-
-    /**
-     * When one of [selected] now overlaps a picture it did not overlap in
-     * [previous], the selected pictures come in front of everything, in the
-     * order they had. An overlap that was already there keeps its order.
-     * YouRec/TrackTimeline.swift:728-739.
-     */
-    internal fun promotingNewOverlaps(timeline: TrackTimeline, selected: Set<String>, previous: List<VideoTimelineItem>): TrackTimeline {
-        if (selected.isEmpty()) return timeline
-        val old = HashMap<String, EditInterval>()
-        for (item in previous) old.putIfAbsent(item.id, item.interval)
-        val stationary = timeline.video.filter { it.id !in selected }
-        val fresh = timeline.video.any { item ->
-            item.id in selected && stationary.any { other ->
-                item.interval.intersection(other.interval) != null && old[item.id]?.intersection(old[other.id] ?: other.interval) == null
-            }
-        }
-        if (!fresh) return timeline
-        val front = (timeline.video.maxOfOrNull { it.layer } ?: 0) + 1
-        val rank = timeline.video.filter { it.id in selected }.sortedWith(VideoTimelineItem.backToFront).withIndex().associate { it.value.id to it.index }
-        return timeline.copy(video = timeline.video.map { item -> rank[item.id]?.let { item.copy(layer = front + it) } ?: item })
-    }
-
-    /** YouRec/TrackTimeline.swift:917-946. */
-    private fun placementSeed(timeline: TrackTimeline, participants: Set<String>, position: EditTime, moving: Set<String>): VideoPlacementRegion {
-        timeline.placements.firstOrNull { it.participants == participants }?.let { return it }
-        val members = timeline.video.filter { it.id in participants }.sortedWith(VideoTimelineItem.backToFront)
-        fun distance(region: VideoPlacementRegion): Double {
-            val items = timeline.video.filter { it.id in region.participants }
-            val lower = items.maxOfOrNull { it.start } ?: EditTime.ZERO
-            val upper = items.minOfOrNull { it.end } ?: EditTime.ZERO
-            return maxOf(0.0, lower.seconds - position.seconds, position.seconds - upper.seconds)
-        }
-        fun shared(region: VideoPlacementRegion) = region.participants.count { it in participants }
-        val candidates = timeline.placements.filter { shared(it) > 0 }
-            .sortedWith(compareByDescending<VideoPlacementRegion> { shared(it) }.thenBy { distance(it) }.thenBy { it.id })
-        val values = LinkedHashMap<String, VideoPlacement>()
-        for (item in members) {
-            values[item.id] = candidates.firstOrNull { region ->
-                region.videos[item.id] != null && (item.id in moving || shared(region) > 1 || distance(region) < 0.00001)
-            }?.videos?.get(item.id) ?: VideoPlacement()
-        }
-        val order = members.map { it.id }.toMutableList()
-        for (region in candidates.asReversed()) {
-            val slots = order.indices.filter { order[it] in region.participants }
-            val ranked = VideoPlacement.ordered(slots.map { order[it] }, region.videos)
-            for ((slot, id) in slots.zip(ranked)) order[slot] = id
-        }
-        order.forEachIndexed { rank, id -> values[id]?.let { values[id] = it.copy(order = rank) } }
-        return VideoPlacementRegion(participants = participants, videos = values)
-    }
-
-    /**
-     * A new overlap that one of [moving] takes part in is given the windows
-     * of the pictures it shares with an overlap that had a placement, so a
-     * third picture coming over two does not reset them.
-     * YouRec/TrackTimeline.swift:947-960.
-     */
-    internal fun retainingPlacementAcrossNewOverlaps(timeline: TrackTimeline, moving: Set<String>): TrackTimeline {
-        if (timeline.placements.isEmpty() || moving.isEmpty()) return timeline
-        val seen = timeline.placements.mapTo(HashSet()) { it.participants }
-        val added = ArrayList<VideoPlacementRegion>()
-        for (interval in timeline.compile()) {
-            if (interval.video.size <= 1 || interval.video.none { it in moving }) continue
-            val ids = interval.video.toSet()
-            if (!seen.add(ids)) continue
-            val seed = placementSeed(timeline, ids, interval.interval.start, moving)
-            val defaults = interval.video.withIndex().associate { it.value to VideoPlacement(order = it.index) }
-            if (seed.videos != defaults) added += seed
-        }
-        return if (added.isEmpty()) timeline else timeline.copy(placements = timeline.placements + added)
-    }
-
     // MARK: Recipes: trim, speed
 
     /**
@@ -962,7 +815,7 @@ object TrackEditing {
         if (removed.isNotEmpty()) {
             val video = LinkedHashSet<String>()
             val audio = LinkedHashSet<String>()
-            for (id in removed) selection(timeline, id).let { video += it.video; audio += it.audio }
+            for (id in removed) TrackLinking.selection(timeline, id).let { video += it.video; audio += it.audio }
             base = removing(timeline, TimelineSelection(video, audio)).timeline
         }
         val video = base.video.toMutableList()
@@ -1092,9 +945,9 @@ object TrackEditing {
             if (old.transition != null && clip.transition == null) kept = kept.filter { it.outgoing != clip.id }
         }
         result = result.copy(video = result.video.sortedBy { ordering[it.id] ?: Int.MAX_VALUE }, transitions = kept)
-        result = promotingNewOverlaps(result, retimed, previousItems)
+        result = result.copy(video = TrackMove.promotingNewOverlaps(result.video, retimed, previousItems))
         result = synchronizingFollowers(result)
-        return retainingPlacementAcrossNewOverlaps(result, retimed).pruned()
+        return TrackPlacements.retainingAcrossNewOverlaps(result, retimed).pruned()
     }
 
     /** The picture [id] played at [speed], or as recorded when null, with the ripple of [replacingVideoContents]. Null when [id] is no picture or nothing changes. */

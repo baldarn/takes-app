@@ -5,38 +5,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 
 /**
- * What the tests of the editing operations need from the operations that are
- * ported elsewhere (unlinking and Move), and the checks they share. The two
- * operations here are the original's, written out for the tests only.
+ * The checks the tests of the editing operations share.
  */
 internal object TrackEditingSupport {
     fun ticks(seconds: Double) = EditTime.of(seconds)
-
-    /** YouRec/TrackTimeline.swift:575-579: the links of the selection go, and their sounds follow nothing. */
-    fun unlink(timeline: TrackTimeline, selection: TimelineSelection): TrackTimeline {
-        val ids = selection.ids
-        val members = timeline.links.filter { link -> link.members.any { it in ids } }.flatMap { it.members }.toSet()
-        return timeline.copy(
-            audio = timeline.audio.map { if (it.id in members) it.copy(followsVideo = null) else it },
-            links = timeline.links.filter { link -> link.members.none { it in ids } },
-        )
-    }
-
-    /** YouRec/TrackTimeline.swift:703-725: one offset for the whole group, held at zero. */
-    fun move(timeline: TrackTimeline, selection: TimelineSelection, delta: EditTime): TrackTimeline {
-        val chosen = TrackEditing.expanded(timeline, selection)
-        val range = TrackEditing.interval(timeline, TimelineSelection(chosen.video, chosen.audio)) ?: return timeline
-        val amount = maxOf(EditTime.ZERO - range.start, delta)
-        if (amount == EditTime.ZERO) return timeline
-        fun inside(relation: TimelineTransition) = listOfNotNull(relation.outgoing, relation.incoming).all { it in chosen.video }
-        var moved = timeline.copy(video = timeline.video.map { if (it.id in chosen.video) it.copy(start = it.start + amount) else it })
-        moved = TrackEditing.promotingNewOverlaps(moved, chosen.video, timeline.video)
-        moved = moved.copy(
-            audio = moved.audio.map { if (it.id in chosen.audio) it.copy(start = it.start + amount) else it },
-            transitions = moved.transitions.map { if (inside(it)) it.copy(origin = it.origin + amount) else it },
-        )
-        return TrackEditing.retainingPlacementAcrossNewOverlaps(moved, chosen.video).pruned()
-    }
 
     /** A timeline a project may hold, with its relations in line with its items. */
     fun assertAtRest(message: String, timeline: TrackTimeline, sources: List<SourceMedia>) {

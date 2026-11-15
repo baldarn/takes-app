@@ -1,9 +1,7 @@
 package app.takes.core
 
 import app.takes.core.TrackEditingSupport.assertAtRest
-import app.takes.core.TrackEditingSupport.move
 import app.takes.core.TrackEditingSupport.ticks
-import app.takes.core.TrackEditingSupport.unlink
 import app.takes.core.TrackFixtures.uuid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -66,14 +64,14 @@ class TrackAudioTest {
     /** Tests/TrackMediaTests.swift:287-288: a level on a range is a level on the pieces the range cuts. */
     @Test
     fun aLevelIsSetOnTheSelectedSoundsAndKeptInRange() {
-        val first = TrackEditing.selection(baseline, a.id)
+        val first = TrackLinking.selection(baseline, a.id)
         val loud = TrackAudio.settingVolume(baseline, 90.0, false, first)
         assertEquals(listOf(12.0, 0.0), loud.audio.map { it.volumeDB })
         assertEquals(baseline.video, loud.video)
-        val quiet = TrackAudio.settingVolume(baseline, -200.0, true, TrackEditing.entire(baseline))
+        val quiet = TrackAudio.settingVolume(baseline, -200.0, true, TrackLinking.entireSelection(baseline))
         assertEquals(listOf(-60.0, -60.0), quiet.audio.map { it.volumeDB })
         assertTrue(quiet.audio.all { it.muted && it.gain == 0.0 })
-        val part = baseline.scoped(TrackEditing.entire(baseline, EditInterval.of(1.0, 3.0)))
+        val part = baseline.scoped(TrackLinking.entireSelection(baseline, EditInterval.of(1.0, 3.0)))
         val boosted = TrackAudio.settingVolume(part.timeline, 6.0, false, part.selection)
         assertEquals(listOf(0.0, 6.0, 6.0, 0.0), boosted.audio.sortedBy { it.start }.map { it.volumeDB })
         assertAtRest("boosted", boosted, listOf(source))
@@ -83,7 +81,7 @@ class TrackAudioTest {
     @Test
     fun aFadeBelongsToTheFirstSoundToBeginOrTheLastToEnd() {
         val whole = EditState(listOf(TimelineClip(uuid(20), source.id, 0.0, 4.0))).toTimeline()
-        val base = whole.split(ticks(1.5), TrackEditing.entire(whole)).timeline.let { it.split(ticks(2.5), TrackEditing.entire(it)).timeline }
+        val base = whole.split(ticks(1.5), TrackLinking.entireSelection(whole)).timeline.let { it.split(ticks(2.5), TrackLinking.entireSelection(it)).timeline }
         val all = base.sounds()
         val intro = TrackAudio.fadeTarget(base, AudioFadeEdge.FadeIn, all)!!
         val outro = TrackAudio.fadeTarget(base, AudioFadeEdge.FadeOut, all)!!
@@ -129,7 +127,7 @@ class TrackAudioTest {
     @Test
     fun aCutInsideAFadeKeepsItsSlopeAndItsLevelAtTheCut() {
         val faded = baseline.copy(audio = listOf(baseline.audio[0].settingFade(AudioFadeEdge.FadeIn, 1.0).settingFade(AudioFadeEdge.FadeOut, 1.0), baseline.audio[1]))
-        val split = faded.split(ticks(0.4), TrackEditing.entire(faded)).timeline
+        val split = faded.split(ticks(0.4), TrackLinking.entireSelection(faded)).timeline
         val before = split.audio.first { it.start == EditTime.ZERO }
         val after = split.audio.first { it.start == ticks(0.4) }
         assertEquals(0.4, after.fadeIn!!.gain(0.0), 0.00001)
@@ -145,14 +143,14 @@ class TrackAudioTest {
             assertEquals("$time", TrackAudio.level(faded.audio[0], ticks(time)), TrackAudio.level(piece, ticks(time) - piece.start), 0.000001)
         }
         // A cut inside the fade out leaves the earlier piece ending partway down.
-        val late = faded.split(ticks(1.5), TrackEditing.entire(faded)).timeline
+        val late = faded.split(ticks(1.5), TrackLinking.entireSelection(faded)).timeline
         assertEquals(AudioEdgeFade(1.0, 0.5), late.audio[0].fadeOut)
         assertNull(late.audio[1].fadeIn)
         // A range that takes the whole fade takes it away.
         val trimmed = TrackEditing.trimming(faded, a.id, left = true, delta = 1.0, sources = listOf(source))!!.timeline
         assertNull(trimmed.audio[0].fadeIn)
         // Revealing the footage again gives a cut-into fade back what the revealed time holds.
-        val revealed = late.extending(TrackEditing.selection(late, late.video[0].id), left = false, by = ticks(0.25), sources = listOf(source))
+        val revealed = late.extending(TrackLinking.selection(late, late.video[0].id), left = false, by = ticks(0.25), sources = listOf(source))
         assertEquals(AudioEdgeFade(1.0, 0.25), revealed.audio[0].fadeOut)
         assertAtRest("revealed", revealed, listOf(source))
     }
@@ -178,16 +176,16 @@ class TrackAudioTest {
         assertEquals(listOf(EditInterval.of(0.5, 1.0), EditInterval.of(1.0, 1.25), EditInterval.of(1.5, 2.0)), middle.audio[0].enhancements.map { it.interval })
         assertEquals(listOf(uuid(31), uuid(33), uuid(33)), middle.audio[0].enhancements.map { it.id })
         // On the whole of each selected sound when there is no range.
-        val whole = TrackAudio.enhancing(middle, listOf(gain(1.0, 34)), TrackEditing.entire(middle), uuid(35))
+        val whole = TrackAudio.enhancing(middle, listOf(gain(1.0, 34)), TrackLinking.entireSelection(middle), uuid(35))
         assertEquals(listOf(listOf(EditInterval.of(0.0, 2.0)), listOf(EditInterval.of(0.0, 2.0))), whole.audio.map { sound -> sound.enhancements.map { it.interval } })
-        assertEquals(baseline.audio, TrackAudio.enhancing(whole, emptyList(), TrackEditing.entire(whole)).audio)
+        assertEquals(baseline.audio, TrackAudio.enhancing(whole, emptyList(), TrackLinking.entireSelection(whole)).audio)
     }
 
     @Test
     fun aChainGoesWithTheSoundThroughACutAndADeletion() {
         val audioID = baseline.audio[0].id
         val enhanced = TrackAudio.enhancing(baseline, listOf(gain(-6.0, 30)), TimelineSelection(audio = setOf(audioID), range = EditInterval.of(0.5, 1.5)), uuid(31))
-        val (split, children) = enhanced.split(ticks(1.0), TrackEditing.selection(enhanced, a.id))
+        val (split, children) = enhanced.split(ticks(1.0), TrackLinking.selection(enhanced, a.id))
         assertEquals(listOf(EditInterval.of(0.5, 1.0)), split.audio.first { it.id == audioID }.enhancements.map { it.interval })
         assertEquals(listOf(EditInterval.of(0.0, 0.5)), split.audio.first { it.id == children[audioID] }.enhancements.map { it.interval })
         // A range taken out of the middle leaves the chain on what is left of the sound it was on.
@@ -201,9 +199,9 @@ class TrackAudioTest {
     fun revealingOnTheLeftKeepsAChainOnItsSound() {
         val long = SourceMedia(id = uuid(40), filename = "source.mp4", duration = 20.0)
         var timeline = EditState(listOf(TimelineClip(uuid(41), long.id, 1.0, 3.0))).toTimeline()
-        timeline = move(timeline, TrackEditing.entire(timeline), ticks(2.0))
-        timeline = TrackAudio.enhancing(timeline, listOf(AudioEffect.make(AudioEffectKind.HighPass, uuid(42))), TrackEditing.entire(timeline))
-        timeline = timeline.extending(TrackEditing.entire(timeline), left = true, by = ticks(1.0), sources = listOf(long))
+        timeline = TrackMove.moved(timeline, TrackLinking.entireSelection(timeline), ticks(2.0))
+        timeline = TrackAudio.enhancing(timeline, listOf(AudioEffect.make(AudioEffectKind.HighPass, uuid(42))), TrackLinking.entireSelection(timeline))
+        timeline = timeline.extending(TrackLinking.entireSelection(timeline), left = true, by = ticks(1.0), sources = listOf(long))
         timeline.validate(listOf(long))
         assertEquals(EditInterval.of(1.0, 3.0), timeline.audio[0].enhancements[0].interval)
     }
@@ -226,7 +224,7 @@ class TrackAudioTest {
         assertTrue(split.audio[1].censors.isEmpty())
         assertNull(split.audio[1].censorRegions)
         // "Censor follows moved audio".
-        split = move(split, TimelineSelection(audio = setOf(id)), ticks(2.0))
+        split = TrackMove.moved(split, TimelineSelection(audio = setOf(id)), ticks(2.0))
         assertEquals(3.0, TrackAudio.censorSpans(split, split.audio[0])[0].start, 0.0)
         split.validate(listOf(imported))
     }
@@ -322,11 +320,11 @@ class TrackAudioTest {
         linked.validate(listOf(video))
         // Nothing that leaves the timing alone touches them.
         assertEquals(pieces, linked.synchronizingFollowers().audio[0].censors)
-        assertEquals(pieces, TrackAudio.settingVolume(linked, -3.0, false, TrackEditing.entire(linked)).audio[0].censors)
+        assertEquals(pieces, TrackAudio.settingVolume(linked, -3.0, false, TrackLinking.entireSelection(linked)).audio[0].censors)
         val slower = linked.replacingVideoContents(linked.projectedClips.map { it.copy(speed = SpeedSettings(rate = 0.5)) })
         assertEquals(listOf(AudioCensorRegion(effectID, EditInterval.of(2.0, 4.0), ticks(2.0), settings, null)), slower.audio[0].censors)
         // An unlinked sound does not follow the picture: its censor stays where it is.
-        val separate = unlink(linked, TrackEditing.entire(linked))
+        val separate = TrackLinking.unlinked(linked, TrackLinking.entireSelection(linked))
         assertEquals(pieces, separate.replacingVideoContents(separate.projectedClips.map { it.copy(speed = SpeedSettings(rate = 0.5)) }).audio[0].censors)
         slower.validate(listOf(video))
     }
