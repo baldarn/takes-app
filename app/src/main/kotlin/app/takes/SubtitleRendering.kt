@@ -21,6 +21,7 @@ import app.takes.core.SubtitlePlacement
 import app.takes.core.SubtitleSettings
 import app.takes.core.TextColor
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /**
  * The captions of a movie, laid out once on a canvas with a 1080 pixel short
@@ -66,7 +67,8 @@ class SubtitleLayout(val cues: List<SubtitleCue>, settings: SubtitleSettings, wi
         val scale = (settings.size / SubtitlePlacement.REFERENCE_SIZE * width / canvas.width).toFloat()
         val tops = placement.tops(active.map { it.height.toDouble() }, settings)
         val color = TextColor.valueOf(settings.color.name)
-        val ink = Color.rgb((color.red * 255).toInt(), (color.green * 255).toInt(), (color.blue * 255).toInt())
+        // Rounded to the nearest of the 256 levels: truncating could make a channel one level darker.
+        val ink = Color.rgb((color.red * 255).roundToInt(), (color.green * 255).roundToInt(), (color.blue * 255).roundToInt())
         active.forEachIndexed { index, caption ->
             target.save()
             target.translate((settings.centerX * width).toFloat() - caption.width * scale / 2, (tops[index] * height).toFloat())
