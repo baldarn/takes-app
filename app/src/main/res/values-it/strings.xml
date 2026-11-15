@@ -563,11 +563,11 @@
     <string name="subtitles_model_downloaded">Scaricato</string>
     <string name="subtitles_model_partly">Scaricati %1$d di %2$d MB</string>
     <string name="subtitles_model_recommended">Consigliato per questo telefono</string>
-    <string name="subtitles_model_note">Un modello più grande sbaglia meno, richiede più memoria e impiega più tempo.</string>
+    <string name="subtitles_model_note">Un modello più grande sbaglia meno e richiede più memoria.</string>
     <string name="subtitles_model_remove">Rimuovi %1$s</string>
     <string name="subtitles_model_use">Usa %1$s · %2$d MB</string>
     <string name="subtitles_model_memory">In questo momento il telefono non ha abbastanza memoria libera per %1$s. Chiudi altre app e riprova, oppure usa un modello più leggero.</string>
-    <string name="subtitles_model_stopped">L\'app è stata chiusa durante la trascrizione con %1$s, molto probabilmente perché il telefono ha esaurito la memoria. Qui è più sicuro un modello più leggero.</string>
+    <string name="subtitles_model_stopped">L\'app si è chiusa durante la trascrizione con %1$s. Se non l\'hai chiusa tu, il telefono ha esaurito la memoria: qui è più sicuro un modello più leggero.</string>
     <string name="editor_add_video">Aggiungi video</string>
     <string name="add_video_title">Aggiungi a %1$s</string>
     <string name="add_video_unused">Riprese non usate (%1$d)</string>

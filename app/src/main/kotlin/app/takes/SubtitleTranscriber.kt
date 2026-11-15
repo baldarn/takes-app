@@ -56,7 +56,7 @@ object SubtitleTranscriber {
     }
 
     /** The words by recording id, the language of the first piece when the model tells it, and what the job took. */
-    class Result(val words: Map<String, List<SubtitleWord>>, val language: String, val speechSeconds: Double, val recognizingSeconds: Double)
+    class Result(val words: Map<String, List<SubtitleWord>>, val language: String, val speechSeconds: Double, val loadingSeconds: Double, val recognizingSeconds: Double)
 
     const val RATE = SubtitleSpeechAudio.RATE
     private const val SLICE = 320 // 20 ms: one loudness measure
@@ -111,6 +111,7 @@ object SubtitleTranscriber {
             // app. So it is not tried, and the note left here tells the next start if it happened anyway.
             if (!SubtitleModel.hasMemory(context, model)) throw Failure(Failure.Reason.Memory)
             SubtitleModel.running(context, model)
+            val loading = SystemClock.elapsedRealtime()
             val recognizer = try {
                 SpeechRecognizer(SubtitleModel.folder(context, model), model, language)
             } catch (problem: Exception) {
@@ -123,6 +124,7 @@ object SubtitleTranscriber {
                 SubtitleModel.running(context, null)
                 throw Failure(Failure.Reason.Memory)
             }
+            val loaded = (SystemClock.elapsedRealtime() - loading) / 1000.0
             val words = mutableMapOf<String, MutableList<SubtitleWord>>()
             var written = ""
             val total = pieces.sumOf { it.range.duration }
@@ -155,7 +157,7 @@ object SubtitleTranscriber {
             job.ensureActive()
             if (words.values.all { it.isEmpty() }) throw Failure(Failure.Reason.NoWords)
             progress(1f, Step.Section(pieces.size, pieces.size, 0.0))
-            Result(words, written, total, elapsed())
+            Result(words, written, total, loaded, elapsed())
         } finally {
             scratch.deleteRecursively()
         }

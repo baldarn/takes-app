@@ -251,7 +251,7 @@ fun SubtitlesPanel(
                     progress = fraction
                     step = at
                 }
-                Log.i("Subtitles", "%.1f s of speech recognized in %.1f s with %s".format(result.speechSeconds, result.recognizingSeconds, with.name))
+                Log.i("Subtitles", "%s loaded in %.1f s; %.1f s of speech recognized in %.1f s".format(with.name, result.loadingSeconds, result.speechSeconds, result.recognizingSeconds))
                 onChange(SubtitleEditing.install(latest, result.words, spoken))
             } catch (stopped: CancellationException) {
                 throw stopped
