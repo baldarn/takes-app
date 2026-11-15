@@ -398,7 +398,7 @@
     <string name="export_pixels">%1$d × %2$d pixel</string>
     <string name="export_frame_rate">Fotogrammi al secondo</string>
     <string name="export_up_to">Fino a %1$d</string>
-    <string name="export_frame_rate_note">Le riprese con più fotogrammi vengono ridotte. Non vengono mai aggiunti fotogrammi.</string>
+    <string name="export_frame_rate_note">Le riprese con più fotogrammi vengono ridotte. Con soli tagli restano i fotogrammi delle riprese. Con una transizione il filmato ha la frequenza della ripresa più veloce, e le più lente ripetono fotogrammi.</string>
     <string name="export_format">Formato</string>
     <string name="export_h265_smaller">H.265 (file più piccolo)</string>
     <string name="export_progress">Esportazione… %1$d%%</string>
