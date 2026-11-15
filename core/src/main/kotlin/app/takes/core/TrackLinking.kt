@@ -82,12 +82,6 @@ fun TrackTimeline.linkPlan(selection: TimelineSelection): TimelineLinkOutcome<Ti
 fun TrackTimeline.joining(selection: TimelineSelection, intersectionOnly: Boolean = false): TimelineLinkOutcome<SelectedTimeline> =
     TrackLinking.joining(this, selection, intersectionOnly)
 
-/** See [TrackLinking.gap]. */
-fun TrackTimeline.gap(time: EditTime): EditInterval? = TrackLinking.gap(this, time)
-
-/** See [TrackLinking.closingGap]. */
-fun TrackTimeline.closingGap(time: EditTime): TrackTimeline = TrackLinking.closingGap(this, time)
-
 /** See [TrackLinking.syncOffset]. */
 fun TrackTimeline.syncOffset(audio: String): EditTime? = TrackLinking.syncOffset(this, audio)
 
@@ -95,15 +89,15 @@ fun TrackTimeline.syncOffset(audio: String): EditTime? = TrackLinking.syncOffset
 fun TrackTimeline.restoringSync(audio: String): TrackTimeline = TrackLinking.restoringSync(this, audio)
 
 /**
- * Selecting, linking and unlinking on the track timeline, and the two
- * repairs that go with them: Restore sync and Close gap.
+ * Selecting, linking and unlinking on the track timeline, and the repair
+ * that goes with them: Restore sync.
  *
  * A link records which items are selected, moved and deleted together, and
  * nothing else: it does not say that a sound is in sync with a picture, and
  * making or removing one moves nothing and changes no sample. Every function
  * answers a new timeline that the prune leaves as it is.
  *
- * YouRec/TrackTimeline.swift:540-639 and :1588-1615.
+ * YouRec/TrackTimeline.swift:540-639 and :1605-1615.
  */
 object TrackLinking {
     // MARK: Selection
@@ -272,7 +266,7 @@ object TrackLinking {
         }
         if (plan.needsIntersection && !intersectionOnly) return TimelineLinkOutcome.Refused(TimelineLinkError.ConfirmationRequired)
         val target = if (plan.needsIntersection) plan.selection.copy(range = plan.intersection) else plan.selection
-        val scoped = TrackArrangeSupport.scoped(timeline, target)
+        val scoped = TrackEditing.scoped(timeline, target)
         val chosen = scoped.selection
         val members = chosen.ids
         val links = scoped.timeline.links.mapNotNull { group ->
@@ -288,44 +282,6 @@ object TrackLinking {
             if (picture != null) sound.copy(followsVideo = picture.id) else sound
         }
         return TimelineLinkOutcome.Done(SelectedTimeline(scoped.timeline.copy(audio = audio, links = links).pruned(), chosen))
-    }
-
-    // MARK: Close gap
-
-    /**
-     * The empty stretch around [time]: time with no picture, no sound and no
-     * transition on any lane, from the end of what comes before to the start
-     * of what comes after. Null where something plays, and past the end.
-     * YouRec/TrackTimeline.swift:1588-1594.
-     */
-    fun gap(timeline: TrackTimeline, time: EditTime): EditInterval? {
-        val duration = timeline.duration
-        if (time < EditTime.ZERO || time >= duration) return null
-        val occupied = TrackArrangeSupport.union(timeline.video.map { it.interval } + timeline.audio.map { it.interval } + timeline.generated.map { it.interval })
-        if (occupied.any { time in it }) return null
-        val start = occupied.filter { it.end <= time }.maxOfOrNull { it.end } ?: EditTime.ZERO
-        val end = occupied.filter { it.start > time }.minOfOrNull { it.start } ?: duration
-        return if (end > start) EditInterval(start, end) else null
-    }
-
-    /**
-     * Removes the gap at [time]: everything after it moves earlier by its
-     * length, linked or not, and so do the bookmarks attached to the timeline
-     * itself. Nothing is cut or deleted. The timeline as it is where there is
-     * no gap. YouRec/TrackTimeline.swift:1595-1604.
-     */
-    fun closingGap(timeline: TrackTimeline, time: EditTime): TrackTimeline {
-        val gap = gap(timeline, time) ?: return timeline
-        val length = gap.duration
-        return timeline.copy(
-            video = timeline.video.map { if (it.start >= gap.end) it.copy(start = it.start - length) else it },
-            audio = timeline.audio.map { if (it.start >= gap.end) it.copy(start = it.start - length) else it },
-            transitions = timeline.transitions.map { if (it.origin >= gap.end) it.copy(origin = it.origin - length) else it },
-            bookmarks = timeline.bookmarks.map { mark ->
-                val anchor = mark.anchor
-                if (anchor is BookmarkAnchor.Project && anchor.time >= gap.start) mark.copy(anchor = BookmarkAnchor.Project(maxOf(gap.start, anchor.time - length))) else mark
-            },
-        ).pruned()
     }
 
     // MARK: Restore sync

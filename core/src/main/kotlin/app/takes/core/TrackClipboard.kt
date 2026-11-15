@@ -100,11 +100,11 @@ object TrackClipboard {
      */
     fun pasteTargets(timeline: TrackTimeline): List<TimelinePasteTarget> {
         val cuts = ArrayList<TimelinePasteTarget>()
-        for (join in TrackArrangeSupport.joins(timeline)) {
+        for (join in TrackLayout.of(timeline).joins) {
             if (!join.selectable) continue
             val left = join.outgoingID ?: continue
             val right = join.incomingID ?: continue
-            cuts += TimelinePasteTarget(TimelinePasteTarget.Kind.Picture, EditTime.of(join.time), TimelinePasteTarget.Anchor.Between(left, right), join.transition)
+            cuts += TimelinePasteTarget(TimelinePasteTarget.Kind.Picture, EditTime.of(join.time), TimelinePasteTarget.Anchor.Between(left, right), join.transition?.id)
         }
         val pictureIDs = timeline.video.mapTo(HashSet()) { it.id }
         val linked = HashSet<String>()
@@ -121,7 +121,7 @@ object TrackClipboard {
             for ((a, b) in pairs) cuts += TimelinePasteTarget(TimelinePasteTarget.Kind.Sound, time, TimelinePasteTarget.Anchor.Between(a, b))
         }
         if (timeline.video.isEmpty() && timeline.audio.isEmpty()) return cuts
-        val coverage = TrackArrangeSupport.videoCoverage(timeline)
+        val coverage = timeline.videoCoverage
         val first = coverage.firstOrNull()
         val last = coverage.lastOrNull()
         if (first != null && last != null) {
@@ -164,7 +164,7 @@ object TrackClipboard {
             val ranges = group.members.mapNotNull { spans[it] }
             if (ranges.isNotEmpty()) occupied += EditInterval(ranges.minOf { it.start }, ranges.maxOf { it.end })
         }
-        var islands = TrackArrangeSupport.union(occupied)
+        var islands = TrackEditing.union(occupied)
         if (keepGaps && islands.isNotEmpty()) islands = listOf(EditInterval(islands.first().start, islands.last().end))
         if (islands.isNotEmpty()) {
             var island = 0
@@ -195,7 +195,7 @@ object TrackClipboard {
      * YouRec/TrackTimeline.swift:1529-1532.
      */
     fun copied(timeline: TrackTimeline, targets: TimelineSelection): TimelineClipboard {
-        val scoped = TrackArrangeSupport.scoped(timeline, targets)
+        val scoped = TrackEditing.scoped(timeline, targets)
         return fragment(scoped.timeline, scoped.selection, keepGaps = targets.range != null)
     }
 
@@ -207,11 +207,11 @@ object TrackClipboard {
      * YouRec/TimelinePaste.swift:123-134.
      */
     fun cut(timeline: TrackTimeline, targets: TimelineSelection, point: EditTime): Cut? {
-        val scoped = TrackArrangeSupport.scoped(timeline, targets)
+        val scoped = TrackEditing.scoped(timeline, targets)
         val clip = fragment(scoped.timeline, scoped.selection, keepGaps = targets.range != null)
         if (clip.isEmpty) return null
         val staying = scoped.timeline.video.mapTo(LinkedHashSet()) { it.id }.apply { removeAll(scoped.selection.video) }
-        val removal = TrackArrangeSupport.remove(scoped.timeline.copy(placements = TrackPlacements.keeping(scoped.timeline, staying)), scoped.selection, point)
+        val removal = TrackEditing.removing(scoped.timeline.copy(placements = TrackPlacements.keeping(scoped.timeline, staying)), scoped.selection, point)
         val copiedMarks = clip.timeline.bookmarks.mapTo(HashSet()) { it.id }
         val remainingMarks = removal.timeline.resolvedBookmarks.mapTo(HashSet()) { it.id }
         val result = removal.timeline.copy(bookmarks = removal.timeline.bookmarks.filter { !(it.id in copiedMarks && it.id !in remainingMarks) })
@@ -256,13 +256,13 @@ object TrackClipboard {
                 hasPicture -> {
                     val gap = anchor == TimelinePasteTarget.Anchor.Gap
                     val site = if (gap) VideoInsertionSite.Gap(target.time.seconds) else VideoInsertionSite.Start
-                    val coverage = TrackArrangeSupport.videoCoverage(timeline).map { InsertionSites.Span(it.start.seconds, it.end.seconds) }
+                    val coverage = timeline.videoCoverage.map { InsertionSites.Span(it.start.seconds, it.end.seconds) }
                     val placement = InsertionSites.placement(site, coverage, length.seconds)
                     val ripple = EditTime.of(placement.ripple)
                     val destination = if (target.kind == TimelinePasteTarget.Kind.Project) EditTime.ZERO else EditTime.of(placement.start)
                     val made = when {
                         ripple <= EditTime.ZERO -> timeline
-                        gap -> TrackArrangeSupport.insertTime(timeline, ripple, EditTime.of(placement.rippleAt), atPictureGap = true)
+                        gap -> TrackEditing.insertingTime(timeline, ripple, EditTime.of(placement.rippleAt), atPictureGap = true)
                         else -> TrackMove.moved(timeline, TimelineSelection(video = timeline.video.mapTo(LinkedHashSet()) { it.id }), ripple)
                     }
                     Prepared(made, destination)
@@ -280,7 +280,7 @@ object TrackClipboard {
                     val destination = target.time
                     val chain = TrackMove.choices(timeline, TrackLinking.selection(timeline, anchor.right)).right.audio
                     val tail = timeline.audio.filter { it.id in chain && it.start >= destination }.mapTo(LinkedHashSet()) { it.id }
-                    val cut = TrackArrangeSupport.split(timeline, destination, TimelineSelection(audio = tail)).timeline
+                    val cut = TrackEditing.split(timeline, destination, TimelineSelection(audio = tail)).timeline
                     Prepared(cut.copy(audio = cut.audio.map { if (it.id in tail) it.copy(start = it.start + length) else it }), destination)
                 }
                 else -> Prepared(timeline, target.time)
@@ -302,9 +302,9 @@ object TrackClipboard {
         val broken = timeline.generated.filter { it.interval.start < point && point < it.interval.end }.mapTo(HashSet()) { it.owner }
         transition?.let { broken += it }
         var result = timeline
-        for (id in timeline.transitions.map { it.id }) if (id in broken) result = TrackArrangeSupport.restoringStraightCut(result, id)
+        for (id in timeline.transitions.map { it.id }) if (id in broken) result = TrackTransitions.removing(result, id)
         val position = pictureOnRight?.let { id -> result.video.firstOrNull { it.id == id }?.start } ?: point
-        result = TrackArrangeSupport.split(result, position, TimelineSelection(video = result.video.mapTo(LinkedHashSet()) { it.id })).timeline
+        result = TrackEditing.split(result, position, TimelineSelection(video = result.video.mapTo(LinkedHashSet()) { it.id })).timeline
         val tail = TrackLinking.expanded(result, TimelineSelection(video = result.video.filter { it.start >= position }.mapTo(LinkedHashSet()) { it.id }))
         return Prepared(
             result.copy(
