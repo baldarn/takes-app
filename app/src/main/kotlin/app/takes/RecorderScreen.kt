@@ -103,12 +103,13 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore) {
     }
     LaunchedEffect(owner) { capture.attach(owner, previewView.surfaceProvider) }
     DisposableEffect(owner) {
-        // Returning from the background must never resume recording by itself.
+        // In the background the take is paused and its segment saved, as in the original: the take, and a run
+        // of takes recorded into the middle of an edit, are still there on return. Returning never resumes by itself.
         // The chosen microphone is a system-wide route: hold it only while the recorder is in front.
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> capture.claimMicrophone()
-                Lifecycle.Event.ON_STOP -> { capture.finishTake(); capture.releaseMicrophone() }
+                Lifecycle.Event.ON_STOP -> { capture.pause(); capture.releaseMicrophone() }
                 else -> Unit
             }
         }

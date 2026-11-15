@@ -442,6 +442,7 @@ class CaptureController(private val context: Context, private val store: Project
         marks++
     }
 
+    /** Saves the running segment and keeps the take open. A Stop already asked for is not undone. */
     fun pause() = end(Phase.Paused)
 
     /** Finalizes the take and leaves the recorder ready for a new one. */
