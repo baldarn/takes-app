@@ -120,8 +120,8 @@
 
     <!-- Crop -->
     <string name="crop_zoom">Zoom</string>
-    <string name="crop_left_right">Sinistra–destra</string>
-    <string name="crop_up_down">Su–giù</string>
+    <string name="crop_left_right">Orizzontale</string>
+    <string name="crop_up_down">Verticale</string>
     <string name="crop_remove">Rimuovi ritaglio</string>
 
     <!-- Color -->
@@ -175,7 +175,7 @@
     <string name="sound_muted">Muto</string>
     <string name="sound_silent">Silenzio</string>
     <string name="sound_mute">Disattiva audio</string>
-    <string name="sound_mute_clip">Disattiva l\'audio di questa clip</string>
+    <string name="sound_mute_clip">Clip senza audio</string>
     <string name="sound_fade_in">Fade in</string>
     <string name="sound_fade_out">Fade out</string>
     <string name="sound_fade_none">Nessuno</string>
