@@ -150,6 +150,14 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
             SettingsRow { Text(project?.title ?: stringResource(R.string.recorder_new_project), color = Color.White) }
             SettingsRow { Note(stringResource(R.string.recorder_settings_captured, clock(project?.capturedDuration ?: 0.0))) }
         }
+        if (capture.hasFrontCamera) {
+            Section(stringResource(R.string.recorder_settings_picture)) {
+                // Changing either rebuilds the camera, which is done between segments, never under one.
+                SwitchRow(stringResource(R.string.recorder_mirror_preview), settings.mirrorPreview, capture.canChangeFormat) { capture.chooseMirrorPreview(it) }
+                SwitchRow(stringResource(R.string.recorder_mirror_recording), settings.mirrorRecording, capture.canChangeTake) { capture.chooseMirrorRecording(it) }
+                SettingsRow { Note(stringResource(R.string.recorder_mirror_note)) }
+            }
+        }
         FocusSettings(capture.focus, capture.ready && capture.phase != Phase.Saving)
         Section(stringResource(R.string.recorder_settings_zoom)) {
             var choosing by remember { mutableStateOf(false) }
