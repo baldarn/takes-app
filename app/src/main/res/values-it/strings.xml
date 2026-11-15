@@ -172,15 +172,10 @@
 
     <!-- Sound -->
     <string name="sound_dialog_title">Audio della clip</string>
-    <string name="sound_volume">Volume</string>
-    <string name="sound_volume_value">Volume: %1$s</string>
     <string name="sound_muted">Muto</string>
-    <string name="sound_silent">Silenzio</string>
     <string name="sound_mute">Disattiva audio</string>
-    <string name="sound_mute_clip">Clip senza audio</string>
     <string name="sound_fade_in">Fade in</string>
     <string name="sound_fade_out">Fade out</string>
-    <string name="sound_fade_none">Nessuno</string>
     <string name="sound_noise_reduction">Riduzione del rumore</string>
     <string name="sound_noise_off">No</string>
     <string name="sound_noise_light">Leggera</string>

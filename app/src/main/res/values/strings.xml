@@ -169,15 +169,10 @@
 
     <!-- Sound -->
     <string name="sound_dialog_title">Clip sound</string>
-    <string name="sound_volume">Volume</string>
-    <string name="sound_volume_value">Volume: %1$s</string>
     <string name="sound_muted">Muted</string>
-    <string name="sound_silent">Silent</string>
     <string name="sound_mute">Mute</string>
-    <string name="sound_mute_clip">Mute this clip</string>
     <string name="sound_fade_in">Fade in</string>
     <string name="sound_fade_out">Fade out</string>
-    <string name="sound_fade_none">None</string>
     <string name="sound_noise_reduction">Noise reduction</string>
     <string name="sound_noise_off">Off</string>
     <string name="sound_noise_light">Light</string>
