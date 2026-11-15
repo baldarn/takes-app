@@ -325,7 +325,15 @@ data class AudioItem(
 data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeline: TrackTimeline? = null) {
     @Volatile private var encoded: ByteArray? = null
 
+    /** The sources and the capture ledger this step was last found valid with ([Project.validate]), by identity. */
+    @Volatile internal var checked: Pair<List<SourceMedia>, List<TimelineClip>>? = null
+
     fun data(): ByteArray = encoded ?: documentJson.encodeToString(serializer(), this).toByteArray().also { encoded = it }
+
+    @Volatile private var named: String? = null
+
+    /** The name of the history file that holds [data]: the hash of its bytes. */
+    fun filename(): String = named ?: (sha256(data()) + ".json").also { named = it }
 
     companion object {
         /** A step that saves [timeline], or null when the timeline is not one the sequence form can show. */
@@ -347,6 +355,9 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
         /** The step saved as [bytes], which it keeps. */
         internal fun decoded(bytes: ByteArray): EditSnapshot =
             documentJson.decodeFromString(serializer(), bytes.decodeToString()).also { it.encoded = bytes }
+
+        /** The step saved as [bytes] in the history file [name], which [Project.readManifest] has checked is their hash. */
+        internal fun decoded(bytes: ByteArray, name: String): EditSnapshot = decoded(bytes).also { it.named = name }
     }
 }
 
@@ -597,7 +608,11 @@ data class Project(
             source.sha256?.let { hash -> if (hash.length != 64 || hash.any { it !in HEX }) invalid() }
             if (source.events.orEmpty().any { !it.time.isFinite() || it.time < 0 || it.time > source.duration + 1 }) invalid()
         }
-        for (state in history) {
+        // A step found valid with these very sources and takes is not checked again: a commit checks the step it adds.
+        for (snapshot in snapshots) {
+            val with = snapshot.checked
+            if (with != null && with.first === sources && with.second === captureLedger) continue
+            val state = materialized(snapshot)
             if (!state.duration.isFinite() || state.duration > MAX_DURATION) invalid()
             if (state.clips.map { it.id }.toSet().size != state.clips.size) invalid()
             if (state.subtitles?.valid == false) invalid()
@@ -628,15 +643,13 @@ data class Project(
                 if (words.map { it.id }.toSet().size != words.size) invalid()
                 if (words.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
             }
+            snapshot.checked = sources to captureLedger
         }
     }
 
     /** Content-addressed history: unchanged snapshots are never rewritten. */
     fun manifest(write: (name: String, data: ByteArray) -> Unit): ByteArray {
-        val names = snapshots.map { snapshot ->
-            val data = snapshot.data()
-            (sha256(data) + ".json").also { write(it, data) }
-        }
+        val names = snapshots.map { snapshot -> snapshot.filename().also { write(it, snapshot.data()) } }
         val manifest = Manifest(schemaVersion, id, title, createdAt, updatedAt, sources, historyCursor, captureLedger, names, exportSettings,
             captureInsertions.sorted().ifEmpty { null }, recordingInsertion, recordingInsertionStep)
         return documentJson.encodeToString(Manifest.serializer(), manifest).toByteArray()
@@ -682,7 +695,7 @@ data class Project(
                 }
                 if (sha256(payload) + ".json" != name) invalid()
                 try {
-                    EditSnapshot.decoded(payload)
+                    EditSnapshot.decoded(payload, name)
                 } catch (error: Exception) {
                     throw ProjectException(ProjectException.Reason.InvalidDocument, error)
                 }
