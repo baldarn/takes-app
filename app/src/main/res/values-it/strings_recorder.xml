@@ -145,4 +145,13 @@
     <string name="recorder_mic_disconnected_state">Scollegato</string>
     <string name="recorder_mic_earlier">Sposta %1$s più in alto</string>
     <string name="recorder_mic_later">Sposta %1$s più in basso</string>
+    <!-- Unfinished recordings: what a take that was interrupted left and could not be read, in the project's menu. -->
+    <string name="recorder_unfinished_title">Registrazioni incomplete</string>
+    <string name="recorder_unfinished_preserved">File conservati</string>
+    <string name="recorder_unfinished_save">Salva il file</string>
+    <string name="recorder_unfinished_note">Queste riprese non sono state recuperate in automatico. Salvane una copia per il recupero, oppure elimina il file incompleto. Il progetto e il montaggio restano come sono.</string>
+    <string name="recorder_unfinished_delete_question">Eliminare definitivamente questa registrazione incompleta e i file che la accompagnano?</string>
+    <string name="recorder_unfinished_delete">Elimina la registrazione</string>
+    <string name="recorder_unfinished_notice">Non è stato possibile aprire una registrazione incompleta. I suoi file originali si possono salvare.</string>
+    <string name="recorder_unfinished_save_failed">Non è stato possibile salvare il file: %1$s</string>
 </resources>

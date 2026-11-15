@@ -90,6 +90,9 @@ class ProjectStore(context: Context) {
      */
     val clipboards = mutableStateMapOf<String, ClipFragment>()
 
+    // Counts the unfinished recordings moved aside or deleted, so that the screen lists them again. Before the first launch work, which uses it.
+    private var recoveryChanges by mutableStateOf(0)
+
     val selected: Project? get() = projects.firstOrNull { it.id == selectedID }
 
     init {
@@ -435,10 +438,61 @@ class ProjectStore(context: Context) {
     // does not list was finished just before its project could be saved.
     private fun indexFinishedTakes(project: Project) {
         for (file in disk.unindexedRecordings(project)) {
-            val duration = mediaDuration(file) ?: continue
+            val duration = mediaDuration(file)
+            if (duration == null) { setAside(file, project); continue }
             // The marks and camera changes saved beside the take while it was recorded come back with it.
             val events = CaptureEventsFile.read(file, duration)
             addRecording(project.id, SourceMedia(filename = file.name, duration = duration, recordedAt = file.lastModified(), events = events))
+        }
+    }
+
+    // MARK: Unfinished recordings. What could not be read is kept in the project's Recovery folder, as in the original.
+
+    /** The recordings of [project] that could not be brought back, for the person to save or delete. */
+    fun unfinishedRecordings(project: Project): List<File> {
+        recoveryChanges
+        return disk.recoveryFiles(project)
+    }
+
+    /**
+     * A recording left by a take that was interrupted and that cannot be read. An empty file holds nothing
+     * and goes, as when a take ends with one; any other is moved aside with its events, never deleted, and
+     * the person is told once, in the original's words.
+     */
+    private fun setAside(file: File, project: Project) {
+        if (file.length() == 0L) {
+            if (file.delete()) CaptureEventsFile.delete(file)
+            return
+        }
+        // A file that cannot be moved stays where it is and is tried again at the next launch.
+        if (runCatching { disk.quarantineRecording(file, project) }.isSuccess) {
+            recoveryChanges++
+            error = context.getString(R.string.recorder_unfinished_notice)
+        }
+    }
+
+    /** Deletes an unfinished recording for good, with what was saved beside it. */
+    fun removeUnfinished(file: File, project: Project) {
+        try {
+            disk.removeRecoveryFile(file, project)
+        } catch (problem: Exception) {
+            error = describe(problem)
+        }
+        recoveryChanges++
+    }
+
+    /** Saves a copy of an unfinished recording where the person chose. The file itself stays. */
+    fun saveUnfinished(file: File, destination: Uri) {
+        scope.launch {
+            val problem = withContext(Dispatchers.IO) {
+                try {
+                    resolver.openOutputStream(destination)!!.use { stream -> file.inputStream().use { it.copyTo(stream, 1 shl 16) } }
+                    null
+                } catch (failure: Exception) {
+                    failure
+                }
+            }
+            if (problem != null) error = context.getString(R.string.recorder_unfinished_save_failed, describe(problem))
         }
     }
 }

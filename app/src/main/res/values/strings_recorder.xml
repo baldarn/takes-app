@@ -145,4 +145,13 @@
     <string name="recorder_mic_disconnected_state">Disconnected</string>
     <string name="recorder_mic_earlier">Move %1$s earlier</string>
     <string name="recorder_mic_later">Move %1$s later</string>
+    <!-- Unfinished recordings: what a take that was interrupted left and could not be read, in the project's menu. -->
+    <string name="recorder_unfinished_title">Unfinished recordings</string>
+    <string name="recorder_unfinished_preserved">Preserved files</string>
+    <string name="recorder_unfinished_save">Save file</string>
+    <string name="recorder_unfinished_note">These takes could not be restored automatically. Save a copy for recovery, or delete the unfinished file. Your project and its edits are unchanged.</string>
+    <string name="recorder_unfinished_delete_question">Permanently delete this unfinished recording and its sidecars?</string>
+    <string name="recorder_unfinished_delete">Delete recording</string>
+    <string name="recorder_unfinished_notice">An unfinished recording could not be opened. Its original files are available to save.</string>
+    <string name="recorder_unfinished_save_failed">The file could not be saved: %1$s</string>
 </resources>

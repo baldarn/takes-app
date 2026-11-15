@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.VideocamOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -198,6 +199,8 @@ private fun summary(project: Project): String {
 private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit, zip: () -> Unit) {
     val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
+    var unfinished by remember { mutableStateOf(false) }
+    if (unfinished) UnfinishedRecordings(project, store) { unfinished = false }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Thumbnail(project.recordings.firstOrNull()?.let { store.file(project, it) })
@@ -228,6 +231,8 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                         leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.projects_add_videos)) }, { choose(addVideos) }, leadingIcon = { Icon(Icons.Filled.Add, null) })
                     if (project.sources.isNotEmpty()) DropdownMenuItem({ Text(stringResource(R.string.projects_zip)) }, { choose(zip) }, leadingIcon = { Icon(Icons.Outlined.Inventory2, null) })
+                    if (store.unfinishedRecordings(project).isNotEmpty()) DropdownMenuItem(
+                        { Text(stringResource(R.string.recorder_unfinished_title)) }, { choose { unfinished = true } }, leadingIcon = { Icon(Icons.Outlined.VideocamOff, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.common_delete), color = RecordRed) }, { choose { store.delete(project) } }, leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = RecordRed) })
                 }
             }
