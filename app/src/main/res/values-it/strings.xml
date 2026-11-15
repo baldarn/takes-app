@@ -391,7 +391,7 @@
     <string name="transition_audio_shorter">Accorcia la fusione audio di 0,1 secondi</string>
     <string name="transition_audio_cut">Taglia l\'audio senza crossfade</string>
     <string name="transition_audio_longer">Allunga la fusione audio di 0,1 secondi</string>
-    <string name="transition_audio_default_note">Di norma l\'audio segue il fade. Regola uno dei due controlli audio per un crossfade indipendente dall\'immagine.</string>
+    <string name="transition_audio_default_note">Di norma l\'audio segue il fade o il fermo immagine. Regola uno dei due controlli audio per un crossfade indipendente dall\'immagine.</string>
     <string name="transition_audio_split_note">Sopra è selezionato «%1$s». Regola uno dei due controlli audio per usare un crossfade a tempo.</string>
     <string name="transition_audio_diagram">Audio da %1$s a %2$s s · l\'immagine parte da 0</string>
     <string name="transition_audio_diagram_label">Tempi della transizione dell\'immagine e dell\'audio</string>

@@ -310,8 +310,7 @@ fun TransitionPanel(
                     Text(stringResource(R.string.transition_reset_framing))
                 }
             }
-            // A freeze cannot run its clip's sound on under the frozen picture in the preview, so its sound stays the cut it is.
-            if (style != TransitionStyle.Still) AudioTiming(settings, edge, join, audioMaximum, lengthNote.takeIf { join != null }, change)
+            AudioTiming(settings, edge, join, audioMaximum, lengthNote.takeIf { join != null }, change)
             if (existing) {
                 OutlinedButton(onClick = remove, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) { Text(stringResource(R.string.transition_remove), color = RecordRed) }
                 if (edge == 0) Note(stringResource(R.string.transition_remove_note))
@@ -514,7 +513,7 @@ private fun AudioTiming(settings: TransitionSettings, edge: Int, join: Transitio
             reset = { change(settings.copy(audioBlend = 0.0, audio = TransitionAudio.Crossfade)) },
             forward = { change(settings.copy(audioBlend = minOf(TransitionSettings.MAXIMUM_DURATION, blend + 0.1), audio = TransitionAudio.Crossfade)) },
         )
-        if (!settings.customAudio && settings.style == TransitionStyle.FadeColor) Note(stringResource(R.string.transition_audio_default_note))
+        if (!settings.customAudio && (settings.style == TransitionStyle.FadeColor || settings.style == TransitionStyle.Still)) Note(stringResource(R.string.transition_audio_default_note))
         if (settings.style == TransitionStyle.Split && !settings.customAudio && settings.audio != TransitionAudio.Crossfade) {
             Note(stringResource(R.string.transition_audio_split_note, stringResource(settings.audio.label)))
         }

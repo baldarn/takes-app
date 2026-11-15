@@ -181,6 +181,7 @@ import app.takes.core.TransitionDefaults
 import app.takes.core.TransitionFraming
 import app.takes.core.TransitionGeometry
 import app.takes.core.TransitionLayout
+import app.takes.core.TransitionPicture
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionTiming
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -291,6 +292,24 @@ private class EditorPlayer(private val context: Context) {
     private var time = 0.0      // where the movie is
     private var ticked = 0L     // when it was last advanced, for the stretches no deck is the clock of
 
+    /**
+     * A freeze whose outgoing clip plays on under it for its sound (a still
+     * with an audio timing of its own): the picture of [deck] stays on the
+     * frame the clip showed before [from], until [until]. That frame is on
+     * screen from [shown], and is second [source] of [file].
+     */
+    private class Sounding(val deck: Int, val from: Double, val until: Double, val shown: Double, val file: File, val source: Double) {
+        /** The frame it holds, once read from the recording. */
+        @Volatile var picture: Bitmap? = null
+    }
+    @Volatile private var sounding = emptyList<Sounding>()
+    private val reading = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    /** The frames such freezes hold, drawn over the decks while their players go on with the sound. */
+    val heldPictures = HeldPictures()
+    // The deck is standing on the frame this freeze holds: a seek put it there while nothing played.
+    private val parked = arrayOfNulls<Sounding>(2)
+
     fun load(clips: List<TimelineClip>, sounds: List<AudioItem>, files: Map<String, File>, time: Double) {
         pause()
         this.sounds = sounds
@@ -300,6 +319,19 @@ private class EditorPlayer(private val context: Context) {
         chains = TimelineEditing.chains(clips)
         duration = TimelineEditing.duration(clips)
         items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
+        val layout = TimelineEditing.layout(clips)
+        val deckOf = TransitionScene.decks(clips)
+        sounding = layout.joins.filter { it.transition != null && it.edge != -1 && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
+            val placement = layout.placements[join.index - 1]
+            TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)
+                ?.takeIf { placement.end > it.from + 0.001 }?.let { held ->
+                    val clip = clips[placement.index]
+                    Sounding(deckOf[placement.index], held.from, held.until, held.shown, files.getValue(clip.sourceID), clip.sourceTime(held.offset))
+                }
+        }
+        for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
+        // The frames themselves, read ahead: a deck that is playing shows a frame near the freeze, not always the one before it.
+        for (freeze in sounding) reading.execute { if (freeze in sounding) freeze.picture = heldFrame(freeze.file, freeze.source) }
         // What the decks hold. A change that leaves it as it is, such as a title or the angle of a wipe, needs no new playlists.
         val media = items to clips.map { clip ->
             listOf(clip.id, clip.sourceID, clip.start, clip.end, clip.rate, clip.audio?.denoise?.takeIf { it > 0 }?.let { Denoiser.ready(files.getValue(clip.sourceID), it) })
@@ -338,14 +370,29 @@ private class EditorPlayer(private val context: Context) {
         if (player.pauseAtEndOfMediaItems != last) player.pauseAtEndOfMediaItems = last
     }
 
-    /** Puts every deck where [time] needs it: inside its chain, on the frame it holds, or parked at the start of its next chain. */
-    fun seek(time: Double) {
+    /**
+     * Puts every deck where [time] needs it: inside its chain, on the frame it holds, or parked at the start of its next chain.
+     * A deck whose clip plays on under a freeze stands on the frozen frame; when it is [starting] to play it goes
+     * to where its sound is, and the frame it stood on is drawn over it.
+     */
+    fun seek(time: Double, starting: Boolean = false) {
         if (clips.isEmpty()) return
         this.time = time.coerceIn(0.0, duration)
         decks.forEachIndexed { deck, player ->
             val active = playing(deck, time)
             val frozen = held(deck, time)
-            if (active != null) {
+            val under = sounding.firstOrNull { it.deck == deck && time >= it.from && time < it.until }
+            if (starting && under != null) {
+                // Standing on the frozen frame: keep it before the deck moves. A frame already kept for this freeze stays.
+                if (heldPictures.freeze(deck) !== under) under.picture?.let { heldPictures.put(deck, under, it) }
+                if (parked[deck] === under && heldPictures.freeze(deck) !== under) heldPictures.keep(deck, under)
+                if (heldPictures.freeze(deck) === under) heldPictures.show(deck)
+            } else heldPictures.drop(deck)
+            parked[deck] = under.takeIf { !starting && frozen != null }
+            if (active != null && frozen != null && !starting) {
+                player.seekTo(items[deck].indexOf(frozen.index), (frozen.offset * clips[frozen.index].rate * 1000).toLong())
+                pace(player, frozen.index)
+            } else if (active != null) {
                 val clip = active.second
                 val offset = (time - TimelineEditing.clipStart(clips, clip)).coerceIn(0.0, clips[clip].duration)
                 // A deck's position runs in recorded seconds; a clip at another speed covers them faster or slower.
@@ -363,7 +410,7 @@ private class EditorPlayer(private val context: Context) {
 
     fun play(time: Double) {
         if (clips.isEmpty()) return
-        seek(time) // line both decks up again
+        seek(time, starting = true) // line both decks up again
         for (deck in decks.indices) if (playing(deck, time) != null) decks[deck].play()
         for (track in tracks.indices) cue(track, time, play = true)
         ticked = System.nanoTime()
@@ -405,6 +452,17 @@ private class EditorPlayer(private val context: Context) {
             pause()
             return time
         }
+        // A freeze whose clip plays on: its frame stays over the deck, from the moment it comes on screen, so the
+        // deck never shows a later one. Should the frame not be read yet, the picture the deck showed last stands in for it.
+        for (freeze in sounding) when {
+            time >= freeze.shown - KEEP_AHEAD && time < freeze.shown -> if (freeze.picture == null) heldPictures.keep(freeze.deck, freeze)
+            time >= freeze.shown && time < freeze.until -> {
+                val picture = freeze.picture
+                if (picture != null) heldPictures.put(freeze.deck, freeze, picture) else if (heldPictures.freeze(freeze.deck) !== freeze) heldPictures.keep(freeze.deck, freeze)
+                heldPictures.show(freeze.deck)
+            }
+            else -> heldPictures.drop(freeze.deck, freeze)
+        }
         decks.forEachIndexed { deck, player ->
             val active = playing(deck, time)
             val clip = items[deck].getOrNull(player.currentMediaItemIndex)
@@ -439,7 +497,31 @@ private class EditorPlayer(private val context: Context) {
         return time
     }
 
+    private companion object {
+        /** How long before a freeze the deck's picture is taken, each frame replacing the one before, in seconds. */
+        const val KEEP_AHEAD = 0.1
+
+        /** The longer side of a frame read for a freeze, in pixels: no more than a screen shows. */
+        const val HELD_SIDE = 1280
+
+        /** The frame of [file] showing at source second [time], upright. */
+        fun heldFrame(file: File, time: Double): Bitmap? {
+            val retriever = MediaMetadataRetriever()
+            return try {
+                retriever.setDataSource(file.path)
+                val micros = (time * 1e6).toLong()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) retriever.getScaledFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST, HELD_SIDE, HELD_SIDE)
+                else retriever.getFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST)
+            } catch (_: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+    }
+
     fun release() {
+        reading.shutdownNow()
         (boosts + trackBoosts).forEach { runCatching { it?.release() } }
         tracks.forEach { it.release() }
         decks.forEach { it.release() }
@@ -807,7 +889,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         FrameRect((frame.width - source.width * fitted) / 2, (frame.height - source.height * fitted) / 2, source.width * fitted, source.height * fitted)
                     }
                 }
-                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf, frames) }, content = content)
+                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf, frames) }, content = content, held = editor.heldPictures)
                 // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
                 val work by rememberUpdatedState(titling)
                 var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle

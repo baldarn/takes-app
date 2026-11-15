@@ -387,7 +387,7 @@
     <string name="transition_audio_shorter">Shorten audio blend by 0.1 seconds</string>
     <string name="transition_audio_cut">Cut audio without crossfade</string>
     <string name="transition_audio_longer">Lengthen audio blend by 0.1 seconds</string>
-    <string name="transition_audio_default_note">By default, sound follows the fade. Adjust either audio control to crossfade independently of the picture.</string>
+    <string name="transition_audio_default_note">By default, sound follows the fade or freeze. Adjust either audio control to crossfade independently of the picture.</string>
     <string name="transition_audio_split_note">%1$s is selected above. Adjust either audio control to use a timed crossfade.</string>
     <string name="transition_audio_diagram">Sound %1$s to %2$s s · picture starts at 0</string>
     <string name="transition_audio_diagram_label">Picture transition and audio timing</string>
