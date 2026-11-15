@@ -21,8 +21,8 @@ android {
         applicationId = "app.takes"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.9"
+        versionCode = 10
+        versionName = "0.9.1"
     }
     signingConfigs {
         if (keystoreProperties.containsKey("storeFile")) {
