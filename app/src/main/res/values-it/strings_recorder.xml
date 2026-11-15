@@ -45,9 +45,9 @@
     <string name="recorder_flip_front">Passa alla camera frontale</string>
     <string name="recorder_flip_back">Passa alla camera posteriore</string>
     <string name="recorder_camera">Camera</string>
-    <string name="recorder_zoom_times">Zoom, %1$s volte</string>
-    <string name="recorder_zoom_preset">Zoom %1$s volte</string>
-    <string name="recorder_zoom_preset_main">Zoom 1 volta, camera principale</string>
+    <string name="recorder_zoom_times">Zoom %1$s</string>
+    <string name="recorder_zoom_preset">Zoom %1$s</string>
+    <string name="recorder_zoom_preset_main">Zoom 1, camera principale</string>
     <string name="recorder_zoom_main">Princ.</string>
     <string name="recorder_zoom_one_second">Transizione di un secondo</string>
     <string name="recorder_zoom_time">Durata della transizione di zoom</string>
