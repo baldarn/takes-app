@@ -2,11 +2,7 @@
 
 package app.takes
 
-import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
-import android.util.LruCache
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,11 +10,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.launch
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.positionChange
-import app.takes.core.WaveformBuilder
-import kotlin.math.sqrt
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.semantics.Role
@@ -36,34 +28,20 @@ import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import app.takes.core.TextOverlay
-import androidx.compose.ui.draw.alpha
 import app.takes.core.TransitionSettings
 import app.takes.core.TransitionStyle
-import android.media.AudioManager
-import android.media.audiofx.LoudnessEnhancer
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
-import app.takes.core.ClipAudio
-import kotlin.math.log10
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import app.takes.core.AudioGainDrag
 import app.takes.core.AudioItem
-import app.takes.core.AudioLevels
 import android.net.Uri
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import androidx.media3.exoplayer.source.ClippingMediaSource
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.MergingMediaSource
 import app.takes.core.PauseDetector
 import app.takes.core.PauseSettings
 import app.takes.core.SourceInterval
@@ -80,15 +58,12 @@ import app.takes.core.PictureFrame
 import app.takes.core.PictureFraming
 import app.takes.core.Size as FrameSize
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import android.app.Activity
 import android.content.ContextWrapper
 import android.os.Handler
@@ -99,12 +74,10 @@ import kotlin.coroutines.resume
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -121,7 +94,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -142,33 +114,23 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.PlaybackParameters
-import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
 import app.takes.core.EditScope
 import app.takes.core.EditState
 import app.takes.core.EditTargets
-import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.RangeEditing
 import app.takes.core.RangeMarks
@@ -195,352 +157,15 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-private val Panel = Color(0xFF1B1D21)
 private val Muted = Color(0xFFA0A4AB)
-private val TileSize = 56.dp
-private val WaveHeight = 30.dp
-private val WaveColor = Color(0xFF7DB7FF)
-private val TitleColor = Color(0xFFFFD54A)
-private val BookmarkColor = Color(0xFFFF7A45)
-private val SoundColor = Color(0xFF7BD389)
-private val TrackHeight = 26.dp
-private val StripTop = 17.dp
+internal val TitleColor = Color(0xFFFFD54A)
+internal val BookmarkColor = Color(0xFFFF7A45)
 
 internal fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
     return "%d:%02d.%d".format(tenths / 600, tenths / 10 % 60, tenths % 10)
-}
-
-/**
- * Plays the edit, addressed by timeline seconds, as its [RenderPlan] arranges
- * it: nothing about the edit is decided here. Clips that follow one another
- * without a break form a chain that one player runs as a gapless playlist.
- * Most transitions need two pictures at once, and a freeze needs the frame it
- * holds while the next clip waits, so chains alternate between two decks, like
- * the two sequences of an export. Where no clip plays at all (a hold on a
- * color, a freeze) the clock runs on by itself.
- */
-private class EditorPlayer(private val context: Context) {
-    private val sessions = context.getSystemService(AudioManager::class.java)
-    val decks = List(2) {
-        ExoPlayer.Builder(context).build().apply {
-            audioSessionId = sessions.generateAudioSessionId()
-            // A clip with noise reduction carries two sounds, recorded and cleaned (a WAV): play the cleaned one.
-            trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredAudioMimeType(MimeTypes.AUDIO_RAW).build()
-        }
-    }
-    private val sources = DefaultMediaSourceFactory(context)
-
-    /** The clip as something to play: its own file, or its picture merged with its cleaned sound when that plays in place of the recorded one. */
-    private fun source(clip: RenderPlan.Picture, file: File, clean: File?): MediaSource {
-        if (clean == null) return sources.createMediaSource(clippedItem(clip, file))
-        val merged = MergingMediaSource(
-            /* adjustPeriodTimeOffsets = */ true, /* clipDurations = */ true,
-            sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(file))), sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(clean))),
-        )
-        return ClippingMediaSource.Builder(merged)
-            .setStartPositionUs(clip.sourceStartUs).setEndPositionUs(clip.sourceEndUs).build()
-    }
-    // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
-    private val boosts = decks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
-
-    // Sound on its own tracks: one audio-only player per track, holding the item that is
-    // playing there or the next one to come, so it can start on time.
-    private val tracks = List(AudioItem.TRACKS) { ExoPlayer.Builder(context).build().apply { audioSessionId = sessions.generateAudioSessionId() } }
-    private val trackBoosts = tracks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
-    private val cued = arrayOfNulls<AudioItem>(AudioItem.TRACKS)
-    private var files = emptyMap<String, File>()
-
-    private fun apply(player: ExoPlayer, boost: LoudnessEnhancer?, level: Double) {
-        player.volume = level.coerceIn(0.0, 1.0).toFloat()
-        boost?.let {
-            runCatching {
-                if (level > 1) it.setTargetGain((2000 * log10(level)).roundToInt())
-                it.enabled = level > 1
-            }
-        }
-    }
-
-    /** Sets how loud a deck plays, as a factor of the recorded sound. */
-    fun setSound(deck: Int, level: Double) = apply(decks[deck], boosts[deck], level)
-
-    /** Sets how loud an audio track plays. */
-    fun setTrackSound(track: Int, level: Double) = apply(tracks[track], trackBoosts[track], level)
-
-    /** Lines a track up with [time]: inside its item, or waiting at the start of the next one. */
-    private fun cue(track: Int, time: Double, play: Boolean) {
-        val player = tracks[track]
-        val item = plan.cued(track, time)
-        if (item == null) { player.pause(); cued[track] = null; return }
-        val inside = time >= item.start
-        if (cued[track] != item) {
-            cued[track] = item
-            player.setMediaItem(clippedItem(item, files.getValue(item.sourceID)), if (inside) ((time - item.start) * 1000).toLong() else 0L)
-            player.prepare()
-        } else {
-            player.seekTo(if (inside) ((time - item.start) * 1000).toLong() else 0L)
-        }
-        player.playWhenReady = play && inside
-    }
-    var playing by mutableStateOf(false); private set
-
-    private var plan = RenderPlan.of(EditState())
-    private val clips get() = plan.pictures
-    private val chains get() = plan.chains
-    private var items = List(2) { emptyList<Int>() } // clip index of each playlist item, per deck
-    private val duration get() = plan.duration
-    private var loaded: Any? = null
-    private var time = 0.0      // where the movie is
-    private var ticked = 0L     // when it was last advanced, for the stretches no deck is the clock of
-
-    /**
-     * A freeze whose outgoing clip plays on under it for its sound (a still
-     * with an audio timing of its own): the picture of [deck] stays on the
-     * frame the clip showed before [from], until [until]. That frame is on
-     * screen from [shown], and is second [source] of [file].
-     */
-    private class Sounding(val deck: Int, val from: Double, val until: Double, val shown: Double, val file: File, val source: Double) {
-        /** The frame it holds, once read from the recording. */
-        @Volatile var picture: Bitmap? = null
-    }
-    @Volatile private var sounding = emptyList<Sounding>()
-    private val reading = java.util.concurrent.Executors.newSingleThreadExecutor()
-
-    /** The frames such freezes hold, drawn over the decks while their players go on with the sound. */
-    val heldPictures = HeldPictures()
-    // The deck is standing on the frame this freeze holds: a seek put it there while nothing played.
-    private val parked = arrayOfNulls<Sounding>(2)
-
-    /**
-     * Takes the [plan] of the edit to play, with each source's file in [files] and the cleaned sound of the
-     * clips that play it in [clean], by index, and goes to [time].
-     */
-    fun load(plan: RenderPlan, files: Map<String, File>, clean: Map<Int, File>, time: Double) {
-        pause()
-        this.plan = plan
-        this.files = files
-        cued.fill(null)
-        items = plan.decks.map { it.clips }
-        sounding = plan.freezes.filter { it.sounding }.map { Sounding(it.deck, it.from, it.until, it.shown, files.getValue(clips[it.clip].sourceID), it.sourceTime) }
-        for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
-        // The frames themselves, read ahead: a deck that is playing shows a frame near the freeze, not always the one before it.
-        for (freeze in sounding) reading.execute { if (freeze in sounding) freeze.picture = heldFrame(freeze.file, freeze.source) }
-        // What the decks hold. A change that leaves it as it is, such as a title or the angle of a wipe, needs no new playlists.
-        val media = items to clips.map { clip -> listOf(clip.id, clip.sourceID, clip.sourceStart, clip.sourceEnd, clip.rate, clean[clip.index]) }
-        if (media != loaded) {
-            loaded = media
-            decks.forEachIndexed { deck, player ->
-                player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID), clean[it]) })
-                player.prepare()
-            }
-        }
-        seek(time)
-    }
-
-    /** Plays the deck at its clip's speed, keeping the pitch. */
-    private fun pace(player: ExoPlayer, clip: Int) {
-        val rate = clips.getOrNull(clip)?.rate?.toFloat() ?: 1f
-        if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
-    }
-
-    /** The chain [deck] is inside at [time], and the clip of it that is playing. */
-    private fun playing(deck: Int, time: Double): Pair<TimelineEditing.Chain, Int>? = plan.playing(deck, time)?.let { (chain, clip) -> chains[chain] to clip }
-
-    /** The frame [deck] has to keep showing at [time] though its clip is over: the one a still holds. */
-    private fun held(deck: Int, time: Double): TransitionScene.Source.Held? = plan.held(deck, time)
-
-    // A deck stops by itself on the last frame of its chain: what follows in its playlist belongs to a later moment.
-    private fun stopAtChainEnd(deck: Int) {
-        val player = decks[deck]
-        val clip = items[deck].getOrNull(player.currentMediaItemIndex)
-        val last = clip != null && chains.any { it.last == clip }
-        if (player.pauseAtEndOfMediaItems != last) player.pauseAtEndOfMediaItems = last
-    }
-
-    /**
-     * Puts every deck where [time] needs it: inside its chain, on the frame it holds, or parked at the start of its next chain.
-     * A deck whose clip plays on under a freeze stands on the frozen frame; when it is [starting] to play it goes
-     * to where its sound is, and the frame it stood on is drawn over it.
-     */
-    fun seek(time: Double, starting: Boolean = false) {
-        if (clips.isEmpty()) return
-        this.time = time.coerceIn(0.0, duration)
-        decks.forEachIndexed { deck, player ->
-            val active = playing(deck, time)
-            val frozen = held(deck, time)
-            val under = sounding.firstOrNull { it.deck == deck && time >= it.from && time < it.until }
-            if (starting && under != null) {
-                // Standing on the frozen frame: keep it before the deck moves. A frame already kept for this freeze stays.
-                if (heldPictures.freeze(deck) !== under) under.picture?.let { heldPictures.put(deck, under, it) }
-                if (parked[deck] === under && heldPictures.freeze(deck) !== under) heldPictures.keep(deck, under)
-                if (heldPictures.freeze(deck) === under) heldPictures.show(deck)
-            } else heldPictures.drop(deck)
-            parked[deck] = under.takeIf { !starting && frozen != null }
-            if (active != null && frozen != null && !starting) {
-                player.seekTo(items[deck].indexOf(frozen.index), (frozen.offset * clips[frozen.index].rate * 1000).toLong())
-                pace(player, frozen.index)
-            } else if (active != null) {
-                val clip = active.second
-                val offset = (time - clips[clip].start).coerceIn(0.0, clips[clip].duration)
-                // A deck's position runs in recorded seconds; a clip at another speed covers them faster or slower.
-                player.seekTo(items[deck].indexOf(clip), (offset * clips[clip].rate * 1000).toLong())
-                pace(player, clip)
-            } else if (frozen != null) {
-                player.seekTo(items[deck].indexOf(frozen.index), (frozen.offset * clips[frozen.index].rate * 1000).toLong())
-            } else {
-                plan.coming(deck, time)?.let { player.seekTo(items[deck].indexOf(chains[it].first), 0) }
-            }
-            stopAtChainEnd(deck)
-        }
-        for (track in tracks.indices) cue(track, time, play = false)
-    }
-
-    fun play(time: Double) {
-        if (clips.isEmpty()) return
-        seek(time, starting = true) // line both decks up again
-        for (deck in decks.indices) if (playing(deck, time) != null) decks[deck].play()
-        for (track in tracks.indices) cue(track, time, play = true)
-        ticked = System.nanoTime()
-        playing = true
-    }
-
-    fun pause() {
-        decks.forEach { it.pause() }
-        tracks.forEach { it.pause() }
-        playing = false
-    }
-
-    /** Advances the hand-over between decks and returns the timeline time. Call once per frame while playing. */
-    fun tick(): Double {
-        if (clips.isEmpty()) return 0.0
-        val now = System.nanoTime()
-        val passed = ((now - ticked) / 1e9).coerceIn(0.0, 0.1)
-        ticked = now
-        // The clock is the deck that began playing last; where none plays, time runs on by itself.
-        val leading = plan.leading(time)
-        time = if (leading == null) time + passed else {
-            val chain = chains[leading]
-            val deck = clips[chain.first].deck
-            val player = decks[deck]
-            val clip = items[deck].getOrNull(player.currentMediaItemIndex)
-            when {
-                // A deck parked elsewhere, or one that ran past its chain: its chain is over for it.
-                clip == null || clip > chain.last -> chain.end
-                clip < chain.first -> time + passed
-                // Stopped on the last frame of the chain.
-                !player.playWhenReady && clip == chain.last && player.playbackState == Player.STATE_READY &&
-                    player.currentPosition >= player.duration - 30 -> chain.end
-                player.playbackState == Player.STATE_ENDED -> chain.end
-                else -> (clips[clip].start + player.currentPosition.coerceAtLeast(0) / 1000.0 / clips[clip].rate).coerceAtMost(chain.end)
-            }
-        }
-        if (time >= duration) {
-            time = duration
-            pause()
-            return time
-        }
-        // A freeze whose clip plays on: its frame stays over the deck, from the moment it comes on screen, so the
-        // deck never shows a later one. Should the frame not be read yet, the picture the deck showed last stands in for it.
-        for (freeze in sounding) when {
-            time >= freeze.shown - KEEP_AHEAD && time < freeze.shown -> if (freeze.picture == null) heldPictures.keep(freeze.deck, freeze)
-            time >= freeze.shown && time < freeze.until -> {
-                val picture = freeze.picture
-                if (picture != null) heldPictures.put(freeze.deck, freeze, picture) else if (heldPictures.freeze(freeze.deck) !== freeze) heldPictures.keep(freeze.deck, freeze)
-                heldPictures.show(freeze.deck)
-            }
-            else -> heldPictures.drop(freeze.deck, freeze)
-        }
-        decks.forEachIndexed { deck, player ->
-            val active = playing(deck, time)
-            val clip = items[deck].getOrNull(player.currentMediaItemIndex)
-            if (active != null) {
-                val (chain, _) = active
-                // A chain whose moment has come starts from where its deck was parked.
-                if (clip == null || clip !in chain.first..chain.last) {
-                    player.seekTo(items[deck].indexOf(chain.first), ((time - chain.start) * clips[chain.first].rate * 1000).toLong().coerceAtLeast(0))
-                }
-                if (!player.playWhenReady && !(clip == chain.last && player.currentPosition >= player.duration - 30)) player.play()
-                // Each deck follows the speed of the clip it has reached.
-                items[deck].getOrNull(player.currentMediaItemIndex)?.let { pace(player, it) }
-            } else if (held(deck, time) == null) {
-                // The deck that finished waits at the start of its next chain, once its last frame is no longer shown.
-                val next = plan.coming(deck, time)?.let { chains[it] }
-                if (next != null && clip != next.first) {
-                    player.pause()
-                    player.seekTo(items[deck].indexOf(next.first), 0)
-                }
-            }
-            stopAtChainEnd(deck)
-        }
-        // Audio tracks: start the waiting item when its moment comes, then line up the next.
-        if (playing) for (track in tracks.indices) {
-            val item = cued[track]
-            when {
-                item == null -> Unit
-                time >= item.end -> cue(track, time, play = true)
-                time >= item.start && !tracks[track].playWhenReady -> tracks[track].play()
-            }
-        }
-        return time
-    }
-
-    private companion object {
-        /** How long before a freeze the deck's picture is taken, each frame replacing the one before, in seconds. */
-        const val KEEP_AHEAD = 0.1
-
-        /** The longer side of a frame read for a freeze, in pixels: no more than a screen shows. */
-        const val HELD_SIDE = 1280
-
-        /** The frame of [file] showing at source second [time], upright. */
-        fun heldFrame(file: File, time: Double): Bitmap? {
-            val retriever = MediaMetadataRetriever()
-            return try {
-                retriever.setDataSource(file.path)
-                val micros = (time * 1e6).toLong()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) retriever.getScaledFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST, HELD_SIDE, HELD_SIDE)
-                else retriever.getFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST)
-            } catch (_: Exception) {
-                null
-            } finally {
-                runCatching { retriever.release() }
-            }
-        }
-    }
-
-    fun release() {
-        reading.shutdownNow()
-        (boosts + trackBoosts).forEach { runCatching { it?.release() } }
-        tracks.forEach { it.release() }
-        decks.forEach { it.release() }
-    }
-}
-
-/** Timeline thumbnails, decoded off the main thread and kept for reuse. */
-private object Thumbnails {
-    private val cache = LruCache<String, Bitmap>(300)
-    private val decoding = Dispatchers.IO.limitedParallelism(2)
-
-    suspend fun frame(file: File, time: Double): Bitmap? {
-        val key = file.path + "@" + (time * 2).roundToInt()
-        cache.get(key)?.let { return it }
-        return withContext(decoding) {
-            val retriever = MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(file.path)
-                retriever.getFrameAtTime((time * 1e6).toLong(), MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { frame ->
-                    val scale = 160f / maxOf(frame.width, frame.height)
-                    if (scale < 1) Bitmap.createScaledBitmap(frame, (frame.width * scale).toInt(), (frame.height * scale).toInt(), true) else frame
-                }?.also { cache.put(key, it) }
-            } catch (_: Exception) {
-                null
-            } finally {
-                runCatching { retriever.release() }
-            }
-        }
-    }
 }
 
 @Composable
@@ -1641,303 +1266,6 @@ private fun applied(scoped: RangeEditing.Scoped, change: (EditState, Int) -> Edi
 /** A cut being previewed: the edit without what would be removed, and the stretch of it to play. */
 private data class Audition(val state: EditState, val review: ReviewWindows.Review)
 
-/** A trim in progress: the clip being changed and its uncommitted bounds. */
-private data class Trim(val index: Int, val leading: Boolean, val clip: TimelineClip)
-
-@Composable
-private fun Timeline(
-    clips: List<TimelineClip>, files: Map<String, File>, sounds: List<AudioItem>, names: Map<String, String>,
-    select: (clip: String?, audio: String?) -> Unit, toggle: (clip: String?, audio: String?) -> Unit, seek: (time: Double, deselect: Boolean) -> Unit,
-    openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
-    pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
-    touched: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
-    marked: MarkedView? = null, level: LevelGesture? = null,
-) {
-    val density = LocalDensity.current
-    // The gesture below outlives recompositions; always call the latest callbacks.
-    val onLevel by rememberUpdatedState(level)
-    val latestClips by rememberUpdatedState(clips)
-    val latestSounds by rememberUpdatedState(sounds)
-    var windowTop by remember { mutableFloatStateOf(0f) }
-    val onTouched by rememberUpdatedState(touched)
-    val onBeginTrim by rememberUpdatedState(beginTrim)
-    val onDragTrim by rememberUpdatedState(dragTrim)
-    val onEndTrim by rememberUpdatedState(endTrim)
-    val onSelect by rememberUpdatedState(select)
-    val onToggle by rememberUpdatedState(toggle)
-    val onSeek by rememberUpdatedState(seek)
-    val scale by rememberUpdatedState(pixelsPerSecond)
-    val haptics = LocalHapticFeedback.current
-    // Where a touch grabs a trim handle of the current clip instead of scrolling.
-    val handle by rememberUpdatedState { x: Float, half: Float ->
-        current?.takeIf { it in clips.indices }?.let { index ->
-            val left = half + (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat() + shift - scroll.value
-            val right = left + (clips[index].duration * pixelsPerSecond).toFloat()
-            // Just the visible grip and a little around it; the rest of the clip scrolls.
-            val (outside, inside) = with(density) { 6.dp.toPx() to 14.dp.toPx() }
-            // An edge under a transition that plays two clips at once is no trim edge, as in the original.
-            val leading = x in (left - outside)..(left + inside) && TimelineEditing.overlap(clips, index - 1) <= 0
-            val trailing = x in (right - inside)..(right + outside) && TimelineEditing.overlap(clips, index) <= 0
-            when {
-                leading && trailing -> abs(x - left) < abs(x - right)
-                leading -> true
-                trailing -> false
-                else -> null
-            }
-        }
-    }
-    BoxWithConstraints(
-        // Clips at a fixed height from the top; audio tracks appear under them when there is sound.
-        Modifier.fillMaxWidth().height(120.dp + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel)
-            .onGloballyPositioned { windowTop = it.positionInWindow().y }.pointerInput(Unit) {
-            // The handles move under the finger, so the drag is tracked here,
-            // in a coordinate space that stays still.
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                onTouched() // scrubbing pauses playback; it stays paused after release
-                // A drag up or down on a clip's waveform, or on a sound on an audio track, chooses its level, as in the original.
-                val grip = if (down.position.y >= StripTop.toPx() && down.position.y <= (StripTop + TileSize + WaveHeight).toPx()) handle(down.position.x, size.width / 2f) else null
-                onLevel?.takeIf { grip == null }?.let { gesture ->
-                    val time = ((down.position.x - size.width / 2f + scroll.value) / scale).toDouble()
-                    val below = down.position.y - (StripTop + TileSize).toPx()
-                    val clip = if (below >= 0 && below < WaveHeight.toPx() && time >= 0 && time < TimelineEditing.duration(latestClips)) TimelineEditing.locate(latestClips, time)?.let { latestClips[it.index].id } else null
-                    val track = if (below >= WaveHeight.toPx()) ((below - WaveHeight.toPx()) / TrackHeight.toPx()).toInt() else -1
-                    val sound = if (track in 0 until AudioItem.TRACKS) TimelineEditing.audioAt(latestSounds, track, time)?.id else null
-                    if (clip != null || sound != null) { dragLevel(down, clip, sound, time, windowTop, gesture); return@awaitEachGesture }
-                }
-                // Above and below the clips the timeline only scrolls.
-                if (down.position.y < StripTop.toPx() || down.position.y > (StripTop + TileSize + WaveHeight).toPx()) return@awaitEachGesture
-                val leading = handle(down.position.x, size.width / 2f) ?: return@awaitEachGesture
-                down.consume()
-                onBeginTrim(leading)
-                try {
-                    var total = 0f
-                    while (true) {
-                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
-                        total += change.positionChange().x
-                        change.consume()
-                        if (!change.pressed) break
-                        onDragTrim(total)
-                    }
-                } finally {
-                    onEndTrim()
-                }
-            }
-        }.pointerInput(Unit) {
-            // A tap that no clip, title or sound took.
-            detectTapGestures { at -> onSeek(((at.x - size.width / 2f + scroll.value) / scale).toDouble(), at.y >= StripTop.toPx()) }
-        },
-    ) {
-        val viewport = constraints.maxWidth
-        Column(Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).padding(top = StripTop).fillMaxHeight()) {
-            val width = with(density) { (TimelineEditing.duration(clips) * pixelsPerSecond).toFloat().toDp() }
-            // Clips sit at their timeline position; a dissolve draws the incoming clip over the end of the previous one.
-            Box(Modifier.width(width).height(TileSize + WaveHeight).offset { IntOffset(shift.roundToInt(), 0) }, Alignment.CenterStart) {
-                clips.forEachIndexed { index, clip ->
-                    val offset = (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat()
-                    key(clip.id) {
-                        ClipStrip(
-                            clip, files.getValue(clip.sourceID), index == current,
-                            // The transition into the clip where it begins, when it is the clip's own opening or plays over the clip before;
-                            // the one out of it where it ends, when it is the clip's own close or the next clip only follows.
-                            entering = TimelineEditing.entering(clips, index)?.takeIf { it.edge == -1 || it.timing.overlap > 0 },
-                            leaving = TimelineEditing.leaving(clips, index)?.takeIf { it.edge == 1 || it.timing.overlap <= 0 },
-                            dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
-                            // The edge being dragged keeps its grip while the draft changes around it.
-                            trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
-                            offset, pixelsPerSecond, viewport, scroll, openTitle = { openTitle(index, it) },
-                            select = { onSelect(clip.id, null) }, toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(clip.id, null) },
-                            focusTransition = focusTransition,
-                        )
-                    }
-                }
-                // What is marked: the part of each clip inside the range, or the clips selected whole.
-                if (marked != null) {
-                    clips.forEachIndexed { index, clip ->
-                        val start = TimelineEditing.clipStart(clips, index)
-                        if (marked.clip(clip.id)) MarkedPart(marked, start, start + clip.duration, pixelsPerSecond, TileSize + WaveHeight)
-                    }
-                    marked.range?.let { RangeGuides(it, pixelsPerSecond, Modifier.matchParentSize()) }
-                }
-            }
-            // Sound on its own tracks. It stays where it is when the clips above are edited.
-            val soundName = stringResource(R.string.editor_sound_default_name)
-            val mutedNote = stringResource(R.string.sound_muted)
-            val selectLabel = stringResource(R.string.selection_select)
-            val toggleLabel = stringResource(R.string.selection_toggle)
-            if (sounds.isNotEmpty()) for (track in 0 until AudioItem.TRACKS) {
-                Box(Modifier.width(width).height(TrackHeight).padding(top = 3.dp)) {
-                    for (item in sounds) {
-                        if (item.track != track) continue
-                        key(item.id) {
-                            val note = item.audio?.let { if (it.muted) " · $mutedNote" else if (it.volumeDB != 0.0) " · ${levelLabel(it.volumeDB)}" else "" } ?: ""
-                            Text(
-                                (names[item.sourceID] ?: soundName) + note, color = Color.Black, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt(), 0) }
-                                    .width(with(density) { (item.duration * pixelsPerSecond).toFloat().toDp() }).fillMaxHeight()
-                                    .background(SoundColor, RoundedCornerShape(4.dp))
-                                    .pointerInput(item.id) {
-                                        detectTapGestures(
-                                            onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(null, item.id) },
-                                            onTap = { onSelect(null, item.id) },
-                                        )
-                                    }
-                                    .semantics {
-                                        onClick(selectLabel) { onSelect(null, item.id); true }
-                                        onLongClick(toggleLabel) { onToggle(null, item.id); true }
-                                    }
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                    if (marked != null) {
-                        for (item in sounds) if (item.track == track && marked.audio(item.id)) MarkedPart(marked, item.start, item.end, pixelsPerSecond, TrackHeight - 3.dp)
-                        marked.range?.let { RangeGuides(it, pixelsPerSecond, Modifier.matchParentSize()) }
-                    }
-                }
-            }
-        }
-        Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
-        level?.readout?.let { LevelReadoutLabel(it, viewport.toFloat()) }
-        if (clips.isNotEmpty()) {
-            val label = trim?.let { stringResource(R.string.editor_clip_duration, it.index + 1, preciseLabel(it.clip.duration)) }
-                ?: stringResource(R.string.editor_clip_position, (current ?: 0) + 1, clips.size)
-            Text(label, color = if (trim != null) Color.White else Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp))
-        }
-    }
-}
-
-@Composable
-private fun ClipStrip(
-    clip: TimelineClip, file: File, current: Boolean, entering: TransitionLayout.Join?, leaving: TransitionLayout.Join?, dissolve: Float, trimsEnd: Boolean, offset: Float,
-    pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
-    select: () -> Unit, toggle: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit,
-) {
-    val density = LocalDensity.current
-    val onSelect by rememberUpdatedState(select)
-    val onToggle by rememberUpdatedState(toggle)
-    val selectLabel = stringResource(R.string.selection_select)
-    val toggleLabel = stringResource(R.string.selection_toggle)
-    val width = (clip.duration * pixelsPerSecond).toFloat()
-    val tile = with(density) { TileSize.toPx() }
-    val count = ceil(width / tile).toInt()
-    // Only the tiles near the screen are composed and decoded.
-    val visible by remember(offset, count, tile, viewport) {
-        derivedStateOf {
-            val first = ((scroll.value - viewport - offset) / tile).toInt().coerceIn(0, count)
-            val last = ceil((scroll.value + viewport - offset) / tile).toInt().coerceIn(0, count)
-            first until last
-        }
-    }
-    val peaks by produceState<ByteArray?>(null, file) { value = Waveforms.peaks(file) }
-    val loudness = (clip.audio?.gain ?: 1.0).toFloat()
-    Box(
-        Modifier.offset { IntOffset(offset.roundToInt(), 0) }.width(with(density) { width.toDp() })
-            .border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black)
-            .pointerInput(Unit) { detectTapGestures(onLongPress = { onToggle() }, onTap = { onSelect() }) }
-            .semantics {
-                onClick(selectLabel) { onSelect(); true }
-                onLongClick(toggleLabel) { onToggle(); true }
-            },
-    ) {
-        Column {
-            Box(Modifier.fillMaxWidth().height(TileSize).clipToBounds().background(Color(0xFF2A2D33))) {
-                for (index in visible) {
-                    key(index) {
-                        val time = clip.sourceTime((index + 0.5) * tile / pixelsPerSecond).coerceAtMost(clip.end)
-                        val image by produceState<Bitmap?>(null, file, (time * 2).roundToInt()) { value = Thumbnails.frame(file, time) }
-                        image?.let {
-                            Image(it.asImageBitmap(), null, Modifier.offset { IntOffset((index * tile).roundToInt(), 0) }.size(TileSize), contentScale = ContentScale.Crop)
-                        }
-                    }
-                }
-            }
-            Canvas(Modifier.fillMaxWidth().height(WaveHeight).background(Color(0xFF14161A))) {
-                val levels = peaks ?: return@Canvas
-                val step = 3.dp.toPx()
-                // Draw only the columns near the screen.
-                var x = ((scroll.value - viewport - offset).coerceAtLeast(0f) / step).toInt() * step
-                val last = minOf(size.width, scroll.value + viewport - offset)
-                while (x < last) {
-                    val from = clip.sourceTime((x / pixelsPerSecond).toDouble())
-                    val level = WaveformBuilder.level(levels, from, minOf(clip.end, from + step / pixelsPerSecond * clip.rate))
-                    // Drawn at the clip's own level: flat when muted, taller when boosted.
-                    val bar = (sqrt(level * loudness) * size.height).coerceIn(1.dp.toPx(), size.height)
-                    drawRect(if (loudness == 0f) Muted else WaveColor, Offset(x, (size.height - bar) / 2), Size(step * 0.6f, bar))
-                    x += step
-                }
-            }
-        }
-        // Titles as labelled bars over the footage they cover; a tap opens the title on this piece.
-        // Only the part the clip shows: a title may reach past a clip that was split or trimmed after it was placed.
-        // Titles showing at the same time go on rows of their own, so each can be read and tapped.
-        val editTitle = stringResource(R.string.title_edit)
-        val rows = mutableListOf<Double>() // where the last bar of each row ends
-        for (title in clip.texts.orEmpty().sortedBy { it.start }) {
-            val from = maxOf(title.start, clip.start)
-            val to = minOf(title.end, clip.end)
-            if (to <= from) continue
-            val row = rows.indexOfFirst { it <= from }.let { if (it >= 0) it else if (rows.size < 4) rows.size else rows.indices.minBy { index -> rows[index] } }
-            if (row == rows.size) rows += to else rows[row] = to
-            Text(
-                title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
-                modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), (row * 21.dp.toPx()).roundToInt()) }
-                    .width(with(density) { ((to - from) / clip.rate * pixelsPerSecond).toFloat().toDp() })
-                    .background(TitleColor, RoundedCornerShape(3.dp))
-                    .clickable(onClickLabel = editTitle) { openTitle(title) }
-                    // Clear of the trim grip when the title starts with the clip.
-                    .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
-            )
-        }
-        // What has been done to the picture, named over it.
-        listOfNotNull(clip.color?.label(), stringResource(R.string.editor_tag_crop).takeIf { clip.crop != null }, clip.speed?.let { speedLabel(it.rate) }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { tags ->
-            Text(tags, color = Color.Black, fontSize = 10.sp, maxLines = 1,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 12.dp).background(Color(0xFFB6C2FF), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
-        }
-        // What has been done to the sound, where the waveform is.
-        clip.audio?.let { audio ->
-            val note = listOfNotNull(
-                if (audio.muted) stringResource(R.string.sound_muted) else audio.volumeDB.takeIf { it != 0.0 }?.let(::levelLabel),
-                stringResource(R.string.editor_tag_fade).takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
-                stringResource(R.string.editor_tag_clean).takeIf { audio.denoise > 0 },
-            ).joinToString(" · ")
-            if (note.isNotEmpty()) {
-                Text(note, color = Color.White, fontSize = 10.sp, maxLines = 1,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).background(Color(0xCC000000), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
-            }
-        }
-        // Bookmarks as flags on the footage they mark.
-        for (mark in clip.bookmarks.orEmpty()) {
-            if (mark.time < clip.start || mark.time >= clip.end) continue
-            Box(Modifier.offset { IntOffset((clip.offset(mark.time) * pixelsPerSecond).roundToInt() - 1.dp.roundToPx(), 0) }
-                .width(3.dp).height(TileSize + WaveHeight).background(BookmarkColor))
-        }
-        // The part of this clip that plays over the previous one, and the transitions at its two ends by name.
-        if (dissolve > 0) Box(Modifier.width(with(density) { dissolve.toDp() }).height(TileSize + WaveHeight).background(Color.White.copy(alpha = 0.35f)))
-        // A tap on the name goes to the join, where the transition is offered for editing; the touch reaches a little around the name.
-        val onFocus by rememberUpdatedState(focusTransition)
-        val focusLabel = stringResource(R.string.transition_tag_focus)
-        @Composable
-        fun tag(join: TransitionLayout.Join, modifier: Modifier, reach: PaddingValues) {
-            val style = join.transition?.style ?: return
-            Box(modifier.clickable(onClickLabel = focusLabel) { onFocus(join) }.padding(reach)) {
-                Text(
-                    stringResource(if (style == TransitionStyle.FadeColor) R.string.transition_tag_fade else style.label), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                    modifier = Modifier.background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
-                )
-            }
-        }
-        entering?.let { tag(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp), PaddingValues(top = 14.dp, end = 12.dp)) }
-        leaving?.let { tag(it, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp), PaddingValues(top = 14.dp, start = 12.dp)) }
-        if (current) {
-            val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(TileSize + WaveHeight).background(Color.White, RoundedCornerShape(3.dp))
-            // No grip on an edge that lies under a transition playing two clips at once: it is not the edge of the footage shown.
-            if (dissolve <= 0) Box(grip.align(Alignment.CenterStart))
-            if (trimsEnd) Box(grip.align(Alignment.CenterEnd))
-        }
-    }
-}
-
 /** The look names of the core module, which only has them in English. */
 private val ColorLook.label: Int
     get() = when (this) {
@@ -1959,7 +1287,7 @@ private val ColorLook.label: Int
 
 /** As [ColorSettings.title], from the resources. */
 @Composable
-private fun ColorSettings.label(): String =
+internal fun ColorSettings.label(): String =
     imported?.name ?: stringResource(if (look == ColorLook.Natural && hasBalance) R.string.color_balance else look.label)
 
 @Composable
@@ -2133,4 +1461,4 @@ private data class Titling(
 }
 
 /** A playback rate as the person reads it: 0.5×, 2×. */
-private fun speedLabel(rate: Double): String = (if (rate % 1.0 == 0.0) rate.toInt().toString() else rate.toString()) + "×"
+internal fun speedLabel(rate: Double): String = (if (rate % 1.0 == 0.0) rate.toInt().toString() else rate.toString()) + "×"
