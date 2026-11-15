@@ -648,7 +648,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     // The titles under the playhead, with the one being worked on as it is now.
-    val titled = titling?.let { work -> TimelineEditing.setTitle(edit, clips.indexOfFirst { it.id == work.clipID }, work.title)?.clips } ?: clips
+    val titled = titling?.let { work -> TimelineEditing.setText(edit, clips.indexOfFirst { it.id == work.clipID }, work.title)?.clips } ?: clips
     val titleRanges = remember(titled) { TitleMotionRanges(titled) }
     val shownTitles = titleRanges.shown(titled, playhead)
     val titlePainter = remember { TitlePainter(context.assets) }
@@ -850,7 +850,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 timelineTime = { TimelineEditing.clipStart(clips, index) + clip.offset(it) },
                 replay = { exit, title ->
                     // On the clips as they would be with the title as it is at this moment.
-                    val moved = TimelineEditing.setTitle(edit, index, title)?.clips ?: titled
+                    val moved = TimelineEditing.setText(edit, index, title)?.clips ?: titled
                     val shows = TimelineEditing.clipStart(clips, index) + clip.offset(maxOf(clip.start, title.start))
                     val run = TitleMotionRanges(moved).range(title, shows)
                     val motion = title.motion
@@ -871,12 +871,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val title = work.title.copy(text = work.title.text.trim(), motion = work.title.motion?.takeIf { it.active })
                     titling = null
                     auditionEnd = null
-                    commit(TimelineEditing.setTitle(edit, index, title), playhead)
+                    commit(TimelineEditing.setText(edit, index, title), playhead)
                 },
                 remove = {
                     titling = null
                     auditionEnd = null
-                    commit(TimelineEditing.removeTitle(edit, index, work.title.id), playhead)
+                    commit(TimelineEditing.removeText(edit, index, work.title.id), playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; titling = null },
                 modifier = Modifier.weight(1.5f),

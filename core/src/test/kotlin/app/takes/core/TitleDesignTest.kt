@@ -415,25 +415,29 @@ class TitleProjectTest {
         assertEquals(4.0..6.0, changed.range(other, 5.0))
     }
 
-    @Test fun aChangeReachesEveryPieceThatCarriesTheTitle() {
-        val title = TextOverlay(id = "T", text = "Hi", start = 2.0, end = 6.0)
+    @Test fun aChangeStaysOnThePieceThatWasOpened() {
+        // The original: "Effect identity preserves animation across cuts. It is not edit scope".
+        val title = TextOverlay(id = "T", text = "Hi", start = 2.0, end = 6.0, motion = fade)
         val other = clip("B", 0.0, 5.0, title.copy(text = "Elsewhere")).copy(sourceID = "S2")
         val split = TimelineEditing.split(EditState(listOf(clip("A", 0.0, 10.0, title), other)), 4.0)!!
-        val designed = title.copy(appearance = TitleDesign(face = "caveat"), motion = fade)
-        val next = TimelineEditing.setTitle(split, 0, designed)!!
-        assertEquals(listOf(listOf(designed), listOf(designed)), next.clips.take(2).map { it.texts })
-        assertEquals(other, next.clips[2]) // the same id on other footage is another title
-        assertNull(TimelineEditing.setTitle(next, 1, designed))
-        // A new title goes on the one clip.
-        val fresh = TextOverlay(id = "N", text = "New", start = 0.0, end = 1.0)
-        assertEquals(listOf(1, 2, 1), TimelineEditing.setTitle(next, 1, fresh)!!.clips.map { it.texts!!.size })
-        assertNull(TimelineEditing.setTitle(next, 9, fresh))
-        assertNull(TimelineEditing.setTitle(next, 0, fresh.copy(end = -1.0)))
-        // Removing takes it off both pieces, and off nothing else.
-        val removed = TimelineEditing.removeTitle(next, 1, "T")!!
-        assertEquals(listOf(null, null, other.texts), removed.clips.map { it.texts })
-        assertNull(TimelineEditing.removeTitle(next, 0, "missing"))
-        assertEquals(2.0..6.0, TitleMotionRanges(next.clips).range(designed, 4.0))
+        assertEquals(listOf(listOf(title), listOf(title)), split.clips.take(2).map { it.texts })
+        val edited = title.copy(text = "Edited section", appearance = TitleDesign(face = "caveat"))
+        val next = TimelineEditing.setText(split, 0, edited)!!
+        // Editing one separated fragment does not change another.
+        assertEquals(listOf(edited), next.clips[0].texts)
+        assertEquals(split.clips[1], next.clips[1])
+        assertEquals(other, next.clips[2])
+        assertNull(TimelineEditing.setText(next, 0, edited))
+        // The motion is the same on both pieces, so the title still arrives once and leaves once.
+        assertEquals(2.0..6.0, TitleMotionRanges(next.clips).range(edited, 4.0))
+        // Removing one separated fragment does not remove another.
+        val removed = TimelineEditing.removeText(split, 0, "T")!!
+        assertEquals(listOf(null, listOf(title), other.texts), removed.clips.map { it.texts })
+        assertEquals(split.clips[1], removed.clips[1])
+        assertEquals(listOf(listOf(title), null, other.texts), TimelineEditing.removeText(split, 1, "T")!!.clips.map { it.texts })
+        assertNull(TimelineEditing.removeText(split, 0, "missing"))
+        // What is left is a run of its own, from the cut.
+        assertEquals(4.0..6.0, TitleMotionRanges(removed.clips).range(title, 5.0))
     }
 
     @Test fun aTitleOnBothSidesOfADissolveIsDrawnOnce() {

@@ -257,7 +257,12 @@ object TimelineEditing {
     fun titlesAt(clips: List<TimelineClip>, time: Double): List<Pair<TextOverlay, Double>> =
         TransitionScene.titles(clips, TransitionScene.moment(clips, time))
 
-    /** Adds the title to the clip, or replaces the one with the same id. */
+    /**
+     * Adds the title to the clip, or replaces the one with the same id, on
+     * this clip only. The pieces of a split clip may carry the same title, and
+     * its id keeps its motion running across the cut, but it is not the scope
+     * of an edit: a change to one piece leaves the others as they were.
+     */
     fun setText(state: EditState, index: Int, text: TextOverlay): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
         if (!text.valid) return null
@@ -267,40 +272,12 @@ object TimelineEditing {
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(texts = next) })
     }
 
+    /** Removes the title from the clip at [index] only; another piece carrying it keeps it. */
     fun removeText(state: EditState, index: Int, id: String): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
         val texts = clip.texts.orEmpty()
         if (texts.none { it.id == id }) return null
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(texts = texts.filter { it.id != id }.ifEmpty { null }) })
-    }
-
-    /**
-     * Adds the title to the clip at [index], or replaces it wherever it is:
-     * the pieces of a split clip carry the same title, and a change to one is
-     * a change to all, so it still looks and moves as one.
-     */
-    fun setTitle(state: EditState, index: Int, text: TextOverlay): EditState? {
-        val clip = state.clips.getOrNull(index) ?: return null
-        if (!text.valid) return null
-        val clips = state.clips.mapIndexed { position, other ->
-            val texts = other.texts.orEmpty()
-            when {
-                other.sourceID == clip.sourceID && texts.any { it.id == text.id } -> other.copy(texts = texts.map { if (it.id == text.id) text else it })
-                position == index -> other.copy(texts = texts + text)
-                else -> other
-            }
-        }
-        return if (clips == state.clips) null else state.copy(clips = clips)
-    }
-
-    /** Removes the title from the clip at [index] and from the other pieces of the same footage that carry it. */
-    fun removeTitle(state: EditState, index: Int, id: String): EditState? {
-        val clip = state.clips.getOrNull(index) ?: return null
-        if (clip.texts.orEmpty().none { it.id == id }) return null
-        return state.copy(clips = state.clips.map { other ->
-            if (other.sourceID != clip.sourceID || other.texts.orEmpty().none { it.id == id }) other
-            else other.copy(texts = other.texts.orEmpty().filter { it.id != id }.ifEmpty { null })
-        })
     }
 
     // MARK: Bookmarks
