@@ -1,0 +1,37 @@
+name: Feature or idea
+description: Something that is not in the original app either, or a change to how the project works.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Takes is a port: features of the original iPhone app come first, and for those the "Parity gap" form is the right one. Ideas beyond the original are welcome here, with the understanding that they wait behind parity work and must fit the app's rules: everything stays on the device, no account, no analytics, and no network use except the speech model the person asks to download.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you propose
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead
+    validations:
+      required: false
+  - type: checkboxes
+    id: needs
+    attributes:
+      label: Would it need any of these?
+      description: Each of them is discussed before any code is written.
+      options:
+        - label: A new Android permission
+        - label: A new library or bundled model
+        - label: Use of the network
+        - label: A change to the saved project format

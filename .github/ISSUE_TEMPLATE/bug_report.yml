@@ -1,0 +1,93 @@
+name: Bug report
+description: Something in Takes does not work, crashes, or loses work.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. If Takes behaves differently from the original iPhone app but nothing is broken, use the "Parity gap" form instead.
+        Do not report security problems here: see the security policy.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: As shown in Android's "App info" for Takes, for example 0.7.
+      placeholder: "0.7"
+    validations:
+      required: true
+  - type: dropdown
+    id: variant
+    attributes:
+      label: Where the app came from
+      options:
+        - Google Play (Takes)
+        - APK from a GitHub release (Takes)
+        - Built from source, debug (Takes Dev)
+        - Built from source, other
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      description: Model and Android version, or the emulator image.
+      placeholder: "Pixel 8, Android 15"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Recorder
+        - Projects
+        - Editor (timeline, preview)
+        - Transitions
+        - Titles
+        - Sound
+        - Subtitles
+        - Color, crop, speed
+        - Export
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: From opening the app, one step per line. Say whether it happens every time.
+      placeholder: |
+        1. Record two takes
+        2. Open the editor and add a dissolve between them
+        3. Export at 1080p
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Include the words of any message the app showed. A screenshot or a short screen recording helps.
+    validations:
+      required: true
+  - type: textarea
+    id: project
+    attributes:
+      label: Project ZIP (optional)
+      description: |
+        A project that shows the problem makes it much easier to find: in Projects, open the project's menu and choose "Zip project", then attach the file.
+        **Privacy:** the ZIP contains your recordings, with their picture and sound, and the texts of your titles and subtitles, and an issue is public. Attach it only if you are comfortable with anyone seeing and hearing it; a project recorded for the purpose is best.
+    validations:
+      required: false
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: For example when it started, or a stack trace from `adb logcat` if you have one. Remove personal data from logs first.
+    validations:
+      required: false
