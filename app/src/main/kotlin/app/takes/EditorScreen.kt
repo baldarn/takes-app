@@ -166,6 +166,7 @@ import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.RangeEditing
 import app.takes.core.RangeMarks
+import app.takes.core.ReviewWindows
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TitleMotionRanges
@@ -178,6 +179,7 @@ import app.takes.core.TransitionTiming
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
@@ -482,7 +484,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // editor shows the timeline as it would be with them, since a transition moves what follows it.
     var transitioning by remember { mutableStateOf<Transitioning?>(null) }
     val saved = project.edit
-    val edit = remember(saved, transitioning?.join, transitioning?.shown) { transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved }
+    // A cut being previewed: until it has played, the editor shows and plays the edit as it would be without the range.
+    var auditioning by remember { mutableStateOf<Audition?>(null) }
+    val edit = remember(saved, transitioning?.join, transitioning?.shown, auditioning) { auditioning?.state ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved }
     val clips = edit.clips
     val duration = edit.duration
     val files = remember(project.sources) { project.sources.associate { it.id to store.file(project, it) } }
@@ -552,6 +556,32 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 playhead = time
                 editor.seek(time)
             }
+        }
+    }
+
+    // Previewing a cut: plays across it, then puts back the edit as it is and the playhead where it was.
+    LaunchedEffect(auditioning) {
+        val audition = auditioning ?: return@LaunchedEffect
+        try {
+            auditionEnd = audition.review.end
+            playhead = audition.review.start
+            editor.play(audition.review.start)
+            snapshotFlow { editor.playing }.first { !it }
+        } finally {
+            auditionEnd = null
+            auditioning = null
+            playhead = audition.review.returnTo
+        }
+    }
+    // Meanwhile the first touch anywhere ends the preview and does nothing else.
+    val previewing = if (auditioning == null) Modifier else Modifier.pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).consume()
+            editor.pause()
+            do {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                event.changes.forEach { it.consume() }
+            } while (event.changes.any { it.pressed })
         }
     }
 
@@ -713,7 +743,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val soundName = stringResource(R.string.editor_sound_default_name)
     val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
 
-    Column(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize().then(previewing)) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
@@ -849,7 +879,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
-            marked = if (transitioning == null && trim == null) MarkedView.of(marks, playhead) else null,
+            marked = if (transitioning == null && trim == null && auditioning == null) MarkedView.of(marks, playhead) else null,
         )
         val framing = cropping
         if (framing != null) {
@@ -967,6 +997,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val tooShort = stringResource(R.string.range_too_short)
             val aligned = stringResource(R.string.range_aligned_to_join)
             val cleared = stringResource(R.string.selection_cleared)
+            val deleted = stringResource(R.string.selection_deleted)
+            val nothingToDelete = stringResource(R.string.selection_nothing_to_delete)
             val open = marks.range != null || marks.start != null
             SelectionBar(
                 step = marks.step,
@@ -981,13 +1013,29 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         null -> marks = marks.marked(time)
                     }
                 }),
-                title = if (open || !marks.selected.isEmpty) selectionTitle(edit, if (open) marks.rangeTargets else marks.selected, names) else null,
+                title = if (open || !marks.selected.isEmpty) selectionTitle(saved, if (open) marks.rangeTargets else marks.selected, names) else null,
                 detail = when {
                     marks.start != null -> stringResource(R.string.range_choose_end)
                     else -> marks.range?.let { preciseLabel(it.duration) } ?: selectionCount(marks.selected)
                 },
                 message = feedback ?: stringResource(R.string.range_hint),
                 clear = { marks = marks.cleared(); feedback = cleared },
+                // The movie as it would be without the range, played across the place where the range began.
+                preview = marks.range?.let { range ->
+                    {
+                        RangeEditing.delete(edit, marks.scope)?.let { removed ->
+                            ReviewWindows.cut(range.start, removed.state.duration, playhead)?.let { auditioning = Audition(removed.state, it) }
+                        }
+                        Unit
+                    }
+                },
+                // One Undo step; the playhead stays on its frame, or goes to the cut when its frame went away.
+                delete = if (!marks.canDelete) null else ({
+                    val removed = RangeEditing.delete(edit, marks.scope, playhead)
+                    if (removed != null) commit(removed.state, removed.position ?: playhead)
+                    marks = marks.cleared()
+                    feedback = if (removed != null) deleted else nothingToDelete
+                }),
             )
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                 TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
@@ -1187,6 +1235,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     ExportDialogs(exporter, context) { store.error = it }
 }
+
+/** A cut being previewed: the edit without what would be removed, and the stretch of it to play. */
+private data class Audition(val state: EditState, val review: ReviewWindows.Review)
 
 /** A trim in progress: the clip being changed and its uncommitted bounds. */
 private data class Trim(val index: Int, val leading: Boolean, val clip: TimelineClip)
