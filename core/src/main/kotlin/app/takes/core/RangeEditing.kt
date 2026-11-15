@@ -206,13 +206,14 @@ object RangeEditing {
      */
     fun joinTimes(clips: List<TimelineClip>): List<Double> = TimelineEditing.layout(clips).joins.map { it.time }
 
-    /** Every join that has a transition, the opening and the close among them, as [TimelineEditing.join] counts them. */
-    private fun transitions(clips: List<TimelineClip>): List<TransitionLayout.Join> = (0..clips.size).mapNotNull { TimelineEditing.join(clips, it) }
+    /** Every join that has a transition, the opening and the close of any clip among them, as [TimelineEditing.join] counts them. */
+    private fun transitions(clips: List<TimelineClip>): List<TransitionLayout.Join> = TimelineEditing.transitions(clips)
 
     /**
      * The transition running at [time], if any; its
-     * [index][TransitionLayout.Join.index] is 0 for the opening, the number
-     * of clips for the close, and otherwise that of the clip it leads into.
+     * [index][TransitionLayout.Join.index] is 0 for the opening of the first
+     * clip, the number of clips for the close of the last, and between them
+     * that of the clip it leads into.
      *
      * It runs for the whole of its [range][TransitionLayout.Join.range],
      * picture and sound, as fitted to the footage. Sound that leads or trails
@@ -262,8 +263,8 @@ object RangeEditing {
      * Where [time] cuts the timeline.
      *
      * Inside a transition two clips are in play, or none, and neither can be
-     * cut: the cut is the join itself, between the two clips, before the first
-     * for the opening and after the last for the close.
+     * cut: the cut is the join itself, between the two clips, before its clip
+     * for an opening and after its clip for a close.
      *
      * Elsewhere one clip plays alone, from the end of the transition into it
      * to the start of the transition out of it, and is cut where [time] falls.
@@ -276,11 +277,11 @@ object RangeEditing {
         val layout = TimelineEditing.layout(clips)
         if (clips.isEmpty() || time < SLIVER) return Cut(0, null)
         if (time > layout.duration - SLIVER) return Cut(clips.size, null)
-        transitions(clips).firstOrNull { time > it.range.start + EPSILON && time < it.range.endInclusive - EPSILON }?.let { return Cut(it.index, null) }
+        transitions(clips).firstOrNull { time > it.range.start + EPSILON && time < it.range.endInclusive - EPSILON }?.let { return Cut(it.boundary, null) }
         val index = TimelineEditing.locate(clips, time)?.index ?: return Cut(clips.size, null)
         val placement = layout.placements[index]
-        val from = TimelineEditing.join(clips, index)?.range?.endInclusive?.coerceIn(placement.start, placement.end) ?: placement.start
-        val until = TimelineEditing.join(clips, index + 1)?.range?.start?.coerceIn(from, placement.end) ?: placement.end
+        val from = TimelineEditing.entering(clips, index)?.range?.endInclusive?.coerceIn(placement.start, placement.end) ?: placement.start
+        val until = TimelineEditing.leaving(clips, index)?.range?.start?.coerceIn(from, placement.end) ?: placement.end
         val edge = if (time - from <= until - time) from else until
         val offset = (if (time - from < SLIVER || until - time < SLIVER) edge else time) - placement.start
         return when {
@@ -306,11 +307,15 @@ object RangeEditing {
         val room = 2 * TimelineEditing.MINIMUM_CLIP
         val lead = if (offset < room) room else 0.0
         val tail = if (clip.duration - offset < room) room else 0.0
-        val lent = clip.copy(start = clip.start - lead * clip.rate, end = clip.end + tail * clip.rate)
+        // Without its opening and its close, which would be in play here and are given back to the piece a split leaves each on.
+        val lent = clip.copy(
+            start = clip.start - lead * clip.rate, end = clip.end + tail * clip.rate,
+            openingTransition = null, openingTransitionFit = null, transition = null, transitionFit = null,
+        )
         val empty = TimelineClip(sourceID = clip.sourceID, start = 0.0, end = 0.0)
         val cut = checkNotNull(TimelineEditing.split(EditState(listOf(empty, lent, empty)), lead + offset)) { "A clip could not be cut $offset s into ${clip.duration} s" }
-        val left = cut.clips[1].copy(start = clip.start)
-        val right = cut.clips[2].copy(end = clip.end)
+        val left = cut.clips[1].copy(start = clip.start, openingTransition = clip.openingTransition, openingTransitionFit = clip.openingTransitionFit)
+        val right = cut.clips[2].copy(end = clip.end, transition = clip.transition, transitionFit = clip.transitionFit)
         return listOf(Piece(left, piece.origin, piece.start), Piece(right, piece.origin, piece.start + offset))
     }
 
@@ -323,8 +328,8 @@ object RangeEditing {
 
     /**
      * The clips after some were removed or added between them: a join whose
-     * next clip is another one is a plain cut again, the opening stays only
-     * on the first clip and the close only on the last. The rule is
+     * next clip is another one is a plain cut again, while an opening and a
+     * close stay with their clip. The rule is
      * [TimelineEditing]'s own, reached through its delete: an empty clip is
      * added at the end and removed again.
      */
@@ -410,8 +415,8 @@ object RangeEditing {
      * A transition stays while its two clips, or the pieces of them that
      * carried it, are still neighbors: a range that ends where a transition
      * begins leaves it whole. It is removed with either of them, and two
-     * clips that become neighbors meet at a plain cut. The opening goes with
-     * the start of the first clip and the close with the end of the last.
+     * clips that become neighbors meet at a plain cut. An opening goes with
+     * the start of its clip and a close with the end of its clip.
      *
      * [playhead] is carried to the same frame of the same footage, or to the
      * cut that replaced it when it was inside what went away.
@@ -486,9 +491,9 @@ object RangeEditing {
      *
      * A transition comes along only when both its clips do, whole at that
      * join. One at an edge of the fragment is left behind: the clipboard holds
-     * clips, not the identity of the neighboring join. The opening comes with
-     * the start of the first clip and the close with the end of the last;
-     * [paste] keeps them only at that end of the timeline.
+     * clips, not the identity of the neighboring join. An opening comes with
+     * the start of its clip and a close with the end of its clip, as the
+     * original's clipboard keeps them (TimelinePaste.swift:70-75).
      *
      * Null when the range is shorter than a frame or inverted, or nothing is covered.
      */
@@ -519,8 +524,8 @@ object RangeEditing {
             val join = piece.clip.transition
             val travels = when {
                 join == null -> false
-                // The close of the timeline: a cut leaves it on the piece that ends the last clip.
-                join.nextClipID == null -> piece.origin == state.clips.lastIndex
+                // The close of its clip: a cut leaves it on the piece that ends the clip.
+                join.nextClipID == null -> true
                 // Both partners, still neighbors, and neither cut on the side of the join.
                 else -> TimelineEditing.transition(state.clips, piece.origin) != null &&
                     next != null && next.origin == piece.origin + 1 && next.clip.start == state.clips[next.origin].start
@@ -530,9 +535,9 @@ object RangeEditing {
                 id = whole.id,
                 transition = join.takeIf { travels },
                 transitionFit = piece.clip.transitionFit.takeIf { travels },
-                // A cut leaves the opening on the piece that begins the first clip.
-                openingTransition = piece.clip.openingTransition.takeIf { piece.origin == 0 },
-                openingTransitionFit = piece.clip.openingTransitionFit.takeIf { piece.origin == 0 },
+                // A cut leaves the opening on the piece that begins its clip.
+                openingTransition = piece.clip.openingTransition,
+                openingTransitionFit = piece.clip.openingTransitionFit,
                 // Only the marks that show: a mark on trimmed-away footage stays behind.
                 bookmarks = piece.clip.bookmarks?.filter { it.time >= piece.clip.start && it.time < piece.clip.end }?.ifEmpty { null },
             )
@@ -614,8 +619,9 @@ object RangeEditing {
      * original, whatever its style, the opening and the close too; then the
      * clip showing there is cut. On the join of a transition the fragment
      * goes between its two clips, which ends it. A fragment placed before the
-     * first clip takes the opening away from it, and one placed after the
-     * last takes the close, unless it brings its own.
+     * first clip leaves that clip its opening, and one placed after the last
+     * leaves it its close: they play on with their clip, as in the original.
+     * So do the openings and the closes the fragment's own clips bring.
      *
      * The fragment's sound items are laid at their distance from its start,
      * each on its own track or the other one when that is busy; one that fits
@@ -681,11 +687,11 @@ object RangeEditing {
         val clips = fragment.clips.mapIndexed { index, clip ->
             clip.copy(
                 id = fresh(clip.id),
-                transition = clip.transition?.takeIf { it.nextClipID == fragment.clips.getOrNull(index + 1)?.id }
+                // A close names no clip; a transition names the clip it leads into, which must be the next one here.
+                transition = clip.transition?.takeIf { it.nextClipID == null || it.nextClipID == fragment.clips.getOrNull(index + 1)?.id }
                     ?.let { it.copy(id = fresh(it.id), nextClipID = it.nextClipID?.let(::fresh)) },
-                transitionFit = clip.transitionFit.takeIf { clip.transition?.nextClipID == fragment.clips.getOrNull(index + 1)?.id },
-                openingTransition = clip.openingTransition?.takeIf { index == 0 }?.let { it.copy(id = fresh(it.id), nextClipID = it.nextClipID?.let(::fresh)) },
-                openingTransitionFit = clip.openingTransitionFit.takeIf { index == 0 },
+                transitionFit = clip.transitionFit.takeIf { clip.transition?.nextClipID.let { next -> next == null || next == fragment.clips.getOrNull(index + 1)?.id } },
+                openingTransition = clip.openingTransition?.let { it.copy(id = fresh(it.id), nextClipID = it.nextClipID?.let(::fresh)) },
                 texts = clip.texts?.map { it.copy(id = fresh(it.id)) },
                 bookmarks = clip.bookmarks?.map { it.copy(id = newID()) },
                 color = clip.color?.let { it.copy(id = fresh(it.id)) },

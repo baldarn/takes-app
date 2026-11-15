@@ -100,10 +100,16 @@ object TransitionLayout {
         val timing: TransitionTiming = TransitionTiming(),
         val factor: Double = 1.0,
         val edge: Int = 0,
+        /** The place among the clips of the one it leads out of, and of the one it leads into: null on the side an opening or a close does not have. */
+        val outgoing: Int? = null,
+        val incoming: Int? = null,
     ) {
         val videoRange: ClosedFloatingPointRange<Double> get() = origin..(origin + timing.videoDuration)
         val audioIn: ClosedFloatingPointRange<Double> get() = TransitionSound.rampIn(timing, origin)
         val audioOut: ClosedFloatingPointRange<Double> get() = TransitionSound.rampOut(timing, origin)
+
+        /** The place between the clips where it sits: that of the clip after it. */
+        val boundary: Int get() = incoming ?: ((outgoing ?: -1) + 1)
 
         /** How far the picture has changed at timeline second [at]. */
         fun progress(at: Double): Double = timing.progress(at - origin)
@@ -126,82 +132,183 @@ object TransitionLayout {
         val end: Double get() = start + duration
     }
 
-    /** Clips one after another with their transitions resolved. */
-    data class Sequence(val placements: List<Placement>, val joins: List<Join>, val duration: Double) {
+    /**
+     * Clips one after another with their transitions resolved. [joins] has
+     * one entry per boundary: the opening of the first clip, each place
+     * between two clips, the close of the last. [fades] are the openings and
+     * closes that are no longer at an end of the timeline: the opening of a
+     * clip that is not the first, the close of one that is not the last. They
+     * belong to their clip and play on with it, as in the original.
+     */
+    data class Sequence(val placements: List<Placement>, val joins: List<Join>, val duration: Double, val fades: List<Join> = emptyList()) {
+        /** Every join, [fades] after [joins]. */
+        val all: List<Join> get() = if (fades.isEmpty()) joins else joins + fades
+
+        /** The join numbered [index] ([Join.index]). */
+        fun join(index: Int): Join? = joins.getOrNull(index) ?: fades.firstOrNull { it.index == index }
+
         /** The transition whose stretch contains [time]. */
-        fun transition(time: Double): Join? = joins.firstOrNull { it.transition != null && time >= it.range.start && time < it.range.endInclusive }
+        fun transition(time: Double): Join? = all.firstOrNull { it.transition != null && time >= it.range.start && time < it.range.endInclusive }
+
+        /** The join at the start of the clip at [clip]: its own opening when it has one, else the boundary before it. */
+        fun entering(clip: Int): Join? = fades.firstOrNull { it.edge == -1 && it.incoming == clip } ?: joins.getOrNull(clip)
+
+        /** The join at the end of the clip at [clip]: its own close when it has one, else the boundary after it. */
+        fun leaving(clip: Int): Join? = fades.firstOrNull { it.edge == 1 && it.outgoing == clip } ?: joins.getOrNull(clip + 1)
     }
+
+    /** The number of the opening of the clip at [clip] of [count]: 0 for the first clip, as ever. */
+    fun openingIndex(clip: Int, count: Int): Int = if (clip == 0) 0 else count + clip
+
+    /** The number of the close of the clip at [clip] of [count]: [count] for the last clip, as ever. */
+    fun closeIndex(clip: Int, count: Int): Int = if (clip == count - 1) count else 2 * count + clip
 
     /**
      * Lays out clips that simply follow one another. [durations] are the
      * clips' played lengths; [transitions] has one entry per join, so one
-     * more than there are clips (the opening first, the close last; missing
-     * entries are plain cuts). Invalid settings are ignored. With [ids] (the
-     * clips' ids), a transition whose [TransitionSettings.nextClipID] is not
-     * the clip after it is ignored too.
+     * more than there are clips: the opening of the first clip, then what
+     * each clip has saved for its end. Missing entries are plain cuts and
+     * invalid settings are ignored. With [ids] (the clips' ids), what a clip
+     * has saved for its end is the transition into the next clip when its
+     * [TransitionSettings.nextClipID] is that clip, the clip's own close when
+     * it names no clip, and ignored otherwise; without [ids] only the last
+     * entry is a close. [openings] are the clips' own openings, one per clip
+     * (the first may be given there or in [transitions]).
      *
-     * [fits] are the factors saved for the joins, one per join like
-     * [transitions]. A transition that has one plays at it, as the original's
-     * saved timeline does: nothing is fitted again. When any transition in
-     * play has none, the factors are derived as the original converts a
-     * timeline saved without them: starting from the saved ones (1 where
-     * there is none), wherever the transitions on a clip's two sides together
-     * ask for more than the clip, both are shortened by the same factor, clip
-     * by clip from the first. Without [fits] every factor is derived so.
+     * An opening and a close belong to their clip, as in the original: with
+     * another clip before or after, they play on where the clip is. An
+     * opening gives way to a transition from the clip before, which takes the
+     * same end of the clip. A freeze or a lead of sound that reaches past the
+     * clip is time of its own between it and its neighbor, as it is at the
+     * ends of the timeline.
+     *
+     * [fits] are the factors saved for [transitions] and [openingFits] those
+     * for [openings]. A transition that has one plays at it, as the
+     * original's saved timeline does: nothing is fitted again. When any
+     * transition in play has none, the factors are derived as the original
+     * converts a timeline saved without them: starting from the saved ones (1
+     * where there is none), wherever the transitions on a clip's two sides
+     * together ask for more than the clip, both are shortened by the same
+     * factor, clip by clip from the first. Without [fits] every factor is
+     * derived so.
      */
-    fun sequence(durations: List<Double>, transitions: List<TransitionSettings?>, ids: List<String>? = null, fits: List<Double?>? = null): Sequence {
+    fun sequence(
+        durations: List<Double>, transitions: List<TransitionSettings?>, ids: List<String>? = null, fits: List<Double?>? = null,
+        openings: List<TransitionSettings?>? = null, openingFits: List<Double?>? = null,
+    ): Sequence {
         val count = durations.size
         if (count == 0) return Sequence(emptyList(), emptyList(), 0.0)
-        val settings = List(count + 1) { index ->
-            transitions.getOrNull(index)?.takeIf { it.valid && (ids == null || index == 0 || it.nextClipID == ids.getOrNull(index)) }
+        // What is in play, numbered as its join is: the opening and the close of each clip, and the transition into each clip but the first.
+        class Slot(val index: Int, val settings: TransitionSettings, val edge: Int, var factor: Double, val saved: Boolean) {
+            fun timing(scale: Double = 1.0) = TransitionTiming.of(settings, factor * scale, edge)
         }
-        val factors = MutableList(count + 1) { index -> fits?.getOrNull(index)?.takeIf { settings[index] != null } ?: 1.0 }
-        val fitted = fits != null && (0..count).all { settings[it] == null || fits.getOrNull(it) != null }
-        fun timing(index: Int, scale: Double = 1.0) = TransitionTiming.of(settings[index], factors[index] * scale, edge(index, count))
+        val between = arrayOfNulls<Slot>(count + 1)
+        val opening = arrayOfNulls<Slot>(count)
+        val close = arrayOfNulls<Slot>(count)
+        for (clip in 0 until count) {
+            val settings = transitions.getOrNull(clip + 1)?.takeIf { it.valid } ?: continue
+            val fit = fits?.getOrNull(clip + 1)
+            val last = clip == count - 1
+            when {
+                last -> if (ids == null || settings.nextClipID == null) close[clip] = Slot(count, settings, 1, fit ?: 1.0, fit != null)
+                ids == null || settings.nextClipID == ids.getOrNull(clip + 1) -> between[clip + 1] = Slot(clip + 1, settings, 0, fit ?: 1.0, fit != null)
+                settings.nextClipID == null -> close[clip] = Slot(closeIndex(clip, count), settings, 1, fit ?: 1.0, fit != null)
+            }
+        }
+        for (clip in 0 until count) {
+            // A transition from the clip before has this end of the clip.
+            if (between[clip] != null) continue
+            val first = clip == 0 && transitions.getOrNull(0) != null
+            val settings = (if (first) transitions[0] else openings?.getOrNull(clip))?.takeIf { it.valid } ?: continue
+            val fit = if (first) fits?.getOrNull(0) else openingFits?.getOrNull(clip)
+            opening[clip] = Slot(openingIndex(clip, count), settings, -1, fit ?: 1.0, fit != null)
+        }
+        fun into(clip: Int): Slot? = between[clip] ?: opening[clip]
+        fun outOf(clip: Int): Slot? = between[clip + 1] ?: close[clip]
+        val none = TransitionTiming()
         // Adjacent footprints cannot share source time.
-        if (!fitted) for (index in 0 until count) {
-            if (timing(index).rightCost + timing(index + 1).leftCost > durations[index] + FIT_SLACK) {
+        val fitted = fits != null && (between.asList() + opening.asList() + close.asList()).all { it == null || it.saved }
+        if (!fitted) for (clip in 0 until count) {
+            val a = into(clip)
+            val b = outOf(clip)
+            if ((a?.timing() ?: none).rightCost + (b?.timing() ?: none).leftCost > durations[clip] + FIT_SLACK) {
                 var low = 0.0
                 var high = 1.0
                 repeat(FIT_STEPS) {
                     val middle = (low + high) / 2
-                    if (timing(index, middle).rightCost + timing(index + 1, middle).leftCost <= durations[index]) low = middle else high = middle
+                    if ((a?.timing(middle) ?: none).rightCost + (b?.timing(middle) ?: none).leftCost <= durations[clip]) low = middle else high = middle
                 }
-                factors[index] *= low
-                factors[index + 1] *= low
+                a?.let { it.factor *= low }
+                b?.let { it.factor *= low }
             }
         }
-        val times = List(count + 1) { timing(it) }
         val starts = MutableList(count) { 0.0 }
-        val origins = MutableList(count + 1) { 0.0 }
-        // Sound leading an opening is reserved at time zero instead of moving the first clip negative.
-        origins[0] = -minOf(0.0, times[0].rightStart)
-        starts[0] = origins[0] + times[0].rightStart
-        for (index in 1 until count) {
-            origins[index] = starts[index - 1] + durations[index - 1] - times[index].leftEnd
-            starts[index] = origins[index] + times[index].rightStart
+        // Where each boundary lies when no transition joins its two clips: after a close that reaches past its clip, before an opening that begins ahead of its own.
+        val bases = MutableList(count + 1) { 0.0 }
+        val origins = HashMap<Slot, Double>()
+        var end = 0.0   // where the clip before ends, with what its close adds after it
+        for (clip in 0 until count) {
+            val joined = between[clip]
+            if (joined != null) {
+                val timing = joined.timing()
+                val origin = starts[clip - 1] + durations[clip - 1] - timing.leftEnd
+                origins[joined] = origin
+                starts[clip] = origin + timing.rightStart
+                bases[clip] = origin + timing.cut
+            } else {
+                bases[clip] = end
+                val own = opening[clip]
+                if (own == null) starts[clip] = end else {
+                    val timing = own.timing()
+                    // Sound leading an opening is reserved before it instead of moving the clip earlier.
+                    val origin = end - minOf(0.0, timing.rightStart)
+                    origins[own] = origin
+                    starts[clip] = origin + timing.rightStart
+                }
+            }
+            end = starts[clip] + durations[clip]
+            close[clip]?.let { own ->
+                val timing = own.timing()
+                val origin = end - timing.leftEnd
+                origins[own] = origin
+                end = maxOf(end, origin + timing.upper)
+            }
         }
         val lastEnd = starts[count - 1] + durations[count - 1]
-        origins[count] = lastEnd - times[count].leftEnd
-        val duration = maxOf(lastEnd, origins[count] + times[count].upper)
-        val joins = List(count + 1) { index ->
-            val timing = times[index]
-            val origin = origins[index]
-            val edge = edge(index, count)
-            val leftSpace = if (index > 0) maxOf(0.0, durations[index - 1] - times[index - 1].rightCost) else Double.POSITIVE_INFINITY
-            val rightSpace = if (index < count) maxOf(0.0, durations[index] - times[index + 1].leftCost) else Double.POSITIVE_INFINITY
+        val duration = end
+        bases[count] = lastEnd
+        fun space(length: Double, cost: Double) = maxOf(0.0, length - cost)
+        fun join(slot: Slot?, index: Int, time: Double, outgoing: Int?, incoming: Int?): Join {
+            val edge = if (outgoing == null) -1 else if (incoming == null) 1 else 0
+            val timing = slot?.timing() ?: none
+            val origin = slot?.let { origins[it] } ?: time
+            val leftSpace = outgoing?.let { space(durations[it], (into(it)?.timing() ?: none).rightCost) } ?: Double.POSITIVE_INFINITY
+            val rightSpace = incoming?.let { space(durations[it], (outOf(it)?.timing() ?: none).leftCost) } ?: Double.POSITIVE_INFINITY
             // A fade between two clips takes half its duration from each of them.
-            val cost = if (settings[index]?.style == TransitionStyle.FadeColor && edge == 0) 0.5 else 1.0
-            val maximum = if (settings[index]?.style == TransitionStyle.Still) LIMIT else maxOf(0.0, minOf(LIMIT, leftSpace / cost, rightSpace / cost))
-            Join(
-                index, if (index == 0) 0.0 else if (index == count) duration else origin + timing.cut,
-                maxOf(0.0, origin + timing.lower)..maxOf(0.0, origin + timing.upper), maximum, settings[index], origin, timing, factors[index], edge,
+            val cost = if (slot?.settings?.style == TransitionStyle.FadeColor && edge == 0) 0.5 else 1.0
+            val maximum = if (slot?.settings?.style == TransitionStyle.Still) LIMIT else maxOf(0.0, minOf(LIMIT, leftSpace / cost, rightSpace / cost))
+            return Join(
+                index, time, maxOf(0.0, origin + timing.lower)..maxOf(0.0, origin + timing.upper), maximum, slot?.settings, origin, timing, slot?.factor ?: 1.0, edge,
+                outgoing, incoming,
             )
         }
-        val placements = List(count) { index ->
-            Placement(index, starts[index], durations[index], maxOf(0.0, times[index].overlap), maxOf(0.0, times[index + 1].overlap), joins[index].time, joins[index + 1].time)
+        // The opening and the close count where their clip begins and ends, as in the original.
+        val joins = List(count + 1) { index ->
+            when (index) {
+                0 -> join(opening[0], 0, starts[0], null, 0)
+                count -> join(close[count - 1], count, lastEnd, count - 1, null)
+                else -> join(between[index], index, bases[index], index - 1, index)
+            }
         }
-        return Sequence(placements, joins, duration)
+        val fades = (1 until count).mapNotNull { clip -> opening[clip]?.let { join(it, it.index, starts[clip], null, clip) } } +
+            (0 until count - 1).mapNotNull { clip -> close[clip]?.let { join(it, it.index, maxOf(0.0, origins.getValue(it) + it.timing().upper), clip, null) } }
+        val placements = List(count) { index ->
+            Placement(
+                index, starts[index], durations[index], maxOf(0.0, (between[index]?.timing() ?: none).overlap), maxOf(0.0, (between[index + 1]?.timing() ?: none).overlap),
+                joins[index].time, joins[index + 1].time,
+            )
+        }
+        return Sequence(placements, joins, duration, fades)
     }
 
     // MARK: Stored relations
@@ -248,11 +355,11 @@ object TransitionLayout {
                     val edge = if (left == null) -1 else if (right == null) 1 else 0
                     if (relation == null) {
                         val point = left?.end ?: right?.start ?: 0.0
-                        Join(index, point, maxOf(0.0, point)..maxOf(0.0, point), maximum, null, point, edge = edge)
+                        Join(index, point, maxOf(0.0, point)..maxOf(0.0, point), maximum, null, point, edge = edge, outgoing = (index - 1).takeIf { left != null }, incoming = index.takeIf { right != null })
                     } else {
                         val timing = relation.timing
                         val point = if (edge == -1) right!!.start else if (edge == 1) left!!.end else relation.origin + timing.cut
-                        Join(index, point, relation.range, maximum, relation.settings, relation.origin, timing, relation.factor, edge)
+                        Join(index, point, relation.range, maximum, relation.settings, relation.origin, timing, relation.factor, edge, (index - 1).takeIf { left != null }, index.takeIf { right != null })
                     }
                 }
             }

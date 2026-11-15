@@ -321,8 +321,8 @@ private class EditorPlayer(private val context: Context) {
         items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
         val layout = TimelineEditing.layout(clips)
         val deckOf = TransitionScene.decks(clips)
-        sounding = layout.joins.filter { it.transition != null && it.edge != -1 && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
-            val placement = layout.placements[join.index - 1]
+        sounding = layout.all.filter { it.transition != null && it.outgoing != null && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
+            val placement = layout.placements[join.outgoing!!]
             TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)
                 ?.takeIf { placement.end > it.from + 0.001 }?.let { held ->
                     val clip = clips[placement.index]
@@ -910,8 +910,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         val now = shaping ?: return
                         val settings = now.settings
                         val second = if (settings.axis == TransitionAxis.Horizontal) at.x >= width * settings.divider else at.y >= height * settings.divider
-                        // At the opening and at the close one half is a color, with nothing to frame.
-                        val clip = if (second) now.join else now.join - 1
+                        // At an opening and at a close one half is a color, with nothing to frame.
+                        val sides = TimelineEditing.layout(clips).join(now.join)
+                        val clip = (if (second) sides?.incoming else sides?.outgoing) ?: return
                         if (clip !in clips.indices) return
                         val frame = FrameSize(width.toDouble(), height.toDouble())
                         val halves = TransitionGeometry.splitRects(settings, frame)
@@ -1081,7 +1082,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         } else if (transitioning != null) {
             val work = transitioning!!
             val join = TimelineEditing.join(clips, work.join)?.takeIf { it.transition == work.shown.copy(nextClipID = it.transition?.nextClipID) }
-            val middle = { TimelineEditing.layout(clips).joins.getOrNull(work.join)?.let { if (join != null) it.origin + it.timing.videoDuration / 2 else it.time } ?: playhead }
+            val middle = { TimelineEditing.layout(clips).join(work.join)?.let { if (join != null) it.origin + it.timing.videoDuration / 2 else it.time } ?: playhead }
+            // Which end of which clip: an opening and a close keep their number while their clip is not the first or the last.
+            val place = TimelineEditing.layout(saved.clips).join(work.join)
             // The picture goes to the middle of the transition whenever its place or its length changes.
             LaunchedEffect(work.join, join?.origin, join?.timing?.videoDuration) { jump(middle().coerceIn(0.0, duration)) }
             // A change of length moves clips and reloads the players, so it waits for the slider to rest.
@@ -1091,11 +1094,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
             TransitionPanel(
                 settings = work.settings, existing = work.initial != null, change = { transitioning = work.changed(it) },
-                index = work.join, count = saved.clips.size, join = join,
-                maximum = TimelineEditing.layout(clips).joins.getOrNull(work.join)?.maximum ?: 0.0, projectDuration = duration,
+                index = work.join, count = saved.clips.size, edge = place?.edge ?: 0, join = join,
+                maximum = TimelineEditing.layout(clips).join(work.join)?.maximum ?: place?.maximum ?: 0.0, projectDuration = duration,
                 lengthChange = duration - (TimelineEditing.setJoin(saved, work.join, null) ?: saved).duration,
                 audioMaximum = TransitionDefaults.audioMaximum(clips.maxOfOrNull { it.duration }),
-                framesPerSecond = TimelineEditing.layout(clips).joins.getOrNull(work.join)?.let(frames) ?: TransitionScene.FRAMES_PER_SECOND,
+                framesPerSecond = TimelineEditing.layout(clips).join(work.join)?.let(frames) ?: TransitionScene.FRAMES_PER_SECOND,
                 playing = editor.playing,
                 play = {
                     if (editor.playing) { auditionEnd = null; editor.pause() } else join?.let {
@@ -1119,7 +1122,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val next = TimelineEditing.setJoin(saved, work.join, null)
                     transitioning = null
                     auditionEnd = null
-                    commit(next, next?.let { TimelineEditing.layout(it.clips).joins[work.join].time } ?: playhead)
+                    commit(next, next?.let { TimelineEditing.layout(it.clips).join(work.join)?.time ?: place?.time?.coerceAtMost(it.duration) } ?: playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; transitioning = null },
                 modifier = Modifier.weight(1.5f),
@@ -1221,7 +1224,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 },
                 canPaste = !editor.playing,
                 replacesTransition = clipboard?.insertsTime == true &&
-                    (RangeEditing.transitionAt(clips, playhead) != null || TimelineEditing.layout(clips).joins.any { it.transition != null && abs(it.time - playhead) < RangeEditing.EPSILON }),
+                    (RangeEditing.transitionAt(clips, playhead) != null || TimelineEditing.layout(clips).all.any { it.transition != null && abs(it.time - playhead) < RangeEditing.EPSILON }),
                 clearClipboard = { store.clipboards.remove(project.id) },
                 // A sound on an audio track is opened from here once it is the one thing selected.
                 editSound = marks.selected.audio.singleOrNull()?.takeIf { !open && marks.selected.clips.isEmpty() }?.let { id -> { editor.pause(); chosenSound = id } },
@@ -1555,10 +1558,10 @@ private fun Timeline(
                     key(clip.id) {
                         ClipStrip(
                             clip, files.getValue(clip.sourceID), index == current,
-                            // The transition into the clip where it begins, when it opens the movie or plays over the clip before;
-                            // the one out of it where it ends, when it closes the movie or the next clip only follows.
-                            entering = TimelineEditing.join(clips, index)?.takeIf { index == 0 || it.timing.overlap > 0 }?.transition?.style,
-                            leaving = TimelineEditing.join(clips, index + 1)?.takeIf { index == clips.lastIndex || it.timing.overlap <= 0 }?.transition?.style,
+                            // The transition into the clip where it begins, when it is the clip's own opening or plays over the clip before;
+                            // the one out of it where it ends, when it is the clip's own close or the next clip only follows.
+                            entering = TimelineEditing.entering(clips, index)?.takeIf { it.edge == -1 || it.timing.overlap > 0 }?.transition?.style,
+                            leaving = TimelineEditing.leaving(clips, index)?.takeIf { it.edge == 1 || it.timing.overlap <= 0 }?.transition?.style,
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
                             // The edge being dragged keeps its grip while the draft changes around it.
                             trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
@@ -1985,8 +1988,7 @@ private data class Transitioning(val join: Int, val settings: TransitionSettings
     companion object {
         /** The tool opened on [join] of [state]: its transition, or a new one as the original starts it. */
         fun at(state: EditState, join: Int, canvas: Pair<Int, Int>?): Transitioning? {
-            val joins = TimelineEditing.layout(state.clips).joins
-            val found = joins.getOrNull(join) ?: return null
+            val found = TimelineEditing.layout(state.clips).join(join) ?: return null
             val existing = TimelineEditing.joinSettings(state.clips, join)
             val fresh = TransitionDefaults.new(found.maximum, canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) })
             return Transitioning(join, existing ?: fresh, existing ?: fresh, existing, fresh)
@@ -1997,7 +1999,7 @@ private data class Transitioning(val join: Int, val settings: TransitionSettings
 /** [state] with [settings] on [join]; when they leave less than a frame of transition, with a plain cut there. */
 private fun drafted(state: EditState, join: Int, settings: TransitionSettings): EditState =
     TimelineEditing.setJoin(state, join, settings)
-        ?: if (TimelineEditing.joinSettings(state.clips, join) == settings.copy(nextClipID = state.clips.getOrNull(join)?.id)) state else TimelineEditing.setJoin(state, join, null) ?: state
+        ?: if (TimelineEditing.joinSettings(state.clips, join)?.copy(nextClipID = null) == settings.copy(nextClipID = null)) state else TimelineEditing.setJoin(state, join, null) ?: state
 
 /**
  * A title being worked on in the Title tool: as it is now and the seconds of

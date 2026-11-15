@@ -201,7 +201,7 @@ class TimelineNavigation private constructor(
                 val start = TimelineEditing.clipStart(clips, index)
                 val end = start + clip.duration
                 // The footage a transition borrows past its join is not a cut the person made.
-                val borrowed = listOfNotNull(TimelineEditing.join(clips, index)?.range, TimelineEditing.join(clips, index + 1)?.range)
+                val borrowed = listOfNotNull(TimelineEditing.entering(clips, index)?.range, TimelineEditing.leaving(clips, index)?.range)
                 builder.cut(start, borrowed).cut(end, borrowed)
                 clip.crop?.let { builder.change(recipe("crop", CropSettings.serializer(), it), start, end) }
                 clip.speed?.takeIf { it.rate != 1.0 }?.let { builder.change(recipe("speed", SpeedSettings.serializer(), it), start, end) }
@@ -216,8 +216,8 @@ class TimelineNavigation private constructor(
                 }
                 sound(clip.audio, start, end)
             }
-            // Every join with a transition, the opening and the close of the timeline included.
-            for (index in 0..clips.size) TimelineEditing.join(clips, index)?.let(builder::transition)
+            // Every join with a transition, the opening and the close of every clip included, wherever the clip is.
+            TimelineEditing.transitions(clips).forEach(builder::transition)
             for (item in state.audio.orEmpty()) {
                 builder.cut(item.start).cut(item.end)
                 sound(item.audio, item.start, item.end)

@@ -78,7 +78,7 @@ object TransitionScene {
      * the join, its sequence is empty there and gives [FRAMES_PER_SECOND].
      */
     fun frameRate(clips: List<TimelineClip>, join: TransitionLayout.Join, footage: List<Double?>, ceiling: Int, decks: List<Int> = decks(clips)): Double {
-        val sides = listOfNotNull((join.index - 1).takeIf { join.edge != -1 }, join.index.takeIf { join.edge != 1 })
+        val sides = listOfNotNull(join.outgoing, join.incoming)
         val leading = sides.firstOrNull { decks.getOrNull(it) == 0 } ?: return FRAMES_PER_SECOND
         val own = (footage.getOrNull(leading)?.takeIf { it.isFinite() && it > 0 } ?: FRAMES_PER_SECOND) * clips[leading].rate
         return if (ceiling <= HIGHEST_CEILING) FrameCeiling.rate(own, ceiling.toDouble()) else own
@@ -117,7 +117,7 @@ object TransitionScene {
         if (clips.isEmpty() || !time.isFinite()) return Moment(black, black, TransitionFrame.First, 0.0, 0.0)
         val layout = TimelineEditing.layout(clips)
         val at = time.coerceIn(0.0, layout.duration)
-        val join = layout.joins.firstOrNull {
+        val join = layout.all.firstOrNull {
             it.transition != null && TransitionLayout.longEnough(it.timing) && at >= it.range.start && (at < it.range.endInclusive || (it.edge == 1 && at >= layout.duration))
         }
         if (join == null) {
@@ -133,12 +133,12 @@ object TransitionScene {
             val placement = layout.placements[index]
             return Source.Clip(index, decks[index], (at - placement.start).coerceIn(0.0, placement.duration))
         }
-        val first: Source = if (join.edge == -1) fill else {
-            val placement = layout.placements[join.index - 1]
+        val first: Source = if (join.outgoing == null) fill else {
+            val placement = layout.placements[join.outgoing]
             val held = TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, FRAMES_PER_SECOND)
             if (held != null && at >= held.from) Source.Held(placement.index, decks[placement.index], held.offset, held.from) else running(placement.index)
         }
-        val second: Source = if (join.edge == 1) fill else running(join.index)
+        val second: Source = if (join.incoming == null) fill else running(join.incoming)
         val (firstShare, secondShare) = shares(frame, progress)
         return Moment(first, second, frame, firstShare, secondShare, join)
     }

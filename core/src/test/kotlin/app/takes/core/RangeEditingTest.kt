@@ -1095,10 +1095,9 @@ class RangeEditingTest {
     /**
      * In the original the opening and the close are relations of their clip
      * and travel with it in the clipboard (TimelinePaste.swift:70-75,
-     * TrackTimeline.swift:875-879). They arrive here when the clip arrives at
-     * that end of the timeline, where this model can hold them.
+     * TrackTimeline.swift:875-879), wherever it is pasted.
      */
-    @Test fun theOpeningAndTheCloseTravelWithTheirClipToTheSameEnd() {
+    @Test fun theOpeningAndTheCloseTravelWithTheirClip() {
         val state = ends()
         val (a, b) = state.clips
         val copy = RangeEditing.copy(state, EditScope.Whole)!!
@@ -1121,36 +1120,52 @@ class RangeEditingTest {
         assertEquals(a.openingTransition, RangeEditing.copy(state, range(0.0, 3.0))!!.clips.single().openingTransition)
         assertNull(RangeEditing.copy(state, range(5.0, 7.0))!!.clips.single().transition)
         assertEquals(b.transition, RangeEditing.copy(state, range(5.0, 8.0))!!.clips.single().transition)
-        // Anywhere else they are left behind: in the middle, or at the other end.
+        // Anywhere else they come too and play on with their clip: in the middle, or at the other end.
         val swapped = RangeEditing.paste(first.state, first.fragment, 4.0)!!.state
         assertEquals(listOf("B", "A"), swapped.clips.map { it.sourceID })
-        assertTrue(swapped.clips.none { it.openingTransition != null || it.transition != null })
+        assertEquals(listOf(null, a.openingTransition!!.duration), swapped.clips.map { it.openingTransition?.duration })
+        assertEquals(listOf(b.transition, null), swapped.clips.map { it.transition })
+        assertEquals(8.0, swapped.duration, 0.0)
+        // The close of the clip now first fades it out before the cut, and the opening of the clip now last fades it in after.
+        val close = join(swapped, TransitionLayout.closeIndex(0, 2))
+        assertEquals(1, close.edge)
+        assertEquals(3.0..4.0, close.range)
+        val opening = join(swapped, TransitionLayout.openingIndex(1, 2))
+        assertEquals(-1, opening.edge)
+        assertEquals(4.0..5.0, opening.range)
         val twice = RangeEditing.paste(state, copy, 4.0)!!.state
-        assertEquals(listOf(a.openingTransition, null, null, null), twice.clips.map { it.openingTransition })
-        assertEquals(listOf(null, null, null, b.transition), twice.clips.map { it.transition })
+        assertEquals(listOf(true, true, false, false), twice.clips.map { it.openingTransition != null })
+        assertEquals(listOf(false, false, true, true), twice.clips.map { it.transition != null })
+        assertEquals(a.openingTransition, twice.clips[0].openingTransition)
+        assertEquals(b.transition, twice.clips[3].transition)
+        assertNotEquals(a.openingTransition!!.id, twice.clips[1].openingTransition!!.id)
+        assertEquals(twice.clips[1].id, twice.clips[1].openingTransition!!.nextClipID)
+        assertNull(twice.clips[2].transition!!.nextClipID)
+        assertEquals(16.0, twice.duration, 0.0)
     }
 
     /**
-     * Where the original and this model part ways: the original leaves an
-     * opening on its clip when another is pasted before it, and a close when
-     * one is pasted after (TimelinePaste.swift:176-190 moves the clips;
-     * TrackTimeline.swift:875-879 moves the relation with its clip), and they
-     * play on in the middle of the movie. Here they count at the ends only,
-     * and [TimelineEditing.insert] removes one that is displaced: a paste
-     * does what an insert does.
+     * As the original: an opening stays on its clip when another is pasted
+     * before it, and a close when one is pasted after
+     * (TimelinePaste.swift:176-190 moves the clips; TrackTimeline.swift:875-879
+     * moves the relation with its clip), and they play on in the middle of
+     * the movie. A paste does what [TimelineEditing.insert] does.
      */
-    @Test fun aFragmentPastedAtAnEndReplacesTheOpeningOrTheClose() {
+    @Test fun aFragmentPastedAtAnEndLeavesTheOpeningAndTheCloseWithTheirClips() {
         val state = ends()
         val (a, b) = state.clips
         val added = clip("C", 0.0, 2.0)
         fun joins(edit: EditState) = edit.clips.map { Triple(it.sourceID, it.openingTransition, it.transition) }
         val before = RangeEditing.paste(state, insert, 0.0)!!.state
-        assertEquals(listOf(Triple("C", null, null), Triple("A", null, null), Triple("B", null, b.transition)), joins(before))
+        assertEquals(listOf(Triple("C", null, null), Triple("A", a.openingTransition, null), Triple("B", null, b.transition)), joins(before))
         assertEquals(joins(TimelineEditing.insert(state, listOf(added), 0.0)!!), joins(before))
         assertEquals(10.0, before.duration, 0.0)
+        assertEquals(2.0..3.0, join(before, TransitionLayout.openingIndex(1, 3)).range)
         val after = RangeEditing.paste(state, insert, 8.0)!!.state
-        assertEquals(listOf(Triple("A", a.openingTransition, null), Triple("B", null, null), Triple("C", null, null)), joins(after))
+        assertEquals(listOf(Triple("A", a.openingTransition, null), Triple("B", null, b.transition), Triple("C", null, null)), joins(after))
         assertEquals(joins(TimelineEditing.insert(state, listOf(added), 8.0)!!), joins(after))
+        assertEquals(7.0..8.0, join(after, TransitionLayout.closeIndex(1, 3)).range)
+        assertEquals(10.0, after.duration, 0.0)
         // In the middle both stay.
         val between = RangeEditing.paste(state, insert, 4.0)!!.state
         assertEquals(listOf(Triple("A", a.openingTransition, null), Triple("C", null, null), Triple("B", null, b.transition)), joins(between))
@@ -1175,19 +1190,19 @@ class RangeEditingTest {
         // The first clip begins after the freeze, at 1; the effect lies one second into it.
         val effect = AudioItem(sourceID = "V", start = 2.0, sourceStart = 0.0, sourceEnd = 1.0)
         state = state.copy(audio = listOf(effect))
-        // The join of an opening is the start of the timeline (Transitions.swift:231).
-        assertEquals(0.0, RangeEditing.markTime(state, 0.5), 0.0)
+        // The join of an opening is where its clip begins (Transitions.swift:291, read by EditorView.swift:1115).
+        assertEquals(1.0, RangeEditing.markTime(state, 0.5), 0.0)
         val copy = RangeEditing.copy(state, range(0.0, 5.0))!!
         assertEquals(1.0, copy.audio.single().start, 0.0)
-        // At the start the freeze comes too and the picture begins at 1; later it does not and the picture begins at the paste.
+        // The freeze comes too, at the start and later: the picture begins one second after the paste.
         val alone = RangeEditing.paste(EditState(), copy, 0.0)!!
         assertEquals(1.0, alone.start, 0.0)
         assertEquals(2.0, alone.state.audio!!.single().start, 0.0)
         assertEquals(5.0, alone.state.duration, 0.0)
         val later = RangeEditing.paste(EditState(listOf(clip("C", 0.0, 2.0))), copy, 2.0)!!
-        assertEquals(2.0, later.start, 0.0)
-        assertEquals(3.0, later.state.audio!!.single().start, 0.0)
-        assertEquals(6.0, later.state.duration, 0.0)
+        assertEquals(3.0, later.start, 0.0)
+        assertEquals(4.0, later.state.audio!!.single().start, 0.0)
+        assertEquals(7.0, later.state.duration, 0.0)
     }
 
     // MARK: Cutting as a split does

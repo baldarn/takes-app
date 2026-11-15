@@ -248,7 +248,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     add(fit)
                 }
                 // Sound follows the clip's own level and fades, and any transition at its ends.
-                val shaped = clip.audio != null || TimelineEditing.join(clips, index) != null || TimelineEditing.join(clips, index + 1) != null
+                val shaped = clip.audio != null || TimelineEditing.entering(clips, index) != null || TimelineEditing.leaving(clips, index) != null
                 val sound = if (shaped) listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(clips, index, it) }) else emptyList()
                 // Speed comes first in Media3, so the effects after it are timed in movie seconds.
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
@@ -327,7 +327,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 }
             }
             // Transitions are drawn on the finished frame, from one sequence or from two.
-            val joined = TimelineEditing.layout(clips).joins.any { it.transition != null && TransitionLayout.longEnough(it.timing) }
+            val joined = TimelineEditing.transitions(clips).isNotEmpty()
             fun drawn(decks: Int) = TransitionEffect(clips, Size(canvas.first, canvas.second), decks, frames, content)
             // Titles and subtitles go over the frame the transition effect has finished, in the same
             // pass. (While Media3 itself blended the two sequences, an overlay in the same composition

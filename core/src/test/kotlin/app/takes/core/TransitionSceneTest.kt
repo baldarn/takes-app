@@ -231,24 +231,138 @@ class TransitionSceneTest {
         assertEquals(state.duration, EditState(last).duration, tiny)
     }
 
-    @Test fun theOpeningStaysWithTheFirstClipAndTheCloseWithTheLast() {
+    /**
+     * As the original, where an opening and a close are relations with one
+     * side missing and belong to their picture (Transitions.swift:299-322,
+     * TrackTimeline.swift:881-885): moved, or with a clip put before the
+     * first or after the last, they play on where the picture is.
+     */
+    @Test fun anOpeningAndACloseStayWithTheirClip() {
         var state = TimelineEditing.setJoin(pair, 0, TransitionSettings(duration = 0.5))!!
         state = TimelineEditing.setJoin(state, 2, TransitionSettings(duration = 0.5))!!
         val swapped = TimelineEditing.move(state, 0, 1)!!.clips
-        assertTrue(swapped.all { it.openingTransition == null && it.transition == null })
+        assertEquals(listOf("B", "A"), swapped.map { it.id })
+        assertEquals(state.clips[0].openingTransition, swapped[1].openingTransition)
+        assertEquals(state.clips[1].transition, swapped[0].transition)
+        val layout = TimelineEditing.layout(swapped)
+        assertEquals(8.0, layout.duration, tiny)
+        assertEquals(listOf(null, null, null), layout.joins.map { it.transition })
+        assertEquals(listOf(0.0, 4.0, 8.0), layout.joins.map { it.time })
+        // The close of the clip now first, and the opening of the clip now last, each under a number of its own.
+        val close = layout.join(TransitionLayout.closeIndex(0, 2))!!
+        assertEquals(listOf(1, 0, null), listOf(close.edge, close.outgoing, close.incoming))
+        assertEquals(3.5..4.0, close.range)
+        val opening = layout.join(TransitionLayout.openingIndex(1, 2))!!
+        assertEquals(listOf(-1, null, 1), listOf(opening.edge, opening.outgoing, opening.incoming))
+        assertEquals(4.0..4.5, opening.range)
+        assertEquals(4.0, opening.time, tiny)
+        assertEquals(listOf(close, opening).map { it.index }.sorted(), TimelineEditing.transitions(swapped).map { it.index })
+        // The picture goes to black and comes back from it; the sound goes down and comes up with it.
+        val leaving = TransitionScene.moment(swapped, 3.75)
+        assertEquals(Source.Clip(0, 0, 3.75), leaving.first)
+        assertEquals(Source.Fill(TransitionColor.BLACK), leaving.second)
+        assertEquals(TransitionFrame.Dissolve(0.5), leaving.frame)
+        val arriving = TransitionScene.moment(swapped, 4.25)
+        assertEquals(Source.Fill(TransitionColor.BLACK), arriving.first)
+        assertEquals(Source.Clip(1, 0, 0.25), arriving.second)
+        assertEquals(0.5, TimelineEditing.soundLevel(swapped, 0, 3.75), tiny)
+        assertEquals(0.5, TimelineEditing.soundLevel(swapped, 1, 0.25), tiny)
+        assertEquals(1.0, TimelineEditing.soundLevel(swapped, 1, 2.0), tiny)
+        // The clips still follow one another, so one player runs them.
+        assertEquals(1, TimelineEditing.chains(swapped).size)
+        // The previous and next buttons stop where each fade begins and ends (TimelineNavigation.swift: every join with a transition).
+        assertEquals(listOf(0.0, 3.5, 4.0, 4.5, 8.0), TimelineNavigation.of(EditState(swapped)).cutsAndChanges)
+        // A clip put before the first or after the last leaves the fade with its picture; it is at the end again when that clip goes.
         val c = TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 2.0)
-        // A clip put at the very start or the very end takes the place the transition was tied to.
-        assertNull(TimelineEditing.insert(state, listOf(c), 0.0)!!.clips[1].openingTransition)
-        assertNull(TimelineEditing.insert(state, listOf(c), state.duration)!!.clips[1].transition)
+        val before = TimelineEditing.insert(state, listOf(c), 0.0)!!
+        assertEquals(listOf("C", "A", "B"), before.clips.map { it.id })
+        assertEquals(state.clips[0].openingTransition, before.clips[1].openingTransition)
+        assertEquals(2.0..2.5, TimelineEditing.join(before.clips, TransitionLayout.openingIndex(1, 3))!!.range)
+        assertEquals(10.0, before.duration, tiny)
+        assertEquals(state.clips, TimelineEditing.delete(before, 0)!!.clips)
+        val after = TimelineEditing.insert(state, listOf(c), state.duration)!!
+        assertEquals(listOf("A", "B", "C"), after.clips.map { it.id })
+        assertEquals(state.clips[1].transition, after.clips[1].transition)
+        assertEquals(7.5..8.0, TimelineEditing.join(after.clips, TransitionLayout.closeIndex(1, 3))!!.range)
+        assertEquals(10.0, after.duration, tiny)
+        assertEquals(state.clips, TimelineEditing.delete(after, 2)!!.clips)
         // In the middle both ends are kept.
         val middle = TimelineEditing.insert(state, listOf(c), 4.0)!!.clips
         assertNotNull(middle[0].openingTransition)
         assertNotNull(middle[2].transition)
-        // A take recorded later lands after the closing clip: the close waits, unused, and returns when the take goes.
+        // A take recorded later lands after the closing clip: the close plays on with its clip.
         val appended = state.clips + c
         assertNull(TimelineEditing.joinSettings(appended, 3))
+        assertEquals(state.clips[1].transition, TimelineEditing.joinSettings(appended, TransitionLayout.closeIndex(1, 3)))
         assertEquals(10.0, TimelineEditing.duration(appended), tiny)
         assertNotNull(TimelineEditing.joinSettings(TimelineEditing.delete(EditState(appended), 2)!!.clips, 2))
+    }
+
+    @Test fun aTransitionBetweenTwoClipsTakesThePlaceOfTheirOpeningAndClose() {
+        var state = TimelineEditing.setJoin(pair, 0, TransitionSettings(duration = 0.5))!!
+        state = TimelineEditing.setJoin(state, 2, TransitionSettings(duration = 0.5))!!
+        val swapped = EditState(TimelineEditing.move(state, 0, 1)!!.clips)
+        // Each picture has one transition at its start and one at its end; a new one replaces the fades on those sides (Transitions.swift:343-347).
+        val joinedUp = TimelineEditing.setJoin(swapped, 1, TransitionSettings(duration = 1.0))!!.clips
+        assertEquals("A", joinedUp[0].transition!!.nextClipID)
+        assertNull(joinedUp[1].openingTransition)
+        assertNull(joinedUp[1].openingTransitionFit)
+        assertTrue(TimelineEditing.layout(joinedUp).fades.isEmpty())
+        assertEquals(7.0, TimelineEditing.duration(joinedUp), tiny)
+        // One away from the ends is changed and removed under its own number, and is not made there.
+        val opening = TransitionLayout.openingIndex(1, 2)
+        val longer = TimelineEditing.setJoin(swapped, opening, TransitionSettings(duration = 1.0))!!.clips
+        assertEquals(1.0, longer[1].openingTransition!!.duration, tiny)
+        assertEquals("A", longer[1].openingTransition!!.nextClipID)
+        assertEquals(4.0..5.0, TimelineEditing.join(longer, opening)!!.range)
+        assertNull(TimelineEditing.setJoin(swapped, opening, null)!!.clips[1].openingTransition)
+        assertNull(TimelineEditing.setJoin(pair, opening, TransitionSettings()))
+        assertNull(TimelineEditing.setJoin(pair, TransitionLayout.closeIndex(0, 2), TransitionSettings()))
+        // It keeps to the footage the transition at the clip's other end leaves it.
+        val close = TransitionLayout.closeIndex(0, 2)
+        assertEquals(1.0, TimelineEditing.join(TimelineEditing.setJoin(swapped, close, TransitionSettings(duration = 9.0))!!.clips, close)!!.factor * 9.0, 4.0 + tiny)
+        assertEquals(4.0, TimelineEditing.join(TimelineEditing.setJoin(swapped, close, TransitionSettings(duration = 9.0))!!.clips, close)!!.timing.videoDuration, 1e-6)
+    }
+
+    @Test fun aFreezeThatOpensOrClosesAClipIsTimeOfItsOwnWhereverTheClipIs() {
+        val c = TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 2.0)
+        // An opening still holds black for a second before its clip (TransitionTests.swift:288); with a clip before it, after that clip.
+        val opened = TimelineEditing.setJoin(pair, 0, TransitionSettings(style = TransitionStyle.Still, duration = 1.0))!!
+        assertEquals(9.0, opened.duration, tiny)
+        assertEquals(1.0, TimelineEditing.layout(opened.clips).joins[0].time, tiny)
+        val before = TimelineEditing.insert(opened, listOf(c), 0.0)!!.clips
+        assertEquals(listOf(0.0, 3.0, 7.0), before.indices.map { TimelineEditing.clipStart(before, it) })
+        assertEquals(11.0, TimelineEditing.duration(before), tiny)
+        assertEquals(2.0..3.0, TimelineEditing.join(before, TransitionLayout.openingIndex(1, 3))!!.range)
+        val black = TransitionScene.moment(before, 2.5)
+        assertEquals(Source.Fill(TransitionColor.BLACK), black.first)
+        assertEquals(TransitionFrame.First, black.frame)
+        assertEquals(TimelineEditing.Location(1, 0.0), TimelineEditing.locate(before, 2.5))
+        assertEquals(TimelineEditing.Location(0, 2.0), TimelineEditing.locate(before, 1.999999).let { it!!.copy(offset = Math.rint(it.offset)) })
+        // A closing still holds the last frame after its clip; a clip put after it begins when the freeze is over.
+        val closed = TimelineEditing.setJoin(pair, 2, TransitionSettings(style = TransitionStyle.Still, duration = 1.0))!!
+        assertEquals(9.0, closed.duration, tiny)
+        assertEquals(8.0, TimelineEditing.layout(closed.clips).joins[2].time, tiny)
+        val after = TimelineEditing.insert(closed, listOf(c), closed.duration)!!.clips
+        assertEquals(listOf("A", "B", "C"), after.map { it.id })
+        assertEquals(listOf(0.0, 4.0, 9.0), after.indices.map { TimelineEditing.clipStart(after, it) })
+        assertEquals(11.0, TimelineEditing.duration(after), tiny)
+        val held = TransitionScene.moment(after, 8.5)
+        assertTrue(held.first is Source.Held)
+        assertEquals(1, (held.first as Source.Held).index)
+        assertEquals(TransitionFrame.First, held.frame)
+        assertEquals(TimelineEditing.Location(1, 4.0), TimelineEditing.locate(after, 8.5))
+        assertEquals(TimelineEditing.Location(2, 0.0), TimelineEditing.locate(after, 9.0))
+        // Two chains: the freeze stands between them, as a freeze between two clips does.
+        assertEquals(2, TimelineEditing.chains(after).size)
+    }
+
+    @Test fun aProjectWithAnOpeningAwayFromTheStartStaysInTheSameFormat() {
+        var state = TimelineEditing.setJoin(pair, 0, TransitionSettings(duration = 0.5))!!
+        state = TimelineEditing.insert(state, listOf(TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 2.0)), 0.0)!!
+        val text = documentJson.encodeToString(EditState.serializer(), state)
+        assertEquals(state, documentJson.decodeFromString(EditState.serializer(), text))
+        assertEquals(13, state.clips.maxOf { it.schema })
     }
 
     @Test fun aClipInsertedOnAJoinRemovesItsTransition() {

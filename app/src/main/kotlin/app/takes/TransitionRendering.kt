@@ -319,8 +319,8 @@ class TransitionEffect(
         private val layout = TimelineEditing.layout(clips)
 
         // A still shows the last frame its clip showed, which the sequence does not give again.
-        private val freezes = layout.joins.filter { it.transition != null && it.edge != -1 && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
-            val placement = layout.placements[join.index - 1]
+        private val freezes = layout.all.filter { it.transition != null && it.outgoing != null && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
+            val placement = layout.placements[join.outgoing!!]
             TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)
                 ?.let { Keep(it.from, deckOf[placement.index], it.until) }
         }

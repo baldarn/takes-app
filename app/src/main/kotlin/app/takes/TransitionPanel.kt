@@ -159,7 +159,8 @@ private fun TransitionColor.hex() = String.format(Locale.US, "%02X%02X%02X", (re
  * as it would be; [apply] makes it one undo step and [cancel] drops it.
  *
  * @param existing whether the join already has a transition, which can then be removed.
- * @param index the join: 0 is the opening of the timeline, [count] (the number of clips) its close.
+ * @param index the join: 0 is the opening of the first clip, [count] (the number of clips) the close of the last, 1 to [count] − 1 between two clips.
+ * @param edge −1 for the opening of a clip, +1 for its close, 0 between two clips.
  * @param join the join as the timeline lays it out with [settings], shortened to fit; null while what fits is under one frame.
  * @param maximum the longest duration the footage around the join allows.
  * @param lengthChange seconds the project gets longer (or, negative, shorter) with this transition.
@@ -170,11 +171,10 @@ private fun TransitionColor.hex() = String.format(Locale.US, "%02X%02X%02X", (re
 @Composable
 fun TransitionPanel(
     settings: TransitionSettings, existing: Boolean, change: (TransitionSettings) -> Unit,
-    index: Int, count: Int, join: TransitionLayout.Join?, maximum: Double, projectDuration: Double, lengthChange: Double, audioMaximum: Double,
+    index: Int, count: Int, edge: Int, join: TransitionLayout.Join?, maximum: Double, projectDuration: Double, lengthChange: Double, audioMaximum: Double,
     framesPerSecond: Double, playing: Boolean, play: () -> Unit, step: (Int) -> Unit,
     apply: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
-    val edge = TransitionLayout.edge(index, count)
     var choosingStyle by remember { mutableStateOf(false) }
     // The styles picked while the tool is open: a whip pan and a still get their own length the first time.
     var visited by remember(index) { mutableStateOf(setOf(settings.style)) }
@@ -211,8 +211,8 @@ fun TransitionPanel(
                 )
                 val before = stringResource(R.string.transition_previous_join)
                 val after = stringResource(R.string.transition_next_join)
-                TextButton(onClick = { step(-1) }, enabled = index > 0, modifier = Modifier.semantics { contentDescription = before }) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, null) }
-                TextButton(onClick = { step(1) }, enabled = index < count, modifier = Modifier.semantics { contentDescription = after }) { Icon(Icons.AutoMirrored.Filled.NavigateNext, null) }
+                TextButton(onClick = { step(-1) }, enabled = index in 1..count, modifier = Modifier.semantics { contentDescription = before }) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, null) }
+                TextButton(onClick = { step(1) }, enabled = index in 0 until count, modifier = Modifier.semantics { contentDescription = after }) { Icon(Icons.AutoMirrored.Filled.NavigateNext, null) }
             }
             val styleTitle = stringResource(R.string.transition_style_title)
             Row(
