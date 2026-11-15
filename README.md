@@ -1,29 +1,28 @@
-# Takes — Android port of YouRec (work in progress)
+# Takes
 
-A Kotlin rewrite of [YouRec](https://github.com/antirez/YouRecApp), antirez's iPhone
-camera and video editor. "Takes" is a placeholder name: the YouRec name and icon are
-reserved by its author.
+A camera and video editor for Android: record a project take by take, then cut it,
+grade it, add titles and sound, and export, all on the phone. Takes is a Kotlin
+rewrite of [YouRec](https://github.com/antirez/YouRecApp), antirez's iPhone app. The
+YouRec name and icon are reserved by its author, so this port has its own.
 
-## Build
+<p align="center">
+  <a href="fastlane/metadata/android/en-US/images/phoneScreenshots/1-recorder.png"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1-recorder.png" width="250" alt="Recorder while recording: timer, project name, microphone in use, zoom presets, rear and front camera buttons, stop, pause and mark."></a>
+  <a href="fastlane/metadata/android/en-US/images/phoneScreenshots/2-editor.png"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2-editor.png" width="250" alt="Editor with a title over the picture, the thumbnail timeline with its waveform, a fade and a dissolve, and the editing tools below."></a>
+  <a href="fastlane/metadata/android/en-US/images/phoneScreenshots/3-projects.png"><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3-projects.png" width="250" alt="Projects list with the actions for each project."></a>
+</p>
 
-Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1
-for the `rnnoise` module.
+## Install
 
-    ./gradlew :core:test            # project model, storage and zoom curve
-    ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+- [Google Play](https://play.google.com/store/apps/details?id=app.takes)
+- or the APK attached to each [GitHub release](https://github.com/baldarn/takes-app/releases).
+  The two are signed with different keys, so one cannot update the other.
 
-## Layout
+Android 8 or newer. The app has no network access: everything stays on the device.
 
-- `core/` — pure Kotlin, no Android. `Project` (sources, capture ledger, undo/redo
-  snapshots), `ProjectDisk` (atomic manifest, content-addressed `History/`, revisions,
-  Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
-  `TimelineEditing` (split, delete, move, trim, transitions, titles, bookmarks), `WaveformBuilder` (audio peaks).
-- `rnnoise/` — the RNNoise C library with a small Kotlin API, built with the NDK.
-- `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
-  take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
-  Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
+The port is still in progress. What works today is listed under
+[What it does](#what-it-does), what is missing under [Not ported yet](#not-ported-yet).
 
-## Ported so far
+## What it does
 
 - Projects as the durable unit: record, pause, resume, stop, and continue the same
   project later, including after the app restarts. Each pause or stop finalizes one
@@ -67,8 +66,35 @@ for the `rnnoise` module.
 
 ## Not ported yet
 
-More than one video layer, unlinking a clip's sound from its picture, the other transitions (wipe, split screen and so on), title fonts,
-colors and motion, Log footage and highlight recovery, subtitles, speed,
-rotated and animated crops, video effects, audio restoration models, stabilization, dual camera, follow face,
-HDR/Log capture, microphone selection, manual focus, bookmarks.
-The project file format is this port's own and is not interchangeable with iOS.
+More than one video layer, unlinking a clip's sound from its picture, the other
+transitions (wipe, split screen and so on), title fonts, colors and motion, Log footage
+and highlight recovery, subtitles, clip speed, rotated and animated crops, video
+effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log
+capture, microphone selection, manual focus, restoring a project from its ZIP.
+
+The project file format is this port's own and is not interchangeable with the iPhone
+app.
+
+## Build
+
+Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1
+for the `rnnoise` module.
+
+    ./gradlew :core:test            # project model, storage and zoom curve
+    ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+
+## Layout
+
+- `core/` — pure Kotlin, no Android. `Project` (sources, capture ledger, undo/redo
+  snapshots), `ProjectDisk` (atomic manifest, content-addressed `History/`, revisions,
+  Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
+  `TimelineEditing` (split, delete, move, trim, transitions, titles, bookmarks), `WaveformBuilder` (audio peaks).
+- `rnnoise/` — the RNNoise C library with a small Kotlin API, built with the NDK.
+- `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
+  take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
+  Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
+
+## License
+
+MIT, like the original: see [LICENSE](LICENSE). The licenses of the bundled libraries
+are in the app's Credits screen.
