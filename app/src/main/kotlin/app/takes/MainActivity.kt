@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -63,8 +64,11 @@ class MainActivity : ComponentActivity() {
                             Notice(app.store.error, Modifier.align(Alignment.Center)) { app.store.error = null }
                         }
                         PrimaryTabRow(selectedTabIndex = tab, modifier = Modifier.navigationBarsPadding()) {
+                            // Nobody leaves the recorder while a take is being written, as in the original.
+                            val locked = app.capture.hasActiveTake
                             listOf(R.string.tab_recorder, R.string.tab_projects, R.string.tab_editor).forEachIndexed { index, title ->
-                                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(stringResource(title)) })
+                                Tab(selected = tab == index, onClick = { tab = index }, enabled = !locked,
+                                    modifier = Modifier.alpha(if (locked && tab != index) 0.38f else 1f), text = { Text(stringResource(title)) })
                             }
                         }
                     }

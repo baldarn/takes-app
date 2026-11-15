@@ -91,6 +91,8 @@ class CaptureController(private val context: Context, private val store: Project
     private var zoomRamp: Job? = null
 
     var phase by mutableStateOf(Phase.Idle); private set
+    /** A segment is being written or saved. The original lets nobody leave the recorder meanwhile. */
+    val hasActiveTake: Boolean get() = phase == Phase.Recording || phase == Phase.Saving
     var cameras by mutableStateOf(emptyList<CameraChoice>()); private set
     var cameraID by mutableStateOf<String?>(null); private set
     var zoom by mutableStateOf(1.0); private set
