@@ -3,6 +3,7 @@ package app.takes.core
 import app.takes.core.TimelineEditing.Location
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ShortBuffer
 
@@ -163,13 +164,27 @@ class TransitionAndTitleTest {
         val edited = TimelineEditing.setText(titled, 1, title.copy(text = "Sicilian coast"))!!
         assertEquals(listOf("Sicilian coast"), edited.clips[1].texts!!.map { it.text })
         assertEquals(titled.clips[1].texts, TimelineEditing.move(titled, 1, 0)!!.clips[0].texts)
-        // A split leaves the title on every piece that shows part of it.
+        // A split leaves every title on both pieces, as the original does, whether a piece shows it or not.
         val through = TimelineEditing.split(titled, 4.0 + 1.0)!! // source time 2.0, inside the title
         assertEquals(listOf(title), through.clips[1].texts)
         assertEquals(listOf(title), through.clips[2].texts)
+        assertEquals(5.0..5.5, TimelineEditing.titleRange(through.clips, 2, title))
         val after = TimelineEditing.split(titled, 4.0 + 1.8)!!   // source time 2.8, after the title
         assertEquals(listOf(title), after.clips[1].texts)
-        assertNull(after.clips[2].texts)
+        assertEquals(listOf(title), after.clips[2].texts)
+        // The second piece plays none of the title's footage: nothing is drawn, listed or moved there.
+        assertEquals(emptyList<TextOverlay>(), TimelineEditing.textsAt(after.clips[2], 2.8))
+        assertNull(TimelineEditing.titleRange(after.clips, 2, title))
+        assertEquals(listOf(title to 1.0), TimelineEditing.titlesAt(after.clips, 4.0 + 1.2))
+        assertEquals(emptyList<Pair<TextOverlay, Double>>(), TimelineEditing.titlesAt(after.clips, 4.0 + 1.9))
+        val moving = title.copy(motion = TitleMotion(entrance = TitleMove.Fade))
+        val parted = TimelineEditing.split(TimelineEditing.setText(state, 1, moving)!!, 4.0 + 1.8)!!.clips
+        assertEquals(4.5..5.5, TitleMotionRanges(parted).range(moving, 5.0))
+        assertNull(TitleMotionRanges(parted).range(moving, 5.9))
+        // Extended back over that footage, the piece shows the title again.
+        val extended = TimelineEditing.trim(after, 2, 2.0, after.clips[2].end, 10.0)!!
+        assertEquals(listOf(title), TimelineEditing.textsAt(extended.clips[2], 2.2))
+        assertEquals(5.8..6.3, TimelineEditing.titleRange(extended.clips, 2, title)!!.let { Math.round(it.start * 1e6) / 1e6..Math.round(it.endInclusive * 1e6) / 1e6 })
         assertNull(TimelineEditing.removeText(titled, 1, "missing"))
         assertNull(TimelineEditing.removeText(titled, 1, title.id)!!.clips[1].texts)
     }
@@ -538,7 +553,12 @@ class RemoveIntervalsTest {
         assertEquals(4, cut.size)
         assertNull(cut[0].transition); assertNull(cut[1].transition)
         assertEquals(b.id, TimelineEditing.transition(cut, 2)!!.nextClipID) // the join to the next clip moves to the last piece
-        assertEquals(listOf(1, 1, 0), cut.take(3).map { it.texts.orEmpty().size })  // the title spans the first cut
+        assertEquals(listOf(1, 1, 1), cut.take(3).map { it.texts.orEmpty().size })  // every piece keeps the title
+        // It shows where its footage is played: across the first cut, and nowhere on the last piece.
+        assertEquals(listOf(true, true, false), (0..2).map { TimelineEditing.titleRange(cut, it, cut[it].texts!![0]) != null })
+        assertEquals(1.0, TimelineEditing.titlesAt(cut, 1.5).single().second, 0.0)
+        assertEquals(1.0, TimelineEditing.titlesAt(cut, 2.5).single().second, 0.0)
+        assertTrue(TimelineEditing.titlesAt(cut, 3.5).isEmpty())
         assertEquals(listOf(0, 0, 1), cut.take(3).map { it.bookmarks.orEmpty().size })
         assertEquals(ClipAudio(volumeDB = -3.0, fadeIn = 1.0, denoise = 1.0), cut[0].audio)
         assertEquals(ClipAudio(volumeDB = -3.0, denoise = 1.0), cut[1].audio)

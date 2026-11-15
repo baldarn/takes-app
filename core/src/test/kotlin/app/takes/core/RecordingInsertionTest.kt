@@ -179,10 +179,15 @@ class RecordingInsertionTest {
         edit = TimelineEditing.toggleBookmark(edit, 0, 12.0)!!
         project = project.commit(edit).beginRecordingInsertion(10.0).addRecording(b)
         val clips = project.edit.clips
-        assertEquals(listOf("Early"), clips[0].texts!!.map { it.text })
+        // Both pieces keep both titles, as the original's split does; each shows the one over its own footage.
+        assertEquals(listOf("Early", "Late"), clips[0].texts!!.map { it.text })
         assertNull(clips[0].bookmarks)
         assertNull(clips[1].texts)
-        assertEquals(listOf("Late"), clips[2].texts!!.map { it.text })
+        assertEquals(listOf("Early", "Late"), clips[2].texts!!.map { it.text })
+        assertEquals(listOf("Early"), TimelineEditing.textsAt(clips[0], 2.0).map { it.text })
+        assertEquals(listOf("Late"), TimelineEditing.textsAt(clips[2], 16.0).map { it.text })
+        assertEquals(listOf(true, false), clips[0].texts!!.map { TimelineEditing.titleRange(clips, 0, it) != null })
+        assertEquals(listOf(false, true), clips[2].texts!!.map { TimelineEditing.titleRange(clips, 2, it) != null })
         assertEquals(listOf(12.0), clips[2].bookmarks!!.map { it.time })
         // The mark is still over the same picture, now after the take.
         assertEquals(listOf(15.0), TimelineEditing.bookmarkTimes(clips))

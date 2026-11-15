@@ -80,15 +80,15 @@ object TimelineEditing {
         // Not inside a transition: the picture or the sound of two clips is in play there.
         if (layout(state.clips).joins.any { it.transition != null && time > it.range.start && time < it.range.endInclusive }) return null
         val cut = clip.sourceTime(offset)
-        // The join after the clip now follows the second piece; each piece keeps the titles it shows.
-        fun titles(from: Double, to: Double) = clip.texts?.filter { it.start < to && it.end > from }?.ifEmpty { null }
+        // The join after the clip now follows the second piece. Both pieces keep every title, as in the original: one that
+        // lies in the other piece's footage does not show, and shows again when the piece is extended over that footage.
         val (before, after) = clip.bookmarks.orEmpty().partition { it.time < cut }
         // Each piece keeps the level; the fade in stays at the start, the fade out at the end.
         val pieces = listOf(
-            clip.copy(end = cut, transition = null, texts = titles(clip.start, cut), bookmarks = before.ifEmpty { null },
+            clip.copy(end = cut, transition = null, bookmarks = before.ifEmpty { null },
                 audio = clip.audio?.copy(fadeOut = 0.0).normalized()),
             // A copy, so whatever else a clip carries, such as its color, stays on both pieces.
-            clip.copy(id = newID(), start = cut, openingTransition = null, texts = titles(cut, clip.end), bookmarks = after.ifEmpty { null },
+            clip.copy(id = newID(), start = cut, openingTransition = null, bookmarks = after.ifEmpty { null },
                 audio = clip.audio?.copy(fadeIn = 0.0).normalized()),
         )
         return state.copy(clips = state.clips.take(index) + pieces + state.clips.drop(index + 1))
@@ -157,7 +157,8 @@ object TimelineEditing {
      * Removes stretches of source time from the clip at [index], such as
      * detected pauses, leaving the pieces in between as separate clips with
      * the gaps closed. Pieces too short to stand alone are dropped with the
-     * cut. Null when nothing would change or nothing would be left.
+     * cut. Titles stay on every piece. Null when nothing would change or
+     * nothing would be left.
      */
     fun removeIntervals(state: EditState, index: Int, cuts: List<SourceInterval>): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
@@ -172,7 +173,7 @@ object TimelineEditing {
                 start = part.start, end = part.end,
                 transition = if (last) clip.transition else null,
                 openingTransition = if (first) clip.openingTransition else null,
-                texts = clip.texts?.filter { it.start < part.end && it.end > part.start }?.ifEmpty { null },
+                // Every piece keeps every title, as the pieces of a split do: a title shows wherever its footage is played.
                 bookmarks = clip.bookmarks?.filter { it.time >= part.start && it.time < part.end }?.ifEmpty { null },
                 audio = clip.audio?.copy(fadeIn = if (first) clip.audio.fadeIn else 0.0, fadeOut = if (last) clip.audio.fadeOut else 0.0).normalized(),
             )
