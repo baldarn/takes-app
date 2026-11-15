@@ -431,8 +431,9 @@ class TitleProjectTest {
         val next = TextOverlay(id = "U", text = "There", start = 4.0, end = 10.0)
         val mixed = listOf(first, clip("B", 4.0, 10.0, next))
         val shares = TitleMotionRanges(mixed).shown(mixed, 3.25).associate { it.title.id to it.share }
-        assertEquals(0.75, shares.getValue("T"), 1e-9)
-        assertEquals(0.25, shares.getValue("U"), 1e-9)
+        // A quarter of the way through, eased.
+        assertEquals(0.84375, shares.getValue("T"), 1e-9)
+        assertEquals(0.15625, shares.getValue("U"), 1e-9)
     }
 }
 

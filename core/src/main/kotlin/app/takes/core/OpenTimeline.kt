@@ -125,16 +125,18 @@ object OpenTimeline {
          * media the dissolve needs, and the timeline keeps its length.
          */
         private val placed: List<Placed> = run {
-            var start = 0.0
+            // Later than zero when the timeline opens on a freeze.
+            var start = edge(TimelineEditing.clipStart(clips, 0))
             var lead = 0.0
             clips.mapIndexed { index, clip ->
                 val begins = TimelineEditing.clipStart(clips, index)
                 val nextBegins = TimelineEditing.clipStart(clips, index + 1)
                 val first = edge(nextBegins)
                 val last = edge(begins + clip.duration)
-                val cut = if (index == clips.lastIndex) total else floor((first + last) / 2)
+                // Where time is inserted after the clip, a hold on a color or a freeze, it ends with its own footage and a gap follows.
+                val cut = if (index == clips.lastIndex) minOf(total, last) else if (last > first) floor((first + last) / 2) else last
                 Placed(clip, source(clip.sourceID), start, cut, lead).also {
-                    start = cut
+                    start = maxOf(cut, first)
                     // Zero for a cut or a fade; the exact distance from where the next clip really begins otherwise.
                     lead = if (last > first) frames(cut / rate - nextBegins) else 0.0
                 }
@@ -149,10 +151,12 @@ object OpenTimeline {
             val first = edge(TimelineEditing.clipStart(clips, index))
             val last = edge(TimelineEditing.clipStart(clips, index - 1) + outgoing.clip.duration)
             if (last <= first) return null
+            // Every style that plays two clips at once is a transition on the cut; only the dissolve has a standard kind.
+            val style = TimelineEditing.join(clips, index)?.transition?.style ?: TransitionStyle.Dissolve
             return buildJsonObject {
                 put("OTIO_SCHEMA", "Transition.1")
-                put("name", "Dissolve")
-                put("transition_type", "SMPTE_Dissolve")
+                put("name", style.title)
+                put("transition_type", if (style == TransitionStyle.Dissolve) "SMPTE_Dissolve" else "Custom")
                 // How far it reaches back into the outgoing clip, and forward into the incoming one.
                 put("in_offset", time(incoming.start - first))
                 put("out_offset", time(last - incoming.start))
@@ -163,14 +167,17 @@ object OpenTimeline {
         /** The clips in order: the picture, or their own sound cut the same way and cross-faded where the picture dissolves. */
         private fun clipTrack(kind: String): JsonObject {
             val children = mutableListOf<JsonObject>()
+            var cursor = 0.0
             placed.forEachIndexed { index, piece ->
                 // A clip shorter than a frame cannot be placed; its neighbors meet instead.
                 if (piece.end <= piece.start) return@forEachIndexed
+                if (piece.start > cursor) children += gap(piece.start - cursor)
                 dissolve(index)?.let { children += it }
                 val sound = piece.clip.audio.takeIf { kind == "Audio" }
                 children += media(piece.source, frames(piece.clip.start) + piece.lead, piece.end - piece.start, sound?.muted != true, sound)
+                cursor = piece.end
             }
-            return track(kind, 1, children, total)
+            return track(kind, 1, children, cursor)
         }
 
         /** Sound on its own tracks, with gaps where a track is silent. Sound past the last clip is not played. */
@@ -212,11 +219,12 @@ object OpenTimeline {
                     val at = edge(begins + clip.offset(mark.time))
                     bookmarks += at to marker(mark.label?.ifEmpty { null } ?: "Bookmark", at, 0.0, "YELLOW")
                 }
-                val fade = TimelineEditing.fadeLength(clips, index)
-                if (fade > 0) {
-                    val cut = begins + clip.duration
-                    val start = edge(cut - fade)
-                    fades += marker("Fade through black", start, edge(cut + fade) - start, "PURPLE")
+                // A transition that plays its clips one after the other, such as a fade or a freeze, is marked where it happens.
+                TimelineEditing.join(clips, index + 1)?.takeIf { index < clips.lastIndex && it.timing.overlap <= 0 }?.let { join ->
+                    val start = edge(join.origin)
+                    val settings = join.transition!!
+                    val name = if (settings.style != TransitionStyle.FadeColor) settings.style.title else if (settings.fadeColor == null) "Fade through black" else settings.style.title
+                    fades += marker(name, start, edge(join.origin + join.timing.videoDuration) - start, "PURPLE")
                 }
                 for (title in clip.texts.orEmpty()) {
                     val start = edge(begins + clip.offset(maxOf(title.start, clip.start)))

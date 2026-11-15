@@ -200,8 +200,8 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
 
     init {
         val parts = mutableMapOf<Key, MutableList<ClosedFloatingPointRange<Double>>>()
-        var start = 0.0
         clips.forEachIndexed { index, clip ->
+            val start = TimelineEditing.clipStart(clips, index)
             for (title in clip.texts.orEmpty()) {
                 val motion = title.motion?.takeIf { it.active } ?: continue
                 if (!(title.end > clip.start && title.start < clip.end)) continue
@@ -209,7 +209,6 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
                 val b = start + clip.offset(minOf(clip.end, title.end))
                 if (b > a) parts.getOrPut(Key(title.id, motion)) { mutableListOf() }.add(a..b)
             }
-            start += clip.duration - TimelineEditing.overlap(clips, index)
         }
         runs = parts.mapValues { (_, pieces) ->
             val joined = mutableListOf<ClosedFloatingPointRange<Double>>()

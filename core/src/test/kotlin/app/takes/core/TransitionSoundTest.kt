@@ -212,11 +212,11 @@ class TransitionSoundTest {
         assertEquals(0.5, TimelineEditing.soundLevel(clips, 0, 3.75), tiny)
     }
 
-    @Test fun shortClipsAreWhereTodaysSoundAndTheOriginalsPartWays() {
-        // Today a dissolve takes at most half of either clip; the original lets it take all the free footage.
+    @Test fun aShortClipGivesADissolveAllItsFootageAsInTheOriginal() {
+        // The port used to stop a dissolve at half of either clip (0.5 s here); the original lets it take all the free footage.
         val first = TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 1.0, transition = TransitionSettings(nextClipID = "B", style = TransitionStyle.Dissolve, duration = 2.0))
         val clips = listOf(first, TimelineClip(id = "B", sourceID = "S", start = 0.0, end = 4.0))
-        assertEquals(0.5, TimelineEditing.overlap(clips, 0), 0.0)
+        assertEquals(1.0, TimelineEditing.overlap(clips, 0), 1e-9)
         val join = TransitionLayout.sequence(listOf(1.0, 4.0), listOf(null, TransitionSettings(duration = 2.0), null)).joins[1]
         assertEquals(1.0, join.timing.overlap, 1e-9)
     }

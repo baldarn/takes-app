@@ -116,12 +116,12 @@ class OpenTimelineTest {
     }
 
     @Test fun dissolveIsLimitedLikeTheEditor() {
-        // Asked for 10 s, but a dissolve never takes more than half of either clip.
+        // Asked for 10 s, but a dissolve cannot take more footage than its clips have: here all 3 s of both.
         val clips = joined(TransitionStyle.Dissolve, 10.0)
-        assertEquals(1.5, TimelineEditing.overlap(clips, 0), 0.0)
+        assertEquals(3.0, TimelineEditing.overlap(clips, 0), 1e-9)
         val (outgoing, transition, incoming) = tracks(project(clips)).last().children()
-        assertEquals(45.0, transition.frames("in_offset") + transition.frames("out_offset"), 0.0)
-        assertEquals(135.0, outgoing.length() + incoming.length(), 0.0)
+        assertEquals(90.0, transition.frames("in_offset") + transition.frames("out_offset"), 0.0)
+        assertEquals(90.0, outgoing.length() + incoming.length(), 0.0)
     }
 
     @Test fun fadeThroughBlackStaysACutWithAMarker() {

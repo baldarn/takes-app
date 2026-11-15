@@ -241,7 +241,7 @@ class RecordingInsertionTest {
         assertEquals(listOf(0.0 to 4.0, 0.0 to 3.0, 0.0 to 4.0), ranges(project))
         assertTrue(project.edit.clips.all { it.transition == null })
         assertNull(TimelineEditing.transition(project.edit.clips, 0))
-        assertEquals(1.0, TimelineEditing.level(project.edit.clips, 1, 0.0), 0.0)
+        assertEquals(1.0, TimelineEditing.soundLevel(project.edit.clips, 1, 0.0), 0.0)
         assertEquals(base.edit.clips, project.undo().edit.clips)
     }
 

@@ -143,7 +143,7 @@ class AudioUnlinkingTest {
 
     @Test fun transitionRampsBecomeTheSoundsOwnFades() {
         // A fade through black into B and a dissolve out of it.
-        var joined = TimelineEditing.setTransition(state, 0, 1.0)!!
+        var joined = TimelineEditing.setTransition(state, 0, 1.0, TransitionStyle.FadeColor)!!
         joined = TimelineEditing.setTransition(joined, 1, 0.8, TransitionStyle.Dissolve)!!
         val unlinked = AudioUnlinking.unlink(joined, 1)!!
         val sound = unlinked.audio!!.single()
@@ -179,7 +179,7 @@ class AudioUnlinkingTest {
     }
 
     @Test fun ownFadeUnderATransitionIsApproximatedByTheLongerOne() {
-        val joined = TimelineEditing.setTransition(state, 0, 1.0)!!
+        val joined = TimelineEditing.setTransition(state, 0, 1.0, TransitionStyle.FadeColor)!!
         val faded = joined.copy(clips = joined.clips.toMutableList().also { it[1] = it[1].copy(audio = ClipAudio(fadeIn = 2.0, fadeOut = 1.0)) })
         val unlinked = AudioUnlinking.unlink(faded, 1)!!
         assertEquals(ClipAudio(fadeIn = 2.0, fadeOut = 1.0), unlinked.audio!!.single().audio)
@@ -194,7 +194,7 @@ class AudioUnlinkingTest {
     }
 
     @Test fun fadesChangedWhileDetachedBecomeTheClipsOwn() {
-        val joined = TimelineEditing.setTransition(state, 0, 1.0)!!
+        val joined = TimelineEditing.setTransition(state, 0, 1.0, TransitionStyle.FadeColor)!!
         val unlinked = AudioUnlinking.unlink(joined, 1)!!
         assertEquals(ClipAudio(fadeIn = 0.5), item(unlinked, b.id).audio)
         val longer = TimelineEditing.setAudioItemSound(unlinked, b.id, ClipAudio(fadeIn = 2.0, fadeOut = 1.0))!!

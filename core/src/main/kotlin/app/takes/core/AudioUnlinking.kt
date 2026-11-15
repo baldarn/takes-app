@@ -53,11 +53,12 @@ object AudioUnlinking {
 
     /**
      * Seconds over which the transitions at the clip's two ends bring its
-     * sound in and out: a fade through black or a dissolve, whichever joins it.
+     * sound in and out: the length of the ramp of the join before it and of
+     * the join after it ([TransitionSound]).
      */
     private fun ramps(clips: List<TimelineClip>, index: Int): Pair<Double, Double> =
-        (TimelineEditing.fadeLength(clips, index - 1) + TimelineEditing.overlap(clips, index - 1)) to
-            (TimelineEditing.fadeLength(clips, index) + TimelineEditing.overlap(clips, index))
+        (TimelineEditing.join(clips, index)?.timing?.audioIn?.let { it.endInclusive - it.start } ?: 0.0) to
+            (TimelineEditing.join(clips, index + 1)?.timing?.audioOut?.let { it.endInclusive - it.start } ?: 0.0)
 
     /** One fade standing for the clip's own fade and its transition's ramp at the same end. */
     private fun baked(fade: Double, ramp: Double) = maxOf(fade, ramp)

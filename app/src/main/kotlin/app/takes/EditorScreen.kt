@@ -81,6 +81,7 @@ import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.ImportedLUT
 import app.takes.core.CropSettings
+import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
@@ -169,6 +170,8 @@ import app.takes.core.Project
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TitleMotionRanges
+import app.takes.core.TransitionFrame
+import app.takes.core.TransitionScene
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.withContext
@@ -194,10 +197,12 @@ private fun preciseLabel(seconds: Double): String {
 }
 
 /**
- * Plays the edit, addressed by timeline seconds. Clips joined by cuts or fades
- * form a chain that one player runs as a gapless playlist. A dissolve needs
- * two pictures at once, so chains alternate between two decks whose views are
- * stacked: deck 0 on top, like the first sequence of an export.
+ * Plays the edit, addressed by timeline seconds. Clips that follow one another
+ * without a break form a chain that one player runs as a gapless playlist.
+ * Most transitions need two pictures at once, and a freeze needs the frame it
+ * holds while the next clip waits, so chains alternate between two decks, like
+ * the two sequences of an export. Where no clip plays at all (a hold on a
+ * color, a freeze) the clock runs on by itself.
  */
 private class EditorPlayer(private val context: Context) {
     private val sessions = context.getSystemService(AudioManager::class.java)
@@ -268,7 +273,9 @@ private class EditorPlayer(private val context: Context) {
     private var clips = emptyList<TimelineClip>()
     private var chains = emptyList<TimelineEditing.Chain>()
     private var items = List(2) { emptyList<Int>() } // clip index of each playlist item, per deck
-    private var master = 0 // the chain whose deck is the clock
+    private var duration = 0.0
+    private var time = 0.0      // where the movie is
+    private var ticked = 0L     // when it was last advanced, for the stretches no deck is the clock of
 
     fun load(clips: List<TimelineClip>, sounds: List<AudioItem>, files: Map<String, File>, time: Double) {
         pause()
@@ -277,6 +284,7 @@ private class EditorPlayer(private val context: Context) {
         cued.fill(null)
         this.clips = clips
         chains = TimelineEditing.chains(clips)
+        duration = TimelineEditing.duration(clips)
         items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
         decks.forEachIndexed { deck, player ->
             player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID)) })
@@ -291,23 +299,43 @@ private class EditorPlayer(private val context: Context) {
         if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
     }
 
-    /** Puts every deck where [time] needs it: inside its chain, or parked at the start of its next one. */
+    /** The chain [deck] is inside at [time], and the clip of it that is playing. */
+    private fun playing(deck: Int, time: Double): Pair<TimelineEditing.Chain, Int>? {
+        val chain = chains.withIndex().lastOrNull { it.index % 2 == deck && time >= it.value.start && time < it.value.end }?.value ?: return null
+        return chain to ((chain.first..chain.last).lastOrNull { TimelineEditing.clipStart(clips, it) <= time } ?: chain.first)
+    }
+
+    /** The frame [deck] has to keep showing at [time] though its clip is over: the one a still holds. */
+    private fun held(deck: Int, time: Double): TransitionScene.Source.Held? = TransitionScene.moment(clips, time)
+        .let { listOf(it.first, it.second) }.filterIsInstance<TransitionScene.Source.Held>().firstOrNull { it.deck == deck }
+
+    // A deck stops by itself on the last frame of its chain: what follows in its playlist belongs to a later moment.
+    private fun stopAtChainEnd(deck: Int) {
+        val player = decks[deck]
+        val clip = items[deck].getOrNull(player.currentMediaItemIndex)
+        val last = clip != null && chains.any { it.last == clip }
+        if (player.pauseAtEndOfMediaItems != last) player.pauseAtEndOfMediaItems = last
+    }
+
+    /** Puts every deck where [time] needs it: inside its chain, on the frame it holds, or parked at the start of its next chain. */
     fun seek(time: Double) {
-        val location = TimelineEditing.locate(clips, time) ?: return
-        master = chains.indexOfFirst { location.index in it.first..it.last }
+        if (clips.isEmpty()) return
+        this.time = time.coerceIn(0.0, duration)
         decks.forEachIndexed { deck, player ->
-            val mine = chains.withIndex().filter { it.index % 2 == deck }
-            val active = mine.lastOrNull { time >= it.value.start && time < it.value.end } ?: mine.lastOrNull { it.index == master }
+            val active = playing(deck, time)
+            val frozen = held(deck, time)
             if (active != null) {
-                val chain = active.value
-                val clip = (chain.first..chain.last).lastOrNull { TimelineEditing.clipStart(clips, it) <= time } ?: chain.first
+                val clip = active.second
                 val offset = (time - TimelineEditing.clipStart(clips, clip)).coerceIn(0.0, clips[clip].duration)
                 // A deck's position runs in recorded seconds; a clip at another speed covers them faster or slower.
                 player.seekTo(items[deck].indexOf(clip), (offset * clips[clip].rate * 1000).toLong())
                 pace(player, clip)
+            } else if (frozen != null) {
+                player.seekTo(items[deck].indexOf(frozen.index), (frozen.offset * clips[frozen.index].rate * 1000).toLong())
             } else {
-                mine.firstOrNull { it.value.start > time }?.let { player.seekTo(items[deck].indexOf(it.value.first), 0) }
+                chains.withIndex().firstOrNull { it.index % 2 == deck && it.value.start > time }?.let { player.seekTo(items[deck].indexOf(it.value.first), 0) }
             }
+            stopAtChainEnd(deck)
         }
         for (track in tracks.indices) cue(track, time, play = false)
     }
@@ -315,8 +343,9 @@ private class EditorPlayer(private val context: Context) {
     fun play(time: Double) {
         if (clips.isEmpty()) return
         seek(time) // line both decks up again
-        chains.forEachIndexed { index, chain -> if (time >= chain.start && time < chain.end || index == master) decks[index % 2].play() }
+        for (deck in decks.indices) if (playing(deck, time) != null) decks[deck].play()
         for (track in tracks.indices) cue(track, time, play = true)
+        ticked = System.nanoTime()
         playing = true
     }
 
@@ -328,28 +357,54 @@ private class EditorPlayer(private val context: Context) {
 
     /** Advances the hand-over between decks and returns the timeline time. Call once per frame while playing. */
     fun tick(): Double {
-        val chain = chains.getOrNull(master) ?: return 0.0
-        val player = decks[master % 2]
-        val clip = items[master % 2].getOrNull(player.currentMediaItemIndex) ?: chain.last
-        // A deck that ran past its chain is already in its next one.
-        val time = if (clip > chain.last) chain.end
-        else (TimelineEditing.clipStart(clips, clip) + player.currentPosition.coerceAtLeast(0) / 1000.0 / clips[clip].rate).coerceAtMost(chain.end)
-        // Each deck follows the speed of the clip it has reached.
-        decks.forEachIndexed { deck, each -> items[deck].getOrNull(each.currentMediaItemIndex)?.let { pace(each, it) } }
-        val next = chains.getOrNull(master + 1)
-        if (next != null && time >= next.start) {
-            decks[(master + 1) % 2].play()
-            master++
-        } else if (next == null && (player.playbackState == Player.STATE_ENDED || time >= chain.end)) {
-            pause()
-        }
-        // The deck that finished waits at the start of its next chain.
-        chains.getOrNull(master - 1)?.takeIf { time >= it.end }?.let {
-            val finished = decks[(master - 1) % 2]
-            if (finished.isPlaying || finished.playWhenReady) {
-                finished.pause()
-                chains.getOrNull(master + 1)?.let { upcoming -> finished.seekTo(items[(master + 1) % 2].indexOf(upcoming.first), 0) }
+        if (clips.isEmpty()) return 0.0
+        val now = System.nanoTime()
+        val passed = ((now - ticked) / 1e9).coerceIn(0.0, 0.1)
+        ticked = now
+        // The clock is the deck that began playing last; where none plays, time runs on by itself.
+        val leading = chains.withIndex().lastOrNull { time >= it.value.start && time < it.value.end }
+        time = if (leading == null) time + passed else {
+            val chain = leading.value
+            val deck = leading.index % 2
+            val player = decks[deck]
+            val clip = items[deck].getOrNull(player.currentMediaItemIndex)
+            when {
+                // A deck parked elsewhere, or one that ran past its chain: its chain is over for it.
+                clip == null || clip > chain.last -> chain.end
+                clip < chain.first -> time + passed
+                // Stopped on the last frame of the chain.
+                !player.playWhenReady && clip == chain.last && player.playbackState == Player.STATE_READY &&
+                    player.currentPosition >= player.duration - 30 -> chain.end
+                player.playbackState == Player.STATE_ENDED -> chain.end
+                else -> (TimelineEditing.clipStart(clips, clip) + player.currentPosition.coerceAtLeast(0) / 1000.0 / clips[clip].rate).coerceAtMost(chain.end)
             }
+        }
+        if (time >= duration) {
+            time = duration
+            pause()
+            return time
+        }
+        decks.forEachIndexed { deck, player ->
+            val active = playing(deck, time)
+            val clip = items[deck].getOrNull(player.currentMediaItemIndex)
+            if (active != null) {
+                val (chain, _) = active
+                // A chain whose moment has come starts from where its deck was parked.
+                if (clip == null || clip !in chain.first..chain.last) {
+                    player.seekTo(items[deck].indexOf(chain.first), ((time - chain.start) * clips[chain.first].rate * 1000).toLong().coerceAtLeast(0))
+                }
+                if (!player.playWhenReady && !(clip == chain.last && player.currentPosition >= player.duration - 30)) player.play()
+                // Each deck follows the speed of the clip it has reached.
+                items[deck].getOrNull(player.currentMediaItemIndex)?.let { pace(player, it) }
+            } else if (held(deck, time) == null) {
+                // The deck that finished waits at the start of its next chain, once its last frame is no longer shown.
+                val next = chains.withIndex().firstOrNull { it.index % 2 == deck && it.value.start > time }?.value
+                if (next != null && clip != next.first) {
+                    player.pause()
+                    player.seekTo(items[deck].indexOf(next.first), 0)
+                }
+            }
+            stopAtChainEnd(deck)
         }
         // Audio tracks: start the waiting item when its moment comes, then line up the next.
         if (playing) for (track in tracks.indices) {
@@ -548,40 +603,26 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val current = location?.let { clips[it.index] }
     val sourceTime = if (location != null && current != null) current.sourceTime(location.offset) else 0.0
     val titles = current?.let { TimelineEditing.textsAt(it, sourceTime) }.orEmpty()
-    val level = location?.let { TimelineEditing.level(clips, it.index, it.offset) } ?: 1.0
-    // During a dissolve the incoming clip owns the playhead; the deck behind it carries the rest.
-    val weight = location?.let { TimelineEditing.weight(clips, it.index, it.offset) } ?: 1.0
-    val front = location?.let { at -> TimelineEditing.chains(clips).indexOfFirst { at.index in it.first..it.last } % 2 } ?: 0
-    val weights = List(2) { deck -> if (deck == front) weight else 1 - weight }
-    // What each deck sounds like: the clip under the playhead, and during a dissolve the one leaving.
+    // Which deck shows each clip, and the clip each deck is playing now or holding the last frame of.
+    val deckOf = remember(clips) { TransitionScene.decks(clips) }
+    val deckPlaying = List(2) { deck ->
+        clips.indices.lastOrNull { deckOf[it] == deck && playhead >= TimelineEditing.clipStart(clips, it) && playhead < TimelineEditing.clipStart(clips, it) + clips[it].duration }
+    }
+    val deckClips = List(2) { deck ->
+        deckPlaying[deck]
+            ?: TransitionScene.moment(clips, playhead, decks = deckOf).let { listOf(it.first, it.second) }.firstNotNullOfOrNull { (it as? TransitionScene.Source.Held)?.takeIf { held -> held.deck == deck }?.index }
+            ?: location?.index?.takeIf { deckOf[it] == deck }
+    }
+    // What each deck sounds like: its clip's own level and what the transitions at its ends leave of it.
     val deckSounds = List(2) { deck ->
-        when {
-            location == null -> 0.0
-            deck == front -> TimelineEditing.soundLevel(clips, location.index, location.offset)
-            weight < 1 && location.index > 0 -> clips[location.index - 1].let { leaving ->
-                TimelineEditing.soundLevel(clips, location.index - 1, leaving.duration - TimelineEditing.overlap(clips, location.index - 1) + location.offset)
-            }
-            else -> 0.0
-        }
+        deckPlaying[deck]?.let { TimelineEditing.soundLevel(clips, it, playhead - TimelineEditing.clipStart(clips, it)) } ?: 0.0
     }
-    // The color each deck shows: the clip under the playhead, and during a dissolve the one leaving.
+    // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
-    val deckColors = List(2) { deck ->
-        when {
-            location == null -> null
-            deck == front -> clips[location.index].color
-            weight < 1 && location.index > 0 -> clips[location.index - 1].color
-            else -> null
-        }
-    }
+    val deckColors = deckClips.map { index -> index?.let { clips[it].color } }
     // The framing each deck shows, with the size of the recording it applies to.
-    val deckFrames = List(2) { deck ->
-        val clip = when {
-            location == null -> null
-            deck == front -> clips[location.index]
-            weight < 1 && location.index > 0 -> clips[location.index - 1]
-            else -> null
-        }
+    val deckFrames = deckClips.map { index ->
+        val clip = index?.let { clips[it] }
         val crop = clip?.let { cropping?.takeIf { (id, _) -> id == clip.id }?.second ?: clip.crop }
         val size = clip?.let { sizes[it.sourceID] }
         if (crop != null && size != null) crop to size else null
@@ -664,27 +705,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder).asComposeRenderEffect() else null
                     }
                 }
-                // Deck 1 below, opaque whenever it contributes; deck 0 above, as transparent as its share.
-                for (deck in listOf(1, 0)) {
-                    AndroidView(
-                        { (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = editor.decks[deck] } },
-                        Modifier.fillMaxSize().graphicsLayer {
-                            alpha = if (deck == 0) weights[0].toFloat() else if (weights[1] > 0) 1f else 0f
-                            renderEffect = effects[deck]
-                            // The player fits the whole picture in this view. Enlarge and shift the
-                            // view so the crop window fills it, as the export will.
-                            deckFrames[deck]?.let { (crop, source) ->
-                                val window = crop.rect(source, FrameSize(size.width.toDouble(), size.height.toDouble()))
-                                val fitted = minOf(size.width / source.width, size.height / source.height)
-                                val enlarge = (size.width / (window.width * fitted)).toFloat()
-                                scaleX = enlarge
-                                scaleY = enlarge
-                                translationX = (-(window.midX - source.width / 2) * fitted * enlarge).toFloat()
-                                translationY = (-(window.midY - source.height / 2) * fitted * enlarge).toFloat()
-                            }
-                        },
-                    )
-                }
+                DeckPictures(
+                    editor.decks, effects, deckFrames,
+                    moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf) },
+                    // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
+                    content = { index, frame ->
+                        val source = sizes[clips[index].sourceID]
+                        val framed = cropping?.first == clips[index].id || clips[index].crop != null
+                        if (framed || source == null) FrameRect(0.0, 0.0, frame.width, frame.height) else {
+                            val fitted = minOf(frame.width / source.width, frame.height / source.height)
+                            FrameRect((frame.width - source.width * fitted) / 2, (frame.height - source.height * fitted) / 2, source.width * fitted, source.height * fitted)
+                        }
+                    },
+                )
                 // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
                 val work by rememberUpdatedState(titling)
                 var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle
@@ -705,7 +738,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         captioned.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                     }
                 }
-                if (level < 1) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1 - level).toFloat())))
             }
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
         }
@@ -1102,7 +1134,7 @@ private fun Timeline(
                     key(clip.id) {
                         ClipStrip(
                             clip, files.getValue(clip.sourceID), index == current,
-                            fades = TimelineEditing.fadeLength(clips, index) > 0,
+                            fades = index < clips.lastIndex && TimelineEditing.join(clips, index + 1)?.let { it.timing.overlap <= 0 } == true,
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
                             offset, pixelsPerSecond, viewport, scroll,
                         )

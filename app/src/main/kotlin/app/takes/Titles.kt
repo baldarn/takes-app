@@ -13,19 +13,14 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.annotation.OptIn
 import androidx.media3.common.C
-import androidx.media3.common.OverlaySettings
-import androidx.media3.common.VideoCompositorSettings
-import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
 import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 import androidx.media3.effect.BitmapOverlay
-import androidx.media3.effect.RgbMatrix
 import app.takes.core.TextOverlay
 import app.takes.core.TimelineClip
-import app.takes.core.TimelineEditing
 import app.takes.core.TitleMotionRanges
 
 /** Draws a title the same way in the editor preview and in the exported movie. */
@@ -61,8 +56,9 @@ object TitleRenderer {
 
 /**
  * Export overlay for the whole movie: a frame-sized bitmap holding the titles
- * visible at each moment. It is applied once, after the clips are blended, so
- * a title dissolves and fades with the clip it belongs to. The drawing is
+ * visible at each moment. It is applied once, over the finished picture, each
+ * title as opaque as its clip is showing, so a title dissolves and fades with
+ * the clip it belongs to. The drawing is
  * [TitlePainter]'s, the same as the preview's.
  */
 class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int, private val height: Int, assets: AssetManager) : BitmapOverlay() {
@@ -75,9 +71,8 @@ class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         val time = presentationTimeUs / 1e6
-        val level = TimelineEditing.locate(clips, time)?.let { TimelineEditing.level(clips, it.index, it.offset) } ?: 1.0
         // Opacity in steps, so a steady title is drawn once. A title on its way in or out is drawn for every frame.
-        val visible = ranges.shown(clips, time).map { it.copy(share = (it.share * level * 64).toInt() / 64.0) }.filter { it.share > 0 }
+        val visible = ranges.shown(clips, time).map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
         if (visible != shown) {
             shown = visible
             bitmap = if (visible.isEmpty()) empty else (frame ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame = it }).let {
@@ -111,14 +106,6 @@ class TitleOverlay(private val clips: List<TimelineClip>, private val width: Int
             result.setPixels(buffer, 0, width, 0, top, width, rows) // and stored as they are
         }
         return result
-    }
-}
-
-/** Fades the clip's picture from and to black. [timelineStart] is where the clip begins in the sequence. */
-class FadeEffect(private val timelineStart: Double, private val duration: Double, private val fadeIn: Double, private val fadeOut: Double) : RgbMatrix {
-    override fun getMatrix(presentationTimeUs: Long, useHdr: Boolean): FloatArray {
-        val level = TimelineEditing.level(presentationTimeUs / 1e6 - timelineStart, duration, fadeIn, fadeOut).toFloat()
-        return floatArrayOf(level, 0f, 0f, 0f, 0f, level, 0f, 0f, 0f, 0f, level, 0f, 0f, 0f, 0f, 1f)
     }
 }
 
@@ -160,28 +147,4 @@ class SoundProcessor(private val level: (Double) -> Double) : BaseAudioProcessor
     override fun onFlush() { frames = 0 }
 
     override fun onReset() { frames = 0 }
-}
-
-/**
- * Blends the two sequences of an export with dissolves. The first sequence is
- * drawn on top, so its opacity is the share of the clip it is showing; the
- * second stays opaque underneath.
- */
-class DissolveCompositor(private val clips: List<TimelineClip>, private val canvas: Size) : VideoCompositorSettings {
-    private val top = TimelineEditing.chains(clips).filterIndexed { index, _ -> index % 2 == 0 }
-
-    override fun getOutputSize(inputSizes: List<Size>): Size = canvas
-
-    override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings {
-        val opacity = if (inputId == 0) topShare(presentationTimeUs / 1e6).toFloat() else 1f
-        return object : OverlaySettings {
-            override fun getAlphaScale(): Float = opacity
-        }
-    }
-
-    private fun topShare(time: Double): Double {
-        val chain = top.firstOrNull { time >= it.start && time < it.end } ?: return 0.0
-        val clip = (chain.first..chain.last).lastOrNull { TimelineEditing.clipStart(clips, it) <= time } ?: chain.first
-        return TimelineEditing.weight(clips, clip, time - TimelineEditing.clipStart(clips, clip))
-    }
 }

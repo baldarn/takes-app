@@ -24,7 +24,9 @@ import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.OverlayEffect
 import app.takes.core.AudioItem
 import app.takes.core.ExportSettings
+import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
+import app.takes.core.TransitionLayout
 import app.takes.core.SubtitleEditing
 import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
@@ -156,13 +158,10 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val began = if (wanted.isEmpty()) 0f else CLEANING
             // The upright size of each recording that is cropped; the window is measured in its pixels.
             val sizes = withContext(Dispatchers.IO) {
-                clips.filter { it.crop != null }.map { it.sourceID }.distinct().associateWith { files[it]?.let(::displaySize) }
+                clips.map { it.sourceID }.distinct().associateWith { files[it]?.let(::displaySize) }
             }
             val fit = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
             val items = clips.mapIndexed { index, clip ->
-                val fadeIn = TimelineEditing.fadeLength(clips, index - 1)
-                val fadeOut = TimelineEditing.fadeLength(clips, index)
-                val begins = TimelineEditing.clipStart(clips, index)
                 val picture = buildList<Effect> {
                     // A ceiling for high frame rate footage; frames are never invented. Media3 only
                     // drops when the source is well above the target, such as 60 to 30.
@@ -180,10 +179,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                         ))
                     }
                     add(fit)
-                    if (fadeIn > 0 || fadeOut > 0) add(FadeEffect(begins, clip.duration, fadeIn, fadeOut))
                 }
                 // Sound follows the clip's own level and fades, and any transition at its ends.
-                val shaped = clip.audio != null || TimelineEditing.transition(clips, index) != null || TimelineEditing.transition(clips, index - 1) != null
+                val shaped = clip.audio != null || TimelineEditing.join(clips, index) != null || TimelineEditing.join(clips, index + 1) != null
                 val sound = if (shaped) listOf<AudioProcessor>(SoundProcessor { TimelineEditing.soundLevel(clips, index, it) }) else emptyList()
                 // Speed comes first in Media3, so the effects after it are timed in movie seconds.
                 EditedMediaItem.Builder(clippedItem(clip, files.getValue(clip.sourceID)))
@@ -252,16 +250,39 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 project.edit.subtitles?.takeIf { captions.isNotEmpty() }?.let { SubtitleOverlay(captions, it, canvas.first, canvas.second) },
             )
             val titles = if (written.isNotEmpty()) Effects(emptyList(), listOf<Effect>(OverlayEffect(written))) else Effects.EMPTY
-            // An overlay in the same composition corrupts the blend of two
-            // sequences, so a movie with both dissolves and titles is rendered
-            // in two passes: the blend first, then the titles over it.
+            // Where each clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
+            val frame = FrameSize(canvas.first.toDouble(), canvas.second.toDouble())
+            val content = { index: Int ->
+                val source = sizes[clips[index].sourceID]
+                if (clips[index].crop != null || source == null) FrameRect(0.0, 0.0, frame.width, frame.height) else {
+                    val scale = minOf(frame.width / source.first, frame.height / source.second)
+                    FrameRect((frame.width - source.first * scale) / 2, (frame.height - source.second * scale) / 2, source.first * scale, source.second * scale)
+                }
+            }
+            // Transitions are drawn on the finished frame, from one sequence or from two.
+            val joined = TimelineEditing.layout(clips).joins.any { it.transition != null && TransitionLayout.longEnough(it.timing) }
+            fun drawn(decks: Int) = TransitionEffect(clips, Size(canvas.first, canvas.second), decks, content)
+            // An overlay in the same composition corrupts the picture made of two
+            // sequences, so a movie with both overlapping clips and titles is rendered
+            // in two passes: the picture first, then the titles over it.
             val blended = File(folder, ".$name.blend").takeIf { chains.size > 1 && titles != Effects.EMPTY }
             val first = if (chains.size == 1) {
+                val chain = chains[0]
+                val effects = if (joined) Effects(emptyList(), listOf<Effect>(drawn(1)) + titles.videoEffects) else titles
                 // Silence is generated for takes recorded without a microphone.
-                Composition.Builder(listOf(EditedMediaItemSequence.withAudioAndVideoFrom(items)) + extra).setEffects(titles).setHdrMode(sdr).build()
+                val sequence = if (chain.start < 0.0005 && total - chain.end < 0.0005) EditedMediaItemSequence.withAudioAndVideoFrom(items) else {
+                    // A freeze before the first clip or after the last one: time with no clip in it.
+                    val padded = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO))
+                    ((chain.start * 1e6).roundToLong()).takeIf { it > 0 }?.let(padded::addGap)
+                    items.forEach(padded::addItem)
+                    (((total - chain.end) * 1e6).roundToLong()).takeIf { it > 0 }?.let(padded::addGap)
+                    padded.build()
+                }
+                Composition.Builder(listOf(sequence) + extra).setEffects(effects).setHdrMode(sdr).build()
             } else {
-                // Dissolves: chains alternate between two sequences that overlap in
-                // time. The first is drawn on top with the opacity of its share.
+                // Chains alternate between two sequences, since neighbors play at once or
+                // with a pause between them. The two are laid side by side and the
+                // transition effect makes each frame from them.
                 val sequences = List(2) { EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_VIDEO)) }
                 val filled = DoubleArray(2)
                 fun gap(deck: Int, until: Double) {
@@ -275,7 +296,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 }
                 for (deck in 0..1) gap(deck, total)
                 Composition.Builder(sequences.map { it.build() } + extra)
-                    .setVideoCompositorSettings(DissolveCompositor(clips, Size(canvas.first, canvas.second)))
+                    .setVideoCompositorSettings(DecksCompositor(Size(canvas.first, canvas.second)))
+                    .setEffects(Effects(emptyList(), listOf<Effect>(drawn(2))))
                     .setHdrMode(sdr)
                     .build()
             }

@@ -178,7 +178,7 @@ class ProjectDuplicateTest {
 
     @Test fun editsNotSavedYetComeAlong() {
         val saved = save(trip())
-        val edited = saved.commit(TimelineEditing.setTransition(saved.edit, 0, null)!!, now = 20)
+        val edited = saved.commit(TimelineEditing.setTransition(saved.edit, 0, null, TransitionStyle.FadeColor)!!, now = 20)
         val copy = duplicate(edited)
         assertEquals(edited.history, disk().read(disk().folder(copy.id)).history)
         // The original on disk is still the one that was saved.
