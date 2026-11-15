@@ -1,15 +1,12 @@
 package app.takes
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -211,13 +208,11 @@ private fun ZoomPreset(zoom: Double, selectsMainLens: Boolean, selected: Boolean
     val color = if (selected) ControlYellow else Color.White
     // The tap waits to see whether it is a double one; the touch is answered at once, as in the original.
     val view = LocalView.current
-    val touch = remember { MutableInteractionSource() }
-    val pressed by touch.collectIsPressedAsState()
-    LaunchedEffect(pressed) { if (pressed) view.tick() }
     Column(
         Modifier.size(44.dp, 48.dp).clip(RoundedCornerShape(50))
+            .pointerInput(enabled) { if (enabled) awaitEachGesture { awaitFirstDown(requireUnconsumed = false); view.tick() } }
             // The single tap waits for a possible second one, so Instant never fires before a double tap.
-            .combinedClickable(touch, LocalIndication.current, enabled = enabled, role = Role.Button, onDoubleClick = quick, onClick = normal)
+            .combinedClickable(enabled = enabled, role = Role.Button, onDoubleClick = quick, onClick = normal)
             .clearAndSetSemantics {
                 contentDescription = label
                 role = Role.Button
