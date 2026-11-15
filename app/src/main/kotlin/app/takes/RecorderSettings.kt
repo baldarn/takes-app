@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import app.takes.core.FocusControl
 import app.takes.core.FrontLight
 import app.takes.core.ZoomTransition
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
@@ -59,6 +61,19 @@ class RecorderSettings(private val prefs: SharedPreferences) {
     var frontLightOpacity: Double by stored(FrontLight.opacity(prefs.getFloat("frontLightOpacity", FrontLight.DEFAULT_OPACITY.toFloat()).toDouble())) {
         putFloat("frontLightOpacity", it.toFloat())
     }
+
+    /**
+     * The microphones in order of preference, best first, with the ones that are not connected
+     * (the original's `microphonePriority`), and the name each was last seen with (`microphoneNames`).
+     */
+    var microphonePriority: List<String> by stored(strings(prefs.getString("microphonePriority", null))) { putString("microphonePriority", JSONArray(it).toString()) }
+    var microphoneNames: Map<String, String> by stored(names(prefs.getString("microphoneNames", null))) { putString("microphoneNames", JSONObject(it).toString()) }
+
+    private fun strings(saved: String?): List<String> =
+        runCatching { JSONArray(saved ?: "[]").let { list -> List(list.length(), list::getString) } }.getOrDefault(emptyList())
+
+    private fun names(saved: String?): Map<String, String> =
+        runCatching { JSONObject(saved ?: "{}").let { map -> map.keys().asSequence().associateWith(map::getString) } }.getOrDefault(emptyMap())
 
     private fun text(key: String) = stored(prefs.getString(key, null)) { putString(key, it) }
 

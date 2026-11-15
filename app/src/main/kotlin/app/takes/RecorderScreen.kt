@@ -56,7 +56,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -117,9 +116,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private val Scrim = Color(0x99000000)
 /** The plate under a control that sits on the picture, as in the original. */
-private val ControlPlate = Color(0x85000000)
+internal val ControlPlate = Color(0x85000000)
 /** The plate in use: opaque while the front light is on, so the controls stay readable on it, as in the original. */
-private val LocalControlPlate = compositionLocalOf { ControlPlate }
+internal val LocalControlPlate = compositionLocalOf { ControlPlate }
 private val LitPlate = Color(FrontLight.PLATE_WHITE.toFloat(), FrontLight.PLATE_WHITE.toFloat(), FrontLight.PLATE_WHITE.toFloat())
 private val PausedYellow = Color(0xFFFFD60A)
 
@@ -145,6 +144,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     var cameraGranted by remember { mutableStateOf(granted(context, Manifest.permission.CAMERA)) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         cameraGranted = granted(context, Manifest.permission.CAMERA)
+        // The meter starts with the permission to record.
+        capture.foreground()
     }
     LaunchedEffect(Unit) {
         val missing = listOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO).filter { !granted(context, it) }
@@ -249,6 +250,11 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             Box(Modifier.matchParentSize().then(if (settingsOpen) Modifier.clearAndSetSemantics {} else Modifier)) {
                 // Clear of the camera cutout, which stays when the status bar is hidden.
                 Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+                // At the start of the top bar, as in the original.
+                MicrophonePill(
+                    capture,
+                    Modifier.align(Alignment.TopStart).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Start)).padding(top = 9.dp, start = 12.dp),
+                )
                 SettingsButton(
                     // A dot says that an assist is on.
                     assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off,
@@ -315,28 +321,13 @@ private fun TakeFrame(phase: Phase, modifier: Modifier) {
 @Composable
 private fun Status(capture: CaptureController, store: ProjectStore, modifier: Modifier) {
     Column(modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        val recording = capture.phase == Phase.Recording
         Clock(capture, store.selected)
-        val micLevel = stringResource(R.string.recorder_mic_level)
         // The interface stays upright, so the frame the take will have is named here.
         Text(
             if (capture.landscape) stringResource(R.string.recorder_landscape) else stringResource(R.string.recorder_portrait),
             color = Color.White, fontSize = 12.sp, maxLines = 1,
             modifier = Modifier.padding(top = 6.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
         )
-        if (recording && capture.audioWarning == null) {
-            LinearProgressIndicator(
-                progress = { capture.level },
-                modifier = Modifier.padding(top = 8.dp).width(160.dp).semantics { contentDescription = micLevel },
-                color = if (capture.level > 0.95f) RecordRed else Color.White, trackColor = Scrim,
-            )
-        }
-        capture.microphone?.takeIf { recording && capture.audioWarning == null }?.let {
-            Text(if (capture.chosenMicrophone == null) stringResource(R.string.recorder_mic_automatic_using, it) else it,
-                color = Color.White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp))
-        }
-        if (capture.phase == Phase.Idle || capture.phase == Phase.Paused) MicrophoneChooser(capture)
         // What this phone's cameras offer, to copy and send; the development build only.
         if (capture.phase == Phase.Idle) CameraReportEntry(capture)
         capture.microphoneWarning?.let {
@@ -358,7 +349,7 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
 private fun Clock(capture: CaptureController, project: Project?) {
     val phase = capture.phase
     val edited = remember(project) { project?.edit?.duration ?: 0.0 }
-    // The recorder reports the length of the segment once a second; the clock runs on between its reports.
+    // The recorder reports the length of the segment with each frame it writes; the clock runs on between its reports.
     var running by remember { mutableDoubleStateOf(0.0) }
     LaunchedEffect(phase) {
         running = 0.0
@@ -396,14 +387,6 @@ private fun Clock(capture: CaptureController, project: Project?) {
     }
 }
 
-@Composable
-private fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier) {
-    Text(
-        label, color = if (selected) Color.Black else Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
-        modifier = modifier.background(if (selected) Color.White else Scrim, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 10.dp),
-    )
-}
-
 /**
  * Where the takes go, above the cameras as in the original. During a run started with "Record here" it names
  * the place and is the way back to the editor; otherwise it starts a new project once this one has footage.
@@ -436,24 +419,6 @@ private fun ProjectAction(label: String, icon: ImageVector, enabled: Boolean, ac
     ) {
         Icon(icon, null, Modifier.size(14.dp), tint = Color.White)
         Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-/** The input for the next segment. A running segment keeps its microphone, so this hides while recording. */
-@Composable
-private fun MicrophoneChooser(capture: CaptureController) {
-    if (capture.microphones.isEmpty()) return
-    var choosing by remember { mutableStateOf(false) }
-    val chosen = capture.chosenMicrophone
-    Box(Modifier.padding(top = 8.dp)) {
-        Chip(stringResource(R.string.recorder_mic_chip, chosen?.label ?: stringResource(R.string.recorder_mic_automatic)), false,
-            Modifier.clickable(onClickLabel = stringResource(R.string.recorder_mic_change), role = Role.Button) { choosing = true })
-        DropdownMenu(choosing, { choosing = false }) {
-            DropdownMenuItem({ Text(stringResource(R.string.recorder_mic_automatic)) }, { capture.chooseMicrophone(null); choosing = false })
-            capture.microphones.forEach { choice ->
-                DropdownMenuItem({ Text(choice.label) }, { capture.chooseMicrophone(choice.id); choosing = false })
-            }
-        }
     }
 }
 

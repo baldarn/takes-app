@@ -35,7 +35,6 @@
     <string name="recorder_settings_transition">Transizione</string>
     <string name="recorder_settings_zoom_note">Scorri verso l\'alto o verso il basso il tempo accanto ai preset dello zoom per cambiarlo di mezzo secondo. Tocca due volte un preset per raggiungerlo in un secondo. Ogni camera ricorda il suo zoom.</string>
     <string name="recorder_settings_microphone">Microfono</string>
-    <string name="recorder_settings_microphone_note">La scelta vale dal prossimo segmento e dura finché l\'app non viene chiusa.</string>
     <string name="recorder_settings_microphone_busy">Metti in pausa la ripresa per cambiare microfono.</string>
     <string name="recorder_settings_framing">Inquadratura</string>
     <string name="recorder_settings_fit">Mostra tutto il fotogramma registrato</string>
@@ -132,4 +131,18 @@
     <string name="recorder_mark_moment">Segna questo momento</string>
     <!-- The zoom time badge is narrow: the word for "no time" has to fit it. -->
     <string name="recorder_zoom_instant_short">Subito</string>
+    <!-- Sound: the microphone pill with its meter, what the route says, and the order of preference in More settings. -->
+    <string name="recorder_mic_none">Nessun microfono</string>
+    <string name="recorder_mic_label">Microfono: %1$s</string>
+    <string name="recorder_mic_clipping">Clipping</string>
+    <string name="recorder_mic_no_signal">Nessun segnale</string>
+    <string name="recorder_mic_refused_using">Non è stato possibile passare a %1$s. In uso: %2$s.</string>
+    <string name="recorder_mic_refused">Non è stato possibile passare a %1$s.</string>
+    <string name="recorder_mic_lost_using">%1$s si è scollegato. In uso: %2$s.</string>
+    <string name="recorder_paused_no_sound">Dal microfono non arriva audio. La registrazione è in pausa: controlla il microfono prima di riprendere.</string>
+    <string name="recorder_settings_microphone_quick">Una scelta rapida vale fino allo Stop. La priorità qui sotto viene ricordata, anche per i microfoni scollegati.</string>
+    <string name="recorder_settings_priority">Priorità dei microfoni · dal più alto</string>
+    <string name="recorder_mic_disconnected_state">Scollegato</string>
+    <string name="recorder_mic_earlier">Sposta %1$s più in alto</string>
+    <string name="recorder_mic_later">Sposta %1$s più in basso</string>
 </resources>
