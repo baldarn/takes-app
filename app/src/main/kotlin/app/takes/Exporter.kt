@@ -118,7 +118,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     fun start(project: Project) {
         if (progress != null) return
         val clips = project.edit.clips
-        if (clips.isEmpty()) { store.error = "Add a recording before exporting."; return }
+        if (clips.isEmpty()) { store.error = context.getString(R.string.export_no_clips); return }
         progress = 0f
         job = scope.launch {
             val files = project.sources.associate { it.id to store.file(project, it) }
@@ -128,13 +128,13 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 ?.let { settings.resolution.size(it.first, it.second) }
             val sounds = project.edit.audio.orEmpty()
             if (canvas == null || clips.any { files[it.sourceID]?.isFile != true } || sounds.any { files[it.sourceID]?.isFile != true }) {
-                store.error = "A source file is missing or unreadable. The project has been preserved."
+                store.error = context.getString(R.string.export_source_missing)
                 progress = null
                 return@launch
             }
             val folder = File(store.disk.folder(project.id), "Exports").apply { mkdirs() }
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-            val name = project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifEmpty { "Movie" } + " $stamp.mp4"
+            val name = project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifEmpty { context.getString(R.string.export_fallback_name) } + " $stamp.mp4"
             val output = File(folder, name)
             val writing = File(folder, ".$name")
             // Noise reduction: make the cleaned sound of every clip that asks for it, before rendering.
@@ -270,9 +270,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     val whole = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(blended))).build()
                     render(Composition.Builder(EditedMediaItemSequence.withAudioAndVideoFrom(listOf(whole))).setEffects(titles).build(), writing, codec, 0.5f + began / 2, 1f)
                 }
-                if (writing.renameTo(output)) result = output else store.error = "The exported movie could not be saved."
+                if (writing.renameTo(output)) result = output else store.error = context.getString(R.string.export_save_failed)
             } catch (problem: ExportException) {
-                store.error = "Export failed: ${problem.message ?: problem.errorCodeName}"
+                store.error = context.getString(R.string.export_failed, problem.message ?: problem.errorCodeName)
             } finally {
                 blended?.delete()
                 writing.delete()
@@ -340,7 +340,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     false
                 }
             }
-            store.error = if (saved) "Saved to Movies/Takes in your gallery." else "The movie could not be saved to the gallery."
+            store.error = context.getString(if (saved) R.string.export_gallery_saved else R.string.export_gallery_failed)
         }
     }
 }

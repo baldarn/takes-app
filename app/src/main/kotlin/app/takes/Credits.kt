@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,22 +42,26 @@ fun CreditsScreen(report: (String) -> Unit, close: () -> Unit) {
             context.resources.openRawResource(id).bufferedReader().use { it.readText() }
         }
     }
+    val resources = LocalResources.current
     val open = { address: String ->
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(address)))
         } catch (_: Exception) {
-            report("No app on this device can open $address")
+            report(resources.getString(R.string.credits_open_failed, address))
         }
     }
     Dialog(onDismissRequest = close, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(Color.Black).systemBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Credits and licenses", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                TextButton(onClick = close) { Text("Done") }
+                Text(stringResource(R.string.credits_title), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = close) { Text(stringResource(R.string.common_done)) }
             }
             Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                TextButton(onClick = { open(ORIGINAL) }) { Text("YouRec, the original app") }
-                TextButton(onClick = { open(PRIVACY) }) { Text("Privacy policy") }
+                TextButton(onClick = { open(ORIGINAL) }) { Text(stringResource(R.string.credits_original)) }
+                TextButton(onClick = { open(PRIVACY) }) { Text(stringResource(R.string.credits_privacy)) }
+                // The bundled texts are English; other languages get the introduction in their own words first.
+                val intro = stringResource(R.string.credits_intro)
+                if (intro.isNotEmpty()) Text(intro, color = Color(0xFFD0D3D8), fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
                 Text(text, color = Color(0xFFD0D3D8), fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
             }
         }

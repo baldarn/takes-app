@@ -1,3 +1,238 @@
 <resources>
-    <string name="app_name">Takes</string>
+    <string name="app_name" translatable="false">Takes</string>
+
+    <!-- Shared -->
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_done">Done</string>
+    <string name="common_remove">Remove</string>
+    <string name="common_reset">Reset</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_play">Play</string>
+    <string name="common_importing">Importing</string>
+    <string name="common_unknown_error">unknown error</string>
+
+    <!-- Tabs -->
+    <string name="tab_recorder">Recorder</string>
+    <string name="tab_projects">Projects</string>
+    <string name="tab_editor">Editor</string>
+
+    <!-- Projects -->
+    <string name="projects_title">Projects</string>
+    <string name="projects_import">Import</string>
+    <string name="projects_new_recording">New recording</string>
+    <string name="projects_empty">Nothing here yet. Record something or import videos; each becomes a project you can continue later.</string>
+    <string name="projects_unavailable_title">Project that cannot be opened</string>
+    <string name="projects_recently_deleted">Recently deleted</string>
+    <string name="projects_deleted_summary">%1$s · deleted %2$s</string>
+    <string name="projects_restore">Restore</string>
+    <string name="projects_delete_permanently">Delete permanently</string>
+    <string name="projects_rename_title">Rename project</string>
+    <string name="projects_rename">Rename</string>
+    <string name="projects_erase_title">Delete “%1$s” permanently?</string>
+    <plurals name="projects_erase_message">
+        <item quantity="one">Its recording will be erased. This cannot be undone.</item>
+        <item quantity="other">Its %1$d recordings will be erased. This cannot be undone.</item>
+    </plurals>
+    <string name="projects_summary_empty">No recordings</string>
+    <plurals name="projects_summary">
+        <item quantity="one">%1$d recording · %2$s</item>
+        <item quantity="other">%1$d recordings · %2$s</item>
+    </plurals>
+    <string name="projects_continue_recording">Continue recording</string>
+    <string name="projects_edit">Edit</string>
+    <string name="projects_originals">Originals</string>
+    <string name="projects_hide_originals">Hide originals</string>
+    <string name="projects_add_videos">Add videos</string>
+    <string name="projects_zip">Zip project</string>
+    <string name="projects_zip_fallback_name">Project</string>
+    <plurals name="projects_camera_switches">
+        <item quantity="one">%1$d camera switch</item>
+        <item quantity="other">%1$d camera switches</item>
+    </plurals>
+    <string name="projects_play_failed">No app on this device can play the recording.</string>
+    <string name="projects_default_name">Recording %1$s</string>
+    <string name="projects_importing_progress">Importing %1$d of %2$d…</string>
+    <string name="projects_import_failed_one">The video could not be imported. It may not be a playable movie.</string>
+    <string name="projects_import_failed_some">%1$d of %2$d videos could not be imported.</string>
+    <string name="projects_zipping">Zipping the project…</string>
+    <string name="projects_zipping_percent">Zipping the project… %1$d%%</string>
+    <string name="projects_zip_saved">The project was saved as a ZIP.</string>
+    <string name="projects_zip_failed">The project could not be zipped: %1$s</string>
+    <string name="projects_delete_failed">The project could not be deleted: %1$s</string>
+    <string name="projects_restore_failed">The project could not be restored: %1$s</string>
+    <string name="projects_erase_failed">The project could not be erased: %1$s</string>
+    <string name="projects_save_failed">Changes not saved: %1$s</string>
+
+    <!-- Project problems (texts of the core module's ProjectException.Reason) -->
+    <string name="project_error_invalid_document">This project has unsupported or invalid editing data. Its files have been preserved.</string>
+    <string name="project_error_missing_media">A source file is missing. The project has been preserved.</string>
+    <string name="project_error_invalid_media">The recording could not be opened as a valid video. Its file has been preserved.</string>
+
+    <!-- Editor -->
+    <string name="editor_no_project">Choose a project in Projects to edit it.</string>
+    <string name="editor_no_recordings">Record something in this project before editing.</string>
+    <string name="editor_undo">Undo</string>
+    <string name="editor_redo">Redo</string>
+    <string name="editor_export">Export</string>
+    <string name="editor_timeline_empty">The timeline is empty. Undo to bring clips back.</string>
+    <string name="editor_bookmark_previous">Previous bookmark</string>
+    <string name="editor_bookmark_next">Next bookmark</string>
+    <string name="editor_bookmark_add">Add bookmark</string>
+    <string name="editor_bookmark_remove">Remove bookmark</string>
+    <string name="editor_pause">Pause</string>
+    <string name="editor_zoom_timeline_out">Zoom timeline out</string>
+    <string name="editor_zoom_timeline_in">Zoom timeline in</string>
+    <string name="editor_reducing_noise">Reducing noise… %1$d%%</string>
+    <string name="editor_split">Split</string>
+    <string name="editor_sound">Sound</string>
+    <string name="editor_color">Color</string>
+    <string name="editor_crop">Crop</string>
+    <string name="editor_title">Title</string>
+    <string name="editor_transition">Transition</string>
+    <string name="editor_pauses">Pauses</string>
+    <string name="editor_add_audio">Add audio</string>
+    <string name="editor_move_earlier">◀ Move</string>
+    <string name="editor_move_later">Move ▶</string>
+    <string name="editor_move_clip_earlier">Move clip earlier</string>
+    <string name="editor_move_clip_later">Move clip later</string>
+    <string name="editor_sound_default_name">Sound</string>
+    <string name="editor_edit_sound">Edit sound</string>
+    <string name="editor_clip_duration">Clip %1$d: %2$s</string>
+    <string name="editor_clip_position">Clip %1$d of %2$d</string>
+    <string name="editor_tag_crop">Crop</string>
+    <string name="editor_tag_fade">Fade</string>
+    <string name="editor_tag_clean">Clean</string>
+
+    <!-- Crop -->
+    <string name="crop_zoom">Zoom</string>
+    <string name="crop_left_right">Left–right</string>
+    <string name="crop_up_down">Up–down</string>
+    <string name="crop_remove">Remove crop</string>
+
+    <!-- Color -->
+    <string name="color_dialog_title">Clip color</string>
+    <string name="color_look">Look</string>
+    <string name="color_lut_name">LUT: %1$s</string>
+    <string name="color_import_lut">Import a .cube LUT</string>
+    <string name="color_choose_another_lut">Choose another LUT</string>
+    <string name="color_use_look">Use a look</string>
+    <string name="color_strength">Strength</string>
+    <string name="color_exposure">Exposure</string>
+    <string name="color_warmth">Warmth</string>
+    <string name="color_tint">Tint</string>
+    <string name="color_balance">Color balance</string>
+    <string name="color_lut_default_name">Imported LUT</string>
+    <string name="color_lut_unreadable">The LUT file could not be read.</string>
+    <string name="color_lut_rejected">%1$s</string>
+    <string name="color_look_natural">Natural</string>
+    <string name="color_look_warm">Warm</string>
+    <string name="color_look_cool">Cool shadows</string>
+    <string name="color_look_cinema">Cinema</string>
+    <string name="color_look_mono">Mono</string>
+    <string name="color_look_portrait">Portrait</string>
+    <string name="color_look_daylight">Daylight</string>
+    <string name="color_look_golden_hour">Golden hour</string>
+    <string name="color_look_muted_film">Muted film</string>
+    <string name="color_look_rich_contrast">Rich contrast</string>
+    <string name="color_look_pastel">Pastel</string>
+    <string name="color_look_night">Night</string>
+    <string name="color_look_silver">Silver</string>
+    <string name="color_look_ink">Ink</string>
+
+    <!-- Pauses -->
+    <string name="pauses_title">Remove pauses</string>
+    <string name="pauses_listening">Listening to the clip…</string>
+    <string name="pauses_no_sound">This clip has no sound to analyze.</string>
+    <string name="pauses_none_found">No pauses this long were found.</string>
+    <plurals name="pauses_found">
+        <item quantity="one">%1$d pause found. The clip would be %2$s shorter.</item>
+        <item quantity="other">%1$d pauses found. The clip would be %2$s shorter.</item>
+    </plurals>
+    <string name="pauses_silence_level">Silence level: %1$d dB, estimated from the recording.</string>
+    <string name="pauses_shortest">Shortest pause to remove</string>
+    <string name="pauses_note">A little silence is left around each cut so words are not clipped. One Undo brings the pauses back.</string>
+
+    <!-- Sound -->
+    <string name="sound_dialog_title">Clip sound</string>
+    <string name="sound_volume">Volume</string>
+    <string name="sound_volume_value">Volume: %1$s</string>
+    <string name="sound_muted">Muted</string>
+    <string name="sound_silent">Silent</string>
+    <string name="sound_mute">Mute</string>
+    <string name="sound_mute_clip">Mute this clip</string>
+    <string name="sound_fade_in">Fade in</string>
+    <string name="sound_fade_out">Fade out</string>
+    <string name="sound_fade_none">None</string>
+    <string name="sound_noise_reduction">Noise reduction</string>
+    <string name="sound_noise_off">Off</string>
+    <string name="sound_noise_light">Light</string>
+    <string name="sound_noise_full">Full</string>
+    <string name="sound_noise_note">Quiets steady background noise, mostly in the pauses of speech.</string>
+    <string name="sound_item_range">%1$s to %2$s · track %3$d</string>
+    <string name="sound_volume_and_fades">Volume and fades</string>
+    <string name="sound_move_to_playhead">Move to start at the playhead</string>
+    <string name="sound_cut_before">Cut off what comes before the playhead</string>
+    <string name="sound_cut_after">Cut off what comes after the playhead</string>
+    <string name="sound_importing">Importing sound…</string>
+    <string name="sound_import_failed">The sound could not be imported. It may not be a playable audio file.</string>
+    <string name="sound_tracks_busy">Both audio tracks are busy here. Move the playhead or remove a sound first.</string>
+
+    <!-- Title -->
+    <string name="title_add">Add title</string>
+    <string name="title_edit">Edit title</string>
+    <string name="title_text">Text</string>
+    <string name="title_position">Position</string>
+    <string name="title_position_top">Top</string>
+    <string name="title_position_center">Center</string>
+    <string name="title_position_bottom">Bottom</string>
+    <string name="title_size">Size</string>
+    <string name="title_size_small">Small</string>
+    <string name="title_size_medium">Medium</string>
+    <string name="title_size_large">Large</string>
+    <string name="title_on_screen">On screen</string>
+    <string name="title_as_is">As is</string>
+    <string name="title_whole_clip">Whole clip</string>
+
+    <!-- Transition -->
+    <string name="transition_title">Transition to the next clip</string>
+    <string name="transition_style">Style</string>
+    <string name="transition_cross_dissolve">Cross dissolve</string>
+    <string name="transition_fade_black">Fade through black</string>
+    <string name="transition_dissolve_note">The clips overlap and blend, so the movie gets shorter by the transition time.</string>
+    <string name="transition_fade_note">Picture and sound fade out, then in. The length of the movie does not change.</string>
+    <string name="transition_none">None</string>
+    <string name="transition_tag_dissolve">Dissolve</string>
+    <string name="transition_tag_fade">Fade</string>
+
+    <!-- Export -->
+    <string name="export_title">Export movie</string>
+    <string name="export_size">Size</string>
+    <string name="export_size_original">Original</string>
+    <string name="export_pixels">%1$d × %2$d pixels</string>
+    <string name="export_frame_rate">Frames per second</string>
+    <string name="export_up_to">Up to %1$d</string>
+    <string name="export_frame_rate_note">Footage with more frames is reduced. Frames are never added.</string>
+    <string name="export_format">Format</string>
+    <string name="export_h265_smaller">H.265 (smaller file)</string>
+    <string name="export_progress">Exporting… %1$d%%</string>
+    <string name="export_done_title">Movie exported</string>
+    <string name="export_share">Share</string>
+    <string name="export_save_to_gallery">Save to gallery</string>
+    <string name="export_open_failed">No app on this device can open the movie.</string>
+    <string name="export_no_clips">Add a recording before exporting.</string>
+    <string name="export_source_missing">A source file is missing or unreadable. The project has been preserved.</string>
+    <string name="export_fallback_name">Movie</string>
+    <string name="export_save_failed">The exported movie could not be saved.</string>
+    <string name="export_failed">Export failed: %1$s</string>
+    <string name="export_gallery_saved">Saved to Movies/Takes in your gallery.</string>
+    <string name="export_gallery_failed">The movie could not be saved to the gallery.</string>
+
+    <!-- Credits -->
+    <string name="credits_title">Credits and licenses</string>
+    <string name="credits_original">YouRec, the original app</string>
+    <string name="credits_privacy">Privacy policy</string>
+    <string name="credits_open_failed">No app on this device can open %1$s</string>
+    <string name="credits_intro"></string>
 </resources>

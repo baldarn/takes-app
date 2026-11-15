@@ -45,11 +45,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import app.takes.core.Project
+import app.takes.core.ProjectException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -67,7 +70,7 @@ private fun play(context: Context, file: File, report: (String) -> Unit) {
     try {
         context.startActivity(intent)
     } catch (_: ActivityNotFoundException) {
-        report("No app on this device can play the recording.")
+        report(context.getString(R.string.projects_play_failed))
     }
 }
 
@@ -88,6 +91,7 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
         val project = store.projects.firstOrNull { it.id == zipping }
         if (destination != null && project != null) store.archive(project, destination)
     }
+    val zipName = stringResource(R.string.projects_zip_fallback_name)
     val pickVideos = { projectID: String ->
         importInto = projectID
         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
@@ -96,71 +100,75 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text("Projects", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.projects_title), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { pickVideos("") }) { Text("Import") }
-                    Button(onClick = { store.create()?.let { open(it, 0) } }) { Text("New recording") }
+                    TextButton(onClick = { pickVideos("") }) { Text(stringResource(R.string.projects_import)) }
+                    Button(onClick = { store.create()?.let { open(it, 0) } }) { Text(stringResource(R.string.projects_new_recording)) }
                 }
             }
         }
         if (store.projects.isEmpty()) {
-            item { Text("Nothing here yet. Record something or import videos; each becomes a project you can continue later.", color = Muted) }
+            item { Text(stringResource(R.string.projects_empty), color = Muted) }
         }
         items(store.projects, key = { it.id }) { project ->
             ProjectCard(project, store, open, rename = { renaming = project }, addVideos = { pickVideos(project.id) },
-                zip = { zipping = project.id; saveZip.launch(project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { "Project" } + ".zip") })
+                zip = { zipping = project.id; saveZip.launch(project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { zipName } + ".zip") })
         }
         items(store.unavailable.toList(), key = { "unavailable-" + it.first }) { (folder, reason) ->
             Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp)) {
-                Text("Project that cannot be opened", color = Color.White, fontWeight = FontWeight.SemiBold)
-                Text(reason, color = Muted, fontSize = 13.sp)
+                Text(stringResource(R.string.projects_unavailable_title), color = Color.White, fontWeight = FontWeight.SemiBold)
+                // The reason is a text of the core module; show ours when it is one we know.
+                val known = ProjectException.Reason.entries.firstOrNull { it.message == reason }
+                Text(known?.let { stringResource(it.label) } ?: reason, color = Muted, fontSize = 13.sp)
                 Text(folder, color = Muted, fontSize = 11.sp)
             }
         }
         if (store.deleted.isNotEmpty()) {
-            item { Text("Recently deleted", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
+            item { Text(stringResource(R.string.projects_recently_deleted), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
             items(store.deleted, key = { "deleted-" + it.project.id }) { entry ->
                 Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp)) {
                     Text(entry.project.title, color = Color.White, fontWeight = FontWeight.SemiBold)
-                    Text(summary(entry.project) + (entry.date?.let { " · deleted " + dateLabel(it) } ?: ""), color = Muted, fontSize = 13.sp)
+                    Text(entry.date?.let { stringResource(R.string.projects_deleted_summary, summary(entry.project), dateLabel(it)) } ?: summary(entry.project), color = Muted, fontSize = 13.sp)
                     Row {
-                        TextButton(onClick = { store.restore(entry.project) }) { Text("Restore") }
-                        TextButton(onClick = { erasing = entry.project }) { Text("Delete permanently", color = RecordRed) }
+                        TextButton(onClick = { store.restore(entry.project) }) { Text(stringResource(R.string.projects_restore)) }
+                        TextButton(onClick = { erasing = entry.project }) { Text(stringResource(R.string.projects_delete_permanently), color = RecordRed) }
                     }
                 }
             }
         }
-        item { TextButton(onClick = { showingCredits = true }) { Text("Credits and licenses", color = Muted) } }
+        item { TextButton(onClick = { showingCredits = true }) { Text(stringResource(R.string.credits_title), color = Muted) } }
     }
 
     if (showingCredits) CreditsScreen(report = { store.error = it }) { showingCredits = false }
     store.importing?.let { step ->
-        AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text("Importing") }, text = { Text(step) })
+        AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text(stringResource(R.string.common_importing)) }, text = { Text(step) })
     }
     renaming?.let { project ->
         var title by remember(project.id) { mutableStateOf(project.title) }
         AlertDialog(
             onDismissRequest = { renaming = null },
-            title = { Text("Rename project") },
+            title = { Text(stringResource(R.string.projects_rename_title)) },
             text = { OutlinedTextField(title, { title = it.take(120) }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { store.rename(project, title); renaming = null }) { Text("Rename") } },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { store.rename(project, title); renaming = null }) { Text(stringResource(R.string.projects_rename)) } },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
     erasing?.let { project ->
         AlertDialog(
             onDismissRequest = { erasing = null },
-            title = { Text("Delete “${project.title}” permanently?") },
-            text = { Text("Its ${project.recordings.size} recordings will be erased. This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { store.erase(project); erasing = null }) { Text("Delete permanently", color = RecordRed) } },
-            dismissButton = { TextButton(onClick = { erasing = null }) { Text("Cancel") } },
+            title = { Text(stringResource(R.string.projects_erase_title, project.title)) },
+            text = { Text(pluralStringResource(R.plurals.projects_erase_message, project.recordings.size, project.recordings.size)) },
+            confirmButton = { TextButton(onClick = { store.erase(project); erasing = null }) { Text(stringResource(R.string.projects_delete_permanently), color = RecordRed) } },
+            dismissButton = { TextButton(onClick = { erasing = null }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 }
 
+@Composable
 private fun summary(project: Project): String {
     val takes = project.recordings.size
-    return if (takes == 0) "No recordings" else "$takes ${if (takes == 1) "recording" else "recordings"} · ${timeLabel(project.capturedDuration)}"
+    return if (takes == 0) stringResource(R.string.projects_summary_empty)
+    else pluralStringResource(R.plurals.projects_summary, takes, takes, timeLabel(project.capturedDuration))
 }
 
 @Composable
@@ -179,29 +187,30 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
         // Four actions on one line: tight padding, labels that never wrap, and a scroll as the last resort.
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.SpaceBetween) {
             val tight = PaddingValues(horizontal = 8.dp)
-            TextButton(onClick = { open(project, 0) }, contentPadding = tight) { Text("Continue recording", maxLines = 1, softWrap = false) }
-            if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }, contentPadding = tight) { Text("Edit", maxLines = 1, softWrap = false) }
-            TextButton(onClick = rename, contentPadding = tight) { Text("Rename", maxLines = 1, softWrap = false) }
-            TextButton(onClick = { store.delete(project) }, contentPadding = tight) { Text("Delete", color = RecordRed, maxLines = 1, softWrap = false) }
+            TextButton(onClick = { open(project, 0) }, contentPadding = tight) { Text(stringResource(R.string.projects_continue_recording), maxLines = 1, softWrap = false) }
+            if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }, contentPadding = tight) { Text(stringResource(R.string.projects_edit), maxLines = 1, softWrap = false) }
+            TextButton(onClick = rename, contentPadding = tight) { Text(stringResource(R.string.projects_rename), maxLines = 1, softWrap = false) }
+            TextButton(onClick = { store.delete(project) }, contentPadding = tight) { Text(stringResource(R.string.common_delete), color = RecordRed, maxLines = 1, softWrap = false) }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), Arrangement.SpaceBetween) {
             val tight = PaddingValues(horizontal = 8.dp)
             if (project.sources.isNotEmpty()) {
-                TextButton(onClick = { expanded = !expanded }, contentPadding = tight) { Text(if (expanded) "Hide originals" else "Originals", maxLines = 1, softWrap = false) }
+                TextButton(onClick = { expanded = !expanded }, contentPadding = tight) { Text(stringResource(if (expanded) R.string.projects_hide_originals else R.string.projects_originals), maxLines = 1, softWrap = false) }
             }
-            TextButton(onClick = addVideos, contentPadding = tight) { Text("Add videos", maxLines = 1, softWrap = false) }
-            if (project.sources.isNotEmpty()) TextButton(onClick = zip, contentPadding = tight) { Text("Zip project", maxLines = 1, softWrap = false) }
+            TextButton(onClick = addVideos, contentPadding = tight) { Text(stringResource(R.string.projects_add_videos), maxLines = 1, softWrap = false) }
+            if (project.sources.isNotEmpty()) TextButton(onClick = zip, contentPadding = tight) { Text(stringResource(R.string.projects_zip), maxLines = 1, softWrap = false) }
         }
         if (expanded) {
+            val playLabel = stringResource(R.string.common_play)
             project.sources.forEachIndexed { index, source ->
                 Row(
-                    Modifier.fillMaxWidth().clickable(onClickLabel = "Play") {
+                    Modifier.fillMaxWidth().clickable(onClickLabel = playLabel) {
                         play(context, store.file(project, source)) { store.error = it }
                     }.padding(horizontal = 12.dp, vertical = 10.dp),
                     Arrangement.SpaceBetween,
                 ) {
                     val switches = source.events.orEmpty().count { it.kind == "camera" }
-                    Text("${index + 1}.  ${source.originalName ?: dateLabel(source.recordedAt)}" + if (switches > 0) "  ·  $switches camera ${if (switches == 1) "switch" else "switches"}" else "",
+                    Text("${index + 1}.  ${source.originalName ?: dateLabel(source.recordedAt)}" + if (switches > 0) "  ·  " + pluralStringResource(R.plurals.projects_camera_switches, switches, switches) else "",
                         color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     Text(timeLabel(source.duration), color = Muted, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp))
                 }

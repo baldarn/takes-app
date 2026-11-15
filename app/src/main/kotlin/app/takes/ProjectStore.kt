@@ -16,6 +16,7 @@ import app.takes.core.LUTException
 import app.takes.core.ExportSettings
 import app.takes.core.Project
 import app.takes.core.ProjectArchive
+import app.takes.core.ProjectException
 import app.takes.core.ProjectDisk
 import app.takes.core.SourceMedia
 import app.takes.core.TimelineEditing
@@ -50,8 +51,18 @@ fun mediaDuration(file: File): Double? {
 
 data class DeletedProject(val project: Project, val date: Long?)
 
+/** The text shown for a project problem; the core module only has it in English. */
+val ProjectException.Reason.label: Int
+    get() = when (this) {
+        ProjectException.Reason.InvalidDocument -> R.string.project_error_invalid_document
+        ProjectException.Reason.MissingMedia -> R.string.project_error_missing_media
+        ProjectException.Reason.InvalidMedia -> R.string.project_error_invalid_media
+    }
+
 /** Main-thread owner of the project library. Every change is saved before it is shown. */
 class ProjectStore(context: Context) {
+    // For the texts shown to the person.
+    private val context = context.applicationContext
     private val prefs = context.getSharedPreferences("projects", Context.MODE_PRIVATE)
     private val resolver = context.contentResolver
     private val scope = MainScope()
@@ -82,7 +93,7 @@ class ProjectStore(context: Context) {
     }
 
     fun create(): Project? {
-        val title = "Recording " + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date())
+        val title = context.getString(R.string.projects_default_name, DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date()))
         val project = Project(title)
         if (!update(project)) return null
         select(project.id)
@@ -105,14 +116,14 @@ class ProjectStore(context: Context) {
         scope.launch {
             var failed = 0
             uris.forEachIndexed { index, uri ->
-                importing = "Importing ${index + 1} of ${uris.size}…"
+                importing = context.getString(R.string.projects_importing_progress, index + 1, uris.size)
                 val source = withContext(Dispatchers.IO) { copyIn(project.id, uri) }
                 if (source == null || !addRecording(project.id, source)) failed++
             }
             importing = null
             if (failed > 0) {
-                error = if (uris.size == 1) "The video could not be imported. It may not be a playable movie."
-                else "$failed of ${uris.size} videos could not be imported."
+                error = if (uris.size == 1) context.getString(R.string.projects_import_failed_one)
+                else context.getString(R.string.projects_import_failed_some, failed, uris.size)
             }
         }
     }
@@ -124,19 +135,19 @@ class ProjectStore(context: Context) {
     fun importAudio(projectID: String, uri: Uri, at: Double) {
         if (importing != null) return
         scope.launch {
-            importing = "Importing sound…"
+            importing = context.getString(R.string.sound_importing)
             val source = withContext(Dispatchers.IO) { copyInSound(projectID, uri) }
             importing = null
             val project = projects.firstOrNull { it.id == projectID }
             if (source == null || project == null) {
-                error = "The sound could not be imported. It may not be a playable audio file."
+                error = context.getString(R.string.sound_import_failed)
                 return@launch
             }
             val added = project.addSource(source)
             val edit = TimelineEditing.addAudio(added.edit, source.id, source.duration, at)
             if (edit == null) {
                 file(project, source).delete()
-                error = "Both audio tracks are busy here. Move the playhead or remove a sound first."
+                error = context.getString(R.string.sound_tracks_busy)
             } else update(added.commit(edit))
         }
     }
@@ -149,7 +160,7 @@ class ProjectStore(context: Context) {
     fun archive(project: Project, destination: Uri) {
         if (importing != null) return
         scope.launch {
-            importing = "Zipping the project…"
+            importing = context.getString(R.string.projects_zipping)
             val problem = withContext(Dispatchers.IO) {
                 try {
                     var shown = -1
@@ -157,18 +168,18 @@ class ProjectStore(context: Context) {
                         // write() flushes; use() closes the document.
                         ProjectArchive.write(disk.folder(project.id), project, stream.buffered(1 shl 16)) { written, total ->
                             val percent = if (total > 0) (written * 100 / total).toInt() else 100
-                            if (percent != shown) { shown = percent; importing = "Zipping the project… $percent%" }
+                            if (percent != shown) { shown = percent; importing = context.getString(R.string.projects_zipping_percent, percent) }
                         }
                     }
                     null
                 } catch (failure: Exception) {
                     // A partial archive would look like a backup and not be one.
                     runCatching { DocumentsContract.deleteDocument(resolver, destination) }
-                    failure.message ?: "unknown error"
+                    describe(failure)
                 }
             }
             importing = null
-            error = if (problem == null) "The project was saved as a ZIP." else "The project could not be zipped: $problem"
+            error = if (problem == null) context.getString(R.string.projects_zip_saved) else context.getString(R.string.projects_zip_failed, problem)
         }
     }
 
@@ -192,17 +203,17 @@ class ProjectStore(context: Context) {
             CubeLUT.parse(bytes) // rejects anything that is not a valid, bounded cube
             val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
-            }?.substringBeforeLast('.')?.take(120)?.ifBlank { null } ?: "Imported LUT"
+            }?.substringBeforeLast('.')?.take(120)?.ifBlank { null } ?: context.getString(R.string.color_lut_default_name)
             val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
             val folder = disk.folder(projectID).apply { mkdirs() }
             val file = File(folder, "effect-lut-$hash.cube")
             if (!file.isFile) ProjectDisk.writeAtomically(bytes, file)
             ImportedLUT(file.name, name)
         } catch (problem: LUTException) {
-            withContext(Dispatchers.Main) { error = problem.message }
+            withContext(Dispatchers.Main) { error = problem.message?.let { context.getString(R.string.color_lut_rejected, it) } }
             null
         } catch (_: Exception) {
-            withContext(Dispatchers.Main) { error = "The LUT file could not be read." }
+            withContext(Dispatchers.Main) { error = context.getString(R.string.color_lut_unreadable) }
             null
         }
     }
@@ -294,23 +305,27 @@ class ProjectStore(context: Context) {
         if (next != project) update(next)
     }
 
-    fun delete(project: Project) = attempt("The project could not be deleted") {
+    fun delete(project: Project) = attempt(R.string.projects_delete_failed) {
         disk.moveToDeleted(project)
         if (selectedID == project.id) select(null)
     }
 
-    fun restore(project: Project) = attempt("The project could not be restored") { disk.restoreDeleted(project.id) }
+    fun restore(project: Project) = attempt(R.string.projects_restore_failed) { disk.restoreDeleted(project.id) }
 
-    fun erase(project: Project) = attempt("The project could not be erased") { disk.eraseDeleted(project.id) }
+    fun erase(project: Project) = attempt(R.string.projects_erase_failed) { disk.eraseDeleted(project.id) }
 
-    private fun attempt(failure: String, action: () -> Unit) {
+    private fun attempt(failure: Int, action: () -> Unit) {
         try {
             action()
         } catch (problem: Exception) {
-            error = "$failure: ${problem.message}"
+            error = context.getString(failure, describe(problem))
         }
         reload()
     }
+
+    /** A known project problem in the person's language, otherwise what the system reported. */
+    private fun describe(problem: Exception): String =
+        (problem as? ProjectException)?.let { context.getString(it.reason.label) } ?: problem.message ?: context.getString(R.string.common_unknown_error)
 
     private fun reload() {
         val library = disk.loadAll()
@@ -324,7 +339,7 @@ class ProjectStore(context: Context) {
         projects = (projects.filter { it.id != project.id } + project).sortedByDescending { it.updatedAt }
         true
     } catch (problem: Exception) {
-        error = "Changes not saved: ${problem.message}"
+        error = context.getString(R.string.projects_save_failed, describe(problem))
         false
     }
 

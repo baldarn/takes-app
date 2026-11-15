@@ -111,6 +111,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -355,7 +357,7 @@ fun EditorScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier = M
     val project = store.selected
     if (project == null || project.sources.isEmpty()) {
         Box(modifier.fillMaxSize().padding(32.dp), Alignment.Center) {
-            Text(if (project == null) "Choose a project in Projects to edit it." else "Record something in this project before editing.", color = Muted)
+            Text(stringResource(if (project == null) R.string.editor_no_project else R.string.editor_no_recordings), color = Muted)
         }
         return
     }
@@ -552,16 +554,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) store.importAudio(project.id, uri, playhead)
     }
-    val names = remember(project.sources) { project.sources.associate { it.id to (it.originalName ?: "Sound") } }
+    val soundName = stringResource(R.string.editor_sound_default_name)
+    val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
     var editingTitle by remember { mutableStateOf(false) }
     var editingTransition by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo) { Text("Undo") }
-            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo) { Text("Redo") }
-            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty()) { Text("Export") }
+            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo) { Text(stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo) { Text(stringResource(R.string.editor_redo)) }
+            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty()) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
@@ -599,7 +602,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
                 if (level < 1) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1 - level).toFloat())))
             }
-            if (clips.isEmpty()) Text("The timeline is empty. Undo to bring clips back.", color = Muted)
+            if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
         }
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
@@ -610,26 +613,31 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val before = TimelineEditing.previousBookmark(clips, playhead)
                 val after = TimelineEditing.nextBookmark(clips, playhead)
                 val under = location?.let { TimelineEditing.bookmarkAt(clips, it.index, sourceTime) }
-                TextButton(onClick = { before?.let(jump) }, small.semantics { contentDescription = "Previous bookmark" }, enabled = before != null, contentPadding = tight) { Text("⇤", fontSize = 18.sp) }
+                val previousLabel = stringResource(R.string.editor_bookmark_previous)
+                val toggleLabel = stringResource(if (under == null) R.string.editor_bookmark_add else R.string.editor_bookmark_remove)
+                val nextLabel = stringResource(R.string.editor_bookmark_next)
+                TextButton(onClick = { before?.let(jump) }, small.semantics { contentDescription = previousLabel }, enabled = before != null, contentPadding = tight) { Text("⇤", fontSize = 18.sp) }
                 TextButton(
                     onClick = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
-                    small.semantics { contentDescription = if (under == null) "Add bookmark" else "Remove bookmark" }, enabled = location != null, contentPadding = tight,
+                    small.semantics { contentDescription = toggleLabel }, enabled = location != null, contentPadding = tight,
                 ) { Text(if (under == null) "◇" else "◆", fontSize = 18.sp, color = if (location != null) BookmarkColor else Color.Unspecified) }
-                TextButton(onClick = { after?.let(jump) }, small.semantics { contentDescription = "Next bookmark" }, enabled = after != null, contentPadding = tight) { Text("⇥", fontSize = 18.sp) }
+                TextButton(onClick = { after?.let(jump) }, small.semantics { contentDescription = nextLabel }, enabled = after != null, contentPadding = tight) { Text("⇥", fontSize = 18.sp) }
             }
             TextButton(
                 onClick = {
                     if (editor.playing) editor.pause() else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
                 },
                 enabled = clips.isNotEmpty(), contentPadding = tight,
-            ) { Text(if (editor.playing) "Pause" else "Play", fontSize = 17.sp) }
+            ) { Text(stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), fontSize = 17.sp) }
             Row {
-                TextButton(onClick = { scale = (scale / 1.5f).coerceAtLeast(6f) }, small, contentPadding = tight) { Text("−", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline out" }) }
-                TextButton(onClick = { scale = (scale * 1.5f).coerceAtMost(480f) }, small, contentPadding = tight) { Text("+", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = "Zoom timeline in" }) }
+                val zoomOutLabel = stringResource(R.string.editor_zoom_timeline_out)
+                val zoomInLabel = stringResource(R.string.editor_zoom_timeline_in)
+                TextButton(onClick = { scale = (scale / 1.5f).coerceAtLeast(6f) }, small, contentPadding = tight) { Text("−", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = zoomOutLabel }) }
+                TextButton(onClick = { scale = (scale * 1.5f).coerceAtMost(480f) }, small, contentPadding = tight) { Text("+", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = zoomInLabel }) }
             }
         }
         cleaningProgress?.let {
-            Text("Reducing noise… ${(it * 100).roundToInt()}%", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
+            Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
         Timeline(
             shown, files, sounds, names, { editor.pause(); chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
@@ -656,39 +664,40 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val compact = Modifier.defaultMinSize(minWidth = 48.dp)
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), Arrangement.SpaceEvenly) {
                 TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead) }, compact,
-                    enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text("Split") }
-                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text("Sound") }
-                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null, contentPadding = tight) { Text("Color") }
+                    enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
+                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
+                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
                 TextButton(onClick = { editor.pause(); current?.let { cropping = it.id to (it.crop ?: CropSettings()) } }, compact,
-                    enabled = current != null && sizes[current.sourceID] != null, contentPadding = tight) { Text("Crop") }
+                    enabled = current != null && sizes[current.sourceID] != null, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
             }
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
-                TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text("Title") }
+                TextButton(onClick = { editor.pause(); editingTitle = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_title)) }
                 TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
-                    enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text("Transition") }
-                TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text("Pauses") }
-                TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text("Add audio") }
+                    enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text(stringResource(R.string.editor_transition)) }
+                TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
+                TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
             }
             Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
-                for ((label, step) in listOf("◀ Move" to -1, "Move ▶" to 1)) {
+                for ((label, step) in listOf(stringResource(R.string.editor_move_earlier) to -1, stringResource(R.string.editor_move_later) to 1)) {
+                    val description = stringResource(if (step < 0) R.string.editor_move_clip_earlier else R.string.editor_move_clip_later)
                     val target = location?.let { it.index + step }
                     TextButton(
                         onClick = {
                             val next = TimelineEditing.move(edit, location!!.index, target!!)
                             commit(next, next?.let { TimelineEditing.clipStart(it.clips, target) + location.offset } ?: playhead)
                         },
-                        compact.semantics { contentDescription = if (step < 0) "Move clip earlier" else "Move clip later" },
+                        compact.semantics { contentDescription = description },
                         enabled = target != null && target in clips.indices, contentPadding = tight,
                     ) { Text(label) }
                 }
                 TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), TimelineEditing.clipStart(clips, it.index)) } }, compact,
-                    enabled = location != null, contentPadding = tight) { Text("Delete", color = if (location != null) RecordRed else Color.Unspecified) }
+                    enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.common_delete), color = if (location != null) RecordRed else Color.Unspecified) }
             }
         }
     }
 
     store.importing?.let { step ->
-        AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text("Importing") }, text = { Text(step) })
+        AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text(stringResource(R.string.common_importing)) }, text = { Text(step) })
     }
     if (editingColor && location != null && current != null) {
         ColorDialog(
@@ -707,7 +716,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             )
         } else {
             AudioItemDialog(
-                name = names[item.sourceID] ?: "Sound", item = item,
+                name = names[item.sourceID] ?: soundName, item = item,
                 moved = TimelineEditing.moveAudio(edit, item.id, playhead),
                 startHere = TimelineEditing.trimAudio(edit, item.id, playhead, leading = true),
                 endHere = TimelineEditing.trimAudio(edit, item.id, playhead, leading = false),
@@ -849,18 +858,21 @@ private fun Timeline(
                 }
             }
             // Sound on its own tracks. It stays where it is when the clips above are edited.
+            val soundName = stringResource(R.string.editor_sound_default_name)
+            val mutedNote = stringResource(R.string.sound_muted)
+            val editSoundLabel = stringResource(R.string.editor_edit_sound)
             if (sounds.isNotEmpty()) for (track in 0 until AudioItem.TRACKS) {
                 Box(Modifier.width(width).height(TrackHeight).padding(top = 3.dp)) {
                     for (item in sounds) {
                         if (item.track != track) continue
                         key(item.id) {
-                            val note = item.audio?.let { if (it.muted) " · Muted" else if (it.volumeDB != 0.0) " · ${it.volumeDB.roundToInt()} dB" else "" } ?: ""
+                            val note = item.audio?.let { if (it.muted) " · $mutedNote" else if (it.volumeDB != 0.0) " · ${it.volumeDB.roundToInt()} dB" else "" } ?: ""
                             Text(
-                                (names[item.sourceID] ?: "Sound") + note, color = Color.Black, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                (names[item.sourceID] ?: soundName) + note, color = Color.Black, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt(), 0) }
                                     .width(with(density) { (item.duration * pixelsPerSecond).toFloat().toDp() }).fillMaxHeight()
                                     .background(SoundColor, RoundedCornerShape(4.dp))
-                                    .clickable(onClickLabel = "Edit sound") { chooseSound(item.id) }.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    .clickable(onClickLabel = editSoundLabel) { chooseSound(item.id) }.padding(horizontal = 6.dp, vertical = 2.dp),
                             )
                         }
                     }
@@ -869,7 +881,8 @@ private fun Timeline(
         }
         Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
         if (clips.isNotEmpty()) {
-            val label = trim?.let { "Clip ${it.index + 1}: ${preciseLabel(it.clip.duration)}" } ?: "Clip ${(current ?: 0) + 1} of ${clips.size}"
+            val label = trim?.let { stringResource(R.string.editor_clip_duration, it.index + 1, preciseLabel(it.clip.duration)) }
+                ?: stringResource(R.string.editor_clip_position, (current ?: 0) + 1, clips.size)
             Text(label, color = if (trim != null) Color.White else Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp))
         }
     }
@@ -941,16 +954,16 @@ private fun ClipStrip(
             )
         }
         // What has been done to the picture, named over it.
-        listOfNotNull(clip.color?.title, "Crop".takeIf { clip.crop != null }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { tags ->
+        listOfNotNull(clip.color?.label(), stringResource(R.string.editor_tag_crop).takeIf { clip.crop != null }).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { tags ->
             Text(tags, color = Color.Black, fontSize = 10.sp, maxLines = 1,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 12.dp).background(Color(0xFFB6C2FF), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
         }
         // What has been done to the sound, where the waveform is.
         clip.audio?.let { audio ->
             val note = listOfNotNull(
-                if (audio.muted) "Muted" else audio.volumeDB.takeIf { it != 0.0 }?.let { (if (it > 0) "+" else "") + "${it.roundToInt()} dB" },
-                "Fade".takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
-                "Clean".takeIf { audio.denoise > 0 },
+                if (audio.muted) stringResource(R.string.sound_muted) else audio.volumeDB.takeIf { it != 0.0 }?.let { (if (it > 0) "+" else "") + "${it.roundToInt()} dB" },
+                stringResource(R.string.editor_tag_fade).takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
+                stringResource(R.string.editor_tag_clean).takeIf { audio.denoise > 0 },
             ).joinToString(" · ")
             if (note.isNotEmpty()) {
                 Text(note, color = Color.White, fontSize = 10.sp, maxLines = 1,
@@ -966,12 +979,12 @@ private fun ClipStrip(
         // The part of this clip that dissolves in over the previous one.
         if (dissolve > 0) {
             Box(Modifier.width(with(density) { dissolve.toDp() }).height(TileSize + WaveHeight).background(Color.White.copy(alpha = 0.35f)))
-            Text("Dissolve", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+            Text(stringResource(R.string.transition_tag_dissolve), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp).background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
         }
         // A fade into the next clip.
         if (fades) {
-            Text("Fade", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+            Text(stringResource(R.string.transition_tag_fade), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp).background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
         }
         if (current) {
@@ -981,6 +994,30 @@ private fun ClipStrip(
         }
     }
 }
+
+/** The look names of the core module, which only has them in English. */
+private val ColorLook.label: Int
+    get() = when (this) {
+        ColorLook.Natural -> R.string.color_look_natural
+        ColorLook.Warm -> R.string.color_look_warm
+        ColorLook.Cool -> R.string.color_look_cool
+        ColorLook.Cinema -> R.string.color_look_cinema
+        ColorLook.Mono -> R.string.color_look_mono
+        ColorLook.Portrait -> R.string.color_look_portrait
+        ColorLook.Daylight -> R.string.color_look_daylight
+        ColorLook.GoldenHour -> R.string.color_look_golden_hour
+        ColorLook.MutedFilm -> R.string.color_look_muted_film
+        ColorLook.RichContrast -> R.string.color_look_rich_contrast
+        ColorLook.Pastel -> R.string.color_look_pastel
+        ColorLook.Night -> R.string.color_look_night
+        ColorLook.Silver -> R.string.color_look_silver
+        ColorLook.Ink -> R.string.color_look_ink
+    }
+
+/** As [ColorSettings.title], from the resources. */
+@Composable
+private fun ColorSettings.label(): String =
+    imported?.name ?: stringResource(if (look == ColorLook.Natural && hasBalance) R.string.color_balance else look.label)
 
 @Composable
 private fun <T> Choices(label: String, options: List<Pair<String, T>>, selected: T, choose: (T) -> Unit) {
@@ -1005,13 +1042,13 @@ private fun CropPanel(crop: CropSettings, removable: Boolean, change: (CropSetti
         }
     }
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Level("Zoom", "%.1f×".format(crop.zoom), crop.zoom, 1f..CropSettings.MAXIMUM_ZOOM.toFloat()) { change(crop.copy(zoom = (it * 10).roundToInt() / 10.0)) }
-        Level("Left–right", "${(crop.x * 100).roundToInt()}", crop.x, 0f..1f) { change(crop.copy(x = (it * 100).roundToInt() / 100.0)) }
-        Level("Up–down", "${(crop.y * 100).roundToInt()}", crop.y, 0f..1f) { change(crop.copy(y = (it * 100).roundToInt() / 100.0)) }
+        Level(stringResource(R.string.crop_zoom), "%.1f×".format(crop.zoom), crop.zoom, 1f..CropSettings.MAXIMUM_ZOOM.toFloat()) { change(crop.copy(zoom = (it * 10).roundToInt() / 10.0)) }
+        Level(stringResource(R.string.crop_left_right), "${(crop.x * 100).roundToInt()}", crop.x, 0f..1f) { change(crop.copy(x = (it * 100).roundToInt() / 100.0)) }
+        Level(stringResource(R.string.crop_up_down), "${(crop.y * 100).roundToInt()}", crop.y, 0f..1f) { change(crop.copy(y = (it * 100).roundToInt() / 100.0)) }
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
-            TextButton(onClick = cancel) { Text("Cancel") }
-            if (removable) TextButton(onClick = { done(null) }) { Text("Remove crop", color = RecordRed) }
-            Button(onClick = { done(crop) }) { Text("Done") }
+            TextButton(onClick = cancel) { Text(stringResource(R.string.common_cancel)) }
+            if (removable) TextButton(onClick = { done(null) }) { Text(stringResource(R.string.crop_remove), color = RecordRed) }
+            Button(onClick = { done(crop) }) { Text(stringResource(R.string.common_done)) }
         }
     }
 }
@@ -1036,34 +1073,34 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
     }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("Clip color") },
+        title = { Text(stringResource(R.string.color_dialog_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 val lut = color.imported
                 if (lut == null) {
-                    Choices("Look", ColorLook.entries.map { it.title to it }, color.look) { color = color.copy(look = it) }
+                    Choices(stringResource(R.string.color_look), ColorLook.entries.map { stringResource(it.label) to it }, color.look) { color = color.copy(look = it) }
                 } else {
-                    Text("LUT: ${lut.name}", color = Color.White, modifier = Modifier.padding(top = 12.dp))
+                    Text(stringResource(R.string.color_lut_name, lut.name), color = Color.White, modifier = Modifier.padding(top = 12.dp))
                 }
                 Row {
-                    TextButton(onClick = { pickLut.launch("*/*") }) { Text(if (lut == null) "Import a .cube LUT" else "Choose another LUT") }
-                    if (lut != null) TextButton(onClick = { color = color.copy(imported = null) }) { Text("Use a look") }
+                    TextButton(onClick = { pickLut.launch("*/*") }) { Text(stringResource(if (lut == null) R.string.color_import_lut else R.string.color_choose_another_lut)) }
+                    if (lut != null) TextButton(onClick = { color = color.copy(imported = null) }) { Text(stringResource(R.string.color_use_look)) }
                 }
-                Level("Strength", color.amount, 0f..1f, "${(color.amount * 100).roundToInt()}%") { color = color.copy(amount = it) }
+                Level(stringResource(R.string.color_strength), color.amount, 0f..1f, "${(color.amount * 100).roundToInt()}%") { color = color.copy(amount = it) }
                 // A correction left at zero is stored as nothing, as in the original.
                 val exposure = color.exposure ?: 0.0
                 val warmth = color.warmth ?: 0.0
                 val tint = color.tint ?: 0.0
-                Level("Exposure", exposure, -2f..2f, "%+.1f".format(exposure)) { color = color.copy(exposure = it.takeIf { it != 0.0 }) }
-                Level("Warmth", warmth, -1f..1f, "%+.0f".format(warmth * 100)) { color = color.copy(warmth = it.takeIf { it != 0.0 }) }
-                Level("Tint", tint, -1f..1f, "%+.0f".format(tint * 100)) { color = color.copy(tint = it.takeIf { it != 0.0 }) }
+                Level(stringResource(R.string.color_exposure), exposure, -2f..2f, "%+.1f".format(exposure)) { color = color.copy(exposure = it.takeIf { it != 0.0 }) }
+                Level(stringResource(R.string.color_warmth), warmth, -1f..1f, "%+.0f".format(warmth * 100)) { color = color.copy(warmth = it.takeIf { it != 0.0 }) }
+                Level(stringResource(R.string.color_tint), tint, -1f..1f, "%+.0f".format(tint * 100)) { color = color.copy(tint = it.takeIf { it != 0.0 }) }
             }
         },
-        confirmButton = { TextButton(onClick = { save(color) }) { Text("Save") } },
+        confirmButton = { TextButton(onClick = { save(color) }) { Text(stringResource(R.string.common_save)) } },
         dismissButton = {
             Row {
-                TextButton(onClick = { color = ColorSettings(id = color.id) }, enabled = !color.isIdentity) { Text("Reset") }
-                TextButton(onClick = dismiss) { Text("Cancel") }
+                TextButton(onClick = { color = ColorSettings(id = color.id) }, enabled = !color.isIdentity) { Text(stringResource(R.string.common_reset)) }
+                TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) }
             }
         },
     )
@@ -1087,30 +1124,30 @@ private fun PausesDialog(file: File, clip: TimelineClip, remove: (List<SourceInt
     val shorter = clip.duration - PauseDetector.keptIntervals(clip, cuts).filter { it.duration >= TimelineEditing.MINIMUM_CLIP }.sumOf { it.duration }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("Remove pauses") },
+        title = { Text(stringResource(R.string.pauses_title)) },
         text = {
             Column {
                 when {
                     !measured.second -> {
-                        Text("Listening to the clip…", color = Color.White)
+                        Text(stringResource(R.string.pauses_listening), color = Color.White)
                         LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
                     }
-                    wave == null -> Text("This clip has no sound to analyze.", color = Color.White)
+                    wave == null -> Text(stringResource(R.string.pauses_no_sound), color = Color.White)
                     else -> {
                         Text(
-                            if (cuts.isEmpty()) "No pauses this long were found."
-                            else "${cuts.size} ${if (cuts.size == 1) "pause" else "pauses"} found. The clip would be ${preciseLabel(shorter)} shorter.",
+                            if (cuts.isEmpty()) stringResource(R.string.pauses_none_found)
+                            else pluralStringResource(R.plurals.pauses_found, cuts.size, cuts.size, preciseLabel(shorter)),
                             color = Color.White,
                         )
-                        Text("Silence level: ${PauseDetector.levelDB(wave, settings).roundToInt()} dB, estimated from the recording.", color = Muted, fontSize = 13.sp)
-                        Choices("Shortest pause to remove", listOf("0.4 s" to 0.4, "0.6 s" to 0.6, "1 s" to 1.0, "2 s" to 2.0), minimum) { minimum = it }
-                        Text("A little silence is left around each cut so words are not clipped. One Undo brings the pauses back.", color = Muted, fontSize = 13.sp)
+                        Text(stringResource(R.string.pauses_silence_level, PauseDetector.levelDB(wave, settings).roundToInt()), color = Muted, fontSize = 13.sp)
+                        Choices(stringResource(R.string.pauses_shortest), listOf("0.4 s" to 0.4, "0.6 s" to 0.6, "1 s" to 1.0, "2 s" to 2.0), minimum) { minimum = it }
+                        Text(stringResource(R.string.pauses_note), color = Muted, fontSize = 13.sp)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { remove(cuts) }, enabled = cuts.isNotEmpty() && shorter > 0) { Text("Remove") } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { remove(cuts) }, enabled = cuts.isNotEmpty() && shorter > 0) { Text(stringResource(R.string.common_remove)) } },
+        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -1125,15 +1162,15 @@ private fun AudioItemDialog(
         title = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
             Column {
-                Text("${preciseLabel(item.start)} to ${preciseLabel(item.end)} · track ${item.track + 1}", color = Muted, fontSize = 13.sp)
-                TextButton(onClick = shape) { Text("Volume and fades") }
-                TextButton(onClick = { apply(moved) }, enabled = moved != null) { Text("Move to start at the playhead") }
-                TextButton(onClick = { apply(startHere) }, enabled = startHere != null) { Text("Cut off what comes before the playhead") }
-                TextButton(onClick = { apply(endHere) }, enabled = endHere != null) { Text("Cut off what comes after the playhead") }
-                TextButton(onClick = { apply(removed) }) { Text("Remove", color = RecordRed) }
+                Text(stringResource(R.string.sound_item_range, preciseLabel(item.start), preciseLabel(item.end), item.track + 1), color = Muted, fontSize = 13.sp)
+                TextButton(onClick = shape) { Text(stringResource(R.string.sound_volume_and_fades)) }
+                TextButton(onClick = { apply(moved) }, enabled = moved != null) { Text(stringResource(R.string.sound_move_to_playhead)) }
+                TextButton(onClick = { apply(startHere) }, enabled = startHere != null) { Text(stringResource(R.string.sound_cut_before)) }
+                TextButton(onClick = { apply(endHere) }, enabled = endHere != null) { Text(stringResource(R.string.sound_cut_after)) }
+                TextButton(onClick = { apply(removed) }) { Text(stringResource(R.string.common_remove), color = RecordRed) }
             }
         },
-        confirmButton = { TextButton(onClick = dismiss) { Text("Done") } },
+        confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_done)) } },
     )
 }
 
@@ -1141,41 +1178,44 @@ private fun AudioItemDialog(
 @Composable
 private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAudio) -> Unit, dismiss: () -> Unit) {
     var audio by remember { mutableStateOf(saved) }
-    val fades = listOf("None" to 0.0, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0, "3 s" to 3.0)
+    val fades = listOf(stringResource(R.string.sound_fade_none) to 0.0, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0, "3 s" to 3.0)
+    val silent = stringResource(R.string.sound_silent)
+    val volumeLabel = stringResource(R.string.sound_volume)
+    val muteLabel = stringResource(R.string.sound_mute)
     fun label(decibels: Double) = when {
-        decibels <= ClipAudio.MINIMUM_DB -> "Silent"
+        decibels <= ClipAudio.MINIMUM_DB -> silent
         decibels > 0 -> "+${decibels.roundToInt()} dB"
         else -> "${decibels.roundToInt()} dB"
     }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("Clip sound") },
+        title = { Text(stringResource(R.string.sound_dialog_title)) },
         text = {
             Column {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Text("Volume: " + if (audio.muted) "Muted" else label(audio.volumeDB), color = Color.White)
-                    TextButton(onClick = { audio = audio.copy(volumeDB = 0.0) }, enabled = audio.volumeDB != 0.0) { Text("Reset") }
+                    Text(stringResource(R.string.sound_volume_value, if (audio.muted) stringResource(R.string.sound_muted) else label(audio.volumeDB)), color = Color.White)
+                    TextButton(onClick = { audio = audio.copy(volumeDB = 0.0) }, enabled = audio.volumeDB != 0.0) { Text(stringResource(R.string.common_reset)) }
                 }
                 // Whole decibels: the range is wide and finer steps are not audible.
                 Slider(
                     value = audio.volumeDB.toFloat(), onValueChange = { audio = audio.copy(volumeDB = it.roundToInt().toDouble()) },
                     valueRange = ClipAudio.MINIMUM_DB.toFloat()..ClipAudio.MAXIMUM_DB.toFloat(), enabled = !audio.muted,
-                    modifier = Modifier.semantics { contentDescription = "Volume" },
+                    modifier = Modifier.semantics { contentDescription = volumeLabel },
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = audio.muted, onCheckedChange = { audio = audio.copy(muted = it) }, modifier = Modifier.semantics { contentDescription = "Mute" })
-                    Text("  Mute this clip", color = Color.White)
+                    Switch(checked = audio.muted, onCheckedChange = { audio = audio.copy(muted = it) }, modifier = Modifier.semantics { contentDescription = muteLabel })
+                    Text("  " + stringResource(R.string.sound_mute_clip), color = Color.White)
                 }
-                Choices("Fade in", fades, audio.fadeIn) { audio = audio.copy(fadeIn = it) }
-                Choices("Fade out", fades, audio.fadeOut) { audio = audio.copy(fadeOut = it) }
+                Choices(stringResource(R.string.sound_fade_in), fades, audio.fadeIn) { audio = audio.copy(fadeIn = it) }
+                Choices(stringResource(R.string.sound_fade_out), fades, audio.fadeOut) { audio = audio.copy(fadeOut = it) }
                 if (canReduceNoise) {
-                    Choices("Noise reduction", listOf("Off" to 0.0, "Light" to 0.5, "Full" to 1.0), audio.denoise) { audio = audio.copy(denoise = it) }
-                    Text("Quiets steady background noise, mostly in the pauses of speech.", color = Muted, fontSize = 13.sp)
+                    Choices(stringResource(R.string.sound_noise_reduction), listOf(stringResource(R.string.sound_noise_off) to 0.0, stringResource(R.string.sound_noise_light) to 0.5, stringResource(R.string.sound_noise_full) to 1.0), audio.denoise) { audio = audio.copy(denoise = it) }
+                    Text(stringResource(R.string.sound_noise_note), color = Muted, fontSize = 13.sp)
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { save(audio) }) { Text("Save") } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { save(audio) }) { Text(stringResource(R.string.common_save)) } },
+        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -1192,14 +1232,14 @@ private fun TitleDialog(
     var length by remember { mutableDoubleStateOf(if (existing == null) 3.0 else 0.0) }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text(if (existing == null) "Add title" else "Edit title") },
+        title = { Text(stringResource(if (existing == null) R.string.title_add else R.string.title_edit)) },
         text = {
             Column {
-                OutlinedTextField(text, { text = it.take(500) }, label = { Text("Text") }, maxLines = 4)
-                Choices("Position", listOf("Top" to 0.15, "Center" to 0.5, "Bottom" to 0.85), y) { y = it }
-                Choices("Size", listOf("Small" to 0.045, "Medium" to 0.065, "Large" to 0.1), size) { size = it }
-                Choices("On screen", (if (existing == null) emptyList() else listOf("As is" to 0.0)) +
-                    listOf("2 s" to 2.0, "3 s" to 3.0, "5 s" to 5.0, "Whole clip" to -1.0), length) { length = it }
+                OutlinedTextField(text, { text = it.take(500) }, label = { Text(stringResource(R.string.title_text)) }, maxLines = 4)
+                Choices(stringResource(R.string.title_position), listOf(stringResource(R.string.title_position_top) to 0.15, stringResource(R.string.title_position_center) to 0.5, stringResource(R.string.title_position_bottom) to 0.85), y) { y = it }
+                Choices(stringResource(R.string.title_size), listOf(stringResource(R.string.title_size_small) to 0.045, stringResource(R.string.title_size_medium) to 0.065, stringResource(R.string.title_size_large) to 0.1), size) { size = it }
+                Choices(stringResource(R.string.title_on_screen), (if (existing == null) emptyList() else listOf(stringResource(R.string.title_as_is) to 0.0)) +
+                    listOf("2 s" to 2.0, "3 s" to 3.0, "5 s" to 5.0, stringResource(R.string.title_whole_clip) to -1.0), length) { length = it }
             }
         },
         confirmButton = {
@@ -1216,12 +1256,12 @@ private fun TitleDialog(
                     val begin = if (to - from < 0.1) maxOf(0.0, to - 0.5) else from
                     save((existing ?: TextOverlay()).copy(text = text.trim(), start = begin, end = to, y = y, size = size))
                 },
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = {
             Row {
-                if (existing != null) TextButton(onClick = { remove(existing.id) }) { Text("Remove", color = RecordRed) }
-                TextButton(onClick = dismiss) { Text("Cancel") }
+                if (existing != null) TextButton(onClick = { remove(existing.id) }) { Text(stringResource(R.string.common_remove), color = RecordRed) }
+                TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) }
             }
         },
     )
@@ -1233,26 +1273,26 @@ private fun ExportSettingsDialog(saved: ExportSettings, canvas: Pair<Int, Int>?,
     var settings by remember { mutableStateOf(saved) }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("Export movie") },
+        title = { Text(stringResource(R.string.export_title)) },
         text = {
             Column {
-                Choices("Size", listOf(
-                    "Original" to ExportSettings.Resolution.Project, "720p" to ExportSettings.Resolution.HD,
+                Choices(stringResource(R.string.export_size), listOf(
+                    stringResource(R.string.export_size_original) to ExportSettings.Resolution.Project, "720p" to ExportSettings.Resolution.HD,
                     "1080p" to ExportSettings.Resolution.FullHD, "4K" to ExportSettings.Resolution.UltraHD,
                 ), settings.resolution) { settings = settings.copy(resolution = it) }
                 canvas?.let { settings.resolution.size(it.first, it.second) }?.let { (width, height) ->
-                    Text("$width × $height pixels", color = Muted, fontSize = 13.sp)
+                    Text(stringResource(R.string.export_pixels, width, height), color = Muted, fontSize = 13.sp)
                 }
                 // Only the limits the exporter can really honor.
-                Choices("Frames per second", listOf("Up to 30" to 30, "Up to 60" to 60), settings.frameRate) { settings = settings.copy(frameRate = it) }
-                Text("Footage with more frames is reduced. Frames are never added.", color = Muted, fontSize = 13.sp)
-                Choices("Format", listOf("H.264" to ExportSettings.Codec.H264, "H.265 (smaller file)" to ExportSettings.Codec.HEVC), settings.codec) {
+                Choices(stringResource(R.string.export_frame_rate), listOf(stringResource(R.string.export_up_to, 30) to 30, stringResource(R.string.export_up_to, 60) to 60), settings.frameRate) { settings = settings.copy(frameRate = it) }
+                Text(stringResource(R.string.export_frame_rate_note), color = Muted, fontSize = 13.sp)
+                Choices(stringResource(R.string.export_format), listOf("H.264" to ExportSettings.Codec.H264, stringResource(R.string.export_h265_smaller) to ExportSettings.Codec.HEVC), settings.codec) {
                     settings = settings.copy(codec = it)
                 }
             }
         },
-        confirmButton = { Button(onClick = { start(settings) }) { Text("Export") } },
-        dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { start(settings) }) { Text(stringResource(R.string.editor_export)) } },
+        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -1261,22 +1301,21 @@ private fun TransitionDialog(current: ClipTransition?, choose: (Double?, ClipTra
     var style by remember { mutableStateOf(current?.style ?: ClipTransition.Style.Dissolve) }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("Transition to the next clip") },
+        title = { Text(stringResource(R.string.transition_title)) },
         text = {
             Column {
-                Choices("Style", listOf("Cross dissolve" to ClipTransition.Style.Dissolve, "Fade through black" to ClipTransition.Style.FadeBlack), style) { style = it }
+                Choices(stringResource(R.string.transition_style), listOf(stringResource(R.string.transition_cross_dissolve) to ClipTransition.Style.Dissolve, stringResource(R.string.transition_fade_black) to ClipTransition.Style.FadeBlack), style) { style = it }
                 Text(
-                    if (style == ClipTransition.Style.Dissolve) "The clips overlap and blend, so the movie gets shorter by the transition time."
-                    else "Picture and sound fade out, then in. The length of the movie does not change.",
+                    stringResource(if (style == ClipTransition.Style.Dissolve) R.string.transition_dissolve_note else R.string.transition_fade_note),
                     color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 8.dp),
                 )
-                for ((label, seconds) in listOf<Pair<String, Double?>>("None" to null, "0.3 s" to 0.3, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0)) {
+                for ((label, seconds) in listOf<Pair<String, Double?>>(stringResource(R.string.transition_none) to null, "0.3 s" to 0.3, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0)) {
                     val selected = if (seconds == null) current == null else current?.duration == seconds && current.style == style
                     TextButton(onClick = { choose(seconds, style) }) { Text((if (selected) "● " else "○ ") + label, fontSize = 16.sp) }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = dismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
@@ -1285,9 +1324,9 @@ private fun ExportDialogs(exporter: Exporter, context: Context, report: (String)
     exporter.progress?.let { progress ->
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("Exporting… ${(progress * 100).roundToInt()}%") },
+            title = { Text(stringResource(R.string.export_progress, (progress * 100).roundToInt())) },
             text = { LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = { TextButton(onClick = exporter::cancel) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = exporter::cancel) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
     exporter.result?.let { file ->
@@ -1295,24 +1334,24 @@ private fun ExportDialogs(exporter: Exporter, context: Context, report: (String)
         fun open(intent: Intent) = try {
             context.startActivity(intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
         } catch (_: Exception) {
-            report("No app on this device can open the movie.")
+            report(context.getString(R.string.export_open_failed))
         }
         AlertDialog(
             onDismissRequest = { exporter.result = null },
-            title = { Text("Movie exported") },
+            title = { Text(stringResource(R.string.export_done_title)) },
             text = {
                 Column {
                     Text(file.name, color = Muted, fontSize = 13.sp)
-                    TextButton(onClick = { open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4")) }) { Text("Play") }
+                    TextButton(onClick = { open(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4")) }) { Text(stringResource(R.string.common_play)) }
                     TextButton(onClick = {
                         open(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("video/mp4").putExtra(Intent.EXTRA_STREAM, uri), null))
-                    }) { Text("Share") }
+                    }) { Text(stringResource(R.string.export_share)) }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        TextButton(onClick = { exporter.saveToGallery(file) }) { Text("Save to gallery") }
+                        TextButton(onClick = { exporter.saveToGallery(file) }) { Text(stringResource(R.string.export_save_to_gallery)) }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { exporter.result = null }) { Text("Done") } },
+            confirmButton = { TextButton(onClick = { exporter.result = null }) { Text(stringResource(R.string.common_done)) } },
         )
     }
 }

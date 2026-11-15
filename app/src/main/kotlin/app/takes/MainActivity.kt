@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
 val RecordRed = Color(0xFFE5484D)
@@ -60,8 +61,8 @@ class MainActivity : ComponentActivity() {
                             Notice(app.store.error, Modifier.align(Alignment.Center)) { app.store.error = null }
                         }
                         PrimaryTabRow(selectedTabIndex = tab, modifier = Modifier.navigationBarsPadding()) {
-                            listOf("Recorder", "Projects", "Editor").forEachIndexed { index, title ->
-                                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
+                            listOf(R.string.tab_recorder, R.string.tab_projects, R.string.tab_editor).forEachIndexed { index, title ->
+                                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(stringResource(title)) })
                             }
                         }
                     }
@@ -80,6 +81,6 @@ fun Notice(text: String?, modifier: Modifier = Modifier, dismiss: () -> Unit) {
         horizontalAlignment = Alignment.End,
     ) {
         Text(text, color = Color.White, modifier = Modifier.fillMaxWidth())
-        TextButton(onClick = dismiss) { Text("OK") }
+        TextButton(onClick = dismiss) { Text(stringResource(R.string.common_ok)) }
     }
 }
