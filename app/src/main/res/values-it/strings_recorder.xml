@@ -130,4 +130,6 @@
     <string name="recorder_mark_label">Aggiungi un segnalibro alla registrazione</string>
     <string name="recorder_mark_added">Segnalibro aggiunto</string>
     <string name="recorder_mark_moment">Segna questo momento</string>
+    <!-- The zoom time badge is narrow: the word for "no time" has to fit it. -->
+    <string name="recorder_zoom_instant_short">Subito</string>
 </resources>

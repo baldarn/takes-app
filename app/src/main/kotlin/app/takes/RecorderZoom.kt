@@ -286,7 +286,7 @@ private fun ZoomDuration(capture: CaptureController, tapped: () -> Unit, dragged
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Filled.Timer, null, Modifier.size(11.dp), tint = color)
                 Text(
-                    if (seconds == 0.0) value else compactSeconds(seconds), color = color, fontSize = if (seconds == 0.0) 10.sp else 12.sp,
+                    if (seconds == 0.0) stringResource(R.string.recorder_zoom_instant_short) else compactSeconds(seconds), color = color, fontSize = if (seconds == 0.0) 10.sp else 12.sp,
                     lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, maxLines = 1,
                 )
             }
