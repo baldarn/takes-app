@@ -47,7 +47,7 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val WIPE = 3
 
         /** The styles the shader draws. The editor offers these; any other is shown as a dissolve, and cannot be made here. */
-        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.FlashCut)
+        val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.FlashCut, TransitionStyle.Still)
 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
