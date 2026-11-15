@@ -82,47 +82,51 @@ object SubtitleEditing {
      * one clip never changes another that shows the same footage.
      */
     fun install(state: EditState, words: Map<String, List<SubtitleWord>>, language: String): EditState {
-        val settings = (state.subtitles ?: SubtitleSettings()).copy(language = language)
-        val clips = state.clips.map { clip ->
-            val own = if (!speaks(clip)) emptyList() else words[clip.sourceID].orEmpty().mapNotNull { word ->
-                val middle = (word.start + word.end) / 2
-                if (middle < clip.start || middle >= clip.end) return@mapNotNull null
-                word.copy(id = newID(), start = maxOf(clip.start, word.start), end = minOf(clip.end, word.end)).takeIf { it.valid }
-            }
-            clip.copy(subtitleWords = SubtitleTiming.group(own, settings.maxWords).ifEmpty { null })
-        }
-        return state.copy(clips = clips, subtitles = settings.copy(timingFingerprint = fingerprint(clips)))
+        // The words go to the sounds of the timeline ([TrackSubtitles.installingSourceWords]). Kept until S8
+        // (transcription-hears-sound-items): only to the sound that follows a clip's picture; a sound of its own gets none.
+        val result = TrackWrapping.edit(state, sound = false) { timeline ->
+            TrackSubtitles.installingSourceWords(timeline, words, language, timeline.audio.filter { it.followsVideo != null }.mapTo(HashSet()) { it.id })
+        } ?: state
+        // Kept until S8 (captions-fingerprint): what the captions were timed for is said by today's formula.
+        return result.copy(subtitles = (result.subtitles ?: SubtitleSettings()).copy(language = language, timingFingerprint = fingerprint(result.clips)))
     }
 
     /** Takes every caption out of the edit, with its corrections and timing. */
-    fun remove(state: EditState): EditState =
-        state.copy(clips = state.clips.map { if (it.subtitleWords == null) it else it.copy(subtitleWords = null) }, subtitles = null)
+    fun remove(state: EditState): EditState = TrackWrapping.edit(state, sound = false) { TrackSubtitles.removing(it) } ?: state
 
     /** Changes how the series looks. Null when the settings are not valid or nothing changes. */
-    fun restyle(state: EditState, settings: SubtitleSettings): EditState? =
-        if (state.subtitles == null || !settings.valid || settings == state.subtitles) null else state.copy(subtitles = settings)
+    fun restyle(state: EditState, settings: SubtitleSettings): EditState? {
+        if (state.subtitles == null || !settings.valid || settings == state.subtitles) return null
+        val result = TrackWrapping.edit(state, sound = false) { timeline ->
+            TrackSubtitles.restyling(timeline, settings.copy(timingFingerprint = timeline.subtitles?.timingFingerprint ?: ""))
+        } ?: state
+        // Kept until S8 (captions-fingerprint): the look says what it was timed for as it is given.
+        return result.copy(subtitles = result.subtitles?.copy(timingFingerprint = settings.timingFingerprint))
+    }
 
-    /** At most [count] words per caption. Null when the footage changed since transcription, or [count] is out of range. */
+    /**
+     * At most [count] words per caption ([TrackSubtitles.regrouping]). Null
+     * when the footage changed since transcription, or [count] is out of
+     * range, or is the count the captions have.
+     */
     fun regroup(state: EditState, count: Int): EditState? {
         val settings = state.subtitles ?: return null
-        if (!groupingAvailable(state) || count !in SubtitleSettings.MAX_WORDS || count == settings.maxWords) return null
-        return state.copy(
-            clips = state.clips.map { clip -> clip.subtitleWords?.let { clip.copy(subtitleWords = SubtitleTiming.group(it, count)) } ?: clip },
-            subtitles = settings.copy(maxWords = count),
-        )
+        // Kept until S8 (captions-fingerprint): whether the footage changed is asked of the edit, by today's formula.
+        if (!groupingAvailable(state) || count !in SubtitleSettings.MAX_WORDS) return null
+        // The track model groups the words again at the count they have (`regroup-at-the-count-it-has`), under new phrase
+        // ids: an edit that shows nothing and would still be a step of Undo. It stays no edit.
+        if (count == settings.maxWords) return null
+        return TrackWrapping.edit(state, sound = false) { TrackSubtitles.regrouping(it, count) }
     }
 
     /** Retypes one caption. Words that stay keep their times; an empty text removes the caption. */
     fun correct(state: EditState, cue: SubtitleCue, text: String): EditState? {
-        val index = state.clips.indexOfFirst { it.id == cue.audioID }
-        if (index < 0) return null
-        val clip = state.clips[index]
-        val ids = cue.wordIDs.toSet()
-        val (chosen, others) = clip.subtitleWords.orEmpty().partition { it.id in ids }
-        if (chosen.isEmpty()) return null
-        val next = (others + SubtitleTiming.corrected(chosen, text.take(SubtitleWord.MAXIMUM_TEXT)).filter { it.valid }).sortedBy { it.start }
-        if (next == clip.subtitleWords) return null
-        return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(subtitleWords = next.ifEmpty { null }) })
+        val clip = state.clips.firstOrNull { it.id == cue.audioID } ?: return null
+        // A caption names its clip; its words are on the clip's sound ([TrackSubtitles.correcting]).
+        return TrackWrapping.edit(state, sound = false) { timeline ->
+            val sound = TrackSequenceView.sounds(timeline)[clip.id] ?: return@edit null
+            TrackSubtitles.correcting(timeline, cue.copy(audioID = sound.id), text)
+        }
     }
 
     /** Removes one caption; the others stay as they are. */
