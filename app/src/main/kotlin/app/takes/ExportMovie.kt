@@ -117,6 +117,8 @@ class ExportMovie(
             val source = size(shown.sourceID)
             if (shown.crop != null && source != null) add(FramingEffect(plan.clips[part.index], shown.start - origin, source, frame))
             add(fit())
+            // The clip's video effects on the picture as it lies in the frame, bars included; titles come after.
+            if (!plan.clips[part.index].videoEffects.isNullOrEmpty()) add(VideoEffectChain(plan.clips[part.index], shown.start - origin, rate.toDouble()))
         }
         val item = MediaItem.Builder().setUri(android.net.Uri.fromFile(files.getValue(shown.sourceID))).setMediaId(shown.id)
             .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(part.sourceStartUs).setEndPositionUs(part.sourceEndUs).build()).build()
