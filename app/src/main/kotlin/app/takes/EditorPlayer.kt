@@ -47,7 +47,7 @@ import kotlin.math.roundToInt
 internal class EditorPlayer(private val context: Context) {
     private val sessions = context.getSystemService(AudioManager::class.java)
     val decks = List(2) {
-        ExoPlayer.Builder(context).build().apply {
+        ExoPlayer.Builder(context, DeckRenderers(context)).build().apply {
             audioSessionId = sessions.generateAudioSessionId()
             // A clip with noise reduction carries two sounds, recorded and cleaned (a WAV): play the cleaned one.
             trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredAudioMimeType(MimeTypes.AUDIO_RAW).build()
