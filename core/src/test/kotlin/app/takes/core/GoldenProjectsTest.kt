@@ -192,6 +192,14 @@ class GoldenProjectsTest {
         val sounds = edits.flatMap { it.audio.orEmpty() }
         assertTrue(sounds.any { it.track == 0 } && sounds.any { it.track == 1 })
         assertTrue(sounds.any { (it.audio?.fadeIn ?: 0.0) > 0 && (it.audio?.fadeOut ?: 0.0) > 0 })
+        // Fades as the original keeps them: longer than half their item, and cut so that a piece goes on from inside one, at
+        // either end, on a clip and on a sound; which older versions must refuse to read.
+        val shaped = clips.mapNotNull { clip -> clip.audio?.let { it to clip.duration } } + sounds.mapNotNull { item -> item.audio?.let { it to item.duration } }
+        assertTrue(shaped.any { (sound, length) -> sound.fadeIn > length / 2 } && shaped.any { (sound, length) -> sound.fadeOut > length / 2 })
+        assertTrue(clips.any { it.audio?.fadeInElapsed != null } && clips.any { it.audio?.fadeOutElapsed != null })
+        assertTrue(sounds.any { it.audio?.fadeInElapsed != null && it.audio.fadeOut > 0 } && sounds.any { it.audio?.fadeOutElapsed != null })
+        assertTrue(clips.any { it.rate > 1 && (it.audio?.fadeIn ?: 0.0) > 0 })
+        assertTrue(GoldenProjects.all.any { it.project.schemaVersion == Project.LATEST_READABLE_SCHEMA })
         assertTrue(edits.any { edit -> edit.audio.orEmpty().any { it.end > edit.duration } })
         assertTrue(edits.any { edit -> edit.clips.indices.any { AudioUnlinking.isDetached(edit, it) && (AudioUnlinking.syncOffset(edit, it) ?: 0.0) != 0.0 } })
         assertTrue(clips.any { (it.audio?.denoise ?: 0.0) > 0 })

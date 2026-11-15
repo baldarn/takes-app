@@ -1,0 +1,61 @@
+== project.json
+{"schemaVersion":15,"id":"P-sound-fades","title":"Golden sound-fades","createdAt":1700000000000,"updatedAt":1700000000013,"sources":[{"id":"S1","filename":"take-1.mp4","duration":8.0,"recordedAt":1700000001000},{"id":"S2","filename":"take-2.mp4","duration":6.0,"recordedAt":1700000002000},{"id":"S3","filename":"sound-3.m4a","duration":30.0,"recordedAt":1700000003000,"audioOnly":true,"originalName":"Music 3.m4a"}],"historyCursor":10,"captureLedger":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":8.0},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":6.0}],"snapshotFiles":["baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json","6a209e75a865215c213314b143eacf7315456c50b328578ccdff702b04cf7cb0.json","244c532fe30a8fbd334a8e86b77c815fe86f0123a1bfdc5cdf77f80aacf157fb.json","4f2c6b3ed5744ad8aa519bc802ace7745299e88d1540b2281e4d9d7df1be8656.json","d8e64b3b6e5b64f7dc4dea14c8df4b81c114d8742db0c787f6b7b42bbfafb48e.json","9da788e5ef7e64a42560dcc9cce22921408de6561a0c5c889534f753b62144b2.json","af9896d4adcf5679080e85da3af6013a7d73b9cb8d9877114e7383b4678560d5.json","910442df147e750c6dda43a0e2a7bec9eac287a792cb459e135beb65b4f9baf5.json","a72de7f1ddf69a9c0ea855a386aad4a4d324674cd434803424df97bc44edad18.json","14b3b45d6c38fb4bf4808c1fd1a874b927f1c397a5d5fec3dbb0dd067d195888.json","5a54536344998d1300ecf36d51968bcf74096e8b6eff40101527980f29e4a0e1.json"],"exportSettings":{"codec":"H.264","resolution":"Project size","frameRate":30}}
+== history
+baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json
+6a209e75a865215c213314b143eacf7315456c50b328578ccdff702b04cf7cb0.json
+244c532fe30a8fbd334a8e86b77c815fe86f0123a1bfdc5cdf77f80aacf157fb.json
+4f2c6b3ed5744ad8aa519bc802ace7745299e88d1540b2281e4d9d7df1be8656.json
+d8e64b3b6e5b64f7dc4dea14c8df4b81c114d8742db0c787f6b7b42bbfafb48e.json
+9da788e5ef7e64a42560dcc9cce22921408de6561a0c5c889534f753b62144b2.json
+af9896d4adcf5679080e85da3af6013a7d73b9cb8d9877114e7383b4678560d5.json
+910442df147e750c6dda43a0e2a7bec9eac287a792cb459e135beb65b4f9baf5.json
+a72de7f1ddf69a9c0ea855a386aad4a4d324674cd434803424df97bc44edad18.json
+14b3b45d6c38fb4bf4808c1fd1a874b927f1c397a5d5fec3dbb0dd067d195888.json
+5a54536344998d1300ecf36d51968bcf74096e8b6eff40101527980f29e4a0e1.json
+== step 10 of 11
+{"state":{"clips":[{"id":"ID-00001","sourceID":"S1","start":0.5,"end":2.0,"audio":{"volumeDB":-6.5,"muted":false,"fadeIn":5.0,"fadeOut":0.0,"denoise":0.0,"fadeInElapsed":0.5}},{"id":"ID-00003","sourceID":"S1","start":2.0,"end":7.0,"audio":{"volumeDB":-6.5,"muted":false,"fadeIn":5.0,"fadeOut":2.0,"denoise":0.0,"fadeInElapsed":2.0,"fadeOutElapsed":1.0}},{"id":"ID-00004","sourceID":"S1","start":7.0,"end":8.0,"audio":{"volumeDB":-6.5,"muted":false,"fadeIn":0.0,"fadeOut":2.0,"denoise":0.0}},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":6.0,"audio":{"volumeDB":0.0,"muted":false,"fadeIn":1.5,"fadeOut":1.0,"denoise":0.0},"speed":{"id":"ID-00005","rate":4.0}}],"audio":[{"id":"ID-00006","sourceID":"S3","start":1.5,"sourceStart":1.5,"sourceEnd":25.0,"track":0,"audio":{"volumeDB":-12.0,"muted":false,"fadeIn":4.0,"fadeOut":20.0,"denoise":0.0,"fadeInElapsed":1.5,"fadeOutElapsed":5.0}}]},"captureCursor":2}
+== layout
+duration 9.000000000
+clip 0 ID-00001 from 0.000000000 for 1.500000000 overlaps 0.000000000 0.000000000 owns 0.000000000..1.500000000
+clip 1 ID-00003 from 1.500000000 for 5.000000000 overlaps 0.000000000 0.000000000 owns 1.500000000..6.500000000
+clip 2 ID-00004 from 6.500000000 for 1.000000000 overlaps 0.000000000 0.000000000 owns 6.500000000..7.500000000
+clip 3 ID-00002 from 7.500000000 for 1.500000000 overlaps 0.000000000 0.000000000 owns 7.500000000..9.000000000
+join 0 at 0.000000000 over 0.000000000..0.000000000 origin 0.000000000 factor 1.000000000 edge -1 from null to 0 maximum 1.500000000 | cut
+join 1 at 1.500000000 over 1.500000000..1.500000000 origin 1.500000000 factor 1.000000000 edge 0 from 0 to 1 maximum 1.500000000 | cut
+join 2 at 6.500000000 over 6.500000000..6.500000000 origin 6.500000000 factor 1.000000000 edge 0 from 1 to 2 maximum 1.000000000 | cut
+join 3 at 7.500000000 over 7.500000000..7.500000000 origin 7.500000000 factor 1.000000000 edge 0 from 2 to 3 maximum 1.000000000 | cut
+join 4 at 9.000000000 over 9.000000000..9.000000000 origin 9.000000000 factor 1.000000000 edge 1 from 3 to null maximum 1.500000000 | cut
+== plan
+duration 9.000000000 stacked false transitions drawn false
+chain 0 clips 0..3 over 0.000000000..9.000000000
+picture 0 ID-00001 of S1 at 0.000000000 for 1.500000000 footage 0.500000000..2.000000000 cut 500000..2000000us rate 1.000000000 chain 0 deck 0 color null crop null shaped true sound removed false
+  level 0.047315126 0.082801470 0.118287815 0.153774159 0.189260504
+picture 1 ID-00003 of S1 at 1.500000000 for 5.000000000 footage 2.000000000..7.000000000 cut 2000000..7000000us rate 1.000000000 chain 0 deck 0 color null crop null shaped true sound removed false
+  level 0.189260504 0.307548318 0.425836133 0.473151259 0.236575629
+picture 2 ID-00004 of S1 at 6.500000000 for 1.000000000 footage 7.000000000..8.000000000 cut 7000000..8000000us rate 1.000000000 chain 0 deck 0 color null crop null shaped true sound removed false
+  level 0.236575629 0.177431722 0.118287815 0.059143907 0.000000000
+picture 3 ID-00002 of S2 at 7.500000000 for 1.500000000 footage 0.000000000..6.000000000 cut 0..6000000us rate 4.000000000 chain 0 deck 0 color null crop null shaped true sound removed false
+  level 0.000000000 0.250000000 0.500000000 0.375000000 0.000000000
+deck 0 clips [0, 1, 2, 3] chains [0]
+deck 1 clips [] chains []
+sequence Picture 0: clip 0, clip 1, clip 2, clip 3
+sequence Soundtrack 0: gap@0.000000000:1500000us, sound ID-00006@1.500000000 for 7.500000000 file 1500000..9000000us
+sound ID-00006 level 0.094195741 0.251188643 0.210370489 0.136583825 0.062797161
+ending on deck 0 at 9.000000000
+moment 0.000000000: the first picture | first clip 0 on deck 0 at 0.000000000 | second clip 0 on deck 0 at 0.000000000 | titles 1.000000000 0.000000000
+moment 0.562500000: the first picture | first clip 0 on deck 0 at 0.562500000 | second clip 0 on deck 0 at 0.562500000 | titles 1.000000000 0.000000000
+moment 1.125000000: the first picture | first clip 0 on deck 0 at 1.125000000 | second clip 0 on deck 0 at 1.125000000 | titles 1.000000000 0.000000000
+moment 1.687500000: the first picture | first clip 1 on deck 0 at 0.187500000 | second clip 1 on deck 0 at 0.187500000 | titles 1.000000000 0.000000000
+moment 2.250000000: the first picture | first clip 1 on deck 0 at 0.750000000 | second clip 1 on deck 0 at 0.750000000 | titles 1.000000000 0.000000000
+moment 2.812500000: the first picture | first clip 1 on deck 0 at 1.312500000 | second clip 1 on deck 0 at 1.312500000 | titles 1.000000000 0.000000000
+moment 3.375000000: the first picture | first clip 1 on deck 0 at 1.875000000 | second clip 1 on deck 0 at 1.875000000 | titles 1.000000000 0.000000000
+moment 3.937500000: the first picture | first clip 1 on deck 0 at 2.437500000 | second clip 1 on deck 0 at 2.437500000 | titles 1.000000000 0.000000000
+moment 4.500000000: the first picture | first clip 1 on deck 0 at 3.000000000 | second clip 1 on deck 0 at 3.000000000 | titles 1.000000000 0.000000000
+moment 5.062500000: the first picture | first clip 1 on deck 0 at 3.562500000 | second clip 1 on deck 0 at 3.562500000 | titles 1.000000000 0.000000000
+moment 5.625000000: the first picture | first clip 1 on deck 0 at 4.125000000 | second clip 1 on deck 0 at 4.125000000 | titles 1.000000000 0.000000000
+moment 6.187500000: the first picture | first clip 1 on deck 0 at 4.687500000 | second clip 1 on deck 0 at 4.687500000 | titles 1.000000000 0.000000000
+moment 6.750000000: the first picture | first clip 2 on deck 0 at 0.250000000 | second clip 2 on deck 0 at 0.250000000 | titles 1.000000000 0.000000000
+moment 7.312500000: the first picture | first clip 2 on deck 0 at 0.812500000 | second clip 2 on deck 0 at 0.812500000 | titles 1.000000000 0.000000000
+moment 7.875000000: the first picture | first clip 3 on deck 0 at 0.375000000 | second clip 3 on deck 0 at 0.375000000 | titles 1.000000000 0.000000000
+moment 8.437500000: the first picture | first clip 3 on deck 0 at 0.937500000 | second clip 3 on deck 0 at 0.937500000 | titles 1.000000000 0.000000000
+moment 9.000000000: the first picture | first clip 3 on deck 0 at 1.500000000 | second clip 3 on deck 0 at 1.500000000 | titles 1.000000000 0.000000000

@@ -212,6 +212,23 @@ object GoldenProjects {
                 .join(2, transition("T-1", TransitionStyle.Dissolve))
                 .build(),
 
+            // Fades as the original keeps them: longer than half their item, cut by a split and by a trim so that what is left
+            // goes on from where the fade was, squeezed into a clip made faster; on clips and on a sound with both of its fades.
+            Builder("sound-fades").take(8.0).take(6.0).let { builder ->
+                val music = builder.sound(30.0)
+                builder
+                    .step { TimelineEditing.setAudio(it, 0, ClipAudio(volumeDB = -6.5, fadeIn = 5.0, fadeOut = 2.0)) }
+                    .step { TimelineEditing.split(it, 2.0) }
+                    .step { TimelineEditing.split(it, 7.0) }
+                    .step { TimelineEditing.setAudio(it, 3, ClipAudio(fadeIn = 3.0, fadeOut = 1.0)) }
+                    .step { TimelineEditing.setSpeed(it, 3, 4.0) }
+                    .step { TimelineEditing.addAudio(it, music, 30.0, 0.0) }
+                    .step { state -> TimelineEditing.setAudioItemSound(state, state.audio!!.single().id, ClipAudio(volumeDB = -12.0, fadeIn = 4.0, fadeOut = 20.0)) }
+                    .step { state -> TimelineEditing.trimAudio(state, state.audio!!.single().id, 1.5, leading = true) }
+                    .step { state -> TimelineEditing.trimAudio(state, state.audio!!.single().id, 25.0, leading = false) }
+                    .step { TimelineEditing.trim(it, 0, 0.5, 2.0, 8.0) }
+            }.build(),
+
             // Ranges taken out so that pieces one frame long are left, with a sound cut by the same ranges.
             Builder("range-one-frame").take(10.0).take(10.0).let { builder ->
                 val music = builder.sound(20.0)
