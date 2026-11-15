@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import android.view.RoundedCorner
+import android.view.View
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -120,6 +122,18 @@ private val ControlPlate = Color(0x85000000)
 private val LocalControlPlate = compositionLocalOf { ControlPlate }
 private val LitPlate = Color(FrontLight.PLATE_WHITE.toFloat(), FrontLight.PLATE_WHITE.toFloat(), FrontLight.PLATE_WHITE.toFloat())
 private val PausedYellow = Color(0xFFFFD60A)
+
+/**
+ * The haptics of the recorder, as in the original: a tick for each step of a control and for a zoom preset,
+ * a firmer one for Mark and for an assist. They follow the system's touch feedback setting and need no permission.
+ */
+internal fun View.tick() {
+    performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+}
+
+internal fun View.confirm() {
+    performHapticFeedback(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY)
+}
 
 private fun granted(context: Context, permission: String) =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
@@ -554,12 +568,13 @@ private fun Controls(capture: CaptureController) {
 private fun MarkButton(capture: CaptureController) {
     val enabled = capture.phase == Phase.Recording
     var acknowledged by remember { mutableStateOf(false) }
+    val view = LocalView.current
     LaunchedEffect(capture.marks) {
         if (capture.marks > 0) { acknowledged = true; delay(700); acknowledged = false }
     }
     Column(
         Modifier.size(52.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(15.dp)).background(LocalControlPlate.current)
-            .clickable(enabled = enabled, role = Role.Button, onClick = capture::bookmark),
+            .clickable(enabled = enabled, role = Role.Button) { capture.bookmark(); view.confirm() },
         Arrangement.Center, Alignment.CenterHorizontally,
     ) {
         Icon(if (acknowledged) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder, null, Modifier.size(22.dp), tint = Color.White)
