@@ -559,11 +559,11 @@
     <string name="subtitles_model_downloaded">Downloaded</string>
     <string name="subtitles_model_partly">%1$d of %2$d MB downloaded</string>
     <string name="subtitles_model_recommended">Recommended for this phone</string>
-    <string name="subtitles_model_note">A larger model makes fewer mistakes, needs more memory and takes longer.</string>
+    <string name="subtitles_model_note">A larger model makes fewer mistakes and needs more memory.</string>
     <string name="subtitles_model_remove">Remove %1$s</string>
     <string name="subtitles_model_use">Use %1$s · %2$d MB</string>
     <string name="subtitles_model_memory">This phone does not have enough free memory for %1$s right now. Close other apps and try again, or use a lighter model.</string>
-    <string name="subtitles_model_stopped">The app was closed while transcribing with %1$s, most likely because the phone ran out of memory. A lighter model is safer here.</string>
+    <string name="subtitles_model_stopped">The app closed while transcribing with %1$s. If you did not close it, the phone ran out of memory: a lighter model is safer here.</string>
     <string name="editor_add_video">Add video</string>
     <string name="add_video_title">Add at %1$s</string>
     <string name="add_video_unused">Unused takes (%1$d)</string>

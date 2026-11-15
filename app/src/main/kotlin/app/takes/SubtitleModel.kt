@@ -60,10 +60,7 @@ object SubtitleModel {
     fun totalMemory(context: Context): Long = memory(context)?.totalMem ?: 0
 
     /** Whether the phone has the memory free, at this moment, that recognizing with [model] takes. Unknown counts as yes. */
-    fun hasMemory(context: Context, model: SpeechModel): Boolean {
-        val free = memory(context)?.availMem ?: return true
-        return free >= model.bytes * WORKING_MEMORY_PER_BYTE
-    }
+    fun hasMemory(context: Context, model: SpeechModel): Boolean = memory(context)?.let { SpeechModels.fits(model, it.availMem) } ?: true
 
     /**
      * The model a transcription was loading or running when the app was last
@@ -74,7 +71,8 @@ object SubtitleModel {
 
     /** Notes that a job with [model] begins (written at once: the app may not live to write it later), or with null that it ended. */
     fun running(context: Context, model: SpeechModel?) {
-        prefs(context).edit().apply { if (model == null) remove(RUNNING) else putString(RUNNING, model.id) }.commit()
+        val edit = prefs(context).edit()
+        if (model == null) edit.remove(RUNNING).apply() else edit.putString(RUNNING, model.id).commit()
     }
 
     /** Bytes free where the model goes, less what an interrupted download already holds there. */
@@ -120,10 +118,6 @@ object SubtitleModel {
     private const val CHOSEN = "model"
     private const val RUNNING = "running"
     const val RESERVE = 20_000_000L
-
-    // Recognizing takes about this many bytes of memory for each byte of the model's files,
-    // on the phone it was measured on; see the speech module's README.
-    private const val WORKING_MEMORY_PER_BYTE = 1.5
 }
 
 /**
