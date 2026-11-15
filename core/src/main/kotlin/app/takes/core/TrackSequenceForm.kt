@@ -28,7 +28,7 @@ fun TrackTimeline.toSequence(): EditState? = TrackSequenceForm.sequence(this)
  *    transition naming a clip that is no longer next, an opening on a clip
  *    that a transition leads into;
  *  - every transition in play has its fit saved ([TimelineEditing.fitted]);
- *  - a fade is no longer than half its item, which is all that was heard of it;
+ *  - a fade that a cut left nothing behind says so by saying nothing: an elapsed part of 0 is null;
  *  - sound settings that say nothing, an empty list of bookmarks and an empty
  *    label are null; a sound item's noise reduction, which did nothing, is gone;
  *  - a sound item begins on a tick (it moves by at most half of one), or
@@ -119,7 +119,7 @@ object TrackSequenceForm {
     }
 
     private fun clipAudio(sound: AudioTimelineItem, denoise: Double): ClipAudio? =
-        ClipAudio(sound.volumeDB, sound.muted, TrackConversion.fadeSeconds(sound.fadeIn), TrackConversion.fadeSeconds(sound.fadeOut), denoise).takeIf { it != ClipAudio() }
+        TrackConversion.withFades(ClipAudio(sound.volumeDB, sound.muted, denoise = denoise), sound.fadeIn, sound.fadeOut).takeIf { it != ClipAudio() }
 
     /** The noise reduction a clip's sound stands for: 0 with no chain, the amount of the one stage of its one region, null for anything else. */
     private fun denoise(sound: AudioTimelineItem): Double? {

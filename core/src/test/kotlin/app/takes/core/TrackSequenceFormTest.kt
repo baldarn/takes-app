@@ -75,7 +75,7 @@ class TrackSequenceFormTest {
 
     @Test
     fun anEditWithNothingTheTimelineCannotTellApartComesBackEqual() {
-        // Built by the editor's own functions, with fits saved, fades within their half and no sound of their own to round.
+        // Built by the editor's own functions, with fits saved, and no sound of their own to round.
         for (name in listOf("empty", "one take", "plain", "unquantised", "shortened", "fades", "speed", "captions", "look", "clip sound") +
             TransitionStyle.entries.map { "transitions ${it.name}" }) {
             val state = TrackFixtures.all.getValue(name)
@@ -172,9 +172,22 @@ class TrackSequenceFormTest {
     }
 
     @Test
-    fun aFadeComesBackAsLongAsItWasHeard() {
-        val back = returned(EditState(listOf(a.copy(audio = ClipAudio(fadeIn = 10.0, fadeOut = 2.0)))))
-        assertEquals(ClipAudio(fadeIn = 6.25, fadeOut = 2.0), back.clips[0].audio)
+    fun aFadeComesBackAsItWasSaved() {
+        // Longer than half its clip, and longer than the clip: the same fade both ways.
+        val back = returned(EditState(listOf(a.copy(audio = ClipAudio(fadeIn = 10.0, fadeOut = 20.0)))))
+        assertEquals(ClipAudio(fadeIn = 10.0, fadeOut = 20.0), back.clips[0].audio)
+        // Cut by a split: what is behind the edge of each piece comes back with it.
+        val split = TimelineEditing.split(EditState(listOf(a.copy(audio = ClipAudio(volumeDB = -3.0, fadeIn = 4.0, fadeOut = 3.0)), b)), 1.0)!!
+        assertEquals(ClipAudio(volumeDB = -3.0, fadeIn = 4.0, fadeInElapsed = 1.0, fadeOut = 3.0), split.clips[1].audio)
+        assertEquals(split.clips.map { it.audio }, returned(split).clips.map { it.audio })
+        val twice = TimelineEditing.split(split, 11.0)!!
+        assertEquals(ClipAudio(volumeDB = -3.0, fadeIn = 4.0, fadeInElapsed = 1.0, fadeOut = 3.0, fadeOutElapsed = 1.5), twice.clips[1].audio)
+        assertEquals(twice.clips.map { it.audio }, returned(twice).clips.map { it.audio })
+        // And on a sound of its own.
+        val item = AudioItem(uuid(30), music.id, 4.5, 10.0, 25.0, audio = ClipAudio(fadeIn = 2.0, fadeInElapsed = 0.5, fadeOut = 20.0, fadeOutElapsed = 7.25))
+        assertEquals(item.audio, returned(EditState(listOf(a, b), audio = listOf(item))).audio!!.single().audio)
+        // An elapsed part of nothing is saved as none.
+        assertEquals(ClipAudio(fadeIn = 2.0), returned(EditState(listOf(a.copy(audio = ClipAudio(fadeIn = 2.0, fadeInElapsed = 0.0))))).clips[0].audio)
     }
 
     @Test
@@ -269,13 +282,14 @@ class TrackSequenceFormTest {
         refused(timeline.copy(bookmarks = timeline.bookmarks + TimelineBookmark("P", anchor = BookmarkAnchor.Project(ticks(1.0)))))
         refused(timeline.copy(bookmarks = timeline.bookmarks + TimelineBookmark("L", anchor = BookmarkAnchor.Local(a.id, ticks(1.0)))))
         refused(timeline.copy(bookmarks = timeline.bookmarks + TimelineBookmark("M", anchor = BookmarkAnchor.Source("gone", take.id, 1.0))))
-        // A sound cut on its own, in two runs, with a chain on part of it, a censor, or a fade already under way.
+        // A sound cut on its own, in two runs, with a chain on part of it, or a censor.
         refused(timeline.copy(audio = listOf(sound.copy(mapping = SourcePlaybackMap.single(sound.mapping.duration - ticks(1.0), 0.0, 11.5))) + timeline.audio.drop(1)))
         refused(timeline.copy(audio = listOf(sound.copy(mapping = SourcePlaybackMap(listOf(PlaybackRun(ticks(6.0), 0.0, 6.0), PlaybackRun(ticks(6.5), 6.0, 12.5))))) + timeline.audio.drop(1)))
         refused(timeline.copy(audio = listOf(sound.copy(enhancements = listOf(AudioEnhancementRegion(sound.id, EditInterval.of(0.0, 3.0), listOf(AudioEffect.make(AudioEffectKind.VoiceIsolation, sound.id)))))) + timeline.audio.drop(1)))
         refused(timeline.copy(audio = listOf(sound.copy(enhancements = listOf(AudioEnhancementRegion(sound.id, EditInterval(EditTime.ZERO, sound.mapping.duration), listOf(AudioEffect.make(AudioEffectKind.Gain, sound.id)))))) + timeline.audio.drop(1)))
         refused(timeline.copy(audio = listOf(sound.withCensors(listOf(AudioCensorRegion("X", EditInterval.of(1.0, 2.0), ticks(1.0), AudioCensorSettings())))) + timeline.audio.drop(1)))
-        refused(timeline.copy(audio = listOf(sound.copy(fadeIn = AudioEdgeFade(2.0, 0.5))) + timeline.audio.drop(1)))
+        // A fade already under way is one a clip can hold since a split keeps it.
+        assertEquals(ClipAudio(fadeIn = 2.0, fadeInElapsed = 0.5), timeline.copy(audio = listOf(sound.copy(fadeIn = AudioEdgeFade(2.0, 0.5))) + timeline.audio.drop(1)).toSequence()!!.clips[0].audio)
         // A sound of its own with words, at another speed, or a third one playing at once.
         val extra = AudioTimelineItem(id = uuid(30), occurrenceID = uuid(30), sourceID = music.id, start = ticks(1.0), mapping = SourcePlaybackMap.single(ticks(5.0), 0.0, 5.0))
         assertNotNull(timeline.copy(audio = timeline.audio + extra).toSequence())
