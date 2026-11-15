@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -82,6 +83,10 @@ internal fun MicrophonePill(capture: CaptureController, modifier: Modifier = Mod
     var open by remember { mutableStateOf(false) }
     val name = if (available) capture.microphone ?: stringResource(R.string.recorder_mic_phone) else stringResource(R.string.recorder_mic_none)
     val spoken = stringResource(R.string.recorder_mic_label, name)
+    // Under the meter there is room for a dozen letters: the phone's own microphone has a short name for it,
+    // and another name loses its middle, so the end that tells two devices apart stays.
+    val short = if (name == stringResource(R.string.recorder_mic_phone)) stringResource(R.string.recorder_mic_phone_short)
+        else name.replace("Microphone", "Mic", ignoreCase = true).replace("Microfono", "Mic", ignoreCase = true)
     val tint = if (available) Color.White else NoMicrophoneOrange
     val lit = LocalControlPlate.current != ControlPlate
     Box(modifier) {
@@ -98,8 +103,8 @@ internal fun MicrophonePill(capture: CaptureController, modifier: Modifier = Mod
                 if (available) MeterBars(capture)
             }
             Text(
-                name.replace("Microphone", "Mic").replace("Microfono", "Mic"), color = tint, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.width(64.dp).clearAndSetSemantics {},
+                short, color = tint, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.MiddleEllipsis, textAlign = TextAlign.Center, modifier = Modifier.widthIn(64.dp, 88.dp).clearAndSetSemantics {},
             )
         }
         DropdownMenu(open, { open = false }) { MicrophonePanel(capture) { open = false } }
