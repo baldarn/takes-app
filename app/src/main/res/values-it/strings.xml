@@ -499,6 +499,10 @@
     <string name="subtitles_language_arabic">Arabo</string>
     <string name="subtitles_transcribe">Trascrivi</string>
     <string name="subtitles_retranscribe">Trascrivi di nuovo</string>
+    <string name="subtitles_resume">Riprendi la trascrizione</string>
+    <string name="subtitles_paused">Trascrizione in pausa. Riprendi da qui per continuare dall\'ultima sezione completata.</string>
+    <string name="subtitles_apply_paused_title">Applicare le modifiche e scartare la trascrizione in pausa?</string>
+    <string name="subtitles_apply_paused_confirm">Applica le modifiche e chiudi</string>
     <string name="subtitles_download_note">Scarica una volta il riconoscimento vocale %1$s, poi usalo offline. Circa %2$d MB.</string>
     <string name="subtitles_download">Scarica il modello vocale · %1$d MB</string>
     <string name="subtitles_downloading">Download di %1$s… %2$d di %3$d MB</string>

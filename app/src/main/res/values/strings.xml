@@ -494,6 +494,10 @@
     <string name="subtitles_language_arabic">Arabic</string>
     <string name="subtitles_transcribe">Transcribe</string>
     <string name="subtitles_retranscribe">Re-transcribe</string>
+    <string name="subtitles_resume">Resume transcription</string>
+    <string name="subtitles_paused">Transcription paused. Resume here to continue from the last completed section.</string>
+    <string name="subtitles_apply_paused_title">Apply edits and discard paused transcription?</string>
+    <string name="subtitles_apply_paused_confirm">Apply edits and close</string>
     <string name="subtitles_download_note">Download %1$s speech recognition once, then use it offline. About %2$d MB.</string>
     <string name="subtitles_download">Download speech model · %1$d MB</string>
     <string name="subtitles_downloading">Downloading %1$s… %2$d of %3$d MB</string>

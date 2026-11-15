@@ -70,7 +70,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.core.EditState
+import app.takes.core.SubtitleCheckpoint
 import app.takes.core.SubtitleCue
 import app.takes.core.SubtitleEditing
 import app.takes.core.SubtitleFont
@@ -170,6 +174,10 @@ fun SubtitlesPanel(
     var askDiscard by remember { mutableStateOf(false) }
     var askRemoveModel by remember { mutableStateOf<SpeechModel?>(null) }
     var choosingModel by remember { mutableStateOf(false) }
+    // What a transcription had finished, saved after every piece; [paused] once the app leaving the screen stopped it.
+    var checkpoint by remember { mutableStateOf<SubtitleCheckpoint?>(null) }
+    var paused by remember { mutableStateOf(false) }
+    var askApplyPaused by remember { mutableStateOf(false) }
     val busy = job != null
 
     // A job ends long after it was started: it must reach the draft as it is then.
@@ -246,37 +254,59 @@ fun SubtitlesPanel(
             }
         }
     }
-    val transcribe = {
+    val transcribe = { resuming: Boolean ->
         val spoken = language
         val with = model
+        val from = checkpoint.takeIf { resuming }
         selected = null
+        paused = false
+        checkpoint = null
         run(SubtitleTranscriber.Step.Reading) {
             try {
-                val result = SubtitleTranscriber.transcribe(context, with, latest.clips, files, Languages.first { it.first == spoken }.second) { fraction, at ->
+                val result = SubtitleTranscriber.transcribe(context, with, latest.clips, files, Languages.first { it.first == spoken }.second, from, { checkpoint = it }) { fraction, at ->
                     progress = fraction
                     step = at
                 }
                 Log.i("Subtitles", "%s loaded in %.1f s; %.1f s of speech recognized in %.1f s".format(with.name, result.loadingSeconds, result.speechSeconds, result.recognizingSeconds))
+                checkpoint = null
                 onChange(SubtitleEditing.install(latest, result.words, spoken))
             } catch (stopped: CancellationException) {
+                if (!paused) checkpoint = null // a stop asked for keeps nothing
                 throw stopped
             } catch (problem: SubtitleTranscriber.Failure) {
+                checkpoint = null
                 failure = reasons[problem.reason]
                 // Too large for this phone, or broken: the smaller model is one tap away.
                 if (problem.reason == SubtitleTranscriber.Failure.Reason.Memory || problem.reason == SubtitleTranscriber.Failure.Reason.Model) lighter = SpeechModels.lighter(with)
             } catch (problem: Exception) {
+                checkpoint = null
                 failure = transcribeFailed.format(problem.message ?: unknown)
             }
         }
     }
+    // Leaving the screen stops a transcription after the piece in hand, keeping what is done, as the original
+    // does on going to the background (YouRec/SubtitleEditor.swift:150-157): the tool then offers to resume.
+    val owner = LocalLifecycleOwner.current
+    val transcribing by rememberUpdatedState(job != null && step != null)
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && transcribing) {
+                paused = true
+                job?.cancel()
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
     val stop = {
         job?.let {
             stopping = true
+            paused = false
             it.cancel()
         }
         Unit
     }
-    val leave = { if (busy || draft != saved) askDiscard = true else close() }
+    val leave = { if (busy || paused || draft != saved) askDiscard = true else close() }
     val edit = { cue: SubtitleCue, inAll: Boolean ->
         editingInAll = inAll
         editing = cue
@@ -315,7 +345,7 @@ fun SubtitlesPanel(
             if (editing != null) {
                 Button(onClick = saveText) { Text(stringResource(R.string.subtitles_save_text)) }
             } else {
-                Button(onClick = apply, enabled = !busy) { Text(stringResource(R.string.subtitles_apply)) }
+                Button(onClick = { if (paused) askApplyPaused = true else apply() }, enabled = !busy) { Text(stringResource(R.string.subtitles_apply)) }
             }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), list, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -349,17 +379,23 @@ fun SubtitlesPanel(
                                 }
                                 DropdownMenu(choosing, onDismissRequest = { choosing = false }) {
                                     for ((name, _) in Languages) {
-                                        DropdownMenuItem(text = { Text(stringResource(languageLabel(name))) }, onClick = { language = name; choosing = false })
+                                        DropdownMenuItem(text = { Text(stringResource(languageLabel(name))) }, onClick = {
+                                            // Another language starts again from the first piece.
+                                            if (name != language) { paused = false; checkpoint = null }
+                                            language = name
+                                            choosing = false
+                                        })
                                     }
                                 }
                             }
                             if (installed) {
-                                Button(onClick = { if (cues.isEmpty()) { transcribe() } else { askReplace = true } }, enabled = draft.clips.isNotEmpty() && editing == null) {
+                                Button(onClick = { if (paused) transcribe(true) else if (cues.isEmpty()) transcribe(false) else askReplace = true }, enabled = draft.clips.isNotEmpty() && editing == null) {
                                     Icon(Icons.Outlined.Subtitles, null, Modifier.size(18.dp))
-                                    Text(stringResource(if (cues.isEmpty()) R.string.subtitles_transcribe else R.string.subtitles_retranscribe), modifier = Modifier.padding(start = 6.dp))
+                                    Text(stringResource(if (paused) R.string.subtitles_resume else if (cues.isEmpty()) R.string.subtitles_transcribe else R.string.subtitles_retranscribe), modifier = Modifier.padding(start = 6.dp))
                                 }
                             }
                         }
+                        if (paused) Text(stringResource(R.string.subtitles_paused), color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
                         if (!installed) {
                             Text(stringResource(R.string.subtitles_download_note, model.name, megabytes), color = Soft, fontSize = 14.sp)
                             // On a connection that counts the data used, such as mobile data, the person is asked first.
@@ -493,11 +529,15 @@ fun SubtitlesPanel(
     )
     if (askReplace) Confirm(
         stringResource(R.string.subtitles_replace_title), null, stringResource(R.string.subtitles_retranscribe), stringResource(R.string.common_cancel),
-        confirm = { askReplace = false; transcribe() }, dismiss = { askReplace = false },
+        confirm = { askReplace = false; transcribe(false) }, dismiss = { askReplace = false },
     )
     if (askRemoveAll) Confirm(
         stringResource(R.string.subtitles_remove_all_title), null, stringResource(R.string.subtitles_remove_all), stringResource(R.string.common_cancel), destructive = true,
         confirm = { askRemoveAll = false; selected = null; change(SubtitleEditing.remove(draft)) }, dismiss = { askRemoveAll = false },
+    )
+    if (askApplyPaused) Confirm(
+        stringResource(R.string.subtitles_apply_paused_title), null, stringResource(R.string.subtitles_apply_paused_confirm), stringResource(R.string.subtitles_keep_editing), destructive = true,
+        confirm = { askApplyPaused = false; apply() }, dismiss = { askApplyPaused = false },
     )
     if (askDiscard) Confirm(
         stringResource(R.string.subtitles_discard_title), null, stringResource(R.string.subtitles_discard_confirm), stringResource(R.string.subtitles_keep_editing), destructive = true,

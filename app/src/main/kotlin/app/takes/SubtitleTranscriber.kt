@@ -3,10 +3,12 @@ package app.takes
 import android.content.Context
 import android.os.SystemClock
 import app.takes.core.SourceInterval
+import app.takes.core.SubtitleCheckpoint
 import app.takes.core.SubtitleEditing
 import app.takes.core.SubtitleScratch
 import app.takes.core.SubtitleSpeechAudio
 import app.takes.core.SubtitleSpeechPlan
+import app.takes.core.SubtitleStretch
 import app.takes.core.SubtitleTiming
 import app.takes.core.SubtitleWord
 import app.takes.core.TimelineClip
@@ -74,9 +76,14 @@ object SubtitleTranscriber {
      * [language] is a two-letter code, or null to detect it: then every piece is
      * recognized without a hint, as the original does, and the model decides
      * piece by piece. Cancelling the coroutine stops between two pieces.
+     *
+     * After every piece what is done is handed to [save]; a job given that
+     * [resume] skips the pieces it had finished, when the footage, the
+     * language and the pieces are still the same ([SubtitleCheckpoint.reusable]).
      */
     suspend fun transcribe(
-        context: Context, model: SpeechModel, clips: List<TimelineClip>, files: Map<String, File>, language: String?, progress: (Float, Step) -> Unit,
+        context: Context, model: SpeechModel, clips: List<TimelineClip>, files: Map<String, File>, language: String?,
+        resume: SubtitleCheckpoint? = null, save: (SubtitleCheckpoint) -> Unit = {}, progress: (Float, Step) -> Unit,
     ): Result = withContext(working) {
         val job = coroutineContext
         val stretches = SubtitleEditing.stretches(clips)
@@ -127,17 +134,23 @@ object SubtitleTranscriber {
                 throw Failure(Failure.Reason.Memory)
             }
             val loaded = (SystemClock.elapsedRealtime() - loading) / 1000.0
+            val plan = pieces.map { SubtitleStretch(it.source, it.range.start, it.range.end) }
+            val skipped = SubtitleCheckpoint.reusable(resume, stretches, language, plan)
+            val kept = resume?.takeIf { skipped > 0 }
             val words = mutableMapOf<String, MutableList<SubtitleWord>>()
-            var written = ""
-            val total = pieces.sumOf { it.range.duration }
+            kept?.words?.forEach { (source, list) -> words[source] = list.toMutableList() }
+            var written = kept?.written ?: ""
+            val before = pieces.take(skipped).sumOf { it.range.duration } // what the checkpoint had done
+            val total = pieces.drop(skipped).sumOf { it.range.duration }
             var done = 0.0
             val started = SystemClock.elapsedRealtime()
             fun elapsed() = (SystemClock.elapsedRealtime() - started) / 1000.0
             try {
                 pieces.forEachIndexed { index, piece ->
+                    if (index < skipped) return@forEachIndexed
                     job.ensureActive()
                     val rate = if (done > 0) elapsed() / done else pace
-                    progress(READING + (1 - READING) * (done / total).toFloat(), Step.Section(index + 1, pieces.size, rate?.let { it * (total - done) }))
+                    progress(READING + (1 - READING) * ((before + done) / (before + total)).toFloat(), Step.Section(index + 1, pieces.size, rate?.let { it * (total - done) }))
                     val sound = sounds.getValue(piece.source)
                     val transcript = recognizer.transcribe(samples(sound, piece.range), RATE, language)
                     if (written.isEmpty()) written = transcript.language
@@ -149,6 +162,7 @@ object SubtitleTranscriber {
                     }
                     done += piece.range.duration
                     pace = elapsed() / done
+                    save(SubtitleCheckpoint(stretches, language, plan, index + 1, words.mapValues { it.value.toList() }, written))
                 }
             } catch (problem: OutOfMemoryError) {
                 throw Failure(Failure.Reason.Memory)
