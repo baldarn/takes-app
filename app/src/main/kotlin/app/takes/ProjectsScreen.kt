@@ -173,7 +173,8 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
             onDismissRequest = { renaming = null },
             title = { Text(stringResource(R.string.projects_rename_title)) },
             text = { OutlinedTextField(title, { title = it.take(120) }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { store.rename(project, title); renaming = null }) { Text(stringResource(R.string.projects_rename)) } },
+            // As in the original, an empty or blank name cannot be saved.
+            confirmButton = { TextButton(onClick = { store.rename(project, title); renaming = null }, enabled = title.isNotBlank()) { Text(stringResource(R.string.projects_rename)) } },
             dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
@@ -205,7 +206,9 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
         Row(verticalAlignment = Alignment.CenterVertically) {
             Thumbnail(project.recordings.firstOrNull()?.let { store.file(project, it) })
             Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                // As in the original, tapping the title renames the project.
+                Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2,
+                    modifier = Modifier.clickable(onClickLabel = stringResource(R.string.projects_rename_named, project.title), onClick = rename))
                 Text(summary(project), color = Muted, fontSize = 13.sp)
                 Text(dateLabel(project.updatedAt), color = Muted, fontSize = 12.sp)
             }

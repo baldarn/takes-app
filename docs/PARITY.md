@@ -62,7 +62,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | New project | O/ContentView.swift:629 | DONE | A/ProjectsScreen.kt:123, A/ProjectStore.kt:100 | — | | |
 | Project list sorted by last update | O/ProjectStore.swift:328 | DONE | A/ProjectStore.kt:418 | — | | |
 | Card: thumbnail, title, takes and duration | O/ContentView.swift:636-678 | PARTIAL | A/ProjectsScreen.kt:198-209, 254-276 | Summary shows captured duration, not edited duration; no count of audio files; no mark on the selected project | S | Yes |
-| Rename (120 chars) | O/ContentView.swift:493-505 | PARTIAL | A/ProjectsScreen.kt:169-178, A/ProjectStore.kt:108 | Rename by tapping the title; empty title not blocked in the dialog | S | Yes |
+| Rename (120 chars) | O/ContentView.swift:493-505 | DONE | A/ProjectsScreen.kt (rename dialog, tap on the title), A/ProjectStore.kt (`rename`) | — | | |
 | Continue recording / Edit buttons on the card | O/ContentView.swift:591-622 | DONE | A/ProjectsScreen.kt:213-217 | — | | |
 | Export from the project card | O/ContentView.swift:598, O/MovieExportPanel.swift:212 | MISSING | Export only from the editor (A/EditorScreen.kt:614) | Export icon on the card | S | Yes |
 | Duplicate project with history | O/ProjectStore.swift:600-626, O/ProjectArchive.swift:178-217 | DONE | A/ProjectsScreen.kt:225, A/ProjectStore.kt:370, C/ProjectDuplicate.kt | — | | |
