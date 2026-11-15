@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
                     Column(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (tab) {
-                                0 -> RecorderScreen(app.capture, app.store)
+                                0 -> RecorderScreen(app.capture, app.store) { tab = 2 }
                                 1 -> ProjectsScreen(app.store, Modifier.statusBarsPadding()) { project, destination ->
                                     app.store.select(project.id)
                                     // "Continue recording" always means at the end.

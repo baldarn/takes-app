@@ -111,6 +111,8 @@ class CaptureController(private val context: Context, private val store: Project
     /** The user's choice for this session; null leaves the choice to the system. */
     var chosenMicrophone by mutableStateOf<MicrophoneChoice?>(null); private set
     var microphoneWarning by mutableStateOf<String?>(null); private set
+    /** Called when a take recorded into the middle of an edit has ended: the original returns to the editor then. */
+    var onInsertionEnded: (() -> Unit)? = null
     /** Bookmarks placed in the current take. */
     var marks by mutableStateOf(0); private set
 
@@ -466,7 +468,9 @@ class CaptureController(private val context: Context, private val store: Project
 
     private fun reset() {
         // Stop ends a run of takes recorded into the middle of an edit.
-        (segmentProject ?: store.selectedID)?.let(store::recordAtEnd)
+        val projectID = segmentProject ?: store.selectedID
+        val inserted = store.projects.firstOrNull { it.id == projectID }?.recordingInsertion != null
+        projectID?.let(store::recordAtEnd)
         phase = Phase.Idle
         // The phone may have been turned during the take.
         followDevice()
@@ -475,6 +479,7 @@ class CaptureController(private val context: Context, private val store: Project
         finished = 0.0
         elapsed = 0.0
         level = 0f
+        if (inserted) onInsertionEnded?.invoke()
     }
 
     private fun handle(current: Segment, event: VideoRecordEvent) {

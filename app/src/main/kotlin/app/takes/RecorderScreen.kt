@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -31,9 +32,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,10 +48,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -73,8 +81,9 @@ private val Scrim = Color(0x99000000)
 private fun granted(context: Context, permission: String) =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
+/** [openEditor] is the way back after a take recorded into the middle of an edit, and from its chip. */
 @Composable
-fun RecorderScreen(capture: CaptureController, store: ProjectStore) {
+fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: () -> Unit) {
     val context = LocalContext.current
     var cameraGranted by remember { mutableStateOf(granted(context, Manifest.permission.CAMERA)) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -97,6 +106,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore) {
 
     val owner = LocalLifecycleOwner.current
     val view = LocalView.current
+    val backToEditor by rememberUpdatedState(openEditor)
     val previewView = remember {
         // Show the whole recorded frame, never a crop of it.
         PreviewView(context).apply { scaleType = PreviewView.ScaleType.FIT_CENTER }
@@ -115,9 +125,12 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore) {
         }
         owner.lifecycle.addObserver(observer)
         view.keepScreenOn = true
+        capture.onInsertionEnded = { backToEditor() }
         onDispose {
             owner.lifecycle.removeObserver(observer)
             view.keepScreenOn = false
+            // Leaving by a tab ends a paused take too, and the tab chosen is where the person goes.
+            capture.onInsertionEnded = null
             capture.detach()
         }
     }
@@ -129,10 +142,11 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore) {
     ) {
         AndroidView({ previewView }, Modifier.fillMaxSize())
         Status(capture, store, Modifier.align(Alignment.TopCenter).statusBarsPadding())
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp)) {
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            ProjectChip(capture, store, openEditor)
             ZoomRow(capture)
             CameraRow(capture)
-            Controls(capture, store)
+            Controls(capture)
         }
         Notice(capture.message, Modifier.align(Alignment.Center)) { capture.message = null }
     }
@@ -160,7 +174,6 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
         val project = store.selected
         Text(
             (project?.let { "${it.title} · ${timeLabel(it.capturedDuration)}" } ?: stringResource(R.string.recorder_new_project)) +
-                (project?.recordingInsertion?.let { " · " + stringResource(R.string.recorder_inserting_at, timeLabel(it)) } ?: "") +
                 " · " + if (capture.landscape) stringResource(R.string.recorder_landscape) else stringResource(R.string.recorder_portrait),
             color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp).background(Scrim, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
@@ -197,6 +210,41 @@ private fun Chip(label: String, selected: Boolean, modifier: Modifier = Modifier
         label, color = if (selected) Color.Black else Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
         modifier = modifier.background(if (selected) Color.White else Scrim, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 10.dp),
     )
+}
+
+/**
+ * Where the takes go, above the cameras as in the original. During a run started with "Record here" it names
+ * the place and is the way back to the editor; otherwise it starts a new project once this one has footage.
+ */
+@Composable
+private fun ProjectChip(capture: CaptureController, store: ProjectStore, openEditor: () -> Unit) {
+    val project = store.selected ?: return
+    val insertion = project.recordingInsertion
+    if (insertion != null) {
+        ProjectAction(stringResource(R.string.recorder_insert_back, timeLabel(insertion)), Icons.AutoMirrored.Filled.Undo, !capture.hasActiveTake) {
+            // A paused take ends here, which closes the run and opens the editor by itself.
+            if (capture.phase == Phase.Paused) capture.finishTake() else { store.recordAtEnd(project.id); openEditor() }
+        }
+    } else if (project.sources.isNotEmpty() && !capture.hasActiveTake) {
+        ProjectAction(stringResource(R.string.recorder_new_project), Icons.Filled.Add, true) {
+            // A paused take belongs to the project being left.
+            capture.finishTake()
+            store.create()
+        }
+    }
+}
+
+@Composable
+private fun ProjectAction(label: String, icon: ImageVector, enabled: Boolean, action: () -> Unit) {
+    Row(
+        Modifier.padding(bottom = 2.dp).alpha(if (enabled) 1f else 0.4f).heightIn(min = 44.dp)
+            .clickable(enabled = enabled, role = Role.Button, onClick = action).padding(vertical = 6.dp)
+            .background(Color(0x47000000), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(14.dp), tint = Color.White)
+        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 /** The input for the next segment. A running segment keeps its microphone, so this hides while recording. */
@@ -266,19 +314,12 @@ private fun CameraRow(capture: CaptureController) {
 }
 
 @Composable
-private fun Controls(capture: CaptureController, store: ProjectStore) {
+private fun Controls(capture: CaptureController) {
     val phase = capture.phase
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.SpaceEvenly, Alignment.CenterVertically) {
         Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
             if (phase == Phase.Recording || phase == Phase.Paused) {
                 TextButton(onClick = capture::finishTake) { Text(stringResource(R.string.recorder_stop), fontSize = 17.sp) }
-            }
-            // "Record here" was chosen in the editor: this is the way back to recording at the end.
-            val inserting = store.selected?.takeIf { it.recordingInsertion != null }
-            if (phase == Phase.Idle && inserting != null) {
-                TextButton(onClick = { store.recordAtEnd(inserting.id) }) {
-                    Text(stringResource(R.string.recorder_at_end), fontSize = 15.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
             }
         }
         val pausing = phase == Phase.Recording
@@ -305,9 +346,6 @@ private fun Controls(capture: CaptureController, store: ProjectStore) {
             }
         }
         Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
-            if (phase == Phase.Idle && store.selected?.sources?.isNotEmpty() == true) {
-                TextButton(onClick = { store.create() }) { Text(stringResource(R.string.recorder_new_project), fontSize = 15.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-            }
             // One tap marks the moment without interrupting the take.
             if (phase == Phase.Recording) {
                 TextButton(onClick = capture::bookmark) { Text(if (capture.marks == 0) stringResource(R.string.recorder_mark) else stringResource(R.string.recorder_mark_count, capture.marks), fontSize = 17.sp) }

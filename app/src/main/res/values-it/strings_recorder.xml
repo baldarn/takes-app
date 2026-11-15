@@ -8,6 +8,10 @@
     <string name="recorder_report_copy">Copia</string>
     <string name="recorder_report_copied">Copiato</string>
     <string name="recorder_report_clip_label">Rapporto camere di Takes</string>
+
+    <!-- Where the takes go: the chip above the cameras during a run started with "Record here". -->
+    <string name="recorder_insert_back">Inserisci a %1$s · Torna all\'editor</string>
+
     <!-- The take: what pauses it and what the person is told. -->
     <string name="recorder_paused_microphone_taken">Un\'altra app sta usando il microfono. La registrazione è in pausa; riprendi quando il microfono è libero.</string>
 </resources>
