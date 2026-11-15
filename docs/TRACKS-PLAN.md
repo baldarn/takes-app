@@ -34,7 +34,7 @@ Two probes are used below:
 | S1 | The model, conversion both ways, invariants, in new core files | no | L | 4–6 |
 | S2 | The editing operations on the model; the present functions become wrappers where they agree | no | L | 10–15 |
 | S3a | Preview and export are built from the converted timeline; the saved format is unchanged | no | L | 2–3 |
-| S3b | The app saves the timeline (schema 14) | no | L | 4–6 |
+| S3b | The app saves the timeline (schema 15: 14 was taken after this plan by the rotated and animated crop) | no | L | 4–6 |
 | S4 | Transitions stay with their clips; trim as the original; range edges inside transitions | yes | M–L | 2–4 |
 | S5 | Sound lanes: any number of sounds, mixed by one audio engine | yes | L | 8–12 |
 | S6 | Selecting picture or sound, Unlink/Link, gaps, Close gap, Restore sync | yes | L | 6–10 |
@@ -700,6 +700,7 @@ Three small things that are not on that list and are cheaper before:
 - **The JSON Swift writes** for a dictionary keyed by UUID, a set, and an enum with values (3.6) is stated from the language's rules. No saved iOS project was available, and there is no Swift toolchain on the machine this was written on.
 - **Schema 1, 3 and 4 of the original**: its repository has one commit.
 - **The original's tests** were read, not run. Line numbers of tests are those of the assertions.
+- **Schema 14 is taken** (a crop with a rotation or a motion, on `main` since 0.8 was started), so wherever this plan says 14 for the track timeline, read 15.
 - **Branches other than `main`** were not read. Whether 0.7 has taken schema 14, and whether unlinking has reached the editor there, is not known here; 3.2 covers the unlinked shape either way.
 - **Every number about a device** — decoders, texture size, time to save, time to open — is absent or an estimate. The byte sizes in 3.5 and 7.2 are counted from the JSON shapes, not measured.
 - **Whether a video sequence of gaps only can be exported** (5.2).
