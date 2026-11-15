@@ -143,6 +143,9 @@ import app.takes.core.TimelineNavigation
 import app.takes.core.TimelineSnapping
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TrackRenderPlan
+import app.takes.core.EffectValue
+import app.takes.core.VideoEffectID
+import app.takes.core.VideoEffectSettings
 import app.takes.core.TransitionAxis
 import app.takes.core.TransitionDefaults
 import app.takes.core.TransitionFraming
@@ -164,6 +167,11 @@ private val Muted = Color(0xFFA0A4AB)
 internal val TitleColor = Color(0xFFFFD54A)
 internal val BookmarkColor = Color(0xFFFF7A45)
 
+/** The Color Correction a development build puts on a clip to compare the preview with the export. */
+private fun triedCorrection(): VideoEffectSettings =
+    mapOf("exposure" to 0.3, "contrast" to 1.25, "shadows" to 0.2, "temperature" to 0.5, "saturation" to 1.5, "hue" to 12.0)
+        .entries.fold(VideoEffectSettings(VideoEffectID.ColorCorrection)) { effect, (id, value) -> effect.with(id, EffectValue.Number(value)) }
+
 internal fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
     return "%d:%02d.%d".format(tenths / 600, tenths / 10 % 60, tenths % 10)
@@ -184,6 +192,7 @@ fun EditorScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier = M
 @Composable
 private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, modifier: Modifier, record: () -> Unit) {
     val context = LocalContext.current
+    val debuggable = remember(context) { (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
     val owner = LocalLifecycleOwner.current
     // The Transition tool: the join it is working on and the settings not saved yet. The whole
     // editor shows the timeline as it would be with them, since a transition moves what follows it.
@@ -409,8 +418,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         value = withContext(Dispatchers.IO) { project.recordings.mapNotNull { source -> frameRate(store.file(project, source))?.let { source.id to it } }.toMap() }
     }
     val ceiling = project.exportSettings.frameRate
-    val frames = remember(clips, rates, ceiling) {
-        val movie = plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling).toDouble()
+    val movieRate = remember(clips, rates, ceiling) { plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling).toDouble() }
+    val frames = remember(movieRate) {
+        val movie = movieRate
         val rate: (TransitionLayout.Join) -> Double = { movie }
         rate
     }
@@ -548,10 +558,23 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
             Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).clipToBounds().onGloballyPositioned { previewBounds = it.boundsInWindow() }) {
-                val effects = deckColors.map { color ->
+                val grades = deckColors.map { color ->
                     remember(color, folder) {
-                        if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder).asComposeRenderEffect() else null
+                        if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder) else null
                     }
+                }
+                // The video effects after the color, as the export draws them: at the source second the deck shows.
+                val effectPreviews = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) List(2) { EffectPreview() } else null }
+                val effects = List(2) { deck ->
+                    val grade = grades[deck]
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List grade?.asComposeRenderEffect()
+                    val shaded = deckClips[deck]?.let { index ->
+                        val clip = plan.clips[index]
+                        val offset = (playhead - plan.pictures[index].start).coerceIn(0.0, clip.duration)
+                        val passes = EffectShader.passes(clip.videoEffects, clip.sourceTime(offset), movieRate)
+                        previewBounds?.takeIf { passes.isNotEmpty() }?.let { effectPreviews?.get(deck)?.effect(passes, it.width, it.height) }
+                    }
+                    (if (shaded != null && grade != null) android.graphics.RenderEffect.createChainEffect(shaded, grade) else shaded ?: grade)?.asComposeRenderEffect()
                 }
                 // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
                 val content = { index: Int, frame: FrameSize -> RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = cropOf(index).first != null) }
@@ -1047,6 +1070,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val scopeHasClips = toolScope == null || toolSubject != null
                 TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
                 TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
+                // Development builds only, until the editor has video effects: a fixed Color Correction on the clip under the playhead, or none again.
+                if (debuggable) TextButton(onClick = {
+                    location?.let { at ->
+                        val tried = if (clips[at.index].videoEffects.isNullOrEmpty()) listOf(triedCorrection()) else null
+                        commit(TimelineEditing.setVideoEffects(edit, at.index, tried), playhead)
+                    }
+                }, compact, enabled = location != null, contentPadding = tight) { Text("FX") }
                 TextButton(onClick = {
                     editor.pause()
                     // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.

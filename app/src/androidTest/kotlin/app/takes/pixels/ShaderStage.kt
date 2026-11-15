@@ -3,6 +3,7 @@
 package app.takes.pixels
 
 import android.content.Context
+import android.opengl.EGL14
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
@@ -30,7 +31,12 @@ import kotlin.math.roundToLong
 /** A graphics context with no window, made current on the thread that makes it: real OpenGL ES, off screen. */
 class Bench(val context: Context) {
     private val display: EGLDisplay = GlUtil.getDefaultEglDisplay()
-    private val egl: EGLContext = GlUtil.createEglContext(display)
+    // OpenGL ES 3 where there is one, then 2, as Media3 makes the context of an export.
+    private val egl: EGLContext = try {
+        GlUtil.createEglContext(EGL14.EGL_NO_CONTEXT, display, 3, GlUtil.EGL_CONFIG_ATTRIBUTES_RGBA_8888)
+    } catch (_: GlUtil.GlException) {
+        GlUtil.createEglContext(display)
+    }
     private val surface: EGLSurface = GlUtil.createFocusedPlaceholderEglSurface(egl, display)
     val objects = DefaultGlObjectsProvider()
 
