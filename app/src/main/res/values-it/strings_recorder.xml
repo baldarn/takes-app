@@ -81,6 +81,13 @@
     <!-- Picture format: quality, colour, stabilisation and the two mirror switches. Each shows only where a camera has it. -->
     <string name="recorder_format_reduced">Questa camera non è riuscita a partire con tutte le impostazioni richieste. Si registra senza HDR o senza stabilizzazione.</string>
     <string name="recorder_camera_1080_only">%1$s · solo 1080p</string>
+    <string name="recorder_assist_title">Assistente della camera</string>
+    <string name="recorder_assist_explain">Spiega l\'impostazione</string>
+    <string name="recorder_stabilize">Stabilizza</string>
+    <string name="recorder_stabilize_active">Camera stabilizzata</string>
+    <string name="recorder_stabilize_inactive">Stabilizzazione non attiva</string>
+    <string name="recorder_stabilize_unavailable">Stabilizzazione non disponibile per questa camera</string>
+    <string name="recorder_stabilize_help">La stabilizzazione della camera del telefono riduce il tremolio della mano e ritaglia leggermente l\'immagine. Sceglila prima di registrare o durante una pausa.</string>
     <string name="recorder_settings_picture">Immagine</string>
     <string name="recorder_mirror_preview">Anteprima selfie a specchio</string>
     <string name="recorder_mirror_recording">Salva i selfie specchiati</string>
