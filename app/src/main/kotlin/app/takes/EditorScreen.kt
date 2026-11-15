@@ -53,6 +53,7 @@ import kotlin.math.log10
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import app.takes.core.AudioGainDrag
 import app.takes.core.AudioItem
 import app.takes.core.AudioLevels
 import android.net.Uri
@@ -89,6 +90,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import android.app.Activity
 import android.content.ContextWrapper
 import android.os.Handler
@@ -911,6 +913,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var findingPauses by remember { mutableStateOf(false) }
     var editingColor by remember { mutableStateOf(false) }
     var editingAudio by remember { mutableStateOf(false) }
+    var leveling by remember { mutableStateOf<Leveling?>(null) }
+    val levelMeasuring = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
     var chosenSound by remember { mutableStateOf<String?>(null) }   // the audio item being edited
     var shapingSound by remember { mutableStateOf(false) }
     val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -1061,8 +1065,69 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         cleaningProgress?.let {
             Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
+        // A level being chosen by dragging a waveform up or down: the original's quick volume (EditorTimeline.swift:609-687).
+        val leveled = leveling
+        val levelChanged = stringResource(R.string.sound_level_changed)
+        val levelGesture = LevelGesture(
+            begin = begin@{ clip, sound, time ->
+                if (subtitling != null || titling != null || transitioning != null || cropping != null || trim != null) return@begin false
+                // The marked range or the whole selection when the finger goes down inside it; else the one waveform under it,
+                // which becomes what is selected.
+                val ranged = toolScope?.takeIf { marks.range?.let { clip != null && time >= it.start && time < it.end } == true && marks.rangeTargets?.clips?.contains(clip) != false && it.clips.isNotEmpty() }
+                val selected = marks.range == null && marks.start == null && (clip != null && clip in marks.selected.clips || sound != null && sound in marks.selected.audio)
+                val base = ranged?.state ?: edit
+                val targets = when {
+                    ranged != null -> soundTargets(base, ranged.clips, emptyList(), { "" }) { "" }
+                    selected -> soundTargets(base, marks.selected.clips, marks.selected.audio, { "" }) { "" }
+                    else -> soundTargets(base, listOfNotNull(clip), listOfNotNull(sound), { "" }) { "" }
+                }
+                if (targets.isEmpty()) return@begin false
+                if (ranged == null && !selected) marks = marks.selecting(clip, sound)
+                view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                leveling = Leveling(base, targets, AudioGainDrag.begin(targets.map { it.audio.volumeDB }))
+                // How far the level can go, for the warning beside the finger: measured while the drag goes on.
+                levelMeasuring.set(scope.launch {
+                    val measured = try { Headroom.measure(base, files, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end }) } catch (stopped: kotlinx.coroutines.CancellationException) { throw stopped } catch (problem: Exception) { null }
+                    leveling?.let { if (it.targets === targets) leveling = it.copy(headroom = measured) }
+                })
+                true
+            },
+            drag = { up, sideways, at, height ->
+                leveling?.let { current ->
+                    val next = current.adjustment.updated(up)
+                    if (next.value != current.adjustment.value) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    leveling = current.copy(adjustment = next, cancelling = AudioGainDrag.cancels(sideways), at = at, height = height)
+                }
+            },
+            rest = {
+                // Resting against the top or the bottom of the screen, the level keeps stepping.
+                leveling?.takeIf { !it.cancelling }?.let { current ->
+                    val density = view.resources.displayMetrics.density
+                    @Suppress("DEPRECATION") val insets = view.rootWindowInsets
+                    @Suppress("DEPRECATION") val top = (insets?.systemWindowInsetTop ?: 0) / density
+                    @Suppress("DEPRECATION") val bottom = (view.rootView.height - (insets?.systemWindowInsetBottom ?: 0)) / density
+                    val delta = AudioGainDrag.edgeStep(current.height, top.toDouble(), bottom.toDouble())
+                    if (delta != 0.0) leveling = current.copy(adjustment = current.adjustment.steppedAtEdge(delta))
+                }
+            },
+            end = { lifted ->
+                levelMeasuring.get()?.cancel()
+                leveling?.let { current ->
+                    leveling = null
+                    current.adjustment.committed(cancelled = !lifted || current.cancelling)?.let { level ->
+                        withSound(current.base, current.targets) { it.audio.copy(volumeDB = level) }?.let { next ->
+                            commit(next, playhead)
+                            // As in the original, what was changed is what is selected afterwards.
+                            marks = RangeMarks(selected = EditTargets(current.targets.filter { it.clip }.map { it.id }.toSet(), current.targets.filter { !it.clip }.map { it.id }.toSet()))
+                            feedback = levelChanged.format(AudioLevels.format(level))
+                        }
+                    }
+                }
+            },
+            readout = leveled?.readout(stringResource(R.string.sound_level_mixed), stringResource(R.string.common_cancel)),
+        )
         Timeline(
-            shown, files, sounds, names,
+            leveled?.shown(shown) ?: shown, files, leveled?.shownSounds(sounds) ?: sounds, names,
             // A tap picks one item, or lets go of it when it is all that is picked; a long press adds it or takes it out.
             select = { clip, audio ->
                 if (subtitling == null && titling == null && transitioning == null && cropping == null) {
@@ -1108,6 +1173,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             dragTrim = dragTrim, endTrim = endTrim,
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
             marked = if (transitioning == null && trim == null && auditioning == null) MarkedView.of(marks, playhead) else null,
+            level = levelGesture,
         )
         val framing = cropping
         if (framing != null) {
@@ -1617,10 +1683,14 @@ private fun Timeline(
     openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
     touched: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
-    marked: MarkedView? = null,
+    marked: MarkedView? = null, level: LevelGesture? = null,
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
+    val onLevel by rememberUpdatedState(level)
+    val latestClips by rememberUpdatedState(clips)
+    val latestSounds by rememberUpdatedState(sounds)
+    var windowTop by remember { mutableFloatStateOf(0f) }
     val onTouched by rememberUpdatedState(touched)
     val onBeginTrim by rememberUpdatedState(beginTrim)
     val onDragTrim by rememberUpdatedState(dragTrim)
@@ -1650,12 +1720,23 @@ private fun Timeline(
     }
     BoxWithConstraints(
         // Clips at a fixed height from the top; audio tracks appear under them when there is sound.
-        Modifier.fillMaxWidth().height(120.dp + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel).pointerInput(Unit) {
+        Modifier.fillMaxWidth().height(120.dp + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel)
+            .onGloballyPositioned { windowTop = it.positionInWindow().y }.pointerInput(Unit) {
             // The handles move under the finger, so the drag is tracked here,
             // in a coordinate space that stays still.
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 onTouched() // scrubbing pauses playback; it stays paused after release
+                // A drag up or down on a clip's waveform, or on a sound on an audio track, chooses its level, as in the original.
+                val grip = if (down.position.y >= StripTop.toPx() && down.position.y <= (StripTop + TileSize + WaveHeight).toPx()) handle(down.position.x, size.width / 2f) else null
+                onLevel?.takeIf { grip == null }?.let { gesture ->
+                    val time = ((down.position.x - size.width / 2f + scroll.value) / scale).toDouble()
+                    val below = down.position.y - (StripTop + TileSize).toPx()
+                    val clip = if (below >= 0 && below < WaveHeight.toPx() && time >= 0 && time < TimelineEditing.duration(latestClips)) TimelineEditing.locate(latestClips, time)?.let { latestClips[it.index].id } else null
+                    val track = if (below >= WaveHeight.toPx()) ((below - WaveHeight.toPx()) / TrackHeight.toPx()).toInt() else -1
+                    val sound = if (track in 0 until AudioItem.TRACKS) TimelineEditing.audioAt(latestSounds, track, time)?.id else null
+                    if (clip != null || sound != null) { dragLevel(down, clip, sound, time, windowTop, gesture); return@awaitEachGesture }
+                }
                 // Above and below the clips the timeline only scrolls.
                 if (down.position.y < StripTop.toPx() || down.position.y > (StripTop + TileSize + WaveHeight).toPx()) return@awaitEachGesture
                 val leading = handle(down.position.x, size.width / 2f) ?: return@awaitEachGesture
@@ -1749,6 +1830,7 @@ private fun Timeline(
             }
         }
         Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
+        level?.readout?.let { LevelReadoutLabel(it, viewport.toFloat()) }
         if (clips.isNotEmpty()) {
             val label = trim?.let { stringResource(R.string.editor_clip_duration, it.index + 1, preciseLabel(it.clip.duration)) }
                 ?: stringResource(R.string.editor_clip_position, (current ?: 0) + 1, clips.size)

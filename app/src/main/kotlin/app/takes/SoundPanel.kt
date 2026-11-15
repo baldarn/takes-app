@@ -1,5 +1,7 @@
 package app.takes
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,7 +9,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -28,17 +32,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
 import app.takes.core.AudioEdgeFade
 import app.takes.core.AudioFadeEdge
+import app.takes.core.AudioGainDrag
 import app.takes.core.AudioGainGrid
 import app.takes.core.AudioHeadroom
 import app.takes.core.AudioItem
@@ -47,13 +61,17 @@ import app.takes.core.ClipAudio
 import app.takes.core.EditInterval
 import app.takes.core.EditState
 import app.takes.core.EditTime
+import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
+import kotlin.math.abs
 import kotlin.math.expm1
 import kotlin.math.ln1p
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private val Quiet = Color(0xFFA0A4AB)
@@ -296,4 +314,104 @@ private fun FadeRow(title: String, target: String, seconds: Double, limit: Doubl
             dismissButton = { TextButton(onClick = { entering = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
+}
+
+/**
+ * A level being chosen by dragging a waveform up or down, the original's
+ * quick volume (EditorTimeline.swift:609-687): what the timeline reports of
+ * the finger, and what it shows beside it.
+ */
+internal class LevelGesture(
+    /** A drag began on the clip or the sound at [time] of the movie. False when no level can be chosen there now. */
+    val begin: (clip: String?, sound: String?, time: Double) -> Boolean,
+    /** The finger is [up] points above and [sideways] points beside where it went down, at [at] in the timeline and [height] points down the window. */
+    val drag: (up: Double, sideways: Double, at: Offset, height: Double) -> Unit,
+    /** [AudioGainDrag.EDGE_INTERVAL] has passed with the finger where it was. */
+    val rest: () -> Unit,
+    /** The finger lifted ([lifted]) or the drag was taken away. */
+    val end: (lifted: Boolean) -> Unit,
+    val readout: LevelReadout?,
+)
+
+/** The one thing shown while a level is dragged: the level, "Mixed" or "Cancel", red when the mix would clip. */
+internal class LevelReadout(val text: String, val clipping: Boolean, val at: Offset)
+
+/**
+ * Follows a finger that went [down] on a waveform: once it has moved, more up
+ * or down than sideways, it is a drag of the level until it lifts, and
+ * everything it does is reported to [gesture]. A finger that moves sideways
+ * first is left to the timeline to scroll. [top] is the timeline's place down
+ * the window, in pixels.
+ */
+internal suspend fun AwaitPointerEventScope.dragLevel(down: PointerInputChange, clip: String?, sound: String?, time: Double, top: Float, gesture: LevelGesture) {
+    var dragging = false
+    var lifted = false
+    try {
+        while (true) {
+            // While it rests the level may keep stepping, so the wait for the finger is never longer than a step.
+            val event = if (dragging) withTimeoutOrNull((AudioGainDrag.EDGE_INTERVAL * 1000).toLong()) { awaitPointerEvent(PointerEventPass.Initial) } else awaitPointerEvent(PointerEventPass.Initial)
+            if (event == null) { gesture.rest(); continue }
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) { lifted = true; break }
+            val moved = change.position - down.position
+            if (!dragging) {
+                if (moved.getDistance() < viewConfiguration.touchSlop) continue
+                if (abs(moved.y) <= abs(moved.x) || !gesture.begin(clip, sound, time)) break
+                dragging = true
+            }
+            change.consume()
+            gesture.drag((-moved.y / density).toDouble(), (moved.x / density).toDouble(), change.position, ((top + change.position.y) / density).toDouble())
+        }
+    } finally {
+        if (dragging) gesture.end(lifted)
+    }
+}
+
+/** The level beside the finger (QuickVolumeControl.swift:54-75): 100 by 32 points, up and to the left of it, kept inside the timeline's width. */
+@Composable
+internal fun LevelReadoutLabel(readout: LevelReadout, width: Float) {
+    val density = LocalDensity.current
+    val (x, y) = with(density) {
+        (readout.at.x - 110.dp.toPx()).coerceIn(8.dp.toPx(), maxOf(8.dp.toPx(), width - 108.dp.toPx())) to readout.at.y - 48.dp.toPx()
+    }
+    Popup(offset = IntOffset(x.roundToInt(), y.roundToInt())) {
+        Text(
+            readout.text, color = if (readout.clipping) Clipping else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, maxLines = 1,
+            modifier = Modifier.width(100.dp).background(Color(0xF2141414), RoundedCornerShape(12.dp))
+                .border(1.dp, if (readout.clipping) Clipping else Level, RoundedCornerShape(12.dp)).padding(vertical = 6.dp),
+        )
+    }
+}
+
+/**
+ * A level drag in progress: the edit it changes, cut at the ends of a marked
+ * range when that is what it changes, the clips and sounds in it, and what
+ * the finger has chosen so far.
+ */
+internal data class Leveling(
+    val base: EditState, val targets: List<SoundTarget>, val adjustment: AudioGainDrag,
+    val cancelling: Boolean = false, val at: Offset = Offset.Zero, val height: Double = 0.0, val headroom: AudioHeadroom? = null,
+) {
+    /** The level the waveforms show while the finger is down: none while it would be cancelled or has chosen nothing. */
+    private val tried: Double? get() = adjustment.value.takeIf { !cancelling }
+
+    /** [clips] with the level being tried on those of them it is for, so their waveforms answer the finger. */
+    fun shown(clips: List<TimelineClip>): List<TimelineClip> {
+        val level = tried ?: return clips
+        val ids = targets.filter { it.clip }.map { it.id }.toSet()
+        return if (clips.none { it.id in ids }) clips else clips.map { if (it.id in ids) it.copy(audio = (it.audio ?: ClipAudio()).copy(volumeDB = level)) else it }
+    }
+
+    /** The same for the sounds on the audio tracks. */
+    fun shownSounds(items: List<AudioItem>): List<AudioItem> {
+        val level = tried ?: return items
+        val ids = targets.filter { !it.clip }.map { it.id }.toSet()
+        return if (items.none { it.id in ids }) items else items.map { if (it.id in ids) it.copy(audio = (it.audio ?: ClipAudio()).copy(volumeDB = level)) else it }
+    }
+
+    /** What is shown beside the finger. */
+    fun readout(mixed: String, cancel: String): LevelReadout = LevelReadout(
+        if (cancelling) cancel else adjustment.value?.let(AudioLevels::format) ?: mixed,
+        clipping = !cancelling && adjustment.value?.let { headroom?.clips(it) } == true, at,
+    )
 }
