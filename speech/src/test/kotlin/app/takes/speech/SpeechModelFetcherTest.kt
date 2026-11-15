@@ -44,7 +44,7 @@ class SpeechModelFetcherTest {
         content["m-decoder.int8.onnx"] = decoder
         content["m-tokens.txt"] = tokens
         model = SpeechModel.whisper(
-            id = "test@1", name = "m", base = server.base,
+            id = "test@1", name = "Test", file = "m", base = server.base,
             encoder = encoder.size.toLong() to sha(encoder), decoder = decoder.size.toLong() to sha(decoder), tokens = tokens.size.toLong() to sha(tokens),
         )
     }
@@ -230,11 +230,7 @@ class SpeechModelFetcherTest {
         val origin = Files.createTempDirectory("speech-origin").toFile()
         try {
             for ((name, bytes) in content) File(origin, name).writeBytes(bytes)
-            val local = model.copy(
-                encoder = model.encoder.copy(url = File(origin, "m-encoder.int8.onnx").toURI().toString()),
-                decoder = model.decoder.copy(url = File(origin, "m-decoder.int8.onnx").toURI().toString()),
-                tokens = model.tokens.copy(url = File(origin, "m-tokens.txt").toURI().toString()),
-            )
+            val local = model.copy(files = model.files.map { it.copy(url = File(origin, it.name).toURI().toString()) })
             val files = SpeechModelSource { url, offset ->
                 val stream: InputStream = File(java.net.URI(url)).inputStream()
                 var skipped = 0L
@@ -251,21 +247,69 @@ class SpeechModelFetcherTest {
         }
     }
 
+    @Test fun aModelWithFilesInAFolderOfItsOwn() {
+        // Qwen3-ASR's layout: three networks and a tokenizer folder.
+        val parts = SpeechModel.Kind.Qwen3Asr.parts.mapIndexed { index, name -> name to bytes(20_000 + index * 7_000, 10L + index) }
+        for ((name, bytes) in parts) content[name] = bytes
+        val nested = SpeechModel("nested@1", "Nested", "nested", SpeechModel.Kind.Qwen3Asr,
+            parts.map { (name, bytes) -> SpeechModelFile(name, server.base + name, bytes.size.toLong(), sha(bytes)) })
+
+        assertEquals(0L, nested.present(folder))
+        // The connection drops inside the second file; the next attempt continues there.
+        val first = parts[0].second.size
+        assertThrows(IOException::class.java) { SpeechModelFetcher.download(nested, folder, breaking(first + 5_000)) }
+        assertFalse(nested.installed(folder))
+        assertTrue(nested.present(folder) in first.toLong() until nested.bytes)
+        ranges.clear()
+        val seen = mutableListOf<Long>()
+        SpeechModelFetcher.download(nested, folder, HttpSource, { done, total -> assertEquals(nested.bytes, total); seen += done })
+        assertTrue(ranges.first().startsWith("bytes="))
+        assertEquals(seen.sorted(), seen)
+        assertEquals(nested.bytes, seen.last())
+        assertTrue(nested.installed(folder))
+        assertEquals(nested.bytes, nested.present(folder))
+        assertEquals(emptyList<String>(), nested.damaged(folder))
+        assertEquals(listOf("merges.txt", "tokenizer_config.json", "vocab.json"), File(folder, "tokenizer").list()!!.sorted())
+
+        // Removing takes the inner folder along and leaves what is not the model's.
+        File(folder, "other").writeText("x")
+        nested.remove(folder)
+        assertEquals(listOf("other"), names())
+    }
+
+    @Test fun aModelMustHaveTheFilesOfItsKind() {
+        val file = SpeechModelFile("x-encoder.int8.onnx", "u", 1, "0")
+        assertThrows(IllegalArgumentException::class.java) { SpeechModel("x@1", "X", "x", SpeechModel.Kind.Whisper, listOf(file)) }
+        assertThrows(IllegalArgumentException::class.java) { SpeechModel("x@1", "X", "x", SpeechModel.Kind.Qwen3Asr, SpeechModel.WhisperBase.files) }
+    }
+
     @Test fun describesThePublishedModels() {
-        for (model in listOf(SpeechModel.WhisperTiny, SpeechModel.WhisperBase, SpeechModel.WhisperSmall)) {
-            assertEquals(3, model.files.size)
+        val models = listOf(SpeechModel.WhisperTiny, SpeechModel.WhisperBase, SpeechModel.WhisperSmall, SpeechModel.Qwen3Asr)
+        for (model in models) {
+            assertEquals(model.kind.parts.size, model.files.size)
             for (file in model.files) {
-                assertTrue(file.url.startsWith("https://huggingface.co/csukuangfj/sherpa-onnx-whisper-"))
+                assertTrue(file.url.startsWith("https://huggingface.co/csukuangfj/sherpa-onnx-whisper-") || file.url.startsWith("https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-"))
                 assertTrue(file.url.endsWith("/" + file.name))
                 // A fixed revision, never "main": the hashes below belong to exactly these bytes.
                 assertTrue(Regex("/resolve/[0-9a-f]{40}/").containsMatchIn(file.url))
                 assertTrue(model.id.endsWith(Regex("/resolve/([0-9a-f]{40})/").find(file.url)!!.groupValues[1]))
                 assertTrue(Regex("[0-9a-f]{64}").matches(file.sha256))
+                assertTrue(file.bytes > 0)
             }
+            assertTrue(model.name.isNotBlank())
+            assertTrue(Regex("[a-z0-9.-]+").matches(model.folder))
         }
+        // Each model has a name, an id and a folder of its own.
+        for (key in listOf<(SpeechModel) -> String>({ it.id }, { it.name }, { it.folder })) assertEquals(models.size, models.map(key).distinct().size)
         assertEquals(103_609_903L, SpeechModel.WhisperTiny.bytes)
         assertEquals(160_609_290L, SpeechModel.WhisperBase.bytes)
         assertEquals(375_485_327L, SpeechModel.WhisperSmall.bytes)
-        assertEquals(SpeechModel.WhisperBase, SpeechModel.Default)
+        assertEquals(987_015_347L, SpeechModel.Qwen3Asr.bytes)
+        // Where earlier versions of the app put the model it still finds.
+        assertEquals("base", SpeechModel.WhisperBase.folder)
+        assertEquals(SpeechModel.Kind.Qwen3Asr, SpeechModel.Qwen3Asr.kind)
+        // The tokenizer is the one the iPhone app downloads (YouRec/SubtitleModelPack.swift:9-11).
+        assertEquals("ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910", SpeechModel.Qwen3Asr.files.single { it.name == "tokenizer/vocab.json" }.sha256)
+        assertEquals("8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5", SpeechModel.Qwen3Asr.files.single { it.name == "tokenizer/merges.txt" }.sha256)
     }
 }

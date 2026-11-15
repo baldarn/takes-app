@@ -52,7 +52,7 @@ object SpeechModelFetcher {
         if (!folder.isDirectory && !folder.mkdirs()) throw IOException("Cannot create $folder")
         // The marker goes first: from here on the folder is not a complete model.
         File(folder, SpeechModel.MARKER).delete()
-        val need = model.bytes - model.files.sumOf { maxOf(File(folder, it.name).length(), File(folder, it.name + SpeechModel.PARTIAL).length()) }
+        val need = model.bytes - model.present(folder)
         if (folder.usableSpace in 1 until need) throw IOException("Not enough free space: $need bytes needed")
 
         var before = 0L
@@ -72,6 +72,8 @@ object SpeechModelFetcher {
             if (target.length() == file.bytes && SpeechModel.sha256(target, cancelled) == file.sha256) { partial.delete(); return }
             target.delete()
         }
+        // A file of a model can live in a folder inside the model's.
+        target.parentFile?.let { if (!it.isDirectory && !it.mkdirs()) throw IOException("Cannot create $it") }
         // A part longer than the file cannot be the beginning of it.
         if (partial.length() > file.bytes) partial.delete()
 
