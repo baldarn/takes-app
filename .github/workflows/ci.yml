@@ -39,7 +39,7 @@ jobs:
 
       # sherpa-onnx (about 38 MB) and its library for this computer, which the speech module
       # downloads from the sherpa-onnx release and checks against a SHA-256.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: speech/.sherpa-onnx
           key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('speech/build.gradle.kts') }}
