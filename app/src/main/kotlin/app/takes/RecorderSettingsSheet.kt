@@ -30,6 +30,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CenterFocusWeak
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -295,11 +297,23 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
             // A running segment keeps its microphone: the choice is for the next one.
             val free = capture.phase == Phase.Idle || capture.phase == Phase.Paused
             SettingsSection(stringResource(R.string.recorder_settings_microphone)) {
-                ChoiceRow(stringResource(R.string.recorder_mic_automatic), capture.chosenMicrophone == null, free) { capture.chooseMicrophone(null) }
                 capture.microphones.forEach { choice ->
-                    ChoiceRow(choice.label, capture.chosenMicrophone?.id == choice.id, free) { capture.chooseMicrophone(choice.id) }
+                    ChoiceRow(choice.label, capture.microphoneKey == choice.key, free) { capture.chooseMicrophone(choice.key) }
                 }
-                SettingsRow { SettingsNote(stringResource(if (free) R.string.recorder_settings_microphone_note else R.string.recorder_settings_microphone_busy)) }
+                SettingsRow { SettingsNote(stringResource(if (free) R.string.recorder_settings_microphone_quick else R.string.recorder_settings_microphone_busy)) }
+            }
+            SettingsSection(stringResource(R.string.recorder_settings_priority)) {
+                val order = capture.microphonePriority
+                order.forEachIndexed { index, entry ->
+                    SettingsRow {
+                        Column(Modifier.weight(1f)) {
+                            Text(entry.label, color = Color.White)
+                            if (!entry.connected) SettingsNote(stringResource(R.string.recorder_mic_disconnected_state))
+                        }
+                        MoveButton(Icons.Filled.ArrowUpward, stringResource(R.string.recorder_mic_earlier, entry.label), index > 0) { capture.moveMicrophonePreference(entry.key, -1) }
+                        MoveButton(Icons.Filled.ArrowDownward, stringResource(R.string.recorder_mic_later, entry.label), index + 1 < order.size) { capture.moveMicrophonePreference(entry.key, 1) }
+                    }
+                }
             }
         }
         if (capture.offersUltraHD) {
@@ -357,6 +371,15 @@ internal fun SettingsSwitch(label: String, on: Boolean, enabled: Boolean = true,
             colors = SwitchDefaults.colors(checkedTrackColor = SettingsCyan, checkedThumbColor = Color.White, disabledCheckedTrackColor = SettingsCyan),
         )
     }
+}
+
+/** An arrow that moves an entry of a list one place. */
+@Composable
+private fun MoveButton(icon: ImageVector, label: String, enabled: Boolean, move: () -> Unit) {
+    Box(
+        Modifier.size(44.dp).alpha(if (enabled) 1f else 0.3f).clip(RoundedCornerShape(50)).clickable(enabled = enabled, role = Role.Button, onClick = move),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, Modifier.size(20.dp), tint = SettingsCyan) }
 }
 
 /** One of several, with a check on the one in use. */

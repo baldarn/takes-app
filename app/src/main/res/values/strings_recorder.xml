@@ -35,7 +35,6 @@
     <string name="recorder_settings_transition">Transition</string>
     <string name="recorder_settings_zoom_note">Swipe the time beside the zoom presets up or down to adjust by half a second. Double-tap a zoom preset to reach it in one second. Each camera remembers its own zoom.</string>
     <string name="recorder_settings_microphone">Microphone</string>
-    <string name="recorder_settings_microphone_note">The choice is used from the next segment on and lasts until the app is closed.</string>
     <string name="recorder_settings_microphone_busy">Pause the take to change the microphone.</string>
     <string name="recorder_settings_framing">Framing</string>
     <string name="recorder_settings_fit">Fit entire recorded frame</string>
@@ -132,4 +131,18 @@
     <string name="recorder_mark_moment">Mark this moment</string>
     <!-- The zoom time badge is narrow: the word for "no time" has to fit it. -->
     <string name="recorder_zoom_instant_short">Instant</string>
+    <!-- Sound: the microphone pill with its meter, what the route says, and the order of preference in More settings. -->
+    <string name="recorder_mic_none">No microphone</string>
+    <string name="recorder_mic_label">Microphone: %1$s</string>
+    <string name="recorder_mic_clipping">Clipping</string>
+    <string name="recorder_mic_no_signal">No signal</string>
+    <string name="recorder_mic_refused_using">Could not switch to %1$s. Using %2$s.</string>
+    <string name="recorder_mic_refused">Could not switch to %1$s.</string>
+    <string name="recorder_mic_lost_using">%1$s disconnected. Using %2$s.</string>
+    <string name="recorder_paused_no_sound">No microphone audio is arriving. Recording paused; check the microphone before resuming.</string>
+    <string name="recorder_settings_microphone_quick">A quick selection lasts until Stop. Priority below is remembered, including disconnected microphones.</string>
+    <string name="recorder_settings_priority">Microphone priority · highest first</string>
+    <string name="recorder_mic_disconnected_state">Disconnected</string>
+    <string name="recorder_mic_earlier">Move %1$s earlier</string>
+    <string name="recorder_mic_later">Move %1$s later</string>
 </resources>
