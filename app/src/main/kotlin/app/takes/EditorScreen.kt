@@ -1202,7 +1202,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // playhead on a join (Transitions.swift:254-257) that has room for a frame, a new one or the one that is there;
             // and every other one the playhead is inside. A join between two clips comes before an opening or a close there.
             val offered = remember(clips, playhead) {
-                val on = TimelineEditing.layout(clips).joins.filter { abs(it.time - playhead) < TimelineEditing.JOIN_REACH }
+                // The change buttons stop on the first frame that shows a change. The original's cuts lie on
+                // its frame grid, so that frame is the join; here a cut can fall between frames, so a join
+                // less than a frame behind the playhead still counts as under it.
+                val on = TimelineEditing.layout(clips).joins.filter { abs(it.time - playhead) < TimelineEditing.JOIN_REACH || (playhead - it.time) in 0.0..(1.0 / 30) }
                     .let { found -> found.firstOrNull { it.edge == 0 } ?: found.firstOrNull() }
                     ?.takeIf { TimelineEditing.joinMaximum(clips, it.index) >= PauseDetector.FRAME }
                 listOfNotNull(on) + TimelineEditing.transitions(clips).filter { it.index != on?.index && playhead >= it.range.start && playhead <= it.range.endInclusive }
