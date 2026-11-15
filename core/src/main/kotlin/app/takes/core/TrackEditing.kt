@@ -494,25 +494,27 @@ object TrackEditing {
         return split(timeline, point, TrackLinking.entireSelection(timeline)).timeline
     }
 
-    /** A timeline after a range was taken out, and the recipes of the pictures that were in it. */
-    data class Cut(val timeline: TrackTimeline, val clips: List<TimelineClip>)
+    /** A timeline after a range was taken out, the recipes of the pictures that were in it, and where the playhead goes when one was given. */
+    data class Cut(val timeline: TrackTimeline, val clips: List<TimelineClip>, val position: EditTime? = null)
 
     /**
      * Takes the seconds [start]…[end] out of every lane. An end within a
      * frame of an item's edge is put on that edge, so a range marked at a cut
      * that is on no grid takes the whole piece. Under one frame nothing
-     * happens. YouRec/TimelineEditing.swift:66-80.
+     * happens. [preserving] is the playhead, carried as a deletion carries
+     * it. YouRec/TimelineEditing.swift:66-80.
      */
-    fun removing(timeline: TrackTimeline, start: Double, end: Double): Cut {
-        if (end - start < FRAME - 0.00001) return Cut(timeline, emptyList())
+    fun removing(timeline: TrackTimeline, start: Double, end: Double, preserving: EditTime? = null): Cut {
+        if (end - start < FRAME - 0.00001) return Cut(timeline, emptyList(), preserving)
         val boundaries = (timeline.video.flatMap { listOf(it.start.seconds, it.end.seconds) } + timeline.audio.flatMap { listOf(it.start.seconds, it.end.seconds) }).toSet()
         fun aligned(time: Double): Double = boundaries.minByOrNull { abs(it - time) }?.takeIf { abs(it - time) < FRAME } ?: time
         val a = aligned(start)
         val b = aligned(end)
-        if (b <= a) return Cut(timeline, emptyList())
+        if (b <= a) return Cut(timeline, emptyList(), preserving)
         val scope = scoped(timeline, TrackLinking.entireSelection(timeline, EditInterval.of(a, b)))
         val copied = scope.timeline.video.filter { it.id in scope.selection.video }.map { it.content }
-        return Cut(removing(scope.timeline, scope.selection).timeline, copied)
+        val removal = removing(scope.timeline, scope.selection, preserving)
+        return Cut(removal.timeline, copied, removal.position)
     }
 
     /**
