@@ -20,7 +20,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.effect.Crop
-import androidx.media3.effect.FrameDropEffect
+import androidx.media3.common.GlObjectsProvider
+import androidx.media3.common.GlTextureInfo
+import androidx.media3.effect.GlEffect
+import androidx.media3.effect.GlShaderProgram
+import androidx.media3.effect.PassthroughShaderProgram
+import app.takes.core.FrameCeiling
 import androidx.media3.effect.OverlayEffect
 import app.takes.core.AudioItem
 import app.takes.core.ExportSettings
@@ -75,6 +80,35 @@ fun steadySpeed(clip: TimelineClip): SpeedProvider? = clip.rate.takeIf { it != 1
     object : SpeedProvider {
         override fun getSpeed(timeUs: Long) = rate.toFloat()
         override fun getNextSpeedChangeTimeUs(timeUs: Long) = C.TIME_UNSET
+    }
+}
+
+/**
+ * The export's ceiling on a clip's frame rate ([FrameCeiling]). Media3's own
+ * frame-rate limit holds each frame back until the next one arrives and
+ * drops the one it is holding when the clip ends, so every clip lost its
+ * last frame; this one decides each frame as it comes.
+ */
+class FrameCeilingEffect(private val framesPerSecond: Int) : GlEffect {
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = object : PassthroughShaderProgram() {
+        private val ceiling = FrameCeiling(framesPerSecond.toDouble())
+
+        override fun queueInputFrame(glObjectsProvider: GlObjectsProvider, inputTexture: GlTextureInfo, presentationTimeUs: Long) {
+            if (ceiling.keeps(presentationTimeUs)) super.queueInputFrame(glObjectsProvider, inputTexture, presentationTimeUs) else {
+                inputListener.onInputFrameProcessed(inputTexture)
+                inputListener.onReadyToAcceptInputFrame()
+            }
+        }
+
+        override fun signalEndOfCurrentInputStream() {
+            super.signalEndOfCurrentInputStream()
+            ceiling.reset()
+        }
+
+        override fun flush() {
+            super.flush()
+            ceiling.reset()
+        }
     }
 }
 
@@ -163,9 +197,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val fit = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
             val items = clips.mapIndexed { index, clip ->
                 val picture = buildList<Effect> {
-                    // A ceiling for high frame rate footage; frames are never invented. Media3 only
-                    // drops when the source is well above the target, such as 60 to 30.
-                    if (settings.frameRate <= 30) add(FrameDropEffect.createDefaultFrameDropEffect(settings.frameRate.toFloat()))
+                    // A ceiling for high frame rate footage; frames are never invented, and footage
+                    // at or below the ceiling keeps every frame.
+                    if (settings.frameRate <= 30) add(FrameCeilingEffect(settings.frameRate))
                     // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
                     clip.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, folder.parentFile!!))) }
                     // A crop cuts the window out of the footage; fitting then fills the frame with it.
