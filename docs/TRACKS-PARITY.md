@@ -1,9 +1,14 @@
 # Parity of today's editing functions with the track model
 
 Written by `TrackParityTest` (`core/src/test/kotlin/app/takes/core/TrackParity*.kt`); do not edit by hand.
-Run the core tests with `TAKES_RECORD_PARITY=1` in the environment to write it anew, and read what changed.
-The test fails when this file is not what the suite finds; it does not fail on a difference.
-With `TAKES_PARITY_GATE=1` it fails on every difference whose kind is not in `TrackParityAccepted.kt`.
+
+## Running it
+
+The suite is one test of the core tests: `./gradlew :core:test`, or by itself with `--tests app.takes.core.TrackParityTest`. What it does is chosen in the environment:
+
+- **Nothing set.** It makes every call and compares what it finds with this file. It fails when the file is not what it finds now, or when the track model answers a timeline its invariants refuse. It does not fail on a difference between today and the track model: a difference that is written down here is expected.
+- **`TAKES_RECORD_PARITY=1`.** It writes this file anew instead of comparing. Read what changed (`git diff docs/TRACKS-PARITY.md`) and commit the file with the change that caused it.
+- **`TAKES_PARITY_GATE=1`.** As with nothing set, and it also fails on every call that shows a kind of difference not listed in `TrackParityAccepted.kt`, or a difference no kind explains: the failure names each such kind with the number of calls that show it, then what is not explained. While that list is empty it fails on every kind below. A kind goes into the list once it is decided what the function that shows it does when it runs on the track model.
 
 ## What is compared
 
