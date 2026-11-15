@@ -14,6 +14,7 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.SystemClock
+import android.text.format.Formatter
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.annotation.OptIn
@@ -45,6 +46,7 @@ import androidx.lifecycle.LifecycleOwner
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
 import app.takes.core.Project
+import app.takes.core.RecordingSpace
 import app.takes.core.SourceMedia
 import app.takes.core.ZoomTransition
 import app.takes.core.newID
@@ -430,8 +432,9 @@ class CaptureController(private val context: Context, private val store: Project
         if (camera == null) { message = context.getString(R.string.recorder_camera_not_ready); return }
         val projectID = segmentProject ?: (store.selected ?: store.create())?.id ?: return
         val folder = store.disk.folder(projectID)
-        if (folder.usableSpace < MINIMUM_FREE_BYTES) {
-            message = context.getString(R.string.recorder_storage_low)
+        val short = space.shortBy(freeBytes(folder), folder.totalSpace, ultraHD = false)
+        if (short > 0) {
+            message = context.getString(R.string.recorder_storage_short, Formatter.formatShortFileSize(context, short))
             return
         }
         segmentProject = projectID
@@ -441,6 +444,30 @@ class CaptureController(private val context: Context, private val store: Project
 
     private var segmentProject: String? = null
 
+    // MARK: Free storage. The original's rule with a flat figure to start and no floor: the recorder writes 1080p.
+
+    private val space = RecordingSpace.ANDROID_FLAT
+    private var pace = space.begin(0.0, ultraHD = false)
+    private var spaceCheckedAt = 0.0
+
+    private fun freeBytes(folder: File): Long = folder.usableSpace
+
+    /**
+     * Every few seconds while a segment is written: pauses the take while there is still room
+     * to finish its file and save the project, well before the recorder would stop by itself.
+     */
+    private fun checkSpace(current: Segment) {
+        val now = SystemClock.elapsedRealtimeNanos() / 1e9
+        if (phase != Phase.Recording || !space.isDue(now, spaceCheckedAt)) return
+        spaceCheckedAt = now
+        pace = pace.sampled(now, current.file.length())
+        val folder = current.file.parentFile
+        if (space.shouldPause(folder?.let(::freeBytes), folder?.totalSpace ?: 0L, pace.bytesPerSecond)) {
+            pause()
+            message = context.getString(R.string.recorder_paused_storage)
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun begin(next: Segment) {
         val audio = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -449,6 +476,9 @@ class CaptureController(private val context: Context, private val store: Project
         message = null
         var pending = recorder.prepareRecording(context, FileOutputOptions.Builder(next.file).build()).asPersistentRecording()
         if (audio) pending = pending.withAudioEnabled()
+        val now = SystemClock.elapsedRealtimeNanos() / 1e9
+        pace = space.begin(now, ultraHD = false)
+        spaceCheckedAt = now
         segment = next
         phase = Phase.Recording
         recording = pending.start(ContextCompat.getMainExecutor(context)) { event -> handle(next, event) }
@@ -518,6 +548,7 @@ class CaptureController(private val context: Context, private val store: Project
                     AudioStats.AUDIO_STATE_MUTED -> context.getString(R.string.recorder_mic_muted)
                     else -> context.getString(R.string.recorder_mic_stopped)
                 }
+                checkSpace(current)
                 // A call or another app has taken the microphone: the original pauses the take rather than go on silent.
                 if (audio.audioState == AudioStats.AUDIO_STATE_SOURCE_SILENCED && phase == Phase.Recording) {
                     pause()
@@ -563,9 +594,5 @@ class CaptureController(private val context: Context, private val store: Project
         VideoRecordEvent.Finalize.ERROR_RECORDER_ERROR -> context.getString(R.string.recorder_reason_recorder)
         VideoRecordEvent.Finalize.ERROR_NO_VALID_DATA -> context.getString(R.string.recorder_reason_no_data)
         else -> context.getString(R.string.recorder_reason_unexpected)
-    }
-
-    private companion object {
-        const val MINIMUM_FREE_BYTES = 300L * 1024 * 1024
     }
 }

@@ -14,4 +14,6 @@
 
     <!-- The take: what pauses it and what the person is told. -->
     <string name="recorder_paused_microphone_taken">Un\'altra app sta usando il microfono. La registrazione è in pausa; riprendi quando il microfono è libero.</string>
+    <string name="recorder_storage_short">Libera circa altri %1$s di spazio per registrare.</string>
+    <string name="recorder_paused_storage">La registrazione è in pausa per poterla salvare in sicurezza. Libera un po\' di spazio prima di riprendere.</string>
 </resources>
