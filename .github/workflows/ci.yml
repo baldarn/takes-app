@@ -35,7 +35,7 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"
 
       # Caches the Gradle distribution and dependencies. Runs for pull requests read the cache of main.
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # sherpa-onnx (about 38 MB) and its library for this computer, which the speech module
       # downloads from the sherpa-onnx release and checks against a SHA-256.
