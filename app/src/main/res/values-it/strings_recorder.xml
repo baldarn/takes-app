@@ -125,4 +125,8 @@
     <string name="recorder_light_opacity">Opacità</string>
     <string name="recorder_light_opacity_label">Opacità della luce frontale</string>
     <string name="recorder_light_off">Spegni la luce frontale</string>
+    <!-- What the screen reader says of the bottom row. -->
+    <string name="recorder_mark_label">Aggiungi un segnalibro alla registrazione</string>
+    <string name="recorder_mark_added">Segnalibro aggiunto</string>
+    <string name="recorder_mark_moment">Segna questo momento</string>
 </resources>
