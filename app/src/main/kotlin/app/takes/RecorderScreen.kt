@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
+import android.view.RoundedCorner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
@@ -57,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
@@ -148,8 +151,31 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             CameraRow(capture)
             Controls(capture)
         }
+        TakeFrame(capture.phase, Modifier.matchParentSize())
         Notice(capture.message, Modifier.align(Alignment.Center)) { capture.message = null }
     }
+}
+
+/**
+ * The frame around the recorder, as in the original: red while a take is being recorded,
+ * yellow while it is paused. A 2 dp line, 3 dp from the edge; it takes no touches.
+ */
+@Composable
+private fun TakeFrame(phase: Phase, modifier: Modifier) {
+    val color = when (phase) {
+        Phase.Recording -> RecordRed.copy(alpha = 0.85f)
+        Phase.Paused -> Color(0xBFFFD60A)
+        else -> return
+    }
+    // The line follows the corners of the display where the system tells them; over the tabs it is square.
+    val view = LocalView.current
+    val top = with(LocalDensity.current) {
+        val radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            view.rootWindowInsets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)?.radius ?: 0
+        } else 0
+        maxOf(4.dp, radius.toDp() - 3.dp)
+    }
+    Box(modifier.padding(3.dp).border(2.dp, color, RoundedCornerShape(topStart = top, topEnd = top, bottomStart = 4.dp, bottomEnd = 4.dp)))
 }
 
 @Composable
