@@ -83,32 +83,32 @@ internal object TrackParityCases {
         val plain = EditState(listOf(whole(0, "A"), whole(1, "B"), whole(2, "C")))
         listOf(
             build("three takes", plain),
-            build("a dissolve", plain, { TimelineEditing.setJoin(it, 1, dissolve("T1")) }),
-            build("an opening and a close", plain, { TimelineEditing.setJoin(it, 0, dissolve("T0", 0.5, TransitionStyle.FadeColor)) }, { TimelineEditing.setJoin(it, 3, dissolve("T3", 0.5, TransitionStyle.FadeColor)) }),
-            build("an opening on a middle clip", plain, { TimelineEditing.setJoin(it, 0, dissolve("T0", 1.0, TransitionStyle.FadeColor)) }, { TimelineEditing.move(it, 2, 0) }),
-            build("a close on a middle clip", plain, { TimelineEditing.setJoin(it, 3, dissolve("T3", 1.0, TransitionStyle.FadeColor)) }, { TimelineEditing.move(it, 0, 2) }),
-            build("transitions on both sides", plain, { TimelineEditing.setJoin(it, 1, dissolve("T1", 2.0)) }, { TimelineEditing.setJoin(it, 2, dissolve("T2", 2.0, TransitionStyle.Wipe)) }),
+            build("a dissolve", plain, { LegacyTimelineEditing.setJoin(it, 1, dissolve("T1")) }),
+            build("an opening and a close", plain, { LegacyTimelineEditing.setJoin(it, 0, dissolve("T0", 0.5, TransitionStyle.FadeColor)) }, { LegacyTimelineEditing.setJoin(it, 3, dissolve("T3", 0.5, TransitionStyle.FadeColor)) }),
+            build("an opening on a middle clip", plain, { LegacyTimelineEditing.setJoin(it, 0, dissolve("T0", 1.0, TransitionStyle.FadeColor)) }, { LegacyTimelineEditing.move(it, 2, 0) }),
+            build("a close on a middle clip", plain, { LegacyTimelineEditing.setJoin(it, 3, dissolve("T3", 1.0, TransitionStyle.FadeColor)) }, { LegacyTimelineEditing.move(it, 0, 2) }),
+            build("transitions on both sides", plain, { LegacyTimelineEditing.setJoin(it, 1, dissolve("T1", 2.0)) }, { LegacyTimelineEditing.setJoin(it, 2, dissolve("T2", 2.0, TransitionStyle.Wipe)) }),
             build(
                 "fades and levels", plain,
-                { TimelineEditing.setAudio(it, 0, ClipAudio(fadeIn = 1.0, fadeOut = 2.0)) }, { TimelineEditing.setAudio(it, 1, ClipAudio(volumeDB = -6.0)) },
-                { TimelineEditing.setAudio(it, 2, ClipAudio(denoise = 0.5)) },
+                { LegacyTimelineEditing.setAudio(it, 0, ClipAudio(fadeIn = 1.0, fadeOut = 2.0)) }, { LegacyTimelineEditing.setAudio(it, 1, ClipAudio(volumeDB = -6.0)) },
+                { LegacyTimelineEditing.setAudio(it, 2, ClipAudio(denoise = 0.5)) },
             ),
             build(
                 "music and a voice", plain,
-                { TimelineEditing.addAudio(it, "M1", 30.0, 0.0) }, { TimelineEditing.addAudio(it, "M2", 5.0, 3.0) },
-                { state -> TimelineEditing.setAudioItemSound(state, state.audio!!.first { it.sourceID == "M1" }.id, ClipAudio(volumeDB = -12.0, fadeIn = 1.0, fadeOut = 2.0)) },
+                { LegacyTimelineEditing.addAudio(it, "M1", 30.0, 0.0) }, { LegacyTimelineEditing.addAudio(it, "M2", 5.0, 3.0) },
+                { state -> LegacyTimelineEditing.setAudioItemSound(state, state.audio!!.first { it.sourceID == "M1" }.id, ClipAudio(volumeDB = -12.0, fadeIn = 1.0, fadeOut = 2.0)) },
             ),
-            build("unlinked sound", plain, { AudioUnlinking.unlink(it, 1) }),
-            build("unlinked sound, moved", plain, { AudioUnlinking.unlink(it, 1) }, { TimelineEditing.moveAudio(it, "B", 13.5) }),
-            build("captions", plain, { SubtitleEditing.install(it, heard, "en") }),
-            build("captions, then the sound of a clip unlinked", plain, { SubtitleEditing.install(it, heard, "en") }, { AudioUnlinking.unlink(it, 1) }),
-            build("captions on a muted clip", plain, { SubtitleEditing.install(it, heard, "en") }, { TimelineEditing.setAudio(it, 1, ClipAudio(muted = true)) }),
-            build("a speed", plain, { TimelineEditing.setJoin(it, 1, dissolve("T1")) }, { TimelineEditing.setSpeed(it, 1, 2.0) }),
-            build("cuts off the grid", plain, { TimelineEditing.split(it, 3.123456) }, { TimelineEditing.split(it, 15.4321) }),
+            build("unlinked sound", plain, { LegacyAudioUnlinking.unlink(it, 1) }),
+            build("unlinked sound, moved", plain, { LegacyAudioUnlinking.unlink(it, 1) }, { LegacyTimelineEditing.moveAudio(it, "B", 13.5) }),
+            build("captions", plain, { LegacySubtitleEditing.install(it, heard, "en") }),
+            build("captions, then the sound of a clip unlinked", plain, { LegacySubtitleEditing.install(it, heard, "en") }, { LegacyAudioUnlinking.unlink(it, 1) }),
+            build("captions on a muted clip", plain, { LegacySubtitleEditing.install(it, heard, "en") }, { LegacyTimelineEditing.setAudio(it, 1, ClipAudio(muted = true)) }),
+            build("a speed", plain, { LegacyTimelineEditing.setJoin(it, 1, dissolve("T1")) }, { LegacyTimelineEditing.setSpeed(it, 1, 2.0) }),
+            build("cuts off the grid", plain, { LegacyTimelineEditing.split(it, 3.123456) }, { LegacyTimelineEditing.split(it, 15.4321) }),
             build(
                 "bookmarks and a title", plain,
-                { TimelineEditing.toggleBookmark(it, 0, 2.0) }, { TimelineEditing.toggleBookmark(it, 0, 9.0) }, { TimelineEditing.toggleBookmark(it, 1, 4.0) },
-                { TimelineEditing.setText(it, 0, TextOverlay(id = "TITLE", text = "Title", start = 1.0, end = 4.0)) },
+                { LegacyTimelineEditing.toggleBookmark(it, 0, 2.0) }, { LegacyTimelineEditing.toggleBookmark(it, 0, 9.0) }, { LegacyTimelineEditing.toggleBookmark(it, 1, 4.0) },
+                { LegacyTimelineEditing.setText(it, 0, TextOverlay(id = "TITLE", text = "Title", start = 1.0, end = 4.0)) },
             ),
             build("one take", EditState(listOf(whole(0, "A")))),
             build("two short clips", EditState(listOf(TimelineClip("A", "S1", 0.0, 1.0), TimelineClip("B", "S2", 0.0, 0.6)))),
@@ -154,29 +154,29 @@ internal object TrackParityCases {
         val clip = clips[index]
         val length = clip.end - clip.start
         return when (rng.below(18)) {
-            0, 1 -> TimelineEditing.split(state, rng.next(0.0, state.duration))
-            2 -> TimelineEditing.split(state, RangeEditing.quantize(rng.next(0.0, state.duration)))
-            3 -> TimelineEditing.trim(state, index, clip.start + rng.next(0.0, 0.3) * length, clip.end - rng.next(0.0, 0.3) * length, takes.first { it.id == clip.sourceID }.duration)
-            4 -> if (clips.size > 2) TimelineEditing.delete(state, index) else null
-            5 -> TimelineEditing.move(state, index, rng.below(clips.size))
-            6, 7 -> TimelineEditing.setJoin(state, rng.below(clips.size + 1), dissolve(id, rng.pick(0.3, 1.0, 2.5), TransitionStyle.entries[rng.below(TransitionStyle.entries.size)]))
-            8 -> TimelineEditing.setSpeed(state, index, rng.pick(0.5, 1.5, 2.0))
-            9 -> TimelineEditing.setAudio(state, index, rng.pick(ClipAudio(volumeDB = -6.0), ClipAudio(fadeIn = 0.5, fadeOut = 1.0), ClipAudio(muted = true), ClipAudio(denoise = 0.6)))
-            10 -> TimelineEditing.toggleBookmark(state, index, clip.start + rng.next(0.1, 0.9) * length)
-            11 -> rng.pick(sounds[0], sounds[1]).let { TimelineEditing.addAudio(state, it.id, it.duration, RangeEditing.quantize(rng.next(0.0, state.duration))) }
+            0, 1 -> LegacyTimelineEditing.split(state, rng.next(0.0, state.duration))
+            2 -> LegacyTimelineEditing.split(state, RangeEditing.quantize(rng.next(0.0, state.duration)))
+            3 -> LegacyTimelineEditing.trim(state, index, clip.start + rng.next(0.0, 0.3) * length, clip.end - rng.next(0.0, 0.3) * length, takes.first { it.id == clip.sourceID }.duration)
+            4 -> if (clips.size > 2) LegacyTimelineEditing.delete(state, index) else null
+            5 -> LegacyTimelineEditing.move(state, index, rng.below(clips.size))
+            6, 7 -> LegacyTimelineEditing.setJoin(state, rng.below(clips.size + 1), dissolve(id, rng.pick(0.3, 1.0, 2.5), TransitionStyle.entries[rng.below(TransitionStyle.entries.size)]))
+            8 -> LegacyTimelineEditing.setSpeed(state, index, rng.pick(0.5, 1.5, 2.0))
+            9 -> LegacyTimelineEditing.setAudio(state, index, rng.pick(ClipAudio(volumeDB = -6.0), ClipAudio(fadeIn = 0.5, fadeOut = 1.0), ClipAudio(muted = true), ClipAudio(denoise = 0.6)))
+            10 -> LegacyTimelineEditing.toggleBookmark(state, index, clip.start + rng.next(0.1, 0.9) * length)
+            11 -> rng.pick(sounds[0], sounds[1]).let { LegacyTimelineEditing.addAudio(state, it.id, it.duration, RangeEditing.quantize(rng.next(0.0, state.duration))) }
             12 -> state.audio?.let { items ->
                 val item = items[rng.below(items.size)]
                 when (rng.below(3)) {
-                    0 -> TimelineEditing.moveAudio(state, item.id, RangeEditing.quantize(rng.next(0.0, state.duration)))
-                    1 -> TimelineEditing.trimAudio(state, item.id, item.start + rng.next(0.2, 0.8) * item.duration, rng.below(2) == 0)
-                    else -> TimelineEditing.setAudioItemSound(state, item.id, ClipAudio(volumeDB = -9.0, fadeIn = 0.5, fadeOut = 0.5))
+                    0 -> LegacyTimelineEditing.moveAudio(state, item.id, RangeEditing.quantize(rng.next(0.0, state.duration)))
+                    1 -> LegacyTimelineEditing.trimAudio(state, item.id, item.start + rng.next(0.2, 0.8) * item.duration, rng.below(2) == 0)
+                    else -> LegacyTimelineEditing.setAudioItemSound(state, item.id, ClipAudio(volumeDB = -9.0, fadeIn = 0.5, fadeOut = 0.5))
                 }
             }
-            13 -> AudioUnlinking.unlink(state, index)
-            14 -> rng.next(0.0, state.duration).let { from -> RangeEditing.delete(state, EditScope.Range(TimeRange(from, from + rng.next(0.2, 3.0))))?.state }
-            15 -> RangeEditing.copy(state, EditScope.Selected(EditTargets(clips = setOf(clip.id))))?.let { RangeEditing.paste(state, it, rng.next(0.0, state.duration))?.state }
-            16 -> if (state.subtitles == null) SubtitleEditing.install(state, heard, "en") else TimelineEditing.setText(state, index, TextOverlay(id = "TITLE-$id", text = "Title", start = clip.start, end = clip.end))
-            else -> TimelineEditing.removeIntervals(state, index, listOf(SourceInterval(clip.start + 0.3 * length, clip.start + 0.4 * length), SourceInterval(clip.start + 0.6 * length, clip.start + 0.7 * length)))
+            13 -> LegacyAudioUnlinking.unlink(state, index)
+            14 -> rng.next(0.0, state.duration).let { from -> LegacyRangeEditing.delete(state, EditScope.Range(TimeRange(from, from + rng.next(0.2, 3.0))))?.state }
+            15 -> LegacyRangeEditing.copy(state, EditScope.Selected(EditTargets(clips = setOf(clip.id))))?.let { LegacyRangeEditing.paste(state, it, rng.next(0.0, state.duration))?.state }
+            16 -> if (state.subtitles == null) LegacySubtitleEditing.install(state, heard, "en") else LegacyTimelineEditing.setText(state, index, TextOverlay(id = "TITLE-$id", text = "Title", start = clip.start, end = clip.end))
+            else -> LegacyTimelineEditing.removeIntervals(state, index, listOf(SourceInterval(clip.start + 0.3 * length, clip.start + 0.4 * length), SourceInterval(clip.start + 0.6 * length, clip.start + 0.7 * length)))
         }
     }
 
@@ -184,8 +184,8 @@ internal object TrackParityCases {
 
     private fun today(state: EditState?, vararg values: Pair<String, Any?>): Answer? = state?.let { Answer(it, values.toMap()) }
 
-    private fun track(result: SequenceResult?, vararg values: Pair<String, Any?>): Answer? =
-        result?.let { Answer(it.state, values.toMap(), it.obstacle, it.notes, it.timeline) }
+    /** What a function answers now that it runs on the track model, with the timeline its answer converts to, for the invariants. */
+    private fun wrapped(state: EditState?, vararg values: Pair<String, Any?>): Answer? = state?.let { Answer(it, values.toMap(), timeline = it.toTimeline()) }
 
     private fun value(name: String, value: Any?) = Answer(values = mapOf(name to value))
 
@@ -322,15 +322,15 @@ internal object TrackParityCases {
     }.runs
 
     private fun Maker.timeline() {
-        for (time in times()) add("TimelineEditing.split", "at ${seconds(time)}", at(state, time), { today(TimelineEditing.split(state, time)) }, { track(TrackSequenceView.split(state, time)) })
-        for (index in indices()) add("TimelineEditing.delete", "clip ${index + 1}", on(state, index), { today(TimelineEditing.delete(state, index)) }, { track(TrackSequenceView.delete(state, index)) })
+        for (time in times()) add("TimelineEditing.split", "at ${seconds(time)}", at(state, time), { today(LegacyTimelineEditing.split(state, time)) }, { wrapped(TimelineEditing.split(state, time)) })
+        for (index in indices()) add("TimelineEditing.delete", "clip ${index + 1}", on(state, index), { today(LegacyTimelineEditing.delete(state, index)) }, { wrapped(TimelineEditing.delete(state, index)) })
         val moves = (List(samples) { index() to index() } + (0 to clips.lastIndex) + (clips.lastIndex to 0)).distinct()
-        for ((from, to) in moves) add("TimelineEditing.move", "clip ${from + 1} to place ${to + 1}", on(state, from), { today(TimelineEditing.move(state, from, to)) }, { track(TrackSequenceView.move(state, from, to)) })
+        for ((from, to) in moves) add("TimelineEditing.move", "clip ${from + 1} to place ${to + 1}", on(state, from), { today(LegacyTimelineEditing.move(state, from, to)) }, { wrapped(TimelineEditing.move(state, from, to)) })
 
         val extra = subject.sources.first { it.audioOnly != true }
         val added = listOf(TimelineClip("NEW", extra.id, 0.0, minOf(extra.duration, 2.5)))
         for (time in times() + begins(index()) + state.duration) {
-            add("TimelineEditing.insert", "a clip of ${seconds(added[0].duration)} s at ${seconds(time)}", at(state, time), { today(TimelineEditing.insert(state, added, time)) }, { track(TrackSequenceView.insert(state, added, time)) })
+            add("TimelineEditing.insert", "a clip of ${seconds(added[0].duration)} s at ${seconds(time)}", at(state, time), { today(LegacyTimelineEditing.insert(state, added, time)) }, { wrapped(TimelineEditing.insert(state, added, time)) })
         }
         for (index in indices()) {
             val clip = clips[index]
@@ -346,14 +346,7 @@ internal object TrackParityCases {
                 // What the trim comes to: a clip shorter than the shortest there is grows when it is asked to shrink.
                 val next = TimelineEditing.trimmed(clip, start, end, limit)
                 val way = on(state, index) + (if (next.start < clip.start || next.end > clip.end) Tag.OUTWARDS else Tag.INWARDS)
-                add("TimelineEditing.trim", "clip ${index + 1}, $what", way, { today(TimelineEditing.trim(state, index, start, end, limit)) }, { track(TrackSequenceView.trim(state, index, start, end, limit)) })
-                // The same trim as the handle makes it in the original: one edge, by a distance on the timeline.
-                val left = next.start != clip.start
-                val delta = if (left) (next.start - clip.start) / clip.rate else (next.end - clip.end) / clip.rate
-                add(
-                    "TimelineEditing.trim, as a handle", "clip ${index + 1}, $what", way,
-                    { today(TimelineEditing.trim(state, index, start, end, limit)) }, { track(TrackSequenceView.trimHandle(state, index, left, delta, subject.sources)) },
-                )
+                add("TimelineEditing.trim", "clip ${index + 1}, $what", way, { today(LegacyTimelineEditing.trim(state, index, start, end, limit)) }, { wrapped(TimelineEditing.trim(state, index, start, end, limit)) })
             }
             val pauses = listOf(
                 "one stretch in the middle" to listOf(SourceInterval(clip.start + 0.4 * length, clip.start + 0.5 * length)),
@@ -362,15 +355,15 @@ internal object TrackParityCases {
                 "most of the clip" to listOf(SourceInterval(clip.start + 0.1 * length, clip.start + 0.95 * length)),
             )
             for ((what, cuts) in pauses) {
-                add("TimelineEditing.removeIntervals", "clip ${index + 1}, $what", on(state, index), { today(TimelineEditing.removeIntervals(state, index, cuts)) }, { track(TrackSequenceView.removeIntervals(state, index, cuts)) })
+                add("TimelineEditing.removeIntervals", "clip ${index + 1}, $what", on(state, index), { today(LegacyTimelineEditing.removeIntervals(state, index, cuts)) }, { wrapped(TimelineEditing.removeIntervals(state, index, cuts)) })
             }
             for (rate in listOf(0.5, 2.0, 4.0, 1.0)) {
-                add("TimelineEditing.setSpeed", "clip ${index + 1} at ×${seconds(rate)}", on(state, index), { today(TimelineEditing.setSpeed(state, index, rate)) }, { track(TrackSequenceView.setSpeed(state, index, rate)) })
+                add("TimelineEditing.setSpeed", "clip ${index + 1} at ×${seconds(rate)}", on(state, index), { today(LegacyTimelineEditing.setSpeed(state, index, rate)) }, { wrapped(TimelineEditing.setSpeed(state, index, rate)) })
             }
             val marks = listOf(clip.start + rng.next(0.1, 0.9) * length, clip.end) + listOfNotNull(clip.bookmarks?.firstOrNull()?.time)
             for (time in marks) {
                 val where = if (time == clip.end) " (its last second)" else ""
-                add("TimelineEditing.toggleBookmark", "clip ${index + 1} at source second ${seconds(time)}$where", on(state, index) + setOfNotNull(Tag.LAST_SECOND.takeIf { time == clip.end }), { today(TimelineEditing.toggleBookmark(state, index, time)) }, { track(TrackSequenceView.toggleBookmark(state, index, time)) })
+                add("TimelineEditing.toggleBookmark", "clip ${index + 1} at source second ${seconds(time)}$where", on(state, index) + setOfNotNull(Tag.LAST_SECOND.takeIf { time == clip.end }), { today(LegacyTimelineEditing.toggleBookmark(state, index, time)) }, { wrapped(TimelineEditing.toggleBookmark(state, index, time)) })
             }
         }
     }
@@ -392,36 +385,36 @@ internal object TrackParityCases {
             }
             val wanted = listOf(dissolve("T-NEW", 0.4), dissolve("T-NEW", 1.5, TransitionStyle.entries[rng.below(TransitionStyle.entries.size)]), dissolve("T-NEW", 30.0), dissolve("T-NEW", 1.0).copy(audioOffset = -0.4, audioBlend = 1.0))
             for (settings in wanted) {
-                add("TimelineEditing.setJoin", "$what, ${settings.style.name.lowercase()} of ${seconds(settings.duration)} s", tags, { today(TimelineEditing.setJoin(state, join, settings)) }, { track(TrackSequenceView.setJoin(state, join, settings)) })
+                add("TimelineEditing.setJoin", "$what, ${settings.style.name.lowercase()} of ${seconds(settings.duration)} s", tags, { today(LegacyTimelineEditing.setJoin(state, join, settings)) }, { wrapped(TimelineEditing.setJoin(state, join, settings)) })
             }
-            add("TimelineEditing.setJoin", "$what, removed", tags, { today(TimelineEditing.setJoin(state, join, null)) }, { track(TrackSequenceView.setJoin(state, join, null)) })
+            add("TimelineEditing.setJoin", "$what, removed", tags, { today(LegacyTimelineEditing.setJoin(state, join, null)) }, { wrapped(TimelineEditing.setJoin(state, join, null)) })
             TimelineEditing.joinSettings(clips, join)?.let { same ->
-                add("TimelineEditing.setJoin", "$what, the same settings again", tags, { today(TimelineEditing.setJoin(state, join, same)) }, { track(TrackSequenceView.setJoin(state, join, same)) })
+                add("TimelineEditing.setJoin", "$what, the same settings again", tags, { today(LegacyTimelineEditing.setJoin(state, join, same)) }, { wrapped(TimelineEditing.setJoin(state, join, same)) })
             }
         }
         for (index in 0 until count - 1) for (duration in listOf(0.5, 2.0, null)) {
             val style = TransitionStyle.entries[rng.below(TransitionStyle.entries.size)]
             add(
                 "TimelineEditing.setTransition", "after clip ${index + 1}, ${duration?.let { "${style.name.lowercase()} of ${seconds(it)} s" } ?: "removed"}", on(state, index),
-                { today(TimelineEditing.setTransition(state, index, duration, style)) }, { track(TrackSequenceView.setTransition(state, index, duration, style)) },
+                { today(LegacyTimelineEditing.setTransition(state, index, duration, style)) }, { wrapped(TimelineEditing.setTransition(state, index, duration, style)) },
             )
         }
     }
 
     private fun Maker.recipes() {
-        fun recipe(function: String, label: String, tags: Set<String>, edit: (EditState) -> EditState?) = add(function, label, tags, { today(edit(state)) }, { track(TrackSequenceView.editingClips(state, edit)) })
+        fun recipe(function: String, label: String, tags: Set<String>, legacy: (EditState) -> EditState?, edit: (EditState) -> EditState?) = add(function, label, tags, { today(legacy(state)) }, { wrapped(edit(state)) })
         for (index in indices()) {
             val clip = clips[index]
             val tags = on(state, index)
             val title = TextOverlay(id = "TITLE-NEW", text = "New", start = clip.start, end = minOf(clip.end, clip.start + 2.0))
-            recipe("TimelineEditing.setText", "a title on clip ${index + 1}", tags) { TimelineEditing.setText(it, index, title) }
-            clip.texts?.firstOrNull()?.let { text -> recipe("TimelineEditing.removeText", "from clip ${index + 1}", tags) { TimelineEditing.removeText(it, index, text.id) } }
-            recipe("TimelineEditing.setColor", "clip ${index + 1}", tags) { TimelineEditing.setColor(it, index, ColorSettings(id = "COLOR-NEW", exposure = 0.3)) }
-            recipe("TimelineEditing.setCrop", "clip ${index + 1}", tags) { TimelineEditing.setCrop(it, index, CropSettings(id = "CROP-NEW", zoom = 1.4)) }
+            recipe("TimelineEditing.setText", "a title on clip ${index + 1}", tags, { LegacyTimelineEditing.setText(it, index, title) }) { TimelineEditing.setText(it, index, title) }
+            clip.texts?.firstOrNull()?.let { text -> recipe("TimelineEditing.removeText", "from clip ${index + 1}", tags, { LegacyTimelineEditing.removeText(it, index, text.id) }) { TimelineEditing.removeText(it, index, text.id) } }
+            recipe("TimelineEditing.setColor", "clip ${index + 1}", tags, { LegacyTimelineEditing.setColor(it, index, ColorSettings(id = "COLOR-NEW", exposure = 0.3)) }) { TimelineEditing.setColor(it, index, ColorSettings(id = "COLOR-NEW", exposure = 0.3)) }
+            recipe("TimelineEditing.setCrop", "clip ${index + 1}", tags, { LegacyTimelineEditing.setCrop(it, index, CropSettings(id = "CROP-NEW", zoom = 1.4)) }) { TimelineEditing.setCrop(it, index, CropSettings(id = "CROP-NEW", zoom = 1.4)) }
         }
         repeat(samples) {
             val from = time()
-            recipe("TimelineEditing.placeTitle", "over ${seconds(from)}–${seconds(from + 3.0)}", at(state, from)) { TimelineEditing.placeTitle(it, TextOverlay(id = "TITLE-PLACED", text = "Placed"), from..from + 3.0) }
+            recipe("TimelineEditing.placeTitle", "over ${seconds(from)}–${seconds(from + 3.0)}", at(state, from), { LegacyTimelineEditing.placeTitle(it, TextOverlay(id = "TITLE-PLACED", text = "Placed"), from..from + 3.0) }) { TimelineEditing.placeTitle(it, TextOverlay(id = "TITLE-PLACED", text = "Placed"), from..from + 3.0) }
         }
     }
 
@@ -435,8 +428,8 @@ internal object TrackParityCases {
             )
             for ((what, audio) in sounds) {
                 val tags = on(state, index) + (if (audio.fadeIn > length / 2) setOf(Tag.LONG_FADE) else emptySet())
-                add("TimelineEditing.setAudio", "clip ${index + 1}, $what", tags, { today(TimelineEditing.setAudio(state, index, audio)) }, { track(TrackSequenceView.setAudio(state, index, audio)) })
-                add("AudioUnlinking.setSound", "clip ${index + 1}, $what", tags, { today(AudioUnlinking.setSound(state, index, audio)) }, { track(TrackSequenceView.setSound(state, index, audio)) })
+                add("TimelineEditing.setAudio", "clip ${index + 1}, $what", tags, { today(LegacyTimelineEditing.setAudio(state, index, audio)) }, { wrapped(TimelineEditing.setAudio(state, index, audio)) })
+                add("AudioUnlinking.setSound", "clip ${index + 1}, $what", tags, { today(LegacyAudioUnlinking.setSound(state, index, audio)) }, { wrapped(AudioUnlinking.setSound(state, index, audio)) })
             }
         }
     }
@@ -444,26 +437,26 @@ internal object TrackParityCases {
     private fun Maker.soundItems() {
         val sound = subject.sources.firstOrNull { it.audioOnly == true }
         if (sound != null) for (at in listOf(0.0, RangeEditing.quantize(time()), time())) {
-            add("TimelineEditing.addAudio", "${seconds(sound.duration)} s of sound at ${seconds(at)}", setOfNotNull(Tag.SOUND_ITEMS.takeIf { items.isNotEmpty() }), { today(TimelineEditing.addAudio(state, sound.id, sound.duration, at)) }, { track(TrackSequenceView.addAudio(state, sound.id, sound.duration, at)) })
+            add("TimelineEditing.addAudio", "${seconds(sound.duration)} s of sound at ${seconds(at)}", setOfNotNull(Tag.SOUND_ITEMS.takeIf { items.isNotEmpty() }), { today(LegacyTimelineEditing.addAudio(state, sound.id, sound.duration, at)) }, { wrapped(TimelineEditing.addAudio(state, sound.id, sound.duration, at)) })
         }
         for (item in items.shuffledBy(rng).take(maxOf(2, samples))) {
             val tags = onItem(item) + (if (clips.any { it.id == item.id }) setOf(Tag.UNLINKED) else emptySet())
             val name = if (clips.any { it.id == item.id }) "the unlinked sound of clip ${clips.indexOfFirst { it.id == item.id } + 1}" else "the item at ${seconds(item.start)}"
             for (start in listOf(RangeEditing.quantize(time()), item.start + 0.5, 0.0)) {
-                add("TimelineEditing.moveAudio", "$name to ${seconds(start)}", tags, { today(TimelineEditing.moveAudio(state, item.id, start)) }, { track(TrackSequenceView.moveAudio(state, item.id, start)) })
+                add("TimelineEditing.moveAudio", "$name to ${seconds(start)}", tags, { today(LegacyTimelineEditing.moveAudio(state, item.id, start)) }, { wrapped(TimelineEditing.moveAudio(state, item.id, start)) })
             }
             for ((time, leading) in listOf(item.start + item.duration * 0.3 to true, item.start + item.duration * 0.6 to false, item.start + 0.05 to true)) {
                 add(
                     "TimelineEditing.trimAudio", "$name, ${if (leading) "its start" else "its end"} to ${seconds(time)}", tags,
-                    { today(TimelineEditing.trimAudio(state, item.id, time, leading)) }, { track(TrackSequenceView.trimAudio(state, item.id, time, leading)) },
+                    { today(LegacyTimelineEditing.trimAudio(state, item.id, time, leading)) }, { wrapped(TimelineEditing.trimAudio(state, item.id, time, leading)) },
                 )
             }
             val sounds = listOf("9 dB down with fades of 0.5 s" to ClipAudio(volumeDB = -9.0, fadeIn = 0.5, fadeOut = 0.5), "muted" to ClipAudio(muted = true), "a fade out of four fifths of it" to ClipAudio(fadeOut = item.duration * 0.8))
             for ((what, audio) in sounds) {
                 val more = tags + (if (audio.fadeOut > item.duration / 2) setOf(Tag.LONG_FADE) else emptySet())
-                add("TimelineEditing.setAudioItemSound", "$name, $what", more, { today(TimelineEditing.setAudioItemSound(state, item.id, audio)) }, { track(TrackSequenceView.setAudioItemSound(state, item.id, audio)) })
+                add("TimelineEditing.setAudioItemSound", "$name, $what", more, { today(LegacyTimelineEditing.setAudioItemSound(state, item.id, audio)) }, { wrapped(TimelineEditing.setAudioItemSound(state, item.id, audio)) })
             }
-            add("TimelineEditing.removeAudio", name, tags, { today(TimelineEditing.removeAudio(state, item.id)) }, { track(TrackSequenceView.removeAudio(state, item.id)) })
+            add("TimelineEditing.removeAudio", name, tags, { today(LegacyTimelineEditing.removeAudio(state, item.id)) }, { wrapped(TimelineEditing.removeAudio(state, item.id)) })
         }
     }
 
@@ -491,6 +484,11 @@ internal object TrackParityCases {
     }
 
     private fun Maker.ranges() {
+        // What was copied, as an edit of its own that begins at zero. A fragment's sound is placed from where its first clip begins, which an opening that holds time puts later than the fragment's start.
+        fun copied(fragment: ClipFragment): EditState {
+            val lead = if (fragment.clips.isEmpty()) 0.0 else TimelineEditing.clipStart(fragment.clips, 0)
+            return nameless(EditState(fragment.clips, audio = fragment.audio.map { it.copy(start = it.start + lead) }.ifEmpty { null }, subtitles = fragment.subtitles))
+        }
         for (scope in scopes()) {
             val tags = about(state, scope)
             val name = label(scope, state)
@@ -498,37 +496,26 @@ internal object TrackParityCases {
             val moved = tags + setOfNotNull(Tag.PLAYHEAD_HELD.takeIf { held(state, playhead) })
             add(
                 "RangeEditing.delete", "$name, the playhead at ${seconds(playhead)}", moved,
-                { RangeEditing.delete(state, scope, playhead)?.let { today(it.state, "playhead" to it.position) } },
-                { TrackSequenceView.delete(state, scope, playhead)?.let { track(it.result, "playhead" to it.position) } },
+                { LegacyRangeEditing.delete(state, scope, playhead)?.let { today(it.state, "playhead" to it.position) } },
+                { RangeEditing.delete(state, scope, playhead)?.let { wrapped(it.state, "playhead" to it.position) } },
             )
-            // What was copied, as an edit of its own that begins at zero.
-            add(
-                "RangeEditing.copy", name, tags,
-                // A fragment's sound is placed from where its first clip begins, which an opening that holds time puts later than the fragment's start.
-                {
-                    RangeEditing.copy(state, scope)?.let { fragment ->
-                        val lead = if (fragment.clips.isEmpty()) 0.0 else TimelineEditing.clipStart(fragment.clips, 0)
-                        today(nameless(EditState(fragment.clips, audio = fragment.audio.map { it.copy(start = it.start + lead) }.ifEmpty { null }, subtitles = fragment.subtitles)))
-                    }
-                },
-                { TrackSequenceView.copy(state, scope)?.let { copied -> track(copied.fragment.copy(state = copied.fragment.state?.let(::nameless))) } },
-            )
+            add("RangeEditing.copy", name, tags, { LegacyRangeEditing.copy(state, scope)?.let { today(copied(it)) } }, { RangeEditing.copy(state, scope)?.let { wrapped(copied(it)) } })
             add(
                 "RangeEditing.cut", "$name, the playhead at ${seconds(playhead)}", moved,
-                { RangeEditing.cut(state, scope, playhead)?.let { today(it.state, "playhead" to it.position) } },
-                { TrackSequenceView.cut(state, scope, playhead)?.let { track(it.result, "playhead" to it.position) } },
+                { LegacyRangeEditing.cut(state, scope, playhead)?.let { today(it.state, "playhead" to it.position) } },
+                { RangeEditing.cut(state, scope, playhead)?.let { wrapped(it.state, "playhead" to it.position) } },
             )
             for (at in listOf(time(), 0.0, state.duration)) {
                 add(
                     "RangeEditing.paste", "a copy of $name, at ${seconds(at)}", tags + at(state, at),
-                    { RangeEditing.copy(state, scope)?.let { fragment -> RangeEditing.paste(state, fragment, at)?.let { today(it.state, "begins at" to it.start) } } },
-                    { TrackSequenceView.copy(state, scope)?.let { copied -> TrackSequenceView.paste(state, copied.clipboard, at)?.let { track(it.result, "begins at" to it.start) } } },
+                    { LegacyRangeEditing.copy(state, scope)?.let { fragment -> LegacyRangeEditing.paste(state, fragment, at)?.let { today(it.state, "begins at" to it.start) } } },
+                    { RangeEditing.copy(state, scope)?.let { fragment -> RangeEditing.paste(state, fragment, at)?.let { wrapped(it.state, "begins at" to it.start) } } },
                 )
             }
             add(
                 "RangeEditing.scoped", name, tags,
-                { RangeEditing.scoped(state, scope).let { scoped -> today(scoped.state, "clips a tool applies to" to scoped.clips.map { id -> scoped.state.clips.indexOfFirst { it.id == id } + 1 }) } },
-                { TrackSequenceView.scoped(state, scope).let { scoped -> track(scoped.result, "clips a tool applies to" to scoped.clips.map { id -> (scoped.result.state?.clips?.indexOfFirst { it.id == id } ?: -2) + 1 }) } },
+                { LegacyRangeEditing.scoped(state, scope).let { scoped -> today(scoped.state, "clips a tool applies to" to scoped.clips.map { id -> scoped.state.clips.indexOfFirst { it.id == id } + 1 }) } },
+                { RangeEditing.scoped(state, scope).let { scoped -> wrapped(scoped.state, "clips a tool applies to" to scoped.clips.map { id -> scoped.state.clips.indexOfFirst { it.id == id } + 1 }) } },
             )
         }
     }
@@ -540,67 +527,50 @@ internal object TrackParityCases {
         val spoken = subject.sources.filter { it.audioOnly != true }.associate { source ->
             source.id to "what is said in this take".split(" ").mapIndexed { index, word -> SubtitleWord("W-${source.id}-$index", "P-${source.id}", word, 0.3 + index * source.duration / 8, 0.3 + (index + 0.7) * source.duration / 8) }
         }
-        add("SubtitleEditing.install", "a transcription of every take", tags, { today(SubtitleEditing.install(state, spoken, "en")) }, { track(TrackSequenceView.install(state, spoken, "en")) })
-        add("SubtitleEditing.cues", "the captions", tags, { value("captions", SubtitleEditing.cues(state).map { listOf(it.text, it.start, it.end) }) }, { value("captions", TrackSequenceView.cues(state).map { listOf(it.text, it.start, it.end) }) })
-        add("SubtitleEditing.transcript", "the text", tags, { value("transcript", SubtitleEditing.transcript(state)) }, { value("transcript", TrackSequenceView.transcript(state)) })
-        add("SubtitleEditing.groupingAvailable", "whether regrouping is allowed", tags, { value("allowed", SubtitleEditing.groupingAvailable(state)) }, { value("allowed", TrackSequenceView.groupingAvailable(state)) })
+        add("SubtitleEditing.install", "a transcription of every take", tags, { today(LegacySubtitleEditing.install(state, spoken, "en")) }, { wrapped(SubtitleEditing.install(state, spoken, "en")) })
+        add("SubtitleEditing.cues", "the captions", tags, { value("captions", LegacySubtitleEditing.cues(state).map { listOf(it.text, it.start, it.end) }) }, { value("captions", SubtitleEditing.cues(state).map { listOf(it.text, it.start, it.end) }) })
+        add("SubtitleEditing.transcript", "the text", tags, { value("transcript", LegacySubtitleEditing.transcript(state)) }, { value("transcript", SubtitleEditing.transcript(state)) })
+        add("SubtitleEditing.groupingAvailable", "whether regrouping is allowed", tags, { value("allowed", LegacySubtitleEditing.groupingAvailable(state)) }, { value("allowed", SubtitleEditing.groupingAvailable(state)) })
         add(
             "SubtitleEditing.stretches", "what a transcription listens to", tags,
+            { value("stretches", LegacySubtitleEditing.stretches(clips).map { listOf(it.sourceID, it.start, it.end) }) },
             { value("stretches", SubtitleEditing.stretches(clips).map { listOf(it.sourceID, it.start, it.end) }) },
-            { value("stretches", TrackSequenceView.stretches(state).map { listOf(it.sourceID, it.start, it.end) }) },
         )
         if (state.subtitles == null) return
-        add("SubtitleEditing.remove", "every caption", tags, { today(SubtitleEditing.remove(state)) }, { track(TrackSequenceView.remove(state)) })
+        add("SubtitleEditing.remove", "every caption", tags, { today(LegacySubtitleEditing.remove(state)) }, { wrapped(SubtitleEditing.remove(state)) })
         val restyled = state.subtitles.copy(style = SubtitleSettings.Style.Bold, size = 0.07)
-        add("SubtitleEditing.restyle", "bold, larger", tags, { today(SubtitleEditing.restyle(state, restyled)) }, { track(TrackSequenceView.restyle(state, restyled)) })
+        add("SubtitleEditing.restyle", "bold, larger", tags, { today(LegacySubtitleEditing.restyle(state, restyled)) }, { wrapped(SubtitleEditing.restyle(state, restyled)) })
         for (count in listOf(2, state.subtitles.maxWords, 12)) {
-            add("SubtitleEditing.regroup", "$count words a caption", tags, { today(SubtitleEditing.regroup(state, count)) }, { track(TrackSequenceView.regroup(state, count)) })
+            add("SubtitleEditing.regroup", "$count words a caption", tags, { today(LegacySubtitleEditing.regroup(state, count)) }, { wrapped(SubtitleEditing.regroup(state, count)) })
         }
-        // The captions as each side shows them: one of today's, and one only the track model shows (on a sound that is not its clip's).
-        val shown = SubtitleEditing.cues(state)
-        val through = TrackSequenceView.cues(state)
-        val chosen = (shown.shuffledBy(rng).take(samples) + through.filter { cue -> shown.none { it.id == cue.id } }.take(1)).distinct()
+        val chosen = LegacySubtitleEditing.cues(state).shuffledBy(rng).take(samples)
         for (cue in chosen) {
             val index = clips.indexOfFirst { it.id == cue.audioID }
             val more = tags + on(state, index)
-            add("SubtitleEditing.correct", "the caption \"${cue.text}\" of clip ${index + 1}", more, { today(SubtitleEditing.correct(state, cue, "Typed again")) }, { track(TrackSequenceView.correct(state, cue, "Typed again")) })
-            add("SubtitleEditing.delete", "the caption \"${cue.text}\" of clip ${index + 1}", more, { today(SubtitleEditing.delete(state, cue)) }, { track(TrackSequenceView.delete(state, cue)) })
+            add("SubtitleEditing.correct", "the caption \"${cue.text}\" of clip ${index + 1}", more, { today(LegacySubtitleEditing.correct(state, cue, "Typed again")) }, { wrapped(SubtitleEditing.correct(state, cue, "Typed again")) })
+            add("SubtitleEditing.delete", "the caption \"${cue.text}\" of clip ${index + 1}", more, { today(LegacySubtitleEditing.delete(state, cue)) }, { wrapped(SubtitleEditing.delete(state, cue)) })
         }
     }
 
     private fun Maker.unlinking() {
         for (index in indices()) {
             val tags = on(state, index)
-            add("AudioUnlinking.unlink", "clip ${index + 1}", tags, { today(AudioUnlinking.unlink(state, index)) }, { track(TrackSequenceView.unlink(state, index)) })
-            add("AudioUnlinking.relink", "clip ${index + 1}", tags, { today(AudioUnlinking.relink(state, index)) }, { track(TrackSequenceView.relink(state, index)) })
-            add("AudioUnlinking.restoreSync", "clip ${index + 1}", tags, { today(AudioUnlinking.restoreSync(state, index)) }, { track(TrackSequenceView.restoreSync(state, index)) })
-            add("AudioUnlinking.syncOffset", "clip ${index + 1}", tags, { value("seconds late", AudioUnlinking.syncOffset(state, index)) }, { value("seconds late", TrackSequenceView.syncOffset(state, index)) })
+            add("AudioUnlinking.unlink", "clip ${index + 1}", tags, { today(LegacyAudioUnlinking.unlink(state, index)) }, { wrapped(AudioUnlinking.unlink(state, index)) })
+            add("AudioUnlinking.relink", "clip ${index + 1}", tags, { today(LegacyAudioUnlinking.relink(state, index)) }, { wrapped(AudioUnlinking.relink(state, index)) })
+            add("AudioUnlinking.restoreSync", "clip ${index + 1}", tags, { today(LegacyAudioUnlinking.restoreSync(state, index)) }, { wrapped(AudioUnlinking.restoreSync(state, index)) })
+            add("AudioUnlinking.syncOffset", "clip ${index + 1}", tags, { value("seconds late", LegacyAudioUnlinking.syncOffset(state, index)) }, { value("seconds late", AudioUnlinking.syncOffset(state, index)) })
         }
     }
 
-    /** What is asked of an edit without changing it, where the track model answers the same question. */
+    /** What is asked of an edit without changing it: the questions stay questions about the sequence, and are compared so that they stay the answers they were. */
     private fun Maker.questions() {
-        val timeline by lazy { state.toTimeline() }
-        val layout by lazy { TrackLayout.of(timeline) }
-        val tags = setOfNotNull(Tag.SOUND_PAST_END.takeIf { items.any { it.end > state.duration + TrackParity.SAME_TIME } })
-        add("EditState.duration", "how long the movie is", tags, { value("seconds", state.duration) }, { value("seconds", timeline.duration.seconds) })
-        add("TimelineEditing.clipStart", "where each clip begins", emptySet(), { value("starts", clips.indices.map { TimelineEditing.clipStart(clips, it) }) }, { value("starts", timeline.chronologicalVideo.map { it.start.seconds }) })
-        add(
-            "RangeEditing.joinTimes", "the start, every join and the end", emptySet(),
-            { value("times", RangeEditing.joinTimes(clips)) },
-            {
-                val pairs = (0..clips.size).map { TrackSequenceView.joinClips(clips, it) }
-                value("times", pairs.map { pair -> layout.joins.firstOrNull { it.outgoingID == pair?.first && it.incomingID == pair?.second }?.time })
-            },
-        )
-        add("TimelineEditing.bookmarkTimes", "where the bookmarks are", emptySet(), { value("times", TimelineEditing.bookmarkTimes(clips)) }, { value("times", timeline.resolvedBookmarks.map { it.time.seconds }) })
+        add("TimelineEditing.duration", "how long the movie is", emptySet(), { value("seconds", LegacyTimelineEditing.duration(clips)) }, { value("seconds", state.duration) })
+        add("TimelineEditing.clipStart", "where each clip begins", emptySet(), { value("starts", clips.indices.map { LegacyTimelineEditing.clipStart(clips, it) }) }, { value("starts", clips.indices.map { TimelineEditing.clipStart(clips, it) }) })
+        add("RangeEditing.joinTimes", "the start, every join and the end", emptySet(), { value("times", LegacyRangeEditing.joinTimes(clips)) }, { value("times", RangeEditing.joinTimes(clips)) })
+        add("TimelineEditing.bookmarkTimes", "where the bookmarks are", emptySet(), { value("times", LegacyTimelineEditing.bookmarkTimes(clips)) }, { value("times", TimelineEditing.bookmarkTimes(clips)) })
         for (time in times()) {
-            fun name(outgoing: String?, incoming: String?) = "${outgoing?.let { id -> clips.indexOfFirst { it.id == id } + 1 } ?: "–"} → ${incoming?.let { id -> clips.indexOfFirst { it.id == id } + 1 } ?: "–"}"
-            add(
-                "RangeEditing.transitionAt", "at ${seconds(time)}", at(state, time),
-                { value("transition", RangeEditing.transitionAt(clips, time)?.let { name(it.outgoing?.let { index -> clips[index].id }, it.incoming?.let { index -> clips[index].id }) }) },
-                { value("transition", layout.transition(time)?.let { name(it.outgoingID, it.incomingID) }) },
-            )
+            fun name(join: TransitionLayout.Join?) = join?.let { "${it.outgoing?.plus(1) ?: "–"} → ${it.incoming?.plus(1) ?: "–"}" }
+            add("RangeEditing.transitionAt", "at ${seconds(time)}", at(state, time), { value("transition", name(LegacyRangeEditing.transitionAt(clips, time))) }, { value("transition", name(RangeEditing.transitionAt(clips, time))) })
         }
     }
 }

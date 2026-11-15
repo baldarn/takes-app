@@ -9,8 +9,8 @@ import java.io.File
  * Runs the parity suite ([TrackParity]) and checks what it finds against
  * docs/TRACKS-PARITY.md, which it also writes.
  *
- * It does not fail on a difference between today's functions and the track
- * model: it counts them by kind, prints the counts, and fails when the file
+ * It does not fail on a difference between the functions as they were and
+ * as they run on the track model: it counts them by kind, prints the counts, and fails when the file
  * is not what it would write now. What it runs is chosen in the environment,
  * as the file says under "Running it":
  *

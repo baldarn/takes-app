@@ -41,7 +41,9 @@ internal object TrackParityKinds {
             track = "Only items in a link of picture and sound ripple. A picture whose sound was unlinked is linked to nothing: deleting it or cutting a range out of it leaves a gap, and when an earlier clip changes length it stays behind, so the timeline gets a gap before it or an overlap with it.",
             effect = "After Unlink, an ordinary delete, trim, speed change or transition leaves black time or two pictures on top of each other, where today the clips stay one after another. The result cannot be saved as a sequence.",
             rule = "YouRec/TrackTimeline.swift:774-799 (only complete links close their time, only links of picture and sound move); YouRec/Transitions.swift:400-410; YouRec/TrackTimeline.swift:1361",
-            aspects = none(SequenceObstacle.Gap, SequenceObstacle.Overlap, SequenceObstacle.Transition) + setOf("transition: fit", "opening: fit", "transition: only today"),
+            aspects = none(SequenceObstacle.Gap, SequenceObstacle.Overlap, SequenceObstacle.Transition) +
+                // An unlinked picture is in no link, so a trim that takes the footage of its opening does not remove the opening, and time opened for a moved clip cuts it in two.
+                setOf("transition: fit", "opening: fit", "transition: only today", "opening: only through the track model", "clips: more through the track model"),
             tags = setOf(Tag.SOME_UNLINKED),
             plan = "N9",
         ),
