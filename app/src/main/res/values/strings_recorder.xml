@@ -36,6 +36,9 @@
     <string name="recorder_settings_microphone">Microphone</string>
     <string name="recorder_settings_microphone_note">The choice is used from the next segment on and lasts until the app is closed.</string>
     <string name="recorder_settings_microphone_busy">Pause the take to change the microphone.</string>
+    <string name="recorder_settings_framing">Framing</string>
+    <string name="recorder_settings_fit">Fit entire recorded frame</string>
+    <string name="recorder_settings_fit_note">The full-screen view fills the display. Fit shows the complete recorded frame.</string>
     <string name="recorder_settings_about">About</string>
     <string name="recorder_settings_credits">Credits</string>
 </resources>
