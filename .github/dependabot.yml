@@ -1,0 +1,9 @@
+# Only the actions of the workflows. Library updates (CameraX, Media3, Compose, the Android
+# Gradle plugin) change how the camera, the preview and the export behave and are tried on
+# a phone before they are taken, so they are made by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

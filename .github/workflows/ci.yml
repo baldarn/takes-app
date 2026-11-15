@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Reads the code and nothing else. No secrets are used, so pull requests from forks run the same way.
+permissions:
+  contents: read
+
+# A newer push to the same pull request or branch replaces the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Tests, lint and debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # The runner image has an Android SDK. The rnnoise module needs this NDK, and its host
+      # tests call the SDK's CMake 3.22.1 directly, before the Android Gradle plugin would fetch it.
+      - name: Install the NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"
+
+      # Caches the Gradle distribution and dependencies. Runs for pull requests read the cache of main.
+      - uses: gradle/actions/setup-gradle@v4
+
+      # sherpa-onnx (about 38 MB) and its library for this computer, which the speech module
+      # downloads from the sherpa-onnx release and checks against a SHA-256.
+      - uses: actions/cache@v4
+        with:
+          path: speech/.sherpa-onnx
+          key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('speech/build.gradle.kts') }}
+
+      # No keystore here: only the debug build is assembled, which needs none.
+      - name: Test, lint and build
+        run: ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :app:lintDebug :app:assembleDebug
+
+      - name: Keep the reports of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            */build/reports
+            */build/test-results
+          retention-days: 7
+
+      - name: Keep the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: takes-dev-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
