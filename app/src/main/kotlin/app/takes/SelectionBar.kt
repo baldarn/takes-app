@@ -131,7 +131,7 @@ internal fun selectionTitle(edit: EditState, targets: EditTargets?, names: Map<S
     if (labels.size == 1 && sounds.size == 1) names[sounds[0].value.sourceID]?.let { return labels[0] + " · " + it }
     if (labels.size <= 4) return labels.joinToString(" + ")
     val kind = stringResource(if (clips.isEmpty()) R.string.selection_audio else if (sounds.isEmpty()) R.string.selection_video else R.string.selection_video_audio)
-    return stringResource(R.string.selection_items, kind, labels.size)
+    return pluralStringResource(R.plurals.selection_items, labels.size, kind, labels.size)
 }
 
 /** How many items are selected: 2 videos + 1 audio part. */

@@ -145,6 +145,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -616,6 +617,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         is EditScope.Selected -> stringResource(R.string.selection_tool_selected, selectionCount(scope.targets))
         EditScope.Whole -> null
     }
+    // A tool cuts the clips at the ends of the range, and the pieces inside are new clips: a range limited
+    // to some clips takes them in, as the original carries a range from the clips to their pieces.
+    val applyScoped = { scoped: RangeEditing.Scoped, next: EditState?, time: Double ->
+        if (next != null) marks.rangeTargets?.let { marks = marks.copy(rangeTargets = it.copy(clips = it.clips + scoped.clips)) }
+        commit(next, time)
+    }
     // The clip a tool shows the settings of: the one of its scope under the playhead, else the first.
     val toolSubject = toolScope?.let { scoped ->
         val under = TimelineEditing.locate(scoped.state.clips, playhead)?.let { scoped.state.clips[it.index] }?.takeIf { it.id in scoped.clips }
@@ -929,7 +936,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 done = { crop ->
                     val index = clips.indexOfFirst { it.id == framing.first }
                     cropping = null
-                    commit(if (toolScope != null) applied(toolScope) { state, at -> TimelineEditing.setCrop(state, at, crop) } else TimelineEditing.setCrop(edit, index, crop), playhead)
+                    if (toolScope != null) applyScoped(toolScope, applied(toolScope) { state, at -> TimelineEditing.setCrop(state, at, crop) }, playhead)
+                    else commit(TimelineEditing.setCrop(edit, index, crop), playhead)
                 },
                 cancel = { cropping = null },
                 appliesTo = toolScopeLabel,
@@ -1045,6 +1053,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val pasteDone = stringResource(R.string.clipboard_pasted)
             val noRoom = stringResource(R.string.clipboard_paste_no_room)
             val clipboard = store.clipboards[project.id]
+            val resources = LocalResources.current
             val open = marks.range != null || marks.start != null
             SelectionBar(
                 step = marks.step,
@@ -1110,7 +1119,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             commit(pasted.state, pasted.start)
                             marks = RangeMarks(selected = EditTargets(pasted.clips.toSet(), pasted.audio.toSet()))
                             feedback = pasteDone
-                            if (pasted.skippedAudio > 0) store.error = context.resources.getQuantityString(R.plurals.clipboard_pasted_skipped, pasted.skippedAudio, pasted.skippedAudio)
+                            if (pasted.skippedAudio > 0) store.error = resources.getQuantityString(R.plurals.clipboard_pasted_skipped, pasted.skippedAudio, pasted.skippedAudio)
                         }
                     }
                 },
@@ -1241,7 +1250,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                                             val under = TimelineEditing.locate(toolScope.state.clips, playhead)?.let { toolScope.state.clips[it.index].id }
                                             val next = applied(toolScope) { state, at -> TimelineEditing.setSpeed(state, at, rate) }
                                             val at = next?.clips?.indexOfFirst { it.id == under }?.takeIf { it >= 0 }
-                                            commit(next, if (next != null && at != null) TimelineEditing.clipStart(next.clips, at) + next.clips[at].offset(frame).coerceIn(0.0, next.clips[at].duration) else playhead)
+                                            applyScoped(toolScope, next, if (next != null && at != null) TimelineEditing.clipStart(next.clips, at) + next.clips[at].offset(frame).coerceIn(0.0, next.clips[at].duration) else playhead)
                                         } else {
                                             val next = TimelineEditing.setSpeed(edit, location.index, rate)
                                             commit(next, next?.let { TimelineEditing.clipStart(it.clips, location.index) + it.clips[location.index].offset(frame) } ?: playhead)
@@ -1285,7 +1294,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             (toolSubject ?: current).color ?: ColorSettings(),
             importLut = { uri -> store.importLut(project.id, uri) },
             save = { color ->
-                commit(if (toolScope != null) applied(toolScope) { state, at -> TimelineEditing.setColor(state, at, color) } else TimelineEditing.setColor(edit, location.index, color), playhead)
+                if (toolScope != null) applyScoped(toolScope, applied(toolScope) { state, at -> TimelineEditing.setColor(state, at, color) }, playhead)
+                else commit(TimelineEditing.setColor(edit, location.index, color), playhead)
                 editingColor = false
             },
             dismiss = { editingColor = false },
@@ -1334,6 +1344,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     toolSounds.fold(clipsDone) { state, id -> TimelineEditing.setAudioItemSound(state ?: toolScope.state, id, audio.copy(denoise = 0.0)) ?: state }
                 }
                 commit(next, playhead)
+                // As the original after Volume on a range: the range is let go.
+                if (next != null && marks.range != null) marks = marks.cleared()
                 editingAudio = false
             },
             dismiss = { editingAudio = false },

@@ -595,7 +595,11 @@
     <string name="selection_video">Video</string>
     <string name="selection_audio">Audio</string>
     <string name="selection_video_audio">Video + audio</string>
-    <string name="selection_items">%1$s · %2$d elementi</string>
+    <plurals name="selection_items">
+        <item quantity="one">%1$s · %2$d elemento</item>
+        <item quantity="many">%1$s · %2$d elementi</item>
+        <item quantity="other">%1$s · %2$d elementi</item>
+    </plurals>
     <plurals name="selection_videos">
         <item quantity="one">%1$d video</item>
         <item quantity="many">%1$d video</item>
