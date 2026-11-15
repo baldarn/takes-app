@@ -167,7 +167,12 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
 
     if (showingCredits) CreditsScreen(report = { store.error = it }) { showingCredits = false }
     store.importing?.let { step ->
-        AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text(stringResource(R.string.common_importing)) }, text = { Text(step) })
+        // As in the original, an import, a duplicate or a ZIP can be cancelled, and then keeps nothing it made.
+        AlertDialog(onDismissRequest = {}, title = { Text(stringResource(R.string.common_importing)) },
+            text = { Text(if (store.cancelling) stringResource(R.string.projects_cancelling) else step) },
+            confirmButton = {
+                if (store.cancellable) TextButton(onClick = store::cancelOperation, enabled = !store.cancelling) { Text(stringResource(R.string.common_cancel)) }
+            })
     }
     renaming?.let { project ->
         var title by remember(project.id) { mutableStateOf(project.title) }

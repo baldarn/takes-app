@@ -399,6 +399,23 @@ class ProjectRestoreTest {
         assertEquals(before, everything())
     }
 
+    @Test fun cancelAtAnyReportLeavesNothingBehind() {
+        // Cancel on the Projects screen throws from the progress report, as the original's Task.checkCancellation().
+        val data = archive(save(trip()))
+        val before = everything()
+        var reports = 0
+        val restored = ProjectRestore.restore(ByteArrayInputStream(data), root, Long.MAX_VALUE) { reports++ }
+        File(root, restored.id).deleteRecursively()
+        assertEquals(before, everything())
+        for (at in reportsToCancelAt(reports)) {
+            var seen = 0
+            assertThrows(java.util.concurrent.CancellationException::class.java) {
+                ProjectRestore.restore(ByteArrayInputStream(data), root, Long.MAX_VALUE) { if (seen++ == at) throw java.util.concurrent.CancellationException() }
+            }
+            assertEquals(before, everything())
+        }
+    }
+
     @Test fun failingStreamStopsTheRestoreAndStaysOpen() {
         val data = archive(save(trip()))
         var closed = false
