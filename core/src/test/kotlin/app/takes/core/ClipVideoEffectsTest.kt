@@ -80,4 +80,14 @@ class ClipVideoEffectsTest {
         for (piece in split.clips) assertEquals(listOf(correction), piece.videoEffects)
         assertEquals(listOf(4.0, 10.0), split.clips.map { it.end })
     }
+
+    @Test fun anEditGivesAClipEffectsAndTakesThemAway() {
+        val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2)
+        val given = TimelineEditing.setVideoEffects(base.edit, 0, listOf(correction))!!
+        assertEquals(listOf(correction), given.clips[0].videoEffects)
+        val graded = base.commit(given, now = 3)
+        assertEquals(listOf(correction), graded.edit.clips[0].videoEffects)
+        assertNull(TimelineEditing.setVideoEffects(given, 0, listOf(correction)))
+        assertNull(TimelineEditing.setVideoEffects(given, 0, null)!!.clips[0].videoEffects)
+    }
 }
