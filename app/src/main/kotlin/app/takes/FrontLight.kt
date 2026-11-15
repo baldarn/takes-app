@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -164,11 +165,12 @@ private fun FrontLightControls(settings: RecorderSettings, close: () -> Unit, tu
             }
         }
         Label(stringResource(R.string.recorder_light_color))
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Each colour is as wide as its name, so a long one ("Personale") is never cut.
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             FrontLight.Tone.entries.forEach { option ->
                 val chosen = option == tone
                 Column(
-                    Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
+                    Modifier.widthIn(min = 48.dp).heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
                         .clickable(role = Role.RadioButton) { settings.frontLightTone = option }.semantics(mergeDescendants = true) { selected = chosen },
                     Arrangement.spacedBy(3.dp, Alignment.CenterVertically), Alignment.CenterHorizontally,
                 ) {
