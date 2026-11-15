@@ -85,8 +85,8 @@ class ProbeInstrumentation : Instrumentation() {
     /** `-e filler no` leaves Media3's own gaps where a deck is empty, as the app does today. */
     private val filler get() = if (text("filler", "yes") == "yes") Filler(still(), fps, later) else null
 
-    /** How many microseconds later than their own the decks' frame times are made ([LaterEffect]); `-e later 0` leaves them. */
-    private val later get() = number("later", 3)
+    /** How many microseconds later than their own the decks' frame times are made ([LaterEffect]): none unless `-e later 3` asks. */
+    private val later get() = number("later", 0)
     private val canvas get() = text("canvas", "640x360").split("x").let { Size(it[0].toInt(), it[1].toInt()) }
 
     /**
