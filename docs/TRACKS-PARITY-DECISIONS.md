@@ -126,3 +126,22 @@ What the format does change, and is accepted with it (plan, 3.3 and D4):
   saved**: a relation always has a factor. Nothing is seen or heard of either.
 - **Two edits are the same edit when they are the same timeline**: committing an edit
   that differs only in one of the above makes no Undo step.
+
+## At S4r
+
+S4r is the part of S4 that picture layers need (`docs/PIP-AND-EFFECTS-PLAN.md`, 1.2): the
+plan takes a transition by the pictures it relates, and the wrappers lose N1 and the close
+half of N13 where the model's own placement gives the original's result.
+
+There was nothing to drop. An opening and a close have stayed with their clip since before
+the switch to the track model: moved, or with a clip put before the first or after the last,
+they play on with their picture, as the model keeps them (`TrackTimeline.swift:881-885`), and
+a take recorded later lands after a close that goes on playing with its clip. No kind of
+`docs/TRACKS-PARITY.md` stands for either, so the accepted list is unchanged, and so is the
+report. The one kind written against N1, `trim-removes-an-opening-of-a-middle-clip`, stays
+Not adopted: it is the original's defect, not the rule.
+
+The kinds kept until S4 stay kept until the visible S4: `handle-trim-outwards-overlaps`,
+`handle-trim-inwards-is-a-deletion`, `split-refused-near-an-edge`,
+`range-end-within-a-frame-of-a-cut`, `removed-transition-leaves-its-time` and
+`close-that-holds-pushes-nothing` (the last two need gaps drawn), and the fit's last digits.
