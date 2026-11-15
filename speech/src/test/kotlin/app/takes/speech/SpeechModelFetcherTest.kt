@@ -45,7 +45,7 @@ class SpeechModelFetcherTest {
         content["m-tokens.txt"] = tokens
         model = SpeechModel.whisper(
             id = "test@1", name = "Test", file = "m", base = server.base,
-            encoder = encoder.size.toLong() to sha(encoder), decoder = decoder.size.toLong() to sha(decoder), tokens = tokens.size.toLong() to sha(tokens),
+            encoder = encoder.size.toLong() to sha(encoder), decoder = decoder.size.toLong() to sha(decoder), tokens = tokens.size.toLong() to sha(tokens), memory = 1,
         )
     }
 
@@ -252,7 +252,7 @@ class SpeechModelFetcherTest {
         val parts = SpeechModel.Kind.Qwen3Asr.parts.mapIndexed { index, name -> name to bytes(20_000 + index * 7_000, 10L + index) }
         for ((name, bytes) in parts) content[name] = bytes
         val nested = SpeechModel("nested@1", "Nested", "nested", SpeechModel.Kind.Qwen3Asr,
-            parts.map { (name, bytes) -> SpeechModelFile(name, server.base + name, bytes.size.toLong(), sha(bytes)) })
+            parts.map { (name, bytes) -> SpeechModelFile(name, server.base + name, bytes.size.toLong(), sha(bytes)) }, memory = 1)
 
         assertEquals(0L, nested.present(folder))
         // The connection drops inside the second file; the next attempt continues there.
@@ -279,8 +279,8 @@ class SpeechModelFetcherTest {
 
     @Test fun aModelMustHaveTheFilesOfItsKind() {
         val file = SpeechModelFile("x-encoder.int8.onnx", "u", 1, "0")
-        assertThrows(IllegalArgumentException::class.java) { SpeechModel("x@1", "X", "x", SpeechModel.Kind.Whisper, listOf(file)) }
-        assertThrows(IllegalArgumentException::class.java) { SpeechModel("x@1", "X", "x", SpeechModel.Kind.Qwen3Asr, SpeechModel.WhisperBase.files) }
+        assertThrows(IllegalArgumentException::class.java) { SpeechModel("x@1", "X", "x", SpeechModel.Kind.Whisper, listOf(file), 1) }
+        assertThrows(IllegalArgumentException::class.java) { SpeechModel("x@1", "X", "x", SpeechModel.Kind.Qwen3Asr, SpeechModel.WhisperBase.files, 1) }
     }
 
     @Test fun describesThePublishedModels() {

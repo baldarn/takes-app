@@ -15,11 +15,14 @@ object SpeechModels {
 
     /**
      * The memory a phone must have, as Android reports it in total, for Qwen3-ASR to be the
-     * model it gets without asking. Android reports less than the phone is sold with (a
-     * "6 GB" phone says about 5.5 GB), so this admits phones sold with 6 GB or more and
-     * leaves those with 4 GB to the lighter model. The measurements behind it are in the README.
+     * model it gets without asking. Android reports less than the phone is sold with ("8 GB"
+     * is about 7.6 GB, "6 GB" about 5.6 GB), so this admits phones sold with 8 GB or more.
+     *
+     * Measured on a phone sold with 8 GB: Qwen3-ASR took 2.1 GB beyond the app's own 0.2 GB,
+     * and the memory the phone had left went from 3.6 GB to 1.8 GB. A phone with 2 GB less
+     * would have had less to give than the model takes. The figures are in the README.
      */
-    const val QWEN_MINIMUM_RAM_BYTES = 5_000_000_000L
+    const val QWEN_MINIMUM_RAM_BYTES = 7_000_000_000L
 
     /** The model a phone with [totalRam] bytes of memory gets when nobody chose. */
     fun recommended(totalRam: Long): SpeechModel = if (totalRam >= QWEN_MINIMUM_RAM_BYTES) SpeechModel.Qwen3Asr else SpeechModel.WhisperSmall
@@ -43,6 +46,9 @@ object SpeechModels {
     fun choices(installed: Set<String>, selected: SpeechModel): List<SpeechModel> =
         known.filter { it in offered || it.id in installed || it == selected }
 
-    /** The offered model to fall back to when [model] is too much for the phone: the largest one smaller than it. */
-    fun lighter(model: SpeechModel): SpeechModel? = offered.filter { it.bytes < model.bytes }.maxByOrNull { it.bytes }
+    /** The offered model to fall back to when [model] is too much for the phone: the one that takes the most memory among those that take less. */
+    fun lighter(model: SpeechModel): SpeechModel? = offered.filter { it.memory < model.memory }.maxByOrNull { it.memory }
+
+    /** Whether [free] bytes of memory, what the phone can give at this moment, are enough to recognize with [model]. */
+    fun fits(model: SpeechModel, free: Long): Boolean = free >= model.memory
 }

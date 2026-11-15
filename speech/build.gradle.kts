@@ -140,7 +140,7 @@ if (hostNative != null) {
 tasks.withType<Test>().configureEach {
     systemProperty("java.library.path", hostNativeDir.asFile.absolutePath)
     // Where the recognition tests keep the models and recordings they download (about
-    // 265 MB). Without it they are skipped and the build needs no network beyond Gradle's:
+    // 265 MB; Qwen3-ASR is used only if already there). Without it they are skipped and the build needs no network beyond Gradle's:
     //   ./gradlew :speech:testDebugUnitTest -Pspeech.models=/some/folder/outside/the/repository
     // -Pspeech.timedModel=<folder> names a Whisper base export with attention outputs
     // (base-encoder.int8.onnx, base-decoder.int8.onnx, base-tokens.txt) for the word-time tests.
