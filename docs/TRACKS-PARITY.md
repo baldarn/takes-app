@@ -46,10 +46,10 @@ The edits: 18 small ones made for one situation each, 128 steps of the histories
 | `TimelineEditing.setAudio` | 3708 | 3595 | 113 | 0 | [sound-settings-of-an-unlinked-clip](#sound-settings-of-an-unlinked-clip), [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
 | `AudioUnlinking.setSound` | 3708 | 3690 | 18 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound), [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
 | `TimelineEditing.addAudio` | 1062 | 925 | 54 | 83 | [third-sound](#third-sound), [captions-fingerprint](#captions-fingerprint) |
-| `RangeEditing.delete` | 4519 | 3197 | 622 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [bookmark-outlives-its-footage](#bookmark-outlives-its-footage), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [today-throws-on-a-range-of-sound](#today-throws-on-a-range-of-sound), 9 unexplained |
-| `RangeEditing.copy` | 4519 | 3624 | 678 | 217 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [later-piece-new-identity](#later-piece-new-identity), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), 83 unexplained |
-| `RangeEditing.cut` | 4519 | 3215 | 604 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [today-throws-on-a-range-of-sound](#today-throws-on-a-range-of-sound), 9 unexplained |
-| `RangeEditing.paste` | 13557 | 10039 | 1854 | 1664 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [third-sound](#third-sound), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [paste-opens-the-length-of-the-fragment](#paste-opens-the-length-of-the-fragment), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [later-piece-new-identity](#later-piece-new-identity), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), 54 unexplained |
+| `RangeEditing.delete` | 4519 | 3199 | 620 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [bookmark-outlives-its-footage](#bookmark-outlives-its-footage), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [today-throws-on-a-range-of-sound](#today-throws-on-a-range-of-sound), 9 unexplained |
+| `RangeEditing.copy` | 4519 | 3625 | 677 | 217 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [later-piece-new-identity](#later-piece-new-identity), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), 82 unexplained |
+| `RangeEditing.cut` | 4519 | 3217 | 602 | 700 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), [today-throws-on-a-range-of-sound](#today-throws-on-a-range-of-sound), 9 unexplained |
+| `RangeEditing.paste` | 13557 | 10041 | 1852 | 1664 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [third-sound](#third-sound), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [paste-opens-the-length-of-the-fragment](#paste-opens-the-length-of-the-fragment), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [later-piece-new-identity](#later-piece-new-identity), [captions-fingerprint](#captions-fingerprint), [bookmark-also-marks-the-unlinked-sound](#bookmark-also-marks-the-unlinked-sound), 52 unexplained |
 | `RangeEditing.scoped` | 4519 | 3190 | 1106 | 223 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [scope-cuts-sound-items](#scope-cuts-sound-items), [words-of-unlinked-sound](#words-of-unlinked-sound), [fades-through-retimes-and-cuts](#fades-through-retimes-and-cuts), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [captions-fingerprint](#captions-fingerprint), 36 unexplained |
 | `SubtitleEditing.install` | 446 | 373 | 66 | 7 | [words-of-unlinked-sound](#words-of-unlinked-sound), 7 unexplained |
 | `SubtitleEditing.cues` | 446 | 429 | 17 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound) |
@@ -75,7 +75,7 @@ The edits: 18 small ones made for one situation each, 128 steps of the histories
 | `SubtitleEditing.correct` | 174 | 174 | 0 | 0 |  |
 | `SubtitleEditing.delete` | 174 | 174 | 0 | 0 |  |
 | `TimelineEditing.removeText` | 14 | 14 | 0 | 0 |  |
-| **all** | 94997 | 76357 | 11972 | 6668 | |
+| **all** | 94997 | 76364 | 11965 | 6668 | |
 
 ## The kinds of difference
 
@@ -620,7 +620,7 @@ through the track model
 - Track model: The items are cut exactly where the range ends, so a piece shorter than a frame is made, kept or copied.
 - Visible effect: A range marked a hair inside a clip leaves or copies a sliver of a few hundredths of a second.
 - Rule: YouRec/EditorView.swift:1125-1130; YouRec/TrackTimeline.swift:1080-1094
-- Seen in: `RangeEditing.delete` 344, `RangeEditing.copy` 390, `RangeEditing.cut` 344, `RangeEditing.paste` 1323, `RangeEditing.scoped` 601 (0 not expressible; 292 together with another kind)
+- Seen in: `RangeEditing.delete` 341, `RangeEditing.copy` 390, `RangeEditing.cut` 341, `RangeEditing.paste` 1323, `RangeEditing.scoped` 601 (0 not expressible; 290 together with another kind)
 - Accepted: no
 
 `RangeEditing.copy(range 0.02–6)` on `one take`:
@@ -1015,7 +1015,7 @@ through the track model
 - Track model: A cut gives the later piece a new id and the earlier piece keeps the old one, so when the earlier piece is then deleted, what stays has the new id.
 - Visible effect: None on screen. A selection, or anything else that remembers the item by id, no longer finds it.
 - Rule: YouRec/TrackTimeline.swift:1015-1017, :1036-1039
-- Seen in: `TimelineEditing.trim, as a handle` 511, `RangeEditing.delete` 82, `RangeEditing.cut` 82, `TimelineEditing.trimAudio` 214, `RangeEditing.paste` 7, `RangeEditing.copy` 23, `TimelineEditing.delete` 3 (0 not expressible; 170 together with another kind)
+- Seen in: `TimelineEditing.trim, as a handle` 511, `RangeEditing.delete` 82, `RangeEditing.cut` 82, `TimelineEditing.trimAudio` 214, `RangeEditing.paste` 7, `RangeEditing.copy` 23, `TimelineEditing.delete` 3 (0 not expressible; 168 together with another kind)
 - Accepted: no
 
 `TimelineEditing.trim, as a handle(clip 1, the start in by a third)` on `one take`:
@@ -1094,7 +1094,7 @@ through the track model
 
 ## Not explained
 
-268 calls differ in something no kind above accounts for. They are listed by function and by what is left over, each with its shortest example; none of them can be accepted in the gate.
+265 calls differ in something no kind above accounts for. They are listed by function and by what is left over, each with its shortest example; none of them can be accepted in the gate.
 
 - **RangeEditing.copy: captions: settings**: 37 calls (also showing words-of-unlinked-sound, range-inside-a-transition, later-piece-new-identity, range-end-within-a-frame-of-a-cut)
 
@@ -1835,48 +1835,6 @@ through the track model
       begins at: 8.458
   ```
 
-- **RangeEditing.paste: transition: only today**: 2 calls
-
-  `RangeEditing.paste(a copy of range 18.33–18.427, at 10.637)` on `generated 23, step 9`:
-  
-  ```
-  before
-      c1 @0 S1 0.25–9.147
-      c2 @8.898 S3 0–0.191
-      c3 @9.088 S3 0.191–6 (into next: flashcut 1)
-      c4 @13.898 S2 0–6.649 at ×1.5
-      c5 @18.33 S2 7.903–8 (closes: split 0.3 ×0.32)
-      a1 @14.367 M1 0–7.18
-      a2 @22.801 M1 8.434–20.014
-      (18.427 s of picture)
-  today
-      c1 @0 S1 0.25–9.147
-      c2 @8.898 S3 0–0.191
-      c3 @9.088 S3 0.191–1.739
-      c6 @10.637 S2 7.903–8 (closes: split 0.3 ×0.32)
-      c7 @10.734 S3 1.739–6 (into next: flashcut 1)
-      c4 @13.994 S2 0–6.649 at ×1.5
-      c5 @18.427 S2 7.903–8 (closes: split 0.3 ×0.32)
-      a3 @10.637 M1 3.963–4.06
-      a1 @14.367 M1 0–7.18
-      a2 @22.801 M1 8.434–20.014
-      (18.524 s of picture)
-      begins at: 10.637
-  through the track model
-      c1 @0 S1 0.25–9.147
-      c2 @8.898 S3 0–0.191
-      c3 @9.088 S3 0.191–1.739
-      c8 @10.637 S2 7.903–8
-      c9 @10.734 S3 1.739–6 (into next: flashcut 1)
-      c4 @13.994 S2 0–6.649 at ×1.5
-      c5 @18.427 S2 7.903–8 (closes: split 0.3 ×0.32)
-      a4 @10.637 M1 3.963–4.06
-      a1 @14.367 M1 0–7.18
-      a2 @22.801 M1 8.434–20.014
-      (18.524 s of picture)
-      begins at: 10.637
-  ```
-
 - **RangeEditing.delete: clips: more today**: 1 calls
 
   `RangeEditing.delete(range 6–18, the playhead at 0.474)` on `an opening on a middle clip`:
@@ -2090,30 +2048,6 @@ through the track model
       seconds late: null
   ```
 
-- **RangeEditing.copy: transition: only today**: 1 calls
-
-  `RangeEditing.copy(range 18.33–18.427)` on `generated 23, step 9`:
-  
-  ```
-  before
-      c1 @0 S1 0.25–9.147
-      c2 @8.898 S3 0–0.191
-      c3 @9.088 S3 0.191–6 (into next: flashcut 1)
-      c4 @13.898 S2 0–6.649 at ×1.5
-      c5 @18.33 S2 7.903–8 (closes: split 0.3 ×0.32)
-      a1 @14.367 M1 0–7.18
-      a2 @22.801 M1 8.434–20.014
-      (18.427 s of picture)
-  today
-      c6 @0 S2 7.903–8 (closes: split 0.3 ×0.32)
-      a3 @0 M1 3.963–4.06
-      (0.097 s of picture)
-  through the track model
-      c6 @0 S2 7.903–8
-      a3 @0 M1 3.963–4.06
-      (0.097 s of picture)
-  ```
-
 - **TimelineEditing.setJoin: no sequence: Overlap**: 1 calls
 
   `TimelineEditing.setJoin(the close of clip 1, still of 1.5 s)` on `generated 24, step 10`:
@@ -2234,7 +2168,7 @@ Of the 76288 timelines the operations of the track model answered in the suite, 
 ## The sample
 
 What the tests check when nothing is set in the environment: the calls on 68 of the edits (the 18 small ones, every 8th step of the golden projects, every 9th seeded edit), the same calls the whole suite makes on them.
-15642 calls: 12646 identical, 1882 different, 1114 not expressible, 49 with something not explained.
+15642 calls: 12648 identical, 1880 different, 1114 not expressible, 49 with something not explained.
 
 | Kind | Calls in the sample |
 |---|---:|
@@ -2253,7 +2187,7 @@ What the tests check when nothing is set in the environment: the calls on 68 of 
 | third-sound | 55 |
 | split-refused-near-an-edge | 240 |
 | split-on-the-grid | 123 |
-| range-end-within-a-frame-of-a-cut | 443 |
+| range-end-within-a-frame-of-a-cut | 441 |
 | split-cuts-sound-items | 51 |
 | scope-cuts-sound-items | 50 |
 | insert-moves-sound-items | 153 |
