@@ -568,7 +568,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // the timeline while dragging and becomes one undo step on release.
     val durations = remember(project.sources) { project.sources.associate { it.id to it.duration } }
     var trim by remember { mutableStateOf<Trim?>(null) }
-    val shown = trim?.takeIf { it.index in clips.indices }?.let { draft -> clips.toMutableList().also { it[draft.index] = draft.clip } } ?: clips
+    // The draft is what the trim would leave: a transition the clip no longer has the footage for is gone from it, as it will be.
+    val shown = trim?.takeIf { it.index in clips.indices }?.let { draft ->
+        TimelineEditing.trim(edit, draft.index, draft.clip.start, draft.clip.end, durations[clips[draft.index].sourceID] ?: clips[draft.index].end)?.clips
+    } ?: clips
     val dragTrim = drag@{ pixels: Float ->
         val draft = trim ?: return@drag
         val original = clips.getOrNull(draft.index) ?: return@drag
@@ -1172,8 +1175,9 @@ private fun Timeline(
             val right = left + (clips[index].duration * pixelsPerSecond).toFloat()
             // Just the visible grip and a little around it; the rest of the clip scrolls.
             val (outside, inside) = with(density) { 6.dp.toPx() to 14.dp.toPx() }
-            val leading = x in (left - outside)..(left + inside)
-            val trailing = x in (right - inside)..(right + outside)
+            // An edge under a transition that plays two clips at once is no trim edge, as in the original.
+            val leading = x in (left - outside)..(left + inside) && TimelineEditing.overlap(clips, index - 1) <= 0
+            val trailing = x in (right - inside)..(right + outside) && TimelineEditing.overlap(clips, index) <= 0
             when {
                 leading && trailing -> abs(x - left) < abs(x - right)
                 leading -> true
@@ -1225,6 +1229,8 @@ private fun Timeline(
                             entering = TimelineEditing.join(clips, index)?.takeIf { index == 0 || it.timing.overlap > 0 }?.transition?.style,
                             leaving = TimelineEditing.join(clips, index + 1)?.takeIf { index == clips.lastIndex || it.timing.overlap <= 0 }?.transition?.style,
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
+                            // The edge being dragged keeps its grip while the draft changes around it.
+                            trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
                             offset, pixelsPerSecond, viewport, scroll, openTitle = { openTitle(index, it) },
                         )
                     }
@@ -1263,7 +1269,7 @@ private fun Timeline(
 
 @Composable
 private fun ClipStrip(
-    clip: TimelineClip, file: File, current: Boolean, entering: TransitionStyle?, leaving: TransitionStyle?, dissolve: Float, offset: Float,
+    clip: TimelineClip, file: File, current: Boolean, entering: TransitionStyle?, leaving: TransitionStyle?, dissolve: Float, trimsEnd: Boolean, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
 ) {
     val density = LocalDensity.current
@@ -1367,8 +1373,9 @@ private fun ClipStrip(
         leaving?.let { tag(it, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp)) }
         if (current) {
             val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(TileSize + WaveHeight).background(Color.White, RoundedCornerShape(3.dp))
-            Box(grip.align(Alignment.CenterStart))
-            Box(grip.align(Alignment.CenterEnd))
+            // No grip on an edge that lies under a transition playing two clips at once: it is not the edge of the footage shown.
+            if (dissolve <= 0) Box(grip.align(Alignment.CenterStart))
+            if (trimsEnd) Box(grip.align(Alignment.CenterEnd))
         }
     }
 }
