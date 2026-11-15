@@ -17,3 +17,4 @@ rootProject.name = "YouRecAndroid"
 include(":core")
 include(":app")
 include(":rnnoise")
+include(":speech")
