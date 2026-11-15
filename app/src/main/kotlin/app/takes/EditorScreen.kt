@@ -171,7 +171,13 @@ import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TransitionFrame
+import app.takes.core.TransitionAxis
+import app.takes.core.TransitionDefaults
+import app.takes.core.TransitionFraming
+import app.takes.core.TransitionGeometry
 import app.takes.core.TransitionScene
+import app.takes.core.TransitionTiming
+import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.withContext
@@ -274,6 +280,7 @@ private class EditorPlayer(private val context: Context) {
     private var chains = emptyList<TimelineEditing.Chain>()
     private var items = List(2) { emptyList<Int>() } // clip index of each playlist item, per deck
     private var duration = 0.0
+    private var loaded: Any? = null
     private var time = 0.0      // where the movie is
     private var ticked = 0L     // when it was last advanced, for the stretches no deck is the clock of
 
@@ -286,9 +293,16 @@ private class EditorPlayer(private val context: Context) {
         chains = TimelineEditing.chains(clips)
         duration = TimelineEditing.duration(clips)
         items = List(2) { deck -> chains.filterIndexed { chain, _ -> chain % 2 == deck }.flatMap { it.first..it.last } }
-        decks.forEachIndexed { deck, player ->
-            player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID)) })
-            player.prepare()
+        // What the decks hold. A change that leaves it as it is, such as a title or the angle of a wipe, needs no new playlists.
+        val media = items to clips.map { clip ->
+            listOf(clip.id, clip.sourceID, clip.start, clip.end, clip.rate, clip.audio?.denoise?.takeIf { it > 0 }?.let { Denoiser.ready(files.getValue(clip.sourceID), it) })
+        }
+        if (media != loaded) {
+            loaded = media
+            decks.forEachIndexed { deck, player ->
+                player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID)) })
+                player.prepare()
+            }
         }
         seek(time)
     }
@@ -466,7 +480,10 @@ fun EditorScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier = M
 private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, modifier: Modifier, record: () -> Unit) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val edit = project.edit
+    // The Transition tool: the join it is working on and the settings not saved yet. The whole
+    // editor shows the timeline as it would be with them, since a transition moves what follows it.
+    var transitioning by remember { mutableStateOf<Transitioning?>(null) }
+    val edit = transitioning?.let { drafted(project.edit, it.join, it.shown) } ?: project.edit
     val clips = edit.clips
     val duration = edit.duration
     val files = remember(project.sources) { project.sources.associate { it.id to store.file(project, it) } }
@@ -688,14 +705,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     val soundName = stringResource(R.string.editor_sound_default_name)
     val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
-    var editingTransition by remember { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
-            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
-            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty() && subtitling == null && titling == null) { Text(stringResource(R.string.editor_export)) }
+            TextButton(onClick = { editor.pause(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
+            Button(onClick = { editor.pause(); choosingExport = true }, enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
@@ -705,19 +721,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder).asComposeRenderEffect() else null
                     }
                 }
-                DeckPictures(
-                    editor.decks, effects, deckFrames,
-                    moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf) },
-                    // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
-                    content = { index, frame ->
-                        val source = sizes[clips[index].sourceID]
-                        val framed = cropping?.first == clips[index].id || clips[index].crop != null
-                        if (framed || source == null) FrameRect(0.0, 0.0, frame.width, frame.height) else {
-                            val fitted = minOf(frame.width / source.width, frame.height / source.height)
-                            FrameRect((frame.width - source.width * fitted) / 2, (frame.height - source.height * fitted) / 2, source.width * fitted, source.height * fitted)
-                        }
-                    },
-                )
+                // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
+                val content = { index: Int, frame: FrameSize ->
+                    val source = sizes[clips[index].sourceID]
+                    val framed = cropping?.first == clips[index].id || clips[index].crop != null
+                    if (framed || source == null) FrameRect(0.0, 0.0, frame.width, frame.height) else {
+                        val fitted = minOf(frame.width / source.width, frame.height / source.height)
+                        FrameRect((frame.width - source.width * fitted) / 2, (frame.height - source.height * fitted) / 2, source.width * fitted, source.height * fitted)
+                    }
+                }
+                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> TransitionScene.moment(clips, playhead, frame, deckOf) }, content = content)
                 // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
                 val work by rememberUpdatedState(titling)
                 var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle
@@ -731,7 +744,40 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         titling = now.copy(title = now.title.copy(x = snapped(to.x), y = snapped(to.y), size = (now.title.size * zoom).coerceIn(0.02, 0.3)))
                     }
                 }
-                Canvas(Modifier.fillMaxSize().then(moving)) {
+                // While a split screen is being worked on, a drag on a half pans its picture, a pinch zooms it and a double tap resets it.
+                val shaping by rememberUpdatedState(transitioning)
+                val framing = if (transitioning?.settings?.style != TransitionStyle.Split) Modifier else {
+                    fun framed(at: Offset, width: Int, height: Int, change: (TransitionFraming, FrameSize, FrameSize) -> TransitionFraming) {
+                        val now = shaping ?: return
+                        val settings = now.settings
+                        val second = if (settings.axis == TransitionAxis.Horizontal) at.x >= width * settings.divider else at.y >= height * settings.divider
+                        // At the opening and at the close one half is a color, with nothing to frame.
+                        val clip = if (second) now.join else now.join - 1
+                        if (clip !in clips.indices) return
+                        val frame = FrameSize(width.toDouble(), height.toDouble())
+                        val halves = TransitionGeometry.splitRects(settings, frame)
+                        val next = change(if (second) settings.second else settings.first, content(clip, frame).size, (if (second) halves.second else halves.first).size)
+                        transitioning = now.changed(if (second) settings.copy(second = next) else settings.copy(first = next))
+                    }
+                    Modifier.pointerInput(Unit) {
+                        detectTransformGestures { centroid, pan, zoom, _ ->
+                            framed(centroid, size.width, size.height) { framing, source, viewport ->
+                                // As the original moves it: by the finger's travel in the clip's own pixels, kept inside the clip.
+                                val scale = viewport.width / maxOf(1.0, framing.crop(source, viewport).width)
+                                val moved = framing.copy(
+                                    x = (framing.x - pan.x / maxOf(1.0, scale * source.width)).coerceIn(0.0, 1.0),
+                                    y = (framing.y - pan.y / maxOf(1.0, scale * source.height)).coerceIn(0.0, 1.0),
+                                    zoom = (framing.zoom * zoom).coerceIn(1.0, 4.0),
+                                )
+                                val kept = moved.crop(source, viewport)
+                                moved.copy(x = (kept.midX / source.width).coerceIn(0.0, 1.0), y = (kept.midY / source.height).coerceIn(0.0, 1.0))
+                            }
+                        }
+                    }.pointerInput(Unit) {
+                        detectTapGestures(onDoubleTap = { at -> framed(at, size.width, size.height) { _, _, _ -> TransitionFraming() } })
+                    }
+                }
+                Canvas(Modifier.fillMaxSize().then(moving).then(framing)) {
                     if (sampling) return@Canvas
                     drawIntoCanvas { target ->
                         titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
@@ -778,10 +824,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
         Timeline(
-            shown, files, sounds, names, { editor.pause(); if (subtitling == null && titling == null) chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
+            shown, files, sounds, names, { editor.pause(); if (subtitling == null && titling == null && transitioning == null) chosenSound = it }, trim?.index ?: location?.index, trim, pixelsPerSecond,
             shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
-            beginTrim = { leading -> if (subtitling == null && titling == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
+            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
             dragTrim = dragTrim, endTrim = endTrim,
         )
         val framing = cropping
@@ -838,6 +884,52 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 cancel = { editor.pause(); auditionEnd = null; titling = null },
                 modifier = Modifier.weight(1.5f),
             )
+        } else if (transitioning != null) {
+            val work = transitioning!!
+            val saved = project.edit
+            val join = TimelineEditing.join(clips, work.join)?.takeIf { it.transition == work.shown.copy(nextClipID = it.transition?.nextClipID) }
+            val middle = { TimelineEditing.layout(clips).joins.getOrNull(work.join)?.let { if (join != null) it.origin + it.timing.videoDuration / 2 else it.time } ?: playhead }
+            // The picture goes to the middle of the transition whenever its place or its length changes.
+            LaunchedEffect(work.join, join?.origin, join?.timing?.videoDuration) { jump(middle().coerceIn(0.0, duration)) }
+            // A change of length moves clips and reloads the players, so it waits for the slider to rest.
+            LaunchedEffect(work.settings) {
+                kotlinx.coroutines.delay(150)
+                transitioning = transitioning?.let { if (it.settings == work.settings) it.copy(shown = work.settings) else it }
+            }
+            TransitionPanel(
+                settings = work.settings, existing = work.initial != null, change = { transitioning = work.changed(it) },
+                index = work.join, count = saved.clips.size, join = join,
+                maximum = TimelineEditing.layout(clips).joins.getOrNull(work.join)?.maximum ?: 0.0, projectDuration = duration,
+                lengthChange = duration - (TimelineEditing.setJoin(saved, work.join, null) ?: saved).duration,
+                audioMaximum = TransitionDefaults.audioMaximum(clips.maxOfOrNull { it.duration }),
+                playing = editor.playing,
+                play = {
+                    if (editor.playing) { auditionEnd = null; editor.pause() } else join?.let {
+                        // A little of each clip around it, as the original plays it.
+                        val from = (it.range.start - 0.65).coerceAtLeast(0.0)
+                        auditionEnd = (it.range.endInclusive + 0.65).coerceAtMost(duration)
+                        playhead = from
+                        editor.play(from)
+                    }
+                },
+                // To another join only while nothing here would be lost.
+                step = { by -> if (work.settings == (work.initial ?: work.fresh)) transitioning = Transitioning.at(saved, work.join + by, canvas) },
+                apply = {
+                    val next = drafted(saved, work.join, work.settings)
+                    val time = middle()
+                    transitioning = null
+                    auditionEnd = null
+                    if (next != saved) commit(next, time.coerceIn(0.0, next.duration)) else editor.pause()
+                },
+                remove = {
+                    val next = TimelineEditing.setJoin(saved, work.join, null)
+                    transitioning = null
+                    auditionEnd = null
+                    commit(next, next?.let { TimelineEditing.layout(it.clips).joins[work.join].time } ?: playhead)
+                },
+                cancel = { editor.pause(); auditionEnd = null; transitioning = null },
+                modifier = Modifier.weight(1.5f),
+            )
         } else if (subtitling != null) {
             SubtitlesPanel(
                 saved = edit, draft = subtitling ?: edit, change = { subtitling = it },
@@ -875,8 +967,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     },
                     compact, enabled = location != null, contentPadding = tight,
                 ) { Text(stringResource(R.string.editor_title)) }
-                TextButton(onClick = { editor.pause(); editingTransition = true }, compact,
-                    enabled = location != null && location.index < clips.lastIndex, contentPadding = tight) { Text(stringResource(R.string.editor_transition)) }
+                // On the join nearest to the playhead: between two clips, or the opening or the close of the movie.
+                TextButton(onClick = {
+                    editor.pause()
+                    val joins = TimelineEditing.layout(clips).joins
+                    joins.minByOrNull { abs(it.time - playhead) + if (it.edge == 0) 0.0 else 0.0001 }?.let { transitioning = Transitioning.at(edit, it.index, canvas) }
+                }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_transition)) }
                 TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
                 TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
                 TextButton(onClick = { editor.pause(); subtitling = edit }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) {
@@ -1048,18 +1144,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             dismiss = { choosingExport = false },
         )
     }
-    if (editingTransition && location != null) {
-        TransitionDialog(
-            current = TimelineEditing.transition(clips, location.index),
-            choose = { seconds, style ->
-                // The timeline changes length; stay at the start of the clip being joined.
-                commit(TimelineEditing.setTransition(edit, location.index, seconds, style), TimelineEditing.clipStart(clips, location.index) + minOf(location.offset, clips[location.index].duration / 2))
-                editingTransition = false
-            },
-            dismiss = { editingTransition = false },
-        )
-    }
-
     ExportDialogs(exporter, context) { store.error = it }
 }
 
@@ -1134,7 +1218,10 @@ private fun Timeline(
                     key(clip.id) {
                         ClipStrip(
                             clip, files.getValue(clip.sourceID), index == current,
-                            fades = index < clips.lastIndex && TimelineEditing.join(clips, index + 1)?.let { it.timing.overlap <= 0 } == true,
+                            // The transition into the clip where it begins, when it opens the movie or plays over the clip before;
+                            // the one out of it where it ends, when it closes the movie or the next clip only follows.
+                            entering = TimelineEditing.join(clips, index)?.takeIf { index == 0 || it.timing.overlap > 0 }?.transition?.style,
+                            leaving = TimelineEditing.join(clips, index + 1)?.takeIf { index == clips.lastIndex || it.timing.overlap <= 0 }?.transition?.style,
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
                             offset, pixelsPerSecond, viewport, scroll,
                         )
@@ -1174,7 +1261,7 @@ private fun Timeline(
 
 @Composable
 private fun ClipStrip(
-    clip: TimelineClip, file: File, current: Boolean, fades: Boolean, dissolve: Float, offset: Float,
+    clip: TimelineClip, file: File, current: Boolean, entering: TransitionStyle?, leaving: TransitionStyle?, dissolve: Float, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState,
 ) {
     val density = LocalDensity.current
@@ -1260,17 +1347,15 @@ private fun ClipStrip(
             Box(Modifier.offset { IntOffset((clip.offset(mark.time) * pixelsPerSecond).roundToInt() - 1.dp.roundToPx(), 0) }
                 .width(3.dp).height(TileSize + WaveHeight).background(BookmarkColor))
         }
-        // The part of this clip that dissolves in over the previous one.
-        if (dissolve > 0) {
-            Box(Modifier.width(with(density) { dissolve.toDp() }).height(TileSize + WaveHeight).background(Color.White.copy(alpha = 0.35f)))
-            Text(stringResource(R.string.transition_tag_dissolve), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp).background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
-        }
-        // A fade into the next clip.
-        if (fades) {
-            Text(stringResource(R.string.transition_tag_fade), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp).background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
-        }
+        // The part of this clip that plays over the previous one, and the transitions at its two ends by name.
+        if (dissolve > 0) Box(Modifier.width(with(density) { dissolve.toDp() }).height(TileSize + WaveHeight).background(Color.White.copy(alpha = 0.35f)))
+        @Composable
+        fun tag(style: TransitionStyle, modifier: Modifier) = Text(
+            stringResource(if (style == TransitionStyle.FadeColor) R.string.transition_tag_fade else style.label), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+            modifier = modifier.background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
+        )
+        entering?.let { tag(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp)) }
+        leaving?.let { tag(it, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp)) }
         if (current) {
             val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(TileSize + WaveHeight).background(Color.White, RoundedCornerShape(3.dp))
             Box(grip.align(Alignment.CenterStart))
@@ -1503,6 +1588,33 @@ private fun SoundDialog(saved: ClipAudio, canReduceNoise: Boolean, save: (ClipAu
     )
 }
 
+/**
+ * A transition being worked on in the Transition tool: at which join, as it
+ * is now, as the timeline shows it (a change of length waits for the slider
+ * to rest), as it was saved ([initial], null when new) and as a new one starts ([fresh]).
+ */
+private data class Transitioning(val join: Int, val settings: TransitionSettings, val shown: TransitionSettings, val initial: TransitionSettings?, val fresh: TransitionSettings) {
+    /** With new settings; shown at once when they leave every clip where it is. */
+    fun changed(next: TransitionSettings): Transitioning =
+        copy(settings = next, shown = if (TransitionTiming.of(next) == TransitionTiming.of(shown)) next else shown)
+
+    companion object {
+        /** The tool opened on [join] of [state]: its transition, or a new one as the original starts it. */
+        fun at(state: EditState, join: Int, canvas: Pair<Int, Int>?): Transitioning? {
+            val joins = TimelineEditing.layout(state.clips).joins
+            val found = joins.getOrNull(join) ?: return null
+            val existing = TimelineEditing.joinSettings(state.clips, join)
+            val fresh = TransitionDefaults.new(found.maximum, canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) })
+            return Transitioning(join, existing ?: fresh, existing ?: fresh, existing, fresh)
+        }
+    }
+}
+
+/** [state] with [settings] on [join]; when they leave less than a frame of transition, with a plain cut there. */
+private fun drafted(state: EditState, join: Int, settings: TransitionSettings): EditState =
+    TimelineEditing.setJoin(state, join, settings)
+        ?: if (TimelineEditing.joinSettings(state.clips, join) == settings.copy(nextClipID = state.clips.getOrNull(join)?.id)) state else TimelineEditing.setJoin(state, join, null) ?: state
+
 /** A title being worked on in the Title tool: on which clip, as it is now, and as it was saved (null when new). */
 private data class Titling(val clipID: String, val title: TextOverlay, val existing: TextOverlay?)
 
@@ -1532,29 +1644,6 @@ private fun ExportSettingsDialog(saved: ExportSettings, canvas: Pair<Int, Int>?,
         },
         confirmButton = { Button(onClick = { start(settings) }) { Text(stringResource(R.string.editor_export)) } },
         dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
-    )
-}
-
-@Composable
-private fun TransitionDialog(current: TransitionSettings?, choose: (Double?, TransitionStyle) -> Unit, dismiss: () -> Unit) {
-    var style by remember { mutableStateOf(current?.style ?: TransitionStyle.Dissolve) }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(stringResource(R.string.transition_title)) },
-        text = {
-            Column {
-                Choices(stringResource(R.string.transition_style), listOf(stringResource(R.string.transition_cross_dissolve) to TransitionStyle.Dissolve, stringResource(R.string.transition_fade_black) to TransitionStyle.FadeColor), style) { style = it }
-                Text(
-                    stringResource(if (style == TransitionStyle.Dissolve) R.string.transition_dissolve_note else R.string.transition_fade_note),
-                    color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 8.dp),
-                )
-                for ((label, seconds) in listOf<Pair<String, Double?>>(stringResource(R.string.transition_none) to null, "0.3 s" to 0.3, "0.5 s" to 0.5, "1 s" to 1.0, "2 s" to 2.0)) {
-                    val selected = if (seconds == null) current == null else current?.duration == seconds && current.style == style
-                    TextButton(onClick = { choose(seconds, style) }) { Text((if (selected) "● " else "○ ") + label, fontSize = 16.sp) }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
