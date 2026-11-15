@@ -58,7 +58,6 @@ import app.takes.core.Size as FrameSize
 import app.takes.core.TransitionLayout
 import app.takes.core.TransitionScene
 import app.takes.core.SubtitleEditing
-import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.common.util.UnstableApi
@@ -75,7 +74,9 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import app.takes.core.Project
+import app.takes.core.RenderPlan
 import app.takes.core.TimelineClip
+import app.takes.core.TrackRenderPlan
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -120,6 +121,20 @@ fun clippedItem(clip: TimelineClip, file: File): MediaItem = MediaItem.Builder()
             .build(),
     ).build()
 
+/** A clip of a render plan as an export item, cut to the footage it plays. */
+fun clippedItem(picture: RenderPlan.Picture, file: File): MediaItem = MediaItem.Builder()
+    .setUri(Uri.fromFile(file))
+    .setMediaId(picture.id)
+    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(picture.sourceStartUs).setEndPositionUs(picture.sourceEndUs).build())
+    .build()
+
+/** A sound of a render plan's sound tracks as an export item, cut to the part of its source the movie plays. */
+fun clippedItem(sound: RenderPlan.Entry.Sound, file: File): MediaItem = MediaItem.Builder()
+    .setUri(Uri.fromFile(file))
+    .setMediaId(sound.item.id)
+    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(sound.sourceStartUs).setEndPositionUs(sound.sourceEndUs).build())
+    .build()
+
 /**
  * A clip's speed for the export: one rate for the whole clip, picture and sound, with the pitch kept.
  *
@@ -127,7 +142,7 @@ fun clippedItem(clip: TimelineClip, file: File): MediaItem = MediaItem.Builder()
  * speed of the sound by playing its samples faster or slower, as a tape would, and a clip at double speed
  * sounds an octave higher; asked to keep the pitch it stretches the sound in time instead, to the same length.
  */
-fun steadySpeed(clip: TimelineClip): SpeedParameters? = clip.rate.takeIf { it != 1.0 }?.let { rate ->
+fun steadySpeed(speed: Double): SpeedParameters? = speed.takeIf { it != 1.0 }?.let { rate ->
     SpeedParameters(
         object : SpeedProvider {
             override fun getSpeed(timeUs: Long) = rate.toFloat()
@@ -497,22 +512,21 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
      * sound when that was measured. Cancelling the coroutine stops it, and what is in [checkpoint] by then stays.
      */
     private suspend fun run(project: Project, folder: File, checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit): Unit = coroutineScope {
-        val clips = project.edit.clips
-        val duration = project.edit.duration
+        // What the movie is made of, before any cleaned sound is at hand: every clip that asks for noise reduction is marked.
+        val asked = TrackRenderPlan.of(project.edit)
         val settings = project.exportSettings
         val files = project.sources.associate { it.id to store.file(project, it) }
         // The first clip gives the picture its shape; the settings give it its size.
-        val canvas = withContext(Dispatchers.IO) { files[clips.first().sourceID]?.let(::displaySize) }
+        val canvas = withContext(Dispatchers.IO) { files[asked.pictures.first().sourceID]?.let(::displaySize) }
             ?.let { settings.resolution.size(it.first, it.second) }
-        val sounds = project.edit.audio.orEmpty()
-        if (canvas == null || clips.any { files[it.sourceID]?.isFile != true } || sounds.any { files[it.sourceID]?.isFile != true }) {
+        if (canvas == null || asked.pictures.any { files[it.sourceID]?.isFile != true } || asked.sounds.any { files[it.sourceID]?.isFile != true }) {
             throw Refusal(context.getString(R.string.export_source_missing))
         }
         // Two clips playing at once are drawn from a frame that holds both, twice as tall as the movie
         // (DecksCompositor). A GPU that cannot hold it would fail halfway: say so before any work is done.
-        if (TimelineEditing.chains(clips).size > 1) {
+        if (asked.stacked) {
             val side = withContext(Dispatchers.Default) { largestTextureSide() }
-            if (side != null && (canvas.first > side || canvas.second * 2 > side)) {
+            if (side != null && !asked.fits(canvas.first, canvas.second, side)) {
                 throw Refusal(context.getString(R.string.export_transitions_too_large, canvas.first, canvas.second))
             }
         }
@@ -526,17 +540,22 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
 
         // Noise reduction: the cleaned sound of every clip that asks for it, made before rendering and kept.
         report(ExportProgress.of(ExportProgress.Step.AudioEffects))
-        val wanted = clips.mapIndexedNotNull { index, clip -> clip.audio?.denoise?.takeIf { it > 0 }?.let { index to it } }
+        val wanted = asked.pictures.filter { it.soundRemoved }
         val clean = mutableMapOf<Int, File>()
-        wanted.forEachIndexed { step, (index, amount) ->
-            Denoiser.process(files.getValue(clips[index].sourceID), amount) { report(ExportProgress.of(ExportProgress.Step.AudioEffects, (step + it.toDouble()) / wanted.size)) }?.let { clean[index] = it }
+        wanted.forEachIndexed { step, picture ->
+            Denoiser.process(files.getValue(picture.sourceID), asked.clips[picture.index].audio?.denoise ?: 0.0) {
+                report(ExportProgress.of(ExportProgress.Step.AudioEffects, (step + it.toDouble()) / wanted.size))
+            }?.let { clean[picture.index] = it }
         }
 
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
+        // The movie as it is rendered: a clip whose sound could not be cleaned plays its recorded sound.
+        val plan = TrackRenderPlan.of(project.edit, clean.keys)
+        val duration = plan.duration
         val movie = withContext(Dispatchers.IO) {
-            val used = clips.map { it.sourceID }.distinct()
+            val used = plan.pictures.map { it.sourceID }.distinct()
             ExportMovie(
-                context, project, files, canvas,
+                context, plan, settings.frameRate, files, canvas,
                 sizes = used.associateWith { files[it]?.let(::displaySize) }, // the upright size of each recording; a crop is measured in its pixels
                 rates = used.associateWith { files[it]?.let(::frameRate) },
                 voiced = used.associateWith { files[it]?.let(::hasSound) == true },
@@ -552,7 +571,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val measuring = async {
             if (checkpoint.measuredPeak == null) {
                 report(ExportProgress.of(ExportProgress.Step.AudioPeak))
-                ExportCheck.peak(project.edit, files) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
+                ExportCheck.peak(plan, files, clean) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
                     ?.let { peak -> withContext(Dispatchers.IO) { checkpoint.savePeak(peak) } }
             }
         }

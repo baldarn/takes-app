@@ -22,9 +22,9 @@ import androidx.media3.effect.BitmapOverlay
 import app.takes.core.AudioEnvelope
 import app.takes.core.AudioEnvelopeSegment
 import app.takes.core.AudioLevels
+import app.takes.core.RenderPlan
 import app.takes.core.SoundEnvelope
 import app.takes.core.TextOverlay
-import app.takes.core.TimelineClip
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TransitionLayout
 import app.takes.core.TransitionScene
@@ -62,17 +62,16 @@ object TitleRenderer {
 
 /**
  * Export overlay for the whole movie: a frame-sized bitmap holding the titles
- * visible at each moment. It is applied once, over the finished picture, each
+ * its [plan] shows at each moment ([RenderPlan.titlesShown]). It is applied once, over the finished picture, each
  * title as opaque as its clip is showing, so a title dissolves and fades with
  * the clip it belongs to. The drawing is
  * [TitlePainter]'s, the same as the preview's.
  */
 class TitleOverlay(
-    private val clips: List<TimelineClip>, private val width: Int, private val height: Int, assets: AssetManager,
+    private val plan: RenderPlan, private val width: Int, private val height: Int, assets: AssetManager,
     private val frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND },
 ) : BitmapOverlay() {
     private val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-    private val ranges = TitleMotionRanges(clips)
     private val painter = TitlePainter(assets)
     private var frame: Bitmap? = null
     private var shown: List<TitleMotionRanges.Shown> = emptyList()
@@ -81,7 +80,7 @@ class TitleOverlay(
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         val time = presentationTimeUs / 1e6
         // Opacity in steps, so a steady title is drawn once. A title on its way in or out is drawn for every frame.
-        val visible = ranges.shown(clips, time, frames).map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
+        val visible = plan.titlesShown(time, frames).map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
         if (visible != shown) {
             shown = visible
             bitmap = if (visible.isEmpty()) empty else (frame ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame = it }).let {

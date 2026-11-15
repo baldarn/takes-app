@@ -17,13 +17,14 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BaseGlShaderProgram
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
+import app.takes.core.EditState
 import app.takes.core.Rect
+import app.takes.core.RenderPlan
 import app.takes.core.Size as FrameSize
 import app.takes.core.TimelineClip
-import app.takes.core.TimelineEditing
+import app.takes.core.TrackRenderPlan
 import app.takes.core.TransitionFrame
 import app.takes.core.TransitionLayout
-import app.takes.core.TransitionPicture
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionStyle
 
@@ -318,16 +319,21 @@ class DecksCompositor(private val canvas: Size, private val decks: Int) : VideoC
 }
 
 /**
- * Draws every frame of an export as [TransitionScene] describes it: the
- * clip that is showing, or the two sides of a transition combined. The
- * input is the frame [DecksCompositor] makes of the [decks], one or two.
- * [frames] is the frame rate of the movie ([TransitionScene.frameRate]) and
- * [content] where a clip's picture lies in the frame.
+ * Draws every frame of an export as its [plan] describes it
+ * ([RenderPlan.moment]): the clip that is showing, or the two sides of a
+ * transition combined. The input is the frame [DecksCompositor] makes of the
+ * [decks], one or two. [frames] is the frame rate of the movie
+ * ([RenderPlan.frameRate]) and [content] where a clip's picture lies in the
+ * frame.
  */
 class TransitionEffect(
-    private val clips: List<TimelineClip>, private val canvas: Size, private val decks: Int,
+    private val plan: RenderPlan, private val canvas: Size, private val decks: Int,
     private val frames: (TransitionLayout.Join) -> Double, private val content: (Int) -> Rect,
 ) : GlEffect {
+    /** The effect of [clips] by themselves, planned as an export plans them. */
+    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect) :
+        this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content)
+
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program()
 
     /**
@@ -345,24 +351,18 @@ class TransitionEffect(
     private var spareFramebuffer = 0
 
     private inner class Program : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
-        private val deckOf = TransitionScene.decks(clips)
         private val size = FrameSize(canvas.width.toDouble(), canvas.height.toDouble())
-        private val layout = TimelineEditing.layout(clips)
 
         // A still shows a frame its clip showed, which the sequence does not give again: the one on screen at the
-        // moment the model names (TransitionPicture.heldFrame, its `shown`), which the preview holds as well. That
+        // moment the model names (RenderPlan.Freeze, its `shown`), which the preview holds as well. That
         // is the last frame before the freeze in a movie of 30 frames a second, the rate the model counts it in.
-        private val freezes = layout.all.filter { it.transition != null && it.outgoing != null && TransitionLayout.longEnough(it.timing) }.mapNotNull { join ->
-            val placement = layout.placements[join.outgoing!!]
-            TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)
-                ?.let { Keep(it.from, deckOf[placement.index], it.until, it.shown + EDGE) }
-        }
+        private val freezes = plan.freezes.map { Keep(it.from, it.deck, it.until, it.shown + EDGE) }
 
         // A deck is black after the last clip of a chain, and can be so a frame early: each frame of the movie
         // takes the frame of the deck nearest to it in time, and in the last half interval of footage slower than
         // the movie that is the black one after it. A transition still showing the clip in those frames gets the
         // last one that came instead.
-        private val endings = TimelineEditing.chains(clips).mapIndexed { index, chain -> Keep(chain.end, index % decks, chain.end, chain.end - EDGE) }
+        private val endings = plan.endings.map { Keep(it.at, it.deck % decks, it.at, it.at - EDGE) }
 
         private var program = 0
         private var position = 0
@@ -476,7 +476,7 @@ class TransitionEffect(
                 val coming = (freezes + endings).firstOrNull { it.deck == deck && time <= it.last && time >= it.last - window } ?: continue
                 if (keep(deck, inputTexId)) keptFor[deck] = coming.at else gone[deck] = keptFor[deck] == coming.at
             }
-            val moment = TransitionScene.moment(clips, time, size, deckOf, frames)
+            val moment = plan.moment(time, size, frames)
             val drawing = SceneDrawing.of(moment, canvas.width.toFloat(), canvas.height.toFloat(), { source ->
                 when (source) {
                     is TransitionScene.Source.Clip -> if (gone[source.deck]) SceneDrawing.HELD + source.deck else source.deck.toFloat()
