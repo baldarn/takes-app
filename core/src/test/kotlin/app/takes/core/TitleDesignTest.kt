@@ -395,6 +395,27 @@ class TitleProjectTest {
         assertEquals(4.0..6.0, changed.range(other, 5.0))
     }
 
+    @Test fun aChangeReachesEveryPieceThatCarriesTheTitle() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 2.0, end = 6.0)
+        val other = clip("B", 0.0, 5.0, title.copy(text = "Elsewhere")).copy(sourceID = "S2")
+        val split = TimelineEditing.split(EditState(listOf(clip("A", 0.0, 10.0, title), other)), 4.0)!!
+        val designed = title.copy(appearance = TitleDesign(face = "caveat"), motion = fade)
+        val next = TimelineEditing.setTitle(split, 0, designed)!!
+        assertEquals(listOf(listOf(designed), listOf(designed)), next.clips.take(2).map { it.texts })
+        assertEquals(other, next.clips[2]) // the same id on other footage is another title
+        assertNull(TimelineEditing.setTitle(next, 1, designed))
+        // A new title goes on the one clip.
+        val fresh = TextOverlay(id = "N", text = "New", start = 0.0, end = 1.0)
+        assertEquals(listOf(1, 2, 1), TimelineEditing.setTitle(next, 1, fresh)!!.clips.map { it.texts!!.size })
+        assertNull(TimelineEditing.setTitle(next, 9, fresh))
+        assertNull(TimelineEditing.setTitle(next, 0, fresh.copy(end = -1.0)))
+        // Removing takes it off both pieces, and off nothing else.
+        val removed = TimelineEditing.removeTitle(next, 1, "T")!!
+        assertEquals(listOf(null, null, other.texts), removed.clips.map { it.texts })
+        assertNull(TimelineEditing.removeTitle(next, 0, "missing"))
+        assertEquals(2.0..6.0, TitleMotionRanges(next.clips).range(designed, 4.0))
+    }
+
     @Test fun aTitleOnBothSidesOfADissolveIsDrawnOnce() {
         val title = TextOverlay(id = "T", text = "Hi", start = 0.0, end = 10.0, motion = fade)
         val first = clip("A", 0.0, 4.0, title, join = ClipTransition(nextClipID = "B", style = ClipTransition.Style.Dissolve, duration = 1.0))
@@ -412,5 +433,42 @@ class TitleProjectTest {
         val shares = TitleMotionRanges(mixed).shown(mixed, 3.25).associate { it.title.id to it.share }
         assertEquals(0.75, shares.getValue("T"), 1e-9)
         assertEquals(0.25, shares.getValue("U"), 1e-9)
+    }
+}
+
+class TitleLibraryTest {
+    @Test fun aStyleIsSavedFirstUnderAUniqueName() {
+        val lower = TitleDesign.looks[2].second
+        var saved = TitleLibrary.saving(null, "  My channel ", lower)
+        saved = TitleLibrary.saving(saved, "Second", TitleDesign(face = "caveat"))
+        val looks = TitleLibrary.looks(saved)
+        assertEquals(listOf("Second", "My channel"), looks.map { it.name })
+        assertEquals(lower, looks[1].design)
+        assertFalse(TitleLibrary.canSave(looks, "my CHANNEL"))
+        assertFalse(TitleLibrary.canSave(looks, "   "))
+        assertFalse(TitleLibrary.canSave(looks, "x".repeat(61)))
+        assertTrue(TitleLibrary.canSave(looks, "x".repeat(60)))
+        assertEquals(looks, TitleLibrary.looks(TitleLibrary.saving(saved, "second", TitleDesign()))) // refused, nothing lost
+        assertEquals(listOf("My channel"), TitleLibrary.looks(TitleLibrary.deleting(saved, looks[0].id)).map { it.name })
+    }
+
+    @Test fun unreadableOrInvalidSavedTextCountsAsNothing() {
+        assertTrue(TitleLibrary.looks(null).isEmpty())
+        assertTrue(TitleLibrary.looks("not json").isEmpty())
+        assertTrue(TitleLibrary.favorites("{").isEmpty())
+        assertTrue(TitleLibrary.recentColors("[1,2").isEmpty())
+        val bad = """[{"id":"A","name":"Bad","design":{"weight":5}},{"id":"B","name":"Good","design":{}}]"""
+        assertEquals(listOf("Good"), TitleLibrary.looks(bad).map { it.name })
+    }
+
+    @Test fun favoritesToggleAndRecentColorsKeepTheLastEight() {
+        var stars = TitleLibrary.togglingFavorite(null, "caveat")
+        stars = TitleLibrary.togglingFavorite(stars, "fraunces")
+        assertEquals(listOf("caveat", "fraunces"), TitleLibrary.favorites(stars))
+        assertEquals(listOf("fraunces"), TitleLibrary.favorites(TitleLibrary.togglingFavorite(stars, "caveat")))
+        var colors: String? = null
+        for (value in 1L..10L) colors = TitleLibrary.remembering(colors, TitleInk.opaque(value))
+        colors = TitleLibrary.remembering(colors, TitleInk.opaque(7))
+        assertEquals(listOf(7L, 10L, 9L, 8L, 6L, 5L, 4L, 3L), TitleLibrary.recentColors(colors).map { it.rgb })
     }
 }

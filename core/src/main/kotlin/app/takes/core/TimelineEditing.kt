@@ -255,6 +255,35 @@ object TimelineEditing {
         return state.copy(clips = state.clips.toMutableList().also { it[index] = clip.copy(texts = texts.filter { it.id != id }.ifEmpty { null }) })
     }
 
+    /**
+     * Adds the title to the clip at [index], or replaces it wherever it is:
+     * the pieces of a split clip carry the same title, and a change to one is
+     * a change to all, so it still looks and moves as one.
+     */
+    fun setTitle(state: EditState, index: Int, text: TextOverlay): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        if (!text.valid) return null
+        val clips = state.clips.mapIndexed { position, other ->
+            val texts = other.texts.orEmpty()
+            when {
+                other.sourceID == clip.sourceID && texts.any { it.id == text.id } -> other.copy(texts = texts.map { if (it.id == text.id) text else it })
+                position == index -> other.copy(texts = texts + text)
+                else -> other
+            }
+        }
+        return if (clips == state.clips) null else state.copy(clips = clips)
+    }
+
+    /** Removes the title from the clip at [index] and from the other pieces of the same footage that carry it. */
+    fun removeTitle(state: EditState, index: Int, id: String): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        if (clip.texts.orEmpty().none { it.id == id }) return null
+        return state.copy(clips = state.clips.map { other ->
+            if (other.sourceID != clip.sourceID || other.texts.orEmpty().none { it.id == id }) other
+            else other.copy(texts = other.texts.orEmpty().filter { it.id != id }.ifEmpty { null })
+        })
+    }
+
     // MARK: Bookmarks
 
     /** Marks closer than this to the playhead count as being under it. */

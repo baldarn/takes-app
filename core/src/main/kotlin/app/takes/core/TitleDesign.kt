@@ -268,3 +268,59 @@ data class ImportedFontReference(val digest: String, val index: Int, val postScr
         }
     }
 }
+
+/** A design kept for reuse in any project: a "channel style". */
+@Serializable
+data class SavedTitleLook(val id: String = newID(), val name: String, val design: TitleDesign)
+
+/**
+ * What the title tools remember between projects, as the JSON text kept in
+ * the app's preferences under the original's keys. Text that cannot be read
+ * counts as nothing saved.
+ */
+object TitleLibrary {
+    const val LOOKS_KEY = "title.savedLooks.v1"
+    const val FAVORITES_KEY = "title.favoriteFonts.v1"
+    const val RECENT_COLORS_KEY = "title.recentColors.v1"
+    const val MAXIMUM_NAME = 60
+    const val RECENT_COLORS = 8
+
+    private val looksFormat = kotlinx.serialization.builtins.ListSerializer(SavedTitleLook.serializer())
+    private val namesFormat = kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>())
+    private val inksFormat = kotlinx.serialization.builtins.ListSerializer(TitleInk.serializer())
+
+    private fun <T> read(format: kotlinx.serialization.KSerializer<List<T>>, saved: String?): List<T> =
+        if (saved.isNullOrEmpty()) emptyList() else try { documentJson.decodeFromString(format, saved) } catch (_: Exception) { emptyList() }
+
+    /** The saved styles, newest first. One whose design is out of range is left out. */
+    fun looks(saved: String?): List<SavedTitleLook> = read(looksFormat, saved).filter { it.design.valid && it.name.isNotBlank() }
+
+    /** A style needs a name of its own, whatever the capitals. */
+    fun canSave(looks: List<SavedTitleLook>, name: String): Boolean {
+        val trimmed = name.trim()
+        return trimmed.isNotEmpty() && name.length <= MAXIMUM_NAME && looks.none { it.name.equals(trimmed, ignoreCase = true) }
+    }
+
+    /** The library with [design] saved first as [name]; unchanged when the name cannot be used. */
+    fun saving(saved: String?, name: String, design: TitleDesign): String {
+        val looks = looks(saved)
+        if (!canSave(looks, name) || !design.valid) return documentJson.encodeToString(looksFormat, looks)
+        return documentJson.encodeToString(looksFormat, listOf(SavedTitleLook(name = name.trim(), design = design)) + looks)
+    }
+
+    fun deleting(saved: String?, id: String): String = documentJson.encodeToString(looksFormat, looks(saved).filter { it.id != id })
+
+    /** Font faces listed first, in the order they were starred. */
+    fun favorites(saved: String?): List<String> = read(namesFormat, saved)
+
+    fun togglingFavorite(saved: String?, face: String): String {
+        val favorites = favorites(saved)
+        return documentJson.encodeToString(namesFormat, if (face in favorites) favorites - face else favorites + face)
+    }
+
+    /** The colors used last, newest first. */
+    fun recentColors(saved: String?): List<TitleInk> = read(inksFormat, saved).filter { it.valid }
+
+    fun remembering(saved: String?, ink: TitleInk): String =
+        documentJson.encodeToString(inksFormat, (listOf(ink) + recentColors(saved).filter { it != ink }).take(RECENT_COLORS))
+}
