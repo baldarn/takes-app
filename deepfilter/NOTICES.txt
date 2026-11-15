@@ -1,0 +1,59 @@
+Takes includes DeepFilterNet3 noise reduction
+=============================================
+
+The weights of the network are not part of this module; the app obtains
+deepfilter.onnx separately. They are covered by the DeepFilterNet notice below.
+
+
+DeepFilterNet (the model and its weights)
+https://github.com/Rikorose/DeepFilterNet
+ONNX conversion: https://huggingface.co/soniqo/DeepFilterNet3-ONNX
+MIT License (also offered under Apache License 2.0)
+
+Copyright (c) 2021 Hendrik Schröter
+
+
+DeepFilterNet-mlx (the processing around the network, ported to Kotlin from
+the iPhone app's adaptation of it)
+https://github.com/kylehowells/DeepFilterNet-mlx
+MIT License (also offered under Apache License 2.0)
+
+Copyright (c) 2026 Kyle Howells
+
+
+ONNX Runtime (runs the network)
+https://github.com/microsoft/onnxruntime
+MIT License
+
+Copyright (c) Microsoft Corporation
+
+
+The MIT License, for the three above:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+speech-core (streaming-graph.onnx, the network arranged frame by frame)
+https://github.com/soniqo/speech-core
+src/models/deepfilter/deepfilter_streaming_graph.inc at commit
+ad0f4ede90bb2bb06f4b4410eef1cb0759f7b5a1, converted from a C array to a file,
+otherwise unchanged.
+
+Copyright 2025 soniqo
+
+Apache License 2.0; the text is in LICENSE-APACHE beside this file.
