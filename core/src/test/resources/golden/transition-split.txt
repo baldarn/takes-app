@@ -1,0 +1,78 @@
+== project.json
+{"schemaVersion":13,"id":"P-transition-split","title":"Golden transition-split","createdAt":1700000000000,"updatedAt":1700000000012,"sources":[{"id":"S1","filename":"take-1.mp4","duration":4.0,"recordedAt":1700000001000},{"id":"S2","filename":"take-2.mp4","duration":4.0,"recordedAt":1700000002000},{"id":"S3","filename":"take-3.mp4","duration":4.0,"recordedAt":1700000003000},{"id":"S4","filename":"take-4.mp4","duration":0.7,"recordedAt":1700000004000},{"id":"S5","filename":"take-5.mp4","duration":4.0,"recordedAt":1700000005000},{"id":"S6","filename":"take-6.mp4","duration":4.0,"recordedAt":1700000006000}],"historyCursor":6,"captureLedger":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":4.0},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":4.0},{"id":"ID-00003","sourceID":"S3","start":0.0,"end":4.0},{"id":"ID-00004","sourceID":"S4","start":0.0,"end":0.7},{"id":"ID-00005","sourceID":"S5","start":0.0,"end":4.0},{"id":"ID-00006","sourceID":"S6","start":0.0,"end":4.0}],"snapshotFiles":["baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json","40b7668197692ac1adbdbd6d4eba87e17f0452c38ff48489cb85831be0ba553c.json","5c6293f8c67a3b214272f676578e5eda62de97883ee317fb784db0abb93f683d.json","c28e288767bfc5264fc1a4eb0ccd7c69a6cd411cb436d0eafa08c23ad8eced77.json","0d36cd55dea302b282f34dfc1290887d439eeb2e61d3f8b0c7e9c7b2a61562d3.json","8e03905858e6612ae3f9682cdfde65ba01ad156ea4a5a94eb335c2de098bc6fe.json","808d12c2d96d992373c3621a8626825ac321bc7586d45b116adfcc9a22fa42ab.json"],"exportSettings":{"codec":"H.264","resolution":"Project size","frameRate":30}}
+== history
+baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json
+40b7668197692ac1adbdbd6d4eba87e17f0452c38ff48489cb85831be0ba553c.json
+5c6293f8c67a3b214272f676578e5eda62de97883ee317fb784db0abb93f683d.json
+c28e288767bfc5264fc1a4eb0ccd7c69a6cd411cb436d0eafa08c23ad8eced77.json
+0d36cd55dea302b282f34dfc1290887d439eeb2e61d3f8b0c7e9c7b2a61562d3.json
+8e03905858e6612ae3f9682cdfde65ba01ad156ea4a5a94eb335c2de098bc6fe.json
+808d12c2d96d992373c3621a8626825ac321bc7586d45b116adfcc9a22fa42ab.json
+== step 6 of 7
+{"state":{"clips":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":4.0,"transition":{"id":"T-plain","nextClipID":"ID-00002","style":"split","duration":1.0},"openingTransition":{"id":"T-opening","nextClipID":"ID-00001","style":"split","duration":0.5},"transitionFit":{"factor":1.0},"openingTransitionFit":{"factor":1.0}},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":4.0,"transition":{"id":"T-own","nextClipID":"ID-00003","style":"split","duration":2.0,"axis":"vertical","divider":0.4,"audio":"second","first":{"x":0.3,"y":0.6,"zoom":1.5}},"transitionFit":{"factor":1.0}},{"id":"ID-00003","sourceID":"S3","start":0.0,"end":4.0,"transition":{"id":"T-fitted","nextClipID":"ID-00004","style":"split","duration":2.0},"transitionFit":{"factor":0.34999999999999787}},{"id":"ID-00004","sourceID":"S4","start":0.0,"end":0.7},{"id":"ID-00005","sourceID":"S5","start":0.0,"end":4.0,"transition":{"id":"T-sound","nextClipID":"ID-00006","style":"split","duration":1.0,"audioOffset":-0.25,"audioBlend":1.5},"transitionFit":{"factor":1.0}},{"id":"ID-00006","sourceID":"S6","start":0.0,"end":4.0,"transition":{"id":"T-close","style":"split","duration":0.5},"transitionFit":{"factor":1.0}}]},"captureCursor":6}
+== layout
+duration 15.500000000
+clip 0 ID-00001 from 0.000000000 for 4.000000000 overlaps 0.000000000 1.000000000 owns 0.000000000..3.500000000
+clip 1 ID-00002 from 3.000000000 for 4.000000000 overlaps 1.000000000 2.000000000 owns 3.500000000..6.000000000
+clip 2 ID-00003 from 5.000000000 for 4.000000000 overlaps 2.000000000 0.700000000 owns 6.000000000..8.650000000
+clip 3 ID-00004 from 8.300000000 for 0.700000000 overlaps 0.700000000 0.000000000 owns 8.650000000..9.000000000
+clip 4 ID-00005 from 9.000000000 for 4.000000000 overlaps 0.000000000 1.500000000 owns 9.000000000..12.250000000
+clip 5 ID-00006 from 11.500000000 for 4.000000000 overlaps 1.500000000 0.000000000 owns 12.250000000..15.500000000
+join 0 at 0.000000000 over 0.000000000..0.500000000 origin 0.000000000 factor 1.000000000 edge -1 from null to 0 maximum 3.000000000 | Split T-opening motion 0.500000000 hold 0.000000000 picture 0.500000000 in 0.000000000..0.500000000 out 0.000000000..0.000000000 leftEnd 0.000000000 rightStart 0.000000000 lower 0.000000000 upper 0.500000000 cut 0.250000000 costs 0.000000000 0.500000000
+join 1 at 3.500000000 over 3.000000000..4.000000000 origin 3.000000000 factor 1.000000000 edge 0 from 0 to 1 maximum 2.000000000 | Split T-plain motion 1.000000000 hold 0.000000000 picture 1.000000000 in 0.000000000..1.000000000 out 0.000000000..1.000000000 leftEnd 1.000000000 rightStart 0.000000000 lower 0.000000000 upper 1.000000000 cut 0.500000000 costs 1.000000000 1.000000000
+join 2 at 6.000000000 over 5.000000000..7.000000000 origin 5.000000000 factor 1.000000000 edge 0 from 1 to 2 maximum 3.000000000 | Split T-own motion 2.000000000 hold 0.000000000 picture 2.000000000 in 0.000000000..0.008000000 out 0.000000000..0.008000000 leftEnd 2.000000000 rightStart 0.000000000 lower 0.000000000 upper 2.000000000 cut 1.000000000 costs 2.000000000 2.000000000
+join 3 at 8.650000000 over 8.300000000..9.000000000 origin 8.300000000 factor 0.350000000 edge 0 from 2 to 3 maximum 0.700000000 | Split T-fitted motion 0.700000000 hold 0.000000000 picture 0.700000000 in 0.000000000..0.700000000 out 0.000000000..0.700000000 leftEnd 0.700000000 rightStart 0.000000000 lower 0.000000000 upper 0.700000000 cut 0.350000000 costs 0.700000000 0.700000000
+join 4 at 9.000000000 over 9.000000000..9.000000000 origin 9.000000000 factor 1.000000000 edge 0 from 3 to 4 maximum 0.000000000 | cut
+join 5 at 12.250000000 over 11.500000000..13.000000000 origin 11.750000000 factor 1.000000000 edge 0 from 4 to 5 maximum 3.500000000 | Split T-sound motion 1.000000000 hold 0.000000000 picture 1.000000000 in -0.250000000..1.250000000 out -0.250000000..1.250000000 leftEnd 1.250000000 rightStart -0.250000000 lower -0.250000000 upper 1.250000000 cut 0.500000000 costs 1.500000000 1.500000000
+join 6 at 15.500000000 over 15.000000000..15.500000000 origin 15.000000000 factor 1.000000000 edge 1 from 5 to null maximum 2.500000000 | Split T-close motion 0.500000000 hold 0.000000000 picture 0.500000000 in 0.000000000..0.000000000 out 0.000000000..0.500000000 leftEnd 0.500000000 rightStart 0.000000000 lower 0.000000000 upper 0.500000000 cut 0.250000000 costs 0.500000000 0.000000000
+== plan
+duration 15.500000000 stacked true transitions drawn true
+chain 0 clips 0..0 over 0.000000000..4.000000000
+chain 1 clips 1..1 over 3.000000000..7.000000000
+chain 2 clips 2..2 over 5.000000000..9.000000000
+chain 3 clips 3..4 over 8.300000000..13.000000000
+chain 4 clips 5..5 over 11.500000000..15.500000000
+picture 0 ID-00001 of S1 at 0.000000000 for 4.000000000 footage 0.000000000..4.000000000 cut 0..4000000us rate 1.000000000 chain 0 deck 0 color null crop null shaped true sound removed false
+  level 0.000000000 1.000000000 1.000000000 1.000000000 0.000000000
+picture 1 ID-00002 of S2 at 3.000000000 for 4.000000000 footage 0.000000000..4.000000000 cut 0..4000000us rate 1.000000000 chain 1 deck 1 color null crop null shaped true sound removed false
+  level 0.000000000 1.000000000 1.000000000 0.000000000 0.000000000
+picture 2 ID-00003 of S3 at 5.000000000 for 4.000000000 footage 0.000000000..4.000000000 cut 0..4000000us rate 1.000000000 chain 2 deck 0 color null crop null shaped true sound removed false
+  level 0.000000000 1.000000000 1.000000000 1.000000000 0.000000000
+picture 3 ID-00004 of S4 at 8.300000000 for 0.700000000 footage 0.000000000..0.700000000 cut 0..700000us rate 1.000000000 chain 3 deck 1 color null crop null shaped true sound removed false
+  level 0.000000000 0.250000000 0.500000000 0.750000000 1.000000000
+picture 4 ID-00005 of S5 at 9.000000000 for 4.000000000 footage 0.000000000..4.000000000 cut 0..4000000us rate 1.000000000 chain 3 deck 1 color null crop null shaped true sound removed false
+  level 1.000000000 1.000000000 1.000000000 0.666666667 0.000000000
+picture 5 ID-00006 of S6 at 11.500000000 for 4.000000000 footage 0.000000000..4.000000000 cut 0..4000000us rate 1.000000000 chain 4 deck 0 color null crop null shaped true sound removed false
+  level 0.000000000 0.666666667 1.000000000 1.000000000 0.000000000
+deck 0 clips [0, 2, 5] chains [0, 2, 4]
+deck 1 clips [1, 3, 4] chains [1, 3]
+sequence Picture 0: clip 0, gap@4.000000000:1000000us, clip 2, gap@9.000000000:2500000us, clip 5
+sequence Picture 1: gap@0.000000000:3000000us, clip 1, gap@7.000000000:1300000us, clip 3, clip 4, gap@13.000000000:2500000us
+transition 0 Split picture 0.000000000..0.500000000 sound in 0.000000000..0.500000000 out 0.000000000..0.000000000
+transition 1 Split picture 3.000000000..4.000000000 sound in 3.000000000..4.000000000 out 3.000000000..4.000000000
+transition 2 Split picture 5.000000000..7.000000000 sound in 5.000000000..5.008000000 out 5.000000000..5.008000000
+transition 3 Split picture 8.300000000..9.000000000 sound in 8.300000000..9.000000000 out 8.300000000..9.000000000
+transition 5 Split picture 11.750000000..12.750000000 sound in 11.500000000..13.000000000 out 11.500000000..13.000000000
+transition 6 Split picture 15.000000000..15.500000000 sound in 15.000000000..15.000000000 out 15.000000000..15.500000000
+ending on deck 0 at 4.000000000
+ending on deck 1 at 7.000000000
+ending on deck 0 at 9.000000000
+ending on deck 1 at 13.000000000
+ending on deck 0 at 15.500000000
+moment 0.000000000: the first picture | first fill 0.0 0.0 0.0 | second clip 0 on deck 0 at 0.000000000 | titles 1.000000000 0.000000000
+moment 0.968750000: the first picture | first clip 0 on deck 0 at 0.968750000 | second clip 0 on deck 0 at 0.968750000 | titles 1.000000000 0.000000000
+moment 1.937500000: the first picture | first clip 0 on deck 0 at 1.937500000 | second clip 0 on deck 0 at 1.937500000 | titles 1.000000000 0.000000000
+moment 2.906250000: the first picture | first clip 0 on deck 0 at 2.906250000 | second clip 0 on deck 0 at 2.906250000 | titles 1.000000000 0.000000000
+moment 3.875000000: split, first in 0.000000000,0.000000000 960.000000000x1080.000000000 second in 960.000000000,0.000000000 960.000000000x1080.000000000 line 958.920000000,0.000000000 2.160000000x1080.000000000 mix 0.000000000 0.833333333 0.166666667 | first clip 0 on deck 0 at 3.875000000 | second clip 1 on deck 1 at 0.875000000 | titles 1.000000000 1.000000000
+moment 4.843750000: the first picture | first clip 1 on deck 1 at 1.843750000 | second clip 1 on deck 1 at 1.843750000 | titles 1.000000000 0.000000000
+moment 5.812500000: split, first in 0.000000000,648.000000000 1920.000000000x432.000000000 second in 0.000000000,0.000000000 1920.000000000x648.000000000 line 0.000000000,646.920000000 1920.000000000x2.160000000 mix 0.000000000 1.000000000 0.000000000 | first clip 1 on deck 1 at 2.812500000 | second clip 2 on deck 0 at 0.812500000 | titles 1.000000000 1.000000000
+moment 6.781250000: split, first in 0.000000000,648.000000000 1920.000000000x432.000000000 second in 0.000000000,0.000000000 1920.000000000x648.000000000 line 0.000000000,646.920000000 1920.000000000x2.160000000 mix 0.000000000 0.729166667 0.270833333 | first clip 1 on deck 1 at 3.781250000 | second clip 2 on deck 0 at 1.781250000 | titles 1.000000000 1.000000000
+moment 7.750000000: the first picture | first clip 2 on deck 0 at 2.750000000 | second clip 2 on deck 0 at 2.750000000 | titles 1.000000000 0.000000000
+moment 8.718750000: split, first in 0.000000000,0.000000000 960.000000000x1080.000000000 second in 960.000000000,0.000000000 960.000000000x1080.000000000 line 958.920000000,0.000000000 2.160000000x1080.000000000 mix 0.000000000 1.000000000 0.000000000 | first clip 2 on deck 0 at 3.718750000 | second clip 3 on deck 1 at 0.418750000 | titles 1.000000000 1.000000000
+moment 9.687500000: the first picture | first clip 4 on deck 1 at 0.687500000 | second clip 4 on deck 1 at 0.687500000 | titles 1.000000000 0.000000000
+moment 10.656250000: the first picture | first clip 4 on deck 1 at 1.656250000 | second clip 4 on deck 1 at 1.656250000 | titles 1.000000000 0.000000000
+moment 11.625000000: the first picture | first clip 4 on deck 1 at 2.625000000 | second clip 5 on deck 0 at 0.125000000 | titles 1.000000000 0.000000000
+moment 12.593750000: split, first in 0.000000000,0.000000000 960.000000000x1080.000000000 second in 960.000000000,0.000000000 960.000000000x1080.000000000 line 958.920000000,0.000000000 2.160000000x1080.000000000 mix 0.000000000 1.000000000 0.000000000 | first clip 4 on deck 1 at 3.593750000 | second clip 5 on deck 0 at 1.093750000 | titles 1.000000000 1.000000000
+moment 13.562500000: the first picture | first clip 5 on deck 0 at 2.062500000 | second clip 5 on deck 0 at 2.062500000 | titles 1.000000000 0.000000000
+moment 14.531250000: the first picture | first clip 5 on deck 0 at 3.031250000 | second clip 5 on deck 0 at 3.031250000 | titles 1.000000000 0.000000000
+moment 15.500000000: the second picture | first clip 5 on deck 0 at 4.000000000 | second fill 0.0 0.0 0.0 | titles 0.000000000 1.000000000

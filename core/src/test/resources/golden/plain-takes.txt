@@ -1,0 +1,45 @@
+== project.json
+{"schemaVersion":3,"id":"P-plain-takes","title":"Golden plain-takes","createdAt":1700000000000,"updatedAt":1700000000003,"sources":[{"id":"S1","filename":"take-1.mp4","duration":5.0,"recordedAt":1700000001000},{"id":"S2","filename":"take-2.mp4","duration":3.25,"recordedAt":1700000002000,"events":[{"id":"MARK-1","time":1.5,"kind":"bookmark","detail":""}]},{"id":"S3","filename":"take-3.mp4","duration":8.0,"recordedAt":1700000003000}],"historyCursor":0,"captureLedger":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":5.0},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":3.25,"bookmarks":[{"id":"MARK-1","time":1.5}]},{"id":"ID-00003","sourceID":"S3","start":0.0,"end":8.0}],"snapshotFiles":["baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json"],"exportSettings":{"codec":"H.264","resolution":"Project size","frameRate":30}}
+== history
+baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json
+== step 0 of 1
+{"state":{"clips":[]},"captureCursor":0}
+== layout
+duration 16.250000000
+clip 0 ID-00001 from 0.000000000 for 5.000000000 overlaps 0.000000000 0.000000000 owns 0.000000000..5.000000000
+clip 1 ID-00002 from 5.000000000 for 3.250000000 overlaps 0.000000000 0.000000000 owns 5.000000000..8.250000000
+clip 2 ID-00003 from 8.250000000 for 8.000000000 overlaps 0.000000000 0.000000000 owns 8.250000000..16.250000000
+join 0 at 0.000000000 over 0.000000000..0.000000000 origin 0.000000000 factor 1.000000000 edge -1 from null to 0 maximum 5.000000000 | cut
+join 1 at 5.000000000 over 5.000000000..5.000000000 origin 5.000000000 factor 1.000000000 edge 0 from 0 to 1 maximum 3.250000000 | cut
+join 2 at 8.250000000 over 8.250000000..8.250000000 origin 8.250000000 factor 1.000000000 edge 0 from 1 to 2 maximum 3.250000000 | cut
+join 3 at 16.250000000 over 16.250000000..16.250000000 origin 16.250000000 factor 1.000000000 edge 1 from 2 to null maximum 8.000000000 | cut
+== plan
+duration 16.250000000 stacked false transitions drawn false
+chain 0 clips 0..2 over 0.000000000..16.250000000
+picture 0 ID-00001 of S1 at 0.000000000 for 5.000000000 footage 0.000000000..5.000000000 cut 0..5000000us rate 1.000000000 chain 0 deck 0 color null crop null shaped false sound removed false
+  level 1.000000000 1.000000000 1.000000000 1.000000000 1.000000000
+picture 1 ID-00002 of S2 at 5.000000000 for 3.250000000 footage 0.000000000..3.250000000 cut 0..3250000us rate 1.000000000 chain 0 deck 0 color null crop null shaped false sound removed false
+  level 1.000000000 1.000000000 1.000000000 1.000000000 1.000000000
+picture 2 ID-00003 of S3 at 8.250000000 for 8.000000000 footage 0.000000000..8.000000000 cut 0..8000000us rate 1.000000000 chain 0 deck 0 color null crop null shaped false sound removed false
+  level 1.000000000 1.000000000 1.000000000 1.000000000 1.000000000
+deck 0 clips [0, 1, 2] chains [0]
+deck 1 clips [] chains []
+sequence Picture 0: clip 0, clip 1, clip 2
+ending on deck 0 at 16.250000000
+moment 0.000000000: the first picture | first clip 0 on deck 0 at 0.000000000 | second clip 0 on deck 0 at 0.000000000 | titles 1.000000000 0.000000000
+moment 1.015625000: the first picture | first clip 0 on deck 0 at 1.015625000 | second clip 0 on deck 0 at 1.015625000 | titles 1.000000000 0.000000000
+moment 2.031250000: the first picture | first clip 0 on deck 0 at 2.031250000 | second clip 0 on deck 0 at 2.031250000 | titles 1.000000000 0.000000000
+moment 3.046875000: the first picture | first clip 0 on deck 0 at 3.046875000 | second clip 0 on deck 0 at 3.046875000 | titles 1.000000000 0.000000000
+moment 4.062500000: the first picture | first clip 0 on deck 0 at 4.062500000 | second clip 0 on deck 0 at 4.062500000 | titles 1.000000000 0.000000000
+moment 5.078125000: the first picture | first clip 1 on deck 0 at 0.078125000 | second clip 1 on deck 0 at 0.078125000 | titles 1.000000000 0.000000000
+moment 6.093750000: the first picture | first clip 1 on deck 0 at 1.093750000 | second clip 1 on deck 0 at 1.093750000 | titles 1.000000000 0.000000000
+moment 7.109375000: the first picture | first clip 1 on deck 0 at 2.109375000 | second clip 1 on deck 0 at 2.109375000 | titles 1.000000000 0.000000000
+moment 8.125000000: the first picture | first clip 1 on deck 0 at 3.125000000 | second clip 1 on deck 0 at 3.125000000 | titles 1.000000000 0.000000000
+moment 9.140625000: the first picture | first clip 2 on deck 0 at 0.890625000 | second clip 2 on deck 0 at 0.890625000 | titles 1.000000000 0.000000000
+moment 10.156250000: the first picture | first clip 2 on deck 0 at 1.906250000 | second clip 2 on deck 0 at 1.906250000 | titles 1.000000000 0.000000000
+moment 11.171875000: the first picture | first clip 2 on deck 0 at 2.921875000 | second clip 2 on deck 0 at 2.921875000 | titles 1.000000000 0.000000000
+moment 12.187500000: the first picture | first clip 2 on deck 0 at 3.937500000 | second clip 2 on deck 0 at 3.937500000 | titles 1.000000000 0.000000000
+moment 13.203125000: the first picture | first clip 2 on deck 0 at 4.953125000 | second clip 2 on deck 0 at 4.953125000 | titles 1.000000000 0.000000000
+moment 14.218750000: the first picture | first clip 2 on deck 0 at 5.968750000 | second clip 2 on deck 0 at 5.968750000 | titles 1.000000000 0.000000000
+moment 15.234375000: the first picture | first clip 2 on deck 0 at 6.984375000 | second clip 2 on deck 0 at 6.984375000 | titles 1.000000000 0.000000000
+moment 16.250000000: the first picture | first clip 2 on deck 0 at 8.000000000 | second clip 2 on deck 0 at 8.000000000 | titles 1.000000000 0.000000000

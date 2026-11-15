@@ -1,0 +1,59 @@
+== project.json
+{"schemaVersion":12,"id":"P-titles","title":"Golden titles","createdAt":1700000000000,"updatedAt":1700000000007,"sources":[{"id":"S1","filename":"take-1.mp4","duration":8.0,"recordedAt":1700000001000},{"id":"S2","filename":"take-2.mp4","duration":5.0,"recordedAt":1700000002000}],"historyCursor":5,"captureLedger":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":8.0},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":5.0}],"snapshotFiles":["baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json","cc9c66978a6495b24c83df6de0d86db996cc5587df239d2e8d0575fef562a279.json","e2300df066332d9adf954b4144d95d551aa7a8caf7caf6e3a68eca6f449e864c.json","53a5af85fd64f6c23b82f112cae6e68f751d0057f69bce6e356c08ed367748bc.json","2682f2312b8c69c61c27d9cc2821ca1567ed67e522fc7877fcfe36db5c7935c6.json","6743c0caec69c21f7c31119fc5814041e86c8f90715b13d323d2160be7305d75.json"],"exportSettings":{"codec":"H.264","resolution":"Project size","frameRate":30}}
+== history
+baaf19f3ddc72a96c31152c65c6ed75cb8ec29a3df495efda6f7844a7f0f48c2.json
+cc9c66978a6495b24c83df6de0d86db996cc5587df239d2e8d0575fef562a279.json
+e2300df066332d9adf954b4144d95d551aa7a8caf7caf6e3a68eca6f449e864c.json
+53a5af85fd64f6c23b82f112cae6e68f751d0057f69bce6e356c08ed367748bc.json
+2682f2312b8c69c61c27d9cc2821ca1567ed67e522fc7877fcfe36db5c7935c6.json
+6743c0caec69c21f7c31119fc5814041e86c8f90715b13d323d2160be7305d75.json
+== step 5 of 6
+{"state":{"clips":[{"id":"ID-00001","sourceID":"S1","start":0.0,"end":1.5,"texts":[{"id":"TITLE-1","text":"Chapter one","start":0.0,"end":3.0,"x":0.5,"y":0.3,"size":0.08,"appearance":{"face":"serif","weight":600,"italic":true,"alignment":"left","tracking":0.04,"lineSpacing":0.1,"fill":{"rgba":4292094463},"gradient":{"first":{"rgba":4283260159},"last":{"rgba":1504247807},"angle":45.0},"outlined":true,"border":{"rgba":255},"borderWidth":0.045,"shadow":true,"shade":{"rgba":210},"shadowBlur":0.12,"shadowOffset":0.05,"plate":"block","backing":{"rgba":286398669},"padding":0.28,"radius":0.14},"motion":{"entrance":"drift","exit":"fade","inSeconds":0.5,"outSeconds":0.25,"inDirection":"up"}},{"id":"TITLE-2","text":"Plain","start":4.0,"end":6.5,"x":0.2,"y":0.8,"size":0.065}]},{"id":"ID-00003","sourceID":"S1","start":1.5,"end":8.0,"transition":{"id":"T-1","nextClipID":"ID-00002","style":"dissolve","duration":1.0},"texts":[{"id":"TITLE-1","text":"Chapter one","start":0.0,"end":3.0,"x":0.5,"y":0.3,"size":0.08,"appearance":{"face":"serif","weight":600,"italic":true,"alignment":"left","tracking":0.04,"lineSpacing":0.1,"fill":{"rgba":4292094463},"gradient":{"first":{"rgba":4283260159},"last":{"rgba":1504247807},"angle":45.0},"outlined":true,"border":{"rgba":255},"borderWidth":0.045,"shadow":true,"shade":{"rgba":210},"shadowBlur":0.12,"shadowOffset":0.05,"plate":"block","backing":{"rgba":286398669},"padding":0.28,"radius":0.14},"motion":{"entrance":"drift","exit":"fade","inSeconds":0.5,"outSeconds":0.25,"inDirection":"up"}},{"id":"TITLE-2","text":"Plain","start":4.0,"end":6.5,"x":0.2,"y":0.8,"size":0.065},{"id":"TITLE-3","text":"Across","start":7.0,"end":8.0,"x":0.5,"y":0.5,"size":0.065,"appearance":{"face":"system","weight":700,"italic":false,"alignment":"center","tracking":0.0,"lineSpacing":0.0,"fill":{"rgba":4294967295},"outlined":false,"border":{"rgba":255},"borderWidth":0.045,"shadow":true,"shade":{"rgba":210},"shadowBlur":0.12,"shadowOffset":0.05,"plate":"off","backing":{"rgba":286398669},"padding":0.28,"radius":0.14},"motion":{"entrance":"scale","exit":"wipe","inSeconds":0.35,"outSeconds":0.35,"outDirection":"right"}}],"transitionFit":{"factor":1.0}},{"id":"ID-00002","sourceID":"S2","start":0.0,"end":5.0,"texts":[{"id":"TITLE-3","text":"Across","start":0.0,"end":1.5,"x":0.5,"y":0.5,"size":0.065,"appearance":{"face":"system","weight":700,"italic":false,"alignment":"center","tracking":0.0,"lineSpacing":0.0,"fill":{"rgba":4294967295},"outlined":false,"border":{"rgba":255},"borderWidth":0.045,"shadow":true,"shade":{"rgba":210},"shadowBlur":0.12,"shadowOffset":0.05,"plate":"off","backing":{"rgba":286398669},"padding":0.28,"radius":0.14},"motion":{"entrance":"scale","exit":"wipe","inSeconds":0.35,"outSeconds":0.35,"outDirection":"right"}}]}]},"captureCursor":2}
+== layout
+duration 12.000000000
+clip 0 ID-00001 from 0.000000000 for 1.500000000 overlaps 0.000000000 0.000000000 owns 0.000000000..1.500000000
+clip 1 ID-00003 from 1.500000000 for 6.500000000 overlaps 0.000000000 1.000000000 owns 1.500000000..7.500000000
+clip 2 ID-00002 from 7.000000000 for 5.000000000 overlaps 1.000000000 0.000000000 owns 7.500000000..12.000000000
+join 0 at 0.000000000 over 0.000000000..0.000000000 origin 0.000000000 factor 1.000000000 edge -1 from null to 0 maximum 1.500000000 | cut
+join 1 at 1.500000000 over 1.500000000..1.500000000 origin 1.500000000 factor 1.000000000 edge 0 from 0 to 1 maximum 1.500000000 | cut
+join 2 at 7.500000000 over 7.000000000..8.000000000 origin 7.000000000 factor 1.000000000 edge 0 from 1 to 2 maximum 5.000000000 | Dissolve T-1 motion 1.000000000 hold 0.000000000 picture 1.000000000 in 0.000000000..1.000000000 out 0.000000000..1.000000000 leftEnd 1.000000000 rightStart 0.000000000 lower 0.000000000 upper 1.000000000 cut 0.500000000 costs 1.000000000 1.000000000
+join 3 at 12.000000000 over 12.000000000..12.000000000 origin 12.000000000 factor 1.000000000 edge 1 from 2 to null maximum 4.000000000 | cut
+== plan
+duration 12.000000000 stacked true transitions drawn true
+chain 0 clips 0..1 over 0.000000000..8.000000000
+chain 1 clips 2..2 over 7.000000000..12.000000000
+picture 0 ID-00001 of S1 at 0.000000000 for 1.500000000 footage 0.000000000..1.500000000 cut 0..1500000us rate 1.000000000 chain 0 deck 0 color null crop null shaped false sound removed false
+  level 1.000000000 1.000000000 1.000000000 1.000000000 1.000000000
+picture 1 ID-00003 of S1 at 1.500000000 for 6.500000000 footage 1.500000000..8.000000000 cut 1500000..8000000us rate 1.000000000 chain 0 deck 0 color null crop null shaped true sound removed false
+  level 1.000000000 1.000000000 1.000000000 1.000000000 0.000000000
+picture 2 ID-00002 of S2 at 7.000000000 for 5.000000000 footage 0.000000000..5.000000000 cut 0..5000000us rate 1.000000000 chain 1 deck 1 color null crop null shaped true sound removed false
+  level 0.000000000 1.000000000 1.000000000 1.000000000 1.000000000
+deck 0 clips [0, 1] chains [0]
+deck 1 clips [2] chains [1]
+sequence Picture 0: clip 0, clip 1, gap@8.000000000:4000000us
+sequence Picture 1: gap@0.000000000:7000000us, clip 2
+transition 2 Dissolve picture 7.000000000..8.000000000 sound in 7.000000000..8.000000000 out 7.000000000..8.000000000
+ending on deck 0 at 8.000000000
+ending on deck 1 at 12.000000000
+title TITLE-1 of clip 0 over 0.000000000..1.500000000
+title TITLE-1 of clip 1 over 1.500000000..3.000000000
+title TITLE-2 of clip 1 over 4.000000000..6.500000000
+title TITLE-3 of clip 1 over 7.000000000..8.000000000
+title TITLE-3 of clip 2 over 7.000000000..8.500000000
+moment 0.000000000: the first picture | first clip 0 on deck 0 at 0.000000000 | second clip 0 on deck 0 at 0.000000000 | titles 1.000000000 0.000000000
+moment 0.750000000: the first picture | first clip 0 on deck 0 at 0.750000000 | second clip 0 on deck 0 at 0.750000000 | titles 1.000000000 0.000000000
+moment 1.500000000: the first picture | first clip 1 on deck 0 at 0.000000000 | second clip 1 on deck 0 at 0.000000000 | titles 1.000000000 0.000000000
+moment 2.250000000: the first picture | first clip 1 on deck 0 at 0.750000000 | second clip 1 on deck 0 at 0.750000000 | titles 1.000000000 0.000000000
+moment 3.000000000: the first picture | first clip 1 on deck 0 at 1.500000000 | second clip 1 on deck 0 at 1.500000000 | titles 1.000000000 0.000000000
+moment 3.750000000: the first picture | first clip 1 on deck 0 at 2.250000000 | second clip 1 on deck 0 at 2.250000000 | titles 1.000000000 0.000000000
+moment 4.500000000: the first picture | first clip 1 on deck 0 at 3.000000000 | second clip 1 on deck 0 at 3.000000000 | titles 1.000000000 0.000000000
+moment 5.250000000: the first picture | first clip 1 on deck 0 at 3.750000000 | second clip 1 on deck 0 at 3.750000000 | titles 1.000000000 0.000000000
+moment 6.000000000: the first picture | first clip 1 on deck 0 at 4.500000000 | second clip 1 on deck 0 at 4.500000000 | titles 1.000000000 0.000000000
+moment 6.750000000: the first picture | first clip 1 on deck 0 at 5.250000000 | second clip 1 on deck 0 at 5.250000000 | titles 1.000000000 0.000000000
+moment 7.500000000: dissolve, second 0.500000000 | first clip 1 on deck 0 at 6.000000000 | second clip 2 on deck 1 at 0.500000000 | titles 0.500000000 0.500000000
+moment 8.250000000: the first picture | first clip 2 on deck 1 at 1.250000000 | second clip 2 on deck 1 at 1.250000000 | titles 1.000000000 0.000000000
+moment 9.000000000: the first picture | first clip 2 on deck 1 at 2.000000000 | second clip 2 on deck 1 at 2.000000000 | titles 1.000000000 0.000000000
+moment 9.750000000: the first picture | first clip 2 on deck 1 at 2.750000000 | second clip 2 on deck 1 at 2.750000000 | titles 1.000000000 0.000000000
+moment 10.500000000: the first picture | first clip 2 on deck 1 at 3.500000000 | second clip 2 on deck 1 at 3.500000000 | titles 1.000000000 0.000000000
+moment 11.250000000: the first picture | first clip 2 on deck 1 at 4.250000000 | second clip 2 on deck 1 at 4.250000000 | titles 1.000000000 0.000000000
+moment 12.000000000: the first picture | first clip 2 on deck 1 at 5.000000000 | second clip 2 on deck 1 at 5.000000000 | titles 1.000000000 0.000000000
