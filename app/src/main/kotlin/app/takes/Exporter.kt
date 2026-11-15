@@ -1,4 +1,4 @@
-@file:OptIn(UnstableApi::class)
+@file:OptIn(UnstableApi::class, ExperimentalApi::class)
 
 package app.takes
 
@@ -24,6 +24,7 @@ import androidx.media3.common.Effect
 import androidx.media3.common.Format
 import androidx.media3.common.util.Size
 import androidx.media3.common.MediaItem
+import androidx.media3.common.SpeedParameters
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.effect.MatrixTransformation
@@ -48,6 +49,7 @@ import app.takes.core.TransitionScene
 import app.takes.core.SubtitleEditing
 import app.takes.core.TimelineEditing
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.SingleColorLut
@@ -100,12 +102,21 @@ fun clippedItem(clip: TimelineClip, file: File): MediaItem = MediaItem.Builder()
             .build(),
     ).build()
 
-/** A clip's speed for the export: one rate for the whole clip, picture and sound, with the pitch kept. */
-fun steadySpeed(clip: TimelineClip): SpeedProvider? = clip.rate.takeIf { it != 1.0 }?.let { rate ->
-    object : SpeedProvider {
-        override fun getSpeed(timeUs: Long) = rate.toFloat()
-        override fun getNextSpeedChangeTimeUs(timeUs: Long) = C.TIME_UNSET
-    }
+/**
+ * A clip's speed for the export: one rate for the whole clip, picture and sound, with the pitch kept.
+ *
+ * The pitch has to be asked for. Given the speed alone (`setSpeed(SpeedProvider)`), Media3 changes the
+ * speed of the sound by playing its samples faster or slower, as a tape would, and a clip at double speed
+ * sounds an octave higher; asked to keep the pitch it stretches the sound in time instead, to the same length.
+ */
+fun steadySpeed(clip: TimelineClip): SpeedParameters? = clip.rate.takeIf { it != 1.0 }?.let { rate ->
+    SpeedParameters(
+        object : SpeedProvider {
+            override fun getSpeed(timeUs: Long) = rate.toFloat()
+            override fun getNextSpeedChangeTimeUs(timeUs: Long) = C.TIME_UNSET
+        },
+        /* shouldMaintainPitch = */ true,
+    )
 }
 
 /**
