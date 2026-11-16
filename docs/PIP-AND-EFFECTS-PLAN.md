@@ -397,7 +397,7 @@ If picture in picture must come before any effect, swap: 0.10 = S3b alone, 0.11 
 | **V9** | Titles of a clip in a window: inside the window (the original) or over the whole frame (today)? | The original's, for clips under a placement. A full-frame title belongs on the lower clip. |
 | **V10** | Effect preview through the export's own GL chain in the players (all Android versions), or AGSL on 13 and later only? | The former, if the probe passes. Otherwise AGSL with a notice below 13. |
 | **V11** | Color Isolation and Chroma Key as the original's "legacy spatial" algorithm first? | Yes; the temporal matte is added later under the same recipe version field (`algorithm`, `VideoEffectModel.swift:173`). |
-| **V12** | Effects that need a person mask: none, ML Kit (closed, bundled), or an open model on the ONNX Runtime already shipped (downloaded on first use, like the speech models)? | None in 0.10–0.13, with the option hidden and explained. Then the open model, after a speed and quality probe. Size to be established. |
+| **V12** | Effects that need a person mask: none, ML Kit (closed, bundled), or an open model on the ONNX Runtime already shipped (downloaded on first use, like the speech models)? | Settled on 2026-11-16 by the probe (`docs/SEGMENTATION-PROBE.md`): MediaPipe's selfie segmenter (Apache 2.0, 250 KB, bundled), its custom transposed convolution rewritten as LiteRT's builtin one, on LiteRT 1.4.2's CPU (about 20 ms a 1080p frame, +5 MB native per ABI). The ONNX Runtime inside sherpa-onnx cannot run other models. MODNet is the better mask but 15–25 times slower and +27 MB per ABI. |
 | **V13** | Effects while recording? | Defer until batches A and B are out. |
 | **V14** | Night fix Medium/Precise, oval bokeh, depth Dolly. | Not planned. The last two are not available on Android. |
 
@@ -415,6 +415,6 @@ If picture in picture must come before any effect, swap: 0.10 = S3b alone, 0.11 
 | Whether real libraries hold steps the timeline refuses (`PLAN:699`) | A debug build that converts and validates every step of every project on the owner's phones and reports counts only |
 | The original's fade of an overlay (opaque fill or transparent) | Read `TransitionRenderer.fill` and `composite`; one hour, not done here |
 | A segmentation model's speed and mask quality on the two phones | Later: run a candidate over 10 s of 1080p footage, time it, look at hair edges |
-| Sizes of ML Kit and of open segmentation models | Not checked; look up before V12 |
+| Sizes of ML Kit and of open segmentation models | Measured in `docs/SEGMENTATION-PROBE.md` |
 
 **Not verified in source here:** Media3 internals for N sequences; `setVideoEffects` behaviour; AGSL uniform arrays; `GL_MAX_TEXTURE_SIZE` of either phone; whether Android has photo import (which would make the paste-overlay route reachable); the speed-change route to an overlap; the original's tests (read, not run).

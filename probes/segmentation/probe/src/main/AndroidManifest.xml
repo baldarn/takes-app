@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="Takes segmentation probe" android:hasCode="true" android:largeHeap="true" />
+
+    <!-- Runs as an instrumentation of itself, one scenario per run. -->
+    <instrumentation
+        android:name="app.takes.probe.segmentation.SegmentationProbe"
+        android:targetPackage="app.takes.probe.segmentation" />
+</manifest>
