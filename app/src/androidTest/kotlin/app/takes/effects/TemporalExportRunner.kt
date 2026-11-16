@@ -38,10 +38,13 @@ import java.util.concurrent.CountDownLatch
  *
  *     adb shell am instrument -w -e clip front.mp4 -e from 2 -e to 7 app.takes.dev.test/app.takes.effects.TemporalExportRunner
  *
- * The clip is taken from the app's files/temporal-export, else from /data/local/tmp.
+ * The clip is taken from the app's files/temporal-export, else from /data/local/tmp. `-e fps <rate>` exports at
+ * that frame rate (30 by default); `-e plain true` exports the clip with no effect, to read the movie's frame times;
+ * `-e keep true` keeps the movies beside the sheets.
  */
 class TemporalExportRunner : Instrumentation() {
     private lateinit var arguments: Bundle
+    private val fps get() = arguments.getString("fps")?.toInt() ?: 30
     private val thread = HandlerThread("temporal-export").apply { start() }
 
     override fun onCreate(arguments: Bundle?) {
@@ -82,13 +85,13 @@ class TemporalExportRunner : Instrumentation() {
             val looks = HashMap<String, List<Bitmap>>()
             for ((label, effect) in cases()) {
                 try {
-                    val state = EditState(listOf(TimelineClip(id = "C", sourceID = "S", start = from, end = to, videoEffects = listOf(effect.copy(start = from, end = to)))))
+                    val state = EditState(listOf(TimelineClip(id = "C", sourceID = "S", start = from, end = to, videoEffects = effect?.let { listOf(it.copy(start = from, end = to)) })))
                     val movie = File(folder, "$label.mp4")
                     val took = export(state, clip, folder, size, rate, movie)
                     val frames = (to - from) * rate
                     say("ok    $label: %.1f s, %.1f ms a frame".format(took / 1000.0, took / frames))
                     looks[label] = SECONDS.map { second -> frame(movie, second) }
-                    movie.delete()
+                    if (arguments.getString("keep") != "true") movie.delete()
                 } catch (problem: Throwable) {
                     failed++
                     say("FAIL  $label\n" + Log.getStackTraceString(problem))
@@ -123,7 +126,8 @@ class TemporalExportRunner : Instrumentation() {
     }
 
     /** The recipes, by label: Color Isolation of the skin's hue and Chroma Key of the wall, with each matte. */
-    private fun cases(): List<Pair<String, VideoEffectSettings>> {
+    private fun cases(): List<Pair<String, VideoEffectSettings?>> {
+        if (arguments.getString("plain") == "true") return listOf("plain-$fps" to null)
         val isolation = mapOf("color" to EffectRGB.hex(arguments.getString("hue") ?: "#C08060"), "range" to 18.0)
         val key = mapOf("autoScreen" to false, "screenColor" to EffectRGB.hex(arguments.getString("screen") ?: "#B0B0A8"), "view" to "Matte", "softness" to 1.0)
         return listOf(
@@ -138,7 +142,7 @@ class TemporalExportRunner : Instrumentation() {
     private fun export(state: EditState, source: File, folder: File, size: Pair<Int, Int>, rate: Double, movie: File): Long {
         val plan = TrackRenderPlan.of(state)
         val render = ExportMovie(
-            targetContext, plan, 30, mapOf("S" to source), size,
+            targetContext, plan, fps, mapOf("S" to source), size,
             sizes = mapOf("S" to size), rates = mapOf("S" to rate), black = blackStill(targetContext), luts = folder,
         )
         val section = ExportSections.sections(plan.duration).single()
