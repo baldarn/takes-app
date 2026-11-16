@@ -25,10 +25,10 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 130 |
-| PARTIAL | 40 |
-| CORE ONLY | 6 |
-| MISSING | 27 |
+| DONE | 134 |
+| PARTIAL | 41 |
+| CORE ONLY | 5 |
+| MISSING | 23 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -36,7 +36,7 @@ Per area:
 
 | Area | DONE | PARTIAL | CORE ONLY | MISSING | N/A |
 |---|---|---|---|---|---|
-| 1. App shell and project list | 17 | 3 | 1 | 2 | 0 |
+| 1. App shell and project list | 20 | 3 | 0 | 0 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 6 | 1 | 2 | 3 |
 | 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
@@ -46,8 +46,8 @@ Per area:
 | 8. Audio | 5 | 5 | 0 | 11 | 0 |
 | 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
-| 11. Export | 10 | 1 | 0 | 1 | 0 |
-| 12. Settings, credits, localisation, accessibility | 3 | 1 | 0 | 1 | 2 |
+| 11. Export | 11 | 1 | 0 | 0 | 0 |
+| 12. Settings, credits, localisation, accessibility | 3 | 2 | 0 | 0 | 2 |
 
 The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
 
@@ -57,23 +57,23 @@ The port goes beyond the original in three places, not counted above: Italian lo
 |---|---|---|---|---|---|---|
 | Three destinations: Record, Projects, Edit | O/ContentView.swift:66-70 | DONE | A/MainActivity.kt:50-69 | — | | |
 | Tabs disabled during a take or an import | O/ContentView.swift:541-550 | PARTIAL | A/MainActivity.kt:66-72 (the tabs are off and dimmed while `hasActiveTake`) | Not during an import | S | Yes |
-| Landscape interface (editor side-by-side layout, recorder rotates) | O/YouRecApp.swift:77-110, O/EditorView.swift:354-383, O/RecorderView.swift:141-280, 341-390 | DONE | The activity turns, except upside down, and is not made again (app/src/main/AndroidManifest.xml `configChanges`), so a take, the players and a tool's draft go on; A/EditorScreen.kt `EditorFrame` (the picture beside the transport and the tools, 52 % of the width, the timeline under both at 164 dp and scrolling), A/RecorderScreen.kt (the take buttons a rail at the end away from the cameras), A/RecorderSettingsSheet.kt (the quick panel at the end, as tall as the screen), A/MainActivity.kt `Tabbed` | Departures where the port has more on screen than the original: the tabs stand in a column at the start in landscape; the status bar is hidden in landscape, as the iPhone hides it; the editor's header (title, Undo, Redo, Snap, Export) stays above the picture instead of a compact one over it, and the selection row stays with the tools beside the picture instead of under the timeline; with the keyboard up in landscape the timeline goes, to leave room for the tool being typed into | | |
+| Landscape interface (editor side-by-side layout, recorder rotates) | O/YouRecApp.swift:77-110, O/EditorView.swift:354-383, O/RecorderView.swift:141-280, 341-390 | DONE | The activity turns, except upside down, and is not made again (app/src/main/AndroidManifest.xml `configChanges`), so a take, the players and a tool's draft go on; A/EditorScreen.kt `EditorFrame` (the picture beside the transport and the tools, 52 % of the width, the timeline under both at 164 dp and scrolling), A/RecorderScreen.kt (the take buttons a rail at the end away from the cameras), A/RecorderSettingsSheet.kt (the quick panel at the end, as tall as the screen), A/MainActivity.kt `Tabbed` | Departures where the port has more on screen than the original: the tabs stand in a column at the start in landscape; the status bar is hidden in landscape, as the iPhone hides it; the editor's header (title, Undo, Redo, Snap, Settings, Export) stays above the picture instead of a compact one over it, and the selection row stays with the tools beside the picture instead of under the timeline; with the keyboard up in landscape the timeline goes, to leave room for the tool being typed into | | |
 | First launch creates a project; last project re-selected | O/ContentView.swift:341, O/ProjectStore.swift:64 | PARTIAL | A/CaptureController.kt:401 creates on first Record; A/ProjectStore.kt:95 `select` | Verify the selection is persisted across launches (not confirmed, see last section) | S | Yes |
 | New project | O/ContentView.swift:629 | DONE | A/ProjectsScreen.kt:123, A/ProjectStore.kt:100 | — | | |
 | Project list sorted by last update | O/ProjectStore.swift:328 | DONE | A/ProjectStore.kt:418 | — | | |
 | Card: thumbnail, title, takes and duration | O/ContentView.swift:636-678 | DONE | A/ProjectsScreen.kt (`ProjectCard`, `summary`) | — | | |
 | Rename (120 chars) | O/ContentView.swift:493-505 | DONE | A/ProjectsScreen.kt (rename dialog, tap on the title), A/ProjectStore.kt (`rename`) | — | | |
 | Continue recording / Edit buttons on the card | O/ContentView.swift:591-622 | DONE | A/ProjectsScreen.kt:213-217 | — | | |
-| Export from the project card | O/ContentView.swift:598, O/MovieExportPanel.swift:212 | MISSING | Export only from the editor (A/EditorScreen.kt:614) | Export icon on the card | S | Yes |
+| Export from the project card | O/ContentView.swift:598, O/MovieExportPanel.swift:212 | DONE | A/ProjectsScreen.kt (the export icon on the card, off while the edit is empty; `CardExport` opens A/ExportPanel.kt for that project, on the canvas the editor uses: the Crop size, else the first clip's shape) | — | | |
 | Duplicate project with history | O/ProjectStore.swift:600-626, O/ProjectArchive.swift:178-217 | DONE | A/ProjectsScreen.kt:225, A/ProjectStore.kt:370, C/ProjectDuplicate.kt | — | | |
 | Zip project (media, history, OTIO, checksums) | O/ProjectStore.swift:628-646, O/ProjectArchive.swift:219-296 | DONE | A/ProjectsScreen.kt:104-107, 230; A/ProjectStore.kt:165; C/ProjectArchive.kt, C/OpenTimeline.kt | Share sheet for the ZIP is replaced by the system "save as" picker (acceptable) | | |
 | Open a project ZIP (validated restore) | O/ProjectArchive.swift:298-403 | DONE | A/ProjectsScreen.kt:109-111, 158; A/ProjectStore.kt:339; C/ProjectRestore.kt | — | | |
 | Import a video as a new project | O/ProjectStore.swift:704-733 | DONE | A/ProjectsScreen.kt:99-101, 122; A/ProjectStore.kt:118 | Android picks several at once; original picks one file | | |
 | Recently deleted: list, restore, delete permanently | O/ContentView.swift:506-533, O/Project.swift:771-824 | DONE | A/ProjectsScreen.kt:143-155, 179-187; C/ProjectDisk.kt:82-117 | — | | |
-| "Delete older projects?" prompt and "Over 30 days" badge | O/ContentView.swift:701-713, O/Project.swift:716-720 | CORE ONLY | C/DeletionRules.kt (age rule and list order) | Prompt, badge and the list's order in the app; Android's deletion record has no "date is known" flag yet, so `DeletionRules.Entry` takes it from the caller | S | Yes |
+| "Delete older projects?" prompt and "Over 30 days" badge | O/ContentView.swift:701-713, O/Project.swift:716-720 | DONE | A/ProjectsScreen.kt (the prompt on arriving at the list, with Not now, Review and Delete; the badge), A/ProjectStore.kt (`expiredDeletions`, `eraseExpired`, Recently deleted in `DeletionRules.ordered`), C/DeletionRules.kt | Android writes a deletion record whenever it moves a project, so a date is always the real one: there is no "Age tracked since"; a project without a readable record says "Deletion date unavailable · excluded from bulk cleanup" as in the original. "Review" scrolls to Recently deleted, which is on the same list here | | |
 | Original recordings: list and play each take | O/OriginalRecordingsView.swift:32-58 | DONE | A/OriginalRecordings.kt | The share sheet stands in for "Save to Files", with "Save to the gallery" beside it (Android 10 and later). The recorder here notes no hold or gap events, so the review lists its camera and microphone changes instead. As in the original, the media of the folder the project does not list and the recordings set aside in `Recovery/` follow the sources (C/RecoveredProject.kt `originals`); a source whose file is missing is listed too, where the original leaves it out | | |
 | Original recordings: add a range of a take to the timeline; recover into a new project | O/OriginalRecordingsView.swift:60-88, 110-199; O/ProjectStore.swift:737-805; O/RecordingSalvage.swift:49-257 | DONE | A/OriginalRecordings.kt (range, the whole take at first; "Create recovered project" with its estimate and "Cancel copy"; "Recover this recording into a new project" with the repair estimate, for one that does not read whole or that the project does not list), A/ProjectStore.kt (`addOriginal`, `recover`), A/RecordingSalvage.kt (inspection and repair), C/RecoveredProject.kt (what is copied, the title " · Recovered", the sources, the timeline, the report) | Android's MediaExtractor and MediaMuxer stand in for AVFoundation: a recording reads whole when each track gives a sample at its start and 0.4 s before its end, read rather than decoded, and a repaired copy is MPEG-4 (`.mp4`), not QuickTime. A take cut short keeps what can still be read (an emulator take cut at 60 %: 2.1 s of its 4.4 s picture, all of its sound); a movie without its index (`moov`), such as a take killed before Media3's muxer first writes it, about a second in, reads in neither app and stays with the original project, as in the original. The complete start of a torn fragmented movie is copied first, as in the original, but Android's reader gives a fragmented movie without an index of fragments no length, so in practice the repair reads such a movie through instead, keeping its closed fragments and the readable samples of the torn one. The copy is checked against the original's floor (C/RecoveryRules.kt `spaceToFree`). The progress is the shared progress dialog, whose Cancel stops the copy too. Checked on an emulator: a project with a whole take, two cut takes, a torn fragmented movie and a movie without an index became a project of four recordings, three of them partly read, and one unreadable file left | | |
-| Repair media: relink missing takes by duration and SHA; remove missing takes | O/ContentView.swift:437-492, O/ProjectStore.swift:666-703 | MISSING | Export only reports a missing source (A/Exporter.kt:140-144) | Missing-media detection on the card, locate file, undoable removal | M | Yes |
+| Repair media: relink missing takes by duration and SHA; remove missing takes | O/ContentView.swift:437-492, O/ProjectStore.swift:666-703 | DONE | A/RepairMedia.kt (the line on the card, the dialog), A/ProjectStore.kt (`missingSources`, `relink`, `removeMissing`), C/TrackEditorEdits.kt (`usingSources`, `removingSources`) | Takes recorded or imported on Android have no saved fingerprint (only those restored from a ZIP do), so they take the original's "no saved fingerprint" confirmation; the file is picked by MIME type, video or audio | | |
 | Unreadable project card | O/ContentView.swift:680-687 | PARTIAL | A/ProjectsScreen.kt:134-142 | No action on the card (original opens its recordings) | S | Yes |
 | Progress with Cancel for import, duplicate, zip | O/ContentView.swift:693-699 | DONE | A/ProjectsScreen.kt (progress dialog), A/ProjectStore.kt (`cancelOperation`) | Progress is a percentage in a dialog rather than a bar above the list; opening a ZIP can be cancelled too. Videos picked together join the project only once all are copied | | |
 | Privacy policy | O/ContentView.swift:755-771 | DONE | A/Credits.kt:31 (link) | — | | |
@@ -325,14 +325,14 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 | Save to Photos / gallery | same | DONE | A/EditorScreen.kt:1497-1499, A/Exporter.kt:338 (Android 10+) | — | | |
 | "Previous export" stays shareable; an unchanged edit offers sharing instead of exporting again | O/MovieExportPanel.swift:150-155, README:171-172 | DONE | C/ExportReceipt.kt, A/Exporter.kt:297-309, A/ExportPanel.kt:125-164 | — | | |
 | Output verification (duration, first/last frame) | O/MediaRenderer.swift:792-806 | DONE | A/ExportCheck.kt:43, C/ExportCheckpoint.kt (tolerance), the audio peak warning in C/ExportReceipt.kt | — | | |
-| Completion chime | README:170 | MISSING | — | | S | Phone |
+| Completion chime | README:170, O/EditorController.swift:814-817, 870-895 | DONE | A/ExportChime.kt (the original's 0.3 s tone, made the same way, once for each new movie), played with the "success" tap from A/ExportPanel.kt when the finished movie shows, as the original plays it when the export's actions appear | — | | |
 
 ## 12. Settings, credits, localisation, accessibility
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
 | Credits and licence notices | O/CreditsView.swift:6-58 | DONE | A/Credits.kt:38, res/raw | — | | |
-| Editor settings: Snap to cuts, Match listening levels, Fonts | O/EditorTools.swift:92-106 | MISSING | — (the font library opens from the Font tab of titles and captions, A/FontLibraryPanel.kt) | Follows the features they control | S | Yes |
+| Editor settings: Snap to cuts, Match listening levels, Fonts | O/EditorTools.swift:79-106 | PARTIAL | A/EditorSettings.kt (the gear beside the Snap magnet in the editor's top row: Snap to cuts with its hint and, on a touch and hold, its explanation; Fonts, which opens A/FontLibraryPanel.kt) | Match listening levels: Enhance audio has no Bypass and Enhanced comparison yet for it to level, so the switch is left out until it has. The original keeps its settings at the end of its Tools sheet; the editor here has no such sheet, so they are a dialog of their own | S | Yes |
 | Onboarding | not found in the original | N/A | — | The original has none | | |
 | Localisation | English only (project.pbxproj:644-647) | DONE | values/, values-it/ | — | | |
 | Accessibility labels on controls | identifiers throughout, e.g. O/RecorderView.swift | DONE | `contentDescription`/`semantics` in every screen read (e.g. A/RecorderScreen.kt:290-293, A/EditorScreen.kt:667-684) | No stable test tags comparable to the original's identifiers | | |
