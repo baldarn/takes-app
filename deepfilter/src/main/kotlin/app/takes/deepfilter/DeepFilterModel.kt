@@ -20,8 +20,8 @@ class DeepFilterModelException(message: String, cause: Throwable? = null) : Exce
  * [DeepFilter] made from it has its own memory, so several channels can be cleaned with
  * one model, also at the same time. [close] it after the streams.
  *
- * The weights are not part of the app: they are the file [FILE_NAME] published at
- * [SOURCE_URL], [SIZE] bytes, which the caller supplies. Any other file is refused, as
+ * The weights are the file [FILE_NAME] published at [SOURCE_URL], [SIZE] bytes: the app
+ * carries them ([bundled]), or a caller supplies them. Any other file is refused, as
  * the iPhone app refuses a model that is not the one it was tested with.
  *
  * That file computes a whole recording in one go, which would need memory in proportion
@@ -49,7 +49,8 @@ class DeepFilterModel(bytes: ByteArray) : AutoCloseable {
     private var closed = false
 
     init {
-        val graph = DeepFilterModel::class.java.getResourceAsStream("streaming-graph.onnx")?.use { it.readBytes() }
+        // Resources are named by absolute path, which a minified build keeps when it renames this class.
+        val graph = DeepFilterModel::class.java.getResourceAsStream("/app/takes/deepfilter/streaming-graph.onnx")?.use { it.readBytes() }
             ?: throw DeepFilterModelException("streaming-graph.onnx is missing from the app")
         val weights = HashMap<String, OnnxTensorLike>()
         try {
@@ -154,6 +155,13 @@ class DeepFilterModel(bytes: ByteArray) : AutoCloseable {
         const val SOURCE_URL = "https://huggingface.co/soniqo/DeepFilterNet3-ONNX/resolve/63d8ba442ba900143c468b798e94a04009b2f0c9/deepfilter.onnx"
         const val SIZE = 8_608_859
         const val SHA256 = "e1157049059434ae0d5857e32c812abea227b975e946b2eb64d001abbce156d3"
+
+        /**
+         * The model the app carries: the weights packed beside this class by the build
+         * (`bundleModel` in this module's build file). Null when this build has none.
+         */
+        fun bundled(): DeepFilterModel? =
+            DeepFilterModel::class.java.getResourceAsStream("/app/takes/deepfilter/$FILE_NAME")?.use { DeepFilterModel(it) }
 
         private val ERB_SHAPE = longArrayOf(1, 1, 1, DeepFilter.ERB_BANDS.toLong())
         private val SPEC_SHAPE = longArrayOf(1, 2, 1, DeepFilter.DF_BINS.toLong())

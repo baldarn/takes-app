@@ -61,6 +61,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures { compose = true }
+    // ONNX Runtime (deepfilter/) brings a library for 32-bit x86 too, which neither RNNoise nor
+    // sherpa-onnx is built for; left out so that it adds nothing for the ABIs the app had.
+    packaging { jniLibs { excludes += "lib/x86/libonnxruntime*.so" } }
     // The app speaks English and Italian; without this the libraries bring ninety more languages along.
     androidResources {
         localeFilters += listOf("en", "it")
@@ -75,6 +78,7 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":rnnoise"))
     implementation(project(":speech"))
+    implementation(project(":deepfilter"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

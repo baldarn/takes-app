@@ -4,6 +4,7 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -271,6 +272,18 @@ class DeepFilterModelTest {
         other.close()
         other.close()
         assertThrows(IllegalStateException::class.java) { DeepFilter(other) }
+    }
+
+    /** The weights the build packs beside the library's classes, as the app loads them ([DeepFilterModel.bundled]). */
+    @Test fun buildCarriesTheModel() {
+        val found = DeepFilterModel.bundled()
+        assertNotNull("the build packs app/takes/deepfilter/deepfilter.onnx", found)
+        val carried = found!!
+        val dry = pinkNoise(hop * 10, 0.05f)
+        val expected = dry.copyOf().also { deepFilter(model, it, 1f) }
+        val actual = dry.copyOf().also { deepFilter(carried, it, 1f) }
+        assertArrayEquals(expected, actual, 0f)
+        carried.close()
     }
 
     companion object {

@@ -20,7 +20,10 @@ recorded audio at 48 kHz, never during capture, with an amount from 0 to 1.
 
 ## The model file
 
-The weights are not in this repository and not in the app. The caller supplies them:
+The weights are not in git. The build fetches them once (`fetchModel`, into `models/`,
+which git ignores), checks their SHA-256, and packs them into the library as the resource
+`app/takes/deepfilter/deepfilter.onnx`, so the app carries them inside its APK and the
+phone never downloads anything. `DeepFilterModel.bundled()` loads them from there.
 
 | | |
 |---|---|
@@ -31,9 +34,7 @@ The weights are not in this repository and not in the app. The caller supplies t
 | License | MIT (DeepFilterNet3 v0.5.6 by Hendrik Schröter, converted by soniqo) |
 
 The name, address, size and hash are constants on `DeepFilterModel`. Any other file is
-refused with a `DeepFilterModelException`. This module does not download anything; where
-the file comes from (bundled as an asset, or fetched on first use) is for the app to
-decide. The other files published beside it are not needed.
+refused with a `DeepFilterModelException`. The other files published beside it are not needed.
 
 The published file computes a whole recording in one call, which takes memory in
 proportion to its length. `streaming-graph.onnx` is the same network rearranged to take
@@ -47,7 +48,7 @@ gives the same numbers as the published file.
 ## Using it
 
 ```kotlin
-val model = DeepFilterModel(File(filesDir, DeepFilterModel.FILE_NAME))   // once; about 9 MB
+val model = DeepFilterModel.bundled()!!   // once; about 9 MB
 
 deepFilter(model, samples, amount = 1f)   // one channel, 48 kHz, floats in −1…1, changed in place
 
@@ -79,9 +80,17 @@ are not known.
 ## Building
 
 `./gradlew :deepfilter:assembleRelease`. ONNX Runtime comes as
-`com.microsoft.onnxruntime:onnxruntime-android`, which brings its own native libraries
-for arm64-v8a, armeabi-v7a, x86 and x86_64 and adds several megabytes per architecture to
-the app.
+`com.microsoft.onnxruntime:onnxruntime-android`, which brings its own native library: about
+36 MB for arm64-v8a, 26 MB for armeabi-v7a and 45 MB for x86_64, uncompressed. It cannot share
+the copy sherpa-onnx carries (`speech/`): that one is linked inside sherpa-onnx's library, and
+sherpa-onnx's other variant (still in sherpa-onnx 2.0.1), with the runtime as a library of its
+own, is version 1.28.2, whose exported symbols the Java API's bridge (built for 1.28.0) does not
+accept. ONNX Runtime's 32-bit x86 library is left out of the app (`packaging` in
+`app/build.gradle.kts`), since RNNoise and sherpa-onnx have none either.
+
+In the Play bundle the runtime and the weights add about 22 MB to an arm64-v8a phone's download
+(13.7 MB of compressed runtime for arm64-v8a, 12.5 MB for armeabi-v7a, 16.5 MB for x86_64, and
+8.0 MB of weights) and about 45 MB to the installed app on arm64-v8a.
 
 ## Testing
 

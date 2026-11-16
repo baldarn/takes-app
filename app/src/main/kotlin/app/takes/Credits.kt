@@ -38,7 +38,7 @@ private const val PRIVACY = "https://github.com/baldarn/takes-app/blob/main/PRIV
 fun CreditsScreen(report: (String) -> Unit, close: () -> Unit) {
     val context = LocalContext.current
     val text = remember {
-        listOf(R.raw.credits, R.raw.rnnoise_notices, R.raw.apache_2_0).joinToString("\n") { id ->
+        listOf(R.raw.credits, R.raw.rnnoise_notices, R.raw.deepfilter_notices, R.raw.apache_2_0).joinToString("\n") { id ->
             context.resources.openRawResource(id).bufferedReader().use { it.readText() }
         }
     }

@@ -1,8 +1,8 @@
 Takes includes DeepFilterNet3 noise reduction
 =============================================
 
-The weights of the network are not part of this module; the app obtains
-deepfilter.onnx separately. They are covered by the DeepFilterNet notice below.
+The weights of the network, deepfilter.onnx, are carried inside the app.
+They are covered by the DeepFilterNet notice below.
 
 
 DeepFilterNet (the model and its weights)

@@ -29,8 +29,9 @@ SDK through `ANDROID_HOME` or a `local.properties` file with `sdk.dir=…` (not 
 
 The first build downloads the Gradle distribution, the libraries from Google Maven and
 Maven Central, and sherpa-onnx (about 38 MB) from its GitHub release into
-`speech/.sherpa-onnx/`. That download is checked against a SHA-256 and survives
-`./gradlew clean`. Nothing else is fetched, and there are no submodules.
+`speech/.sherpa-onnx/`, and DeepFilterNet3's weights (8.6 MB) from Hugging Face into
+`deepfilter/models/`, which the app carries. Both downloads are checked against a SHA-256
+and survive `./gradlew clean`. Nothing else is fetched, and there are no submodules.
 
 An emulator is enough for most of the editor and for the recorder's logic: its camera is
 a virtual scene. What a real camera, a microphone or ears decide needs a phone; issues
@@ -53,11 +54,12 @@ work with `debug`; nothing in a pull request needs the key.
     ./gradlew :core:test                     # the editing model, on the JVM, no Android
     ./gradlew :rnnoise:testDebugUnitTest     # the C library, built for your computer
     ./gradlew :speech:testDebugUnitTest      # model download and recognizer
+    ./gradlew :deepfilter:testDebugUnitTest  # DeepFilterNet3 noise reduction, the real network
     ./gradlew :app:lintDebug                 # Android lint
 
 Before a pull request, run what the maintainer and the CI run:
 
-    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :app:lintDebug :app:assembleDebug
+    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
 - `core` holds nearly all the tests. They pin numbers taken from the original: its own
   test cases and the arithmetic of its source. A test says where its numbers come from
@@ -99,6 +101,8 @@ Before a pull request, run what the maintainer and the CI run:
   (`TransitionRendering.kt`, `TitleRendering.kt`, `SubtitleRendering.kt`).
 - `rnnoise/` — the RNNoise C library with a small Kotlin API, built with the NDK.
 - `speech/` — Whisper through sherpa-onnx, and the verified download of its model.
+- `deepfilter/` — DeepFilterNet3 noise reduction run by ONNX Runtime, with its weights
+  fetched and checked when the app is built.
 - `docs/` — `PARITY.md` (what the original does and where the port stands),
   `TRACKS-PLAN.md` (the move to the original's track timeline, in stages), the reviews
   of the recorder, the transitions and the subtitles against the original, and research

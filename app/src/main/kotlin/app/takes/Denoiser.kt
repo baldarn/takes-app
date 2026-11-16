@@ -7,6 +7,8 @@ import app.takes.core.AudioEffectKind
 import app.takes.core.AudioModel
 import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMixPiece
+import app.takes.deepfilter.ChannelDeepFilter
+import app.takes.deepfilter.DeepFilterModel
 import app.takes.rnnoise.ChannelDenoiser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -30,9 +32,10 @@ import kotlin.math.roundToInt
  * processed file in place of the recording for every piece with that chain.
  *
  * The stages this device plays are the filters ([AudioChainProcessor]) and
- * noise reduction (RNNoise, [AudioEffectKind.VoiceIsolation]); a chain with
- * another model is not made, and its pieces play the recording. A chain that
- * is noise reduction alone keeps the name of the file of cleaned sound it
+ * noise reduction ([AudioEffectKind.VoiceIsolation]) by RNNoise or by
+ * DeepFilterNet3, whose network the app carries ([DeepFilterModel.bundled]);
+ * a chain with another model is not made, and its pieces play the recording. A chain that
+ * is RNNoise's noise reduction alone keeps the name of the file of cleaned sound it
  * always had, so what was made before is found again.
  */
 object Denoiser {
@@ -47,7 +50,7 @@ object Denoiser {
     /** The file [file]'s sound through [effects] is kept in. */
     private fun cached(file: File, effects: List<AudioEffect>): File {
         val active = AudioChain.active(effects)
-        val alone = active.singleOrNull()?.takeIf { it.kind == AudioEffectKind.VoiceIsolation }
+        val alone = active.singleOrNull()?.takeIf { it.kind == AudioEffectKind.VoiceIsolation && it.model == AudioModel.RNNoise }
         if (alone != null) return File(folder(file), "${file.name}.clean-${(alone.amount * 100).roundToInt()}.wav")
         val key = TrackAudioRegions.cacheKey("", active)
         val digest = MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
@@ -56,7 +59,29 @@ object Denoiser {
 
     /** Whether this device plays every stage of [effects] that changes the sound. */
     fun playable(effects: List<AudioEffect>): Boolean = AudioChain.active(effects).all {
-        it.supported && (!it.kind.isNeural || (it.kind == AudioEffectKind.VoiceIsolation && it.model == AudioModel.RNNoise))
+        it.supported && (!it.kind.isNeural || (it.kind == AudioEffectKind.VoiceIsolation && (it.model == AudioModel.RNNoise || it.model == AudioModel.DeepFilter)))
+    }
+
+    /**
+     * DeepFilterNet3's network, loaded on first use (about 9 MB, read from the app itself) and kept: every
+     * channel of every chain shares it, each with its own memory. A failure is kept too, so it is not tried again.
+     */
+    private val deepFilter: Result<DeepFilterModel> by lazy {
+        runCatching { DeepFilterModel.bundled() ?: error("This build carries no DeepFilterNet3 model") }
+    }
+
+    /** One channel's noise reduction by [effect]'s model, with the calls of RNNoise's [ChannelDenoiser]. */
+    private class NoiseReduction(effect: AudioEffect) : AutoCloseable {
+        private val rnnoise = if (effect.model == AudioModel.DeepFilter) null else ChannelDenoiser(effect.amount.toFloat())
+        private val dfn = if (effect.model == AudioModel.DeepFilter) ChannelDeepFilter(deepFilter.getOrThrow(), effect.amount.toFloat()) else null
+
+        fun write(samples: FloatArray, offset: Int, count: Int, output: (FloatArray, Int) -> Unit) {
+            if (dfn != null) dfn.write(samples, offset, count, output) else rnnoise!!.write(samples, offset, count, output)
+        }
+
+        fun finish(output: (FloatArray, Int) -> Unit) { if (dfn != null) dfn.finish(output) else rnnoise!!.finish(output) }
+
+        override fun close() { dfn?.close(); rnnoise?.close() }
     }
 
     /** The processed sound of [file] through [effects], if it has already been made; null too for a chain that changes nothing. */
@@ -76,6 +101,23 @@ object Denoiser {
                 val from = piece.runs.minOf { minOf(it.sourceStart, it.sourceEnd) }
                 val to = piece.runs.maxOf { maxOf(it.sourceStart, it.sourceEnd) }
                 windows(file, piece.chain).firstOrNull { it.covers(from, to) }?.let { ProcessedSound(it.file, it.offset) }
+            }
+        }
+    }
+
+    /**
+     * What a piece plays in Enhance audio's preview, which plays a few seconds only: its chain's processed
+     * sound when made, else the stretch processed for listening that holds the most of the piece, read where
+     * it has sound and silent around it; null for the recording.
+     */
+    fun previewInput(files: Map<String, File>): (TrackMixPiece) -> ProcessedSound? = { piece ->
+        files[piece.sourceID]?.let { file ->
+            ready(file, piece.chain)?.let { ProcessedSound(it) } ?: run {
+                val from = piece.runs.minOf { minOf(it.sourceStart, it.sourceEnd) }
+                val to = piece.runs.maxOf { maxOf(it.sourceStart, it.sourceEnd) }
+                windows(file, piece.chain).maxByOrNull { minOf(to, it.end) - maxOf(from, it.offset + SETTLE) }
+                    ?.takeIf { minOf(to, it.end) > maxOf(from, it.offset + SETTLE) }
+                    ?.let { ProcessedSound(it.file, it.offset) }
             }
         }
     }
@@ -102,7 +144,7 @@ object Denoiser {
      * processing all of it (YouRec/SourceMediaCache.swift:296-319, [app.takes.core.TrackAudioRegions.windowRequests]):
      * from [SETTLE] seconds before it, so a model has settled where the span begins. Null when it cannot be made.
      */
-    suspend fun processWindow(file: File, effects: List<AudioEffect>, span: app.takes.core.SourceInterval): Window? = withContext(working) {
+    suspend fun processWindow(file: File, effects: List<AudioEffect>, span: app.takes.core.SourceInterval, progress: (Float) -> Unit = {}): Window? = withContext(working) {
         val active = AudioChain.active(effects)
         if (active.isEmpty() || !playable(active)) return@withContext null
         windows(file, active).firstOrNull { it.covers(span.start, span.end) }?.let { return@withContext it }
@@ -112,16 +154,18 @@ object Denoiser {
         try {
             val context = coroutineContext
             var first = -1L
-            val made = render(file, active, partial, {}, { context.ensureActive() }, maxOf(0.0, span.start - SETTLE), span.end) { if (first < 0) first = it }
+            val made = render(file, active, partial, progress, { context.ensureActive() }, maxOf(0.0, span.start - SETTLE), span.end) { if (first < 0) first = it }
             if (!made || first < 0) return@withContext null
             val end = first / 1e6 + frames(partial) / Channel48k.RATE.toDouble()
             val target = File(base.parentFile, base.name.removeSuffix(".wav") + ".window-$first-${(end * 1e6).toLong()}.wav")
             if (partial.renameTo(target)) Window(target, first / 1e6, end) else null
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (problem: Exception) {
+            android.util.Log.w("Takes", "A chain could not be made", problem)
             null
-        } catch (_: LinkageError) {
+        } catch (problem: LinkageError) {
+            android.util.Log.w("Takes", "A chain could not be made", problem)
             null
         } finally {
             partial.delete()
@@ -160,9 +204,11 @@ object Denoiser {
             if (render(file, active, partial, progress, { context.ensureActive() }) && partial.renameTo(output)) output else null
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (problem: Exception) {
+            android.util.Log.w("Takes", "A chain could not be made", problem)
             null
-        } catch (_: LinkageError) {
+        } catch (problem: LinkageError) {
+            android.util.Log.w("Takes", "A chain could not be made", problem)
             null // no native library for this processor: the recorded sound is used
         } finally {
             partial.delete()
@@ -186,10 +232,10 @@ object Denoiser {
      */
     private class ChannelChain(stages: List<AudioEffect>, private val sink: Pending) : AutoCloseable {
         private sealed interface Step
-        private class Neural(val denoiser: ChannelDenoiser) : Step
+        private class Neural(val denoiser: NoiseReduction) : Step
         private class Filter(val processor: AudioChainProcessor) : Step
         private val steps: List<Step> = stages.map {
-            if (it.kind.isNeural) Neural(ChannelDenoiser(it.amount.toFloat())) else Filter(AudioChainProcessor(listOf(it), channels = 1))
+            if (it.kind.isNeural) Neural(NoiseReduction(it)) else Filter(AudioChainProcessor(listOf(it), channels = 1))
         }
 
         fun write(samples: FloatArray, count: Int) = pass(0, samples, count)
@@ -219,6 +265,7 @@ object Denoiser {
         from: Double = 0.0, until: Double = Double.POSITIVE_INFINITY, first: (Long) -> Unit = {},
     ): Boolean {
         var chains = emptyList<ChannelChain>()
+        val began = System.nanoTime()
         val output = BufferedOutputStream(FileOutputStream(target), 1 shl 16)
         try {
             var inputs = emptyList<Channel48k>()
@@ -263,7 +310,9 @@ object Denoiser {
                         chains[channel].write(inputs[channel].samples, count)
                     }
                     drain()
-                    if (length > 0) progress((time.toFloat() / length).coerceIn(0f, 1f))
+                    // Of the stretch processed: the whole recording, or a window of it.
+                    val end = minOf(length / 1e6, until)
+                    if (end > from) progress(((time / 1e6 - from) / (end - from)).toFloat().coerceIn(0f, 1f))
                 },
             )
             if (decoded != true) return false
@@ -272,6 +321,11 @@ object Denoiser {
             output.close()
             if (frames == 0L) return false
             writeWavHeader(target, Channel48k.RATE, chains.size, frames)
+            // How fast a chain is made on this phone: seconds of sound, channels, and the time it took.
+            android.util.Log.i(
+                "Takes", "Chain ${stages.joinToString("+") { it.kind.rawValue + (it.model?.let { model -> ":" + model.id } ?: "") }}: " +
+                    "%.1f s of sound, %d channels, in %.2f s".format(java.util.Locale.ROOT, frames / Channel48k.RATE.toDouble(), chains.size, (System.nanoTime() - began) / 1e9),
+            )
             progress(1f)
             return true
         } finally {
