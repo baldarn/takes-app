@@ -158,6 +158,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 - **Original.** "Project x s shorter / longer" compares with `settingTransition(nil)` (`YouRec/TransitionEditor.swift:46-51`), which removes the relation and leaves every picture where it is (`YouRec/Transitions.swift:340-342`). For a transition that already exists the note therefore reads "Project length unchanged" until something is changed.
 - **Android.** Compares with `setJoin(saved, join, null)`, which closes the clips to a plain cut (`app/EditorScreen.kt:912`). An existing 1 s dissolve opens with "Project 1.00 s shorter".
 - **Fix.** For an existing transition compare with `saved.duration`.
+- **Done.** The note of an existing transition compares with the timeline as saved (`lengthChange` in `app/EditorScreen.kt`).
 
 ### F14. Audition stops at the end instead of returning, and there is no still or scrubber of its own — subtle [R]
 
@@ -216,7 +217,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 | Style | all | sheet, two columns, nine styles in `allCases` order, "Done" (`:417-431`) | dialog, two columns, same order, "Done" (`:322-353`) — same |
 | Fade color | fade through color | colour picker | swatches + hex (F15) |
 | Blend / Freeze duration | all | presets 0.5, 1…10, 15, 30, 60 s; slider one frame … maximum in frames; disabled under two frames | same presets (`core/TitleMotion.kt:132-134`), same slider (`:236-241`); maximum differs (F8) |
-| Length note, "reduced to N %" | all | `:297-298` | same wording; base differs for an existing transition (F13) |
+| Length note, "reduced to N %" | all | `:297-298` | same (F13, fixed) |
 | Layout: Left / right, Top / bottom | split screen, whip pan | `:300-302`; a new transition starts top / bottom on a portrait canvas (`:106`) | same (`:247-249`, `core/TransitionLayout.kt:392-395`) |
 | Reverse direction | whip pan | `:303` | same |
 | Edge: Soft / Hard; Angle −180…180°, step 1 | wipe | `:304-308`; setting the angle clears `reverse` | same (`:251-259`) |
