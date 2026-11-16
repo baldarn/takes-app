@@ -291,9 +291,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }.toMap()
     }
     val plan = remember(asked, clean) { if (asked.pictures.none { it.soundRemoved }) asked else TrackRenderPlan.of(edit, clean.keys) }
-    LaunchedEffect(clips, sounds, cleaned, layers, refusal != null) {
+    // While an edit drawn by layers exports, its players let go of their decoders: the export needs one a lane as well.
+    val exporting = exporter.progress != null
+    LaunchedEffect(clips, sounds, cleaned, layers, refusal != null, exporting && layers != null) {
         playhead = playhead.coerceIn(0.0, duration)
         when {
+            layers != null && exporting -> editor.unload()
             layers != null -> editor.load(layers, plan, files, playhead)
             refusal != null -> editor.unload()
             else -> editor.load(plan, files, clean, playhead)
