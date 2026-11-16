@@ -19,17 +19,17 @@ Size: S = hours, M = about a day, L = several days. "Emulator?" says whether the
 
 Brought up to date on 2026-11-15, status only and without a new reading of the original: section 6 (transitions), section 7 (titles), section 9 (subtitles, where no status changed) and, in section 4, the rows on selection, range, tool scope and clipboard, with `main` at `27746ad`; and the rows this change itself delivers (previous/next change, snap to cuts, the transition badge, the opening and the close staying with their clip). The other rows and their line numbers are as they were audited. What still differs inside the transitions is in `docs/TRANSITIONS-REVIEW.md`, inside the subtitles in `docs/SUBTITLES-REVIEW.md`.
 
-Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work packages list, section 10 (video effects), the export rows of section 11, the rows of sections 2, 3 and 5 that the new core files and the recorder work changed (issue 70 lists them), and two items of the last section, now settled and removed from it: the selected project is remembered across launches (A/ProjectStore.kt:103, 154), and 1D `.cube` files are read within the 32 MB and size limits (C/CubeLUT.kt). Other rows of section 3 (front light, haptics, focus, meter, settings sheet and more) were changed on `main` too and are not re-audited here.
+Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work packages list, section 10 (video effects), the export rows of section 11, the rows of sections 2, 3 and 5 that the new core files and the recorder work changed (issue 70 lists them), and two items of the last section, now settled and removed from it: the selected project is remembered across launches (A/ProjectStore.kt:103, 154), and 1D `.cube` files are read within the 32 MB and size limits (C/CubeLUT.kt). Section 3 was then audited again row by row from the code on `main` at `4c96267` (issue 70): its places are named by function rather than by line.
 
 ## Summary
 
 | Status | Count |
 |---|---|
-| DONE | 99 |
-| PARTIAL | 45 |
+| DONE | 114 |
+| PARTIAL | 40 |
 | CORE ONLY | 15 |
-| MISSING | 45 |
-| N/A | 5 |
+| MISSING | 34 |
+| N/A | 6 |
 | Total | 209 |
 
 Per area:
@@ -38,7 +38,7 @@ Per area:
 |---|---|---|---|---|---|
 | 1. App shell and project list | 15 | 4 | 1 | 3 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
-| 3. Recorder and camera | 12 | 10 | 4 | 14 | 2 |
+| 3. Recorder and camera | 27 | 5 | 4 | 3 | 3 |
 | 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
 | 5. Editor: picture tools | 4 | 3 | 7 | 4 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
@@ -95,48 +95,48 @@ The port goes beyond the original in three places, not counted above: Italian lo
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
-| Record, pause, resume, stop; one immutable file per segment | O/CaptureController.swift:1391-1487 | DONE | A/CaptureController.kt, A/RecorderScreen.kt:500-544: the big button starts a take, stops the segment being written and resumes, as in the original; Stop beside it while paused | — | | |
-| Continue the same project later; "New project" from the recorder | O/RecorderView.swift:400-411 | DONE | A/RecorderScreen.kt:305-307, A/ProjectsScreen.kt:213 | — | | |
-| Record here (insert at the playhead) and return to the end | O/AddVideoPanel.swift:50, O/ContentView.swift:557-571 | DONE | A/EditorScreen.kt:749, A/RecorderScreen.kt:274-279, A/ProjectStore.kt:304-307 | — | | |
-| Status pill and clock (project duration + elapsed) | O/RecorderView.swift:472-493 | DONE | A/RecorderScreen.kt:336-358 (the one clock: the edit's length plus the segment being written, turning with the phone) | — | | |
-| Red/yellow frame border while recording/paused | O/RecorderView.swift:281-291 | DONE | A/RecorderScreen.kt:318-325 (2 dp line, 3 dp from the edge, red while recording and yellow while paused) | — | | |
-| Switch camera while recording, inside the same segment, with an event | O/CaptureController.swift:1513-1647 | PARTIAL | A/CaptureController.kt:247-256 (persistent recording, `camera` event) | Preview is not frozen on the last frame during the switch; "flip to last-used lens on the other side" button | M | Phone |
-| Lens menu (main, ultrawide, tele, front) | O/RecorderView.swift:533-549 | DONE | A/RecorderScreen.kt:249-263, A/CaptureController.kt:205-223 | — | | |
-| Zoom presets, tap = saved time, double tap = 1 s | O/RecorderView.swift:1049-1128 | DONE | A/RecorderScreen.kt:219-247, C/ZoomTransition.kt:40 | "1× Main" jump from the ultrawide to the main lens | | |
-| Zoom transition time, 0–30 s | O/RecorderView.swift:1131-1189, O/ZoomTransition.swift:71-78 | DONE | A/RecorderZoom.kt:217-290, A/RecorderSettings.kt:20-21 (Instant until a time is chosen, as the original) | Vertical-drag stepping in 0.5 s (presets only) | | |
-| Pinch zoom | O/RecorderZoomViewport.swift:116-214 | PARTIAL | A/RecorderScreen.kt:125-127, A/CaptureController.kt:384-388, C/PinchZoom.kt | Timed-mode preview of the move ("2.0× · 3s on release"); the two-finger pan of the crop centre, whose maths are in C/CameraFraming.kt (`PinchPan`, `CameraFraming`) but which needs the frame-processing capture path | M | Yes |
-| Per-camera zoom memory | O/CaptureController.swift:1648-1664 | PARTIAL | A/CaptureController.kt:244, 365 | Pan centre, focus lock and lens position are not remembered (those features are missing) | S | Yes |
-| Quality: 1080p or 4K, 30 fps | O/RecorderView.swift:1295-1301 | MISSING | Fixed FHD at A/CaptureController.kt:265 | Quality setting and 4K | S | Phone |
-| Recording colour: SDR / HDR (HLG 10-bit) / Log | O/RecorderView.swift:4-43, O/CaptureController.swift:1665-1739 | MISSING | SDR only | HDR via CameraX `DynamicRange.HLG_10_BIT` where supported; Log has no general Android equivalent (see N/A row) | M | Phone |
+| Record, pause, resume, stop; one immutable file per segment | O/CaptureController.swift:1391-1487 | DONE | A/CaptureController.kt (`record`, `pause`, `finishTake`), A/RecorderScreen.kt `Controls`: the big button starts a take, stops the segment being written and resumes, as in the original; Pause beside it while recording, Stop while paused | — | | |
+| Continue the same project later; "New project" from the recorder | O/RecorderView.swift:400-411 | DONE | A/RecorderScreen.kt `ProjectChip`, A/ProjectsScreen.kt | — | | |
+| Record here (insert at the playhead) and return to the end | O/AddVideoPanel.swift:50, O/ContentView.swift:557-571 | DONE | A/RecorderScreen.kt `ProjectChip` (names the place and leads back to the editor), A/CaptureController.kt `onInsertionEnded`, A/ProjectStore.kt `recordAtEnd` | — | | |
+| Status pill and clock (project duration + elapsed) | O/RecorderView.swift:472-493 | DONE | A/RecorderScreen.kt `Clock` (the one clock: the edit's length plus the segment being written, turning with the phone) | — | | |
+| Red/yellow frame border while recording/paused | O/RecorderView.swift:281-291 | DONE | A/RecorderScreen.kt `TakeFrame` (2 dp line, 3 dp from the edge, following the display's corners) | — | | |
+| Switch camera while recording, inside the same segment, with an event | O/CaptureController.swift:1513-1647 | DONE | A/CaptureController.kt `switchCamera` (persistent recording, `camera` event); A/RecorderScreen.kt `switchCamera` covers the preview with the old camera's last picture until the new one streams; the flip button goes to the camera used last on the other side (C/RecorderCameras.kt `opposite`) | On a Galaxy A54 the recorded picture stands still for 1.0 s at 1080p and 2.0 s at 4K during the change, with the sound unbroken (issue 53) | | |
+| Lens menu (main, ultrawide, tele, front) | O/RecorderView.swift:533-549 | DONE | A/RecorderScreen.kt `CameraStrip`, A/CaptureController.kt `describe` | — | | |
+| Zoom presets, tap = saved time, double tap = 1 s | O/RecorderView.swift:1049-1128 | DONE | A/RecorderZoom.kt `ZoomPresets`, C/ZoomTransition.kt; "1×" from a rear ultrawide changes to the main lens (A/CaptureController.kt `mainLensAtOneX`) | — | | |
+| Zoom transition time, 0–30 s | O/RecorderView.swift:1131-1189, O/ZoomTransition.swift:71-78 | DONE | A/RecorderZoom.kt `ZoomDuration` (tap, and a vertical drag in half seconds), More settings → Zoom; Instant until a time is chosen, as the original | — | | |
+| Pinch zoom | O/RecorderZoomViewport.swift:116-214 | PARTIAL | A/RecorderZoom.kt `pictureGestures`, `PinchBadge` (with "on release" in timed mode), C/PinchZoom.kt | The two-finger pan of the crop centre, whose maths are in C/CameraFraming.kt (`PinchPan`) | M | Phone |
+| Per-camera zoom memory | O/CaptureController.swift:1648-1664 | PARTIAL | A/CaptureController.kt `applyZoom` (`zoom.<camera>`), A/RecorderSettings.kt `focusLocked`, `focusLens` | The pan centre (no pan, see above) | S | Phone |
+| Quality: 1080p or 4K, 30 fps | O/RecorderView.swift:1295-1301 | DONE | More settings → Recording quality (A/RecorderSettingsSheet.kt), A/CaptureController.kt `chooseUltraHD`, `build`, C/CaptureFormat.kt; a camera without 4K says "1080p only" in the camera menu | — | | |
+| Recording colour: SDR / HDR (HLG 10-bit) / Log | O/RecorderView.swift:4-43, O/CaptureController.swift:1665-1739 | PARTIAL | Camera settings → Recording color (A/RecorderSettingsSheet.kt `RecordingColor`): SDR or HDR as HLG 10 bit where the camera has it | Log (see the N/A row) | | |
 | Apple Log / Apple Log 2 capture | O/LogColor.swift:5-9 | N/A | — | Apple-specific encoding; vendor Log modes are not exposed through CameraX | | |
-| Codec choice follows colour (HEVC Main10 / H.264), bitrate rule | O/CaptureSegmentWriter.swift:225-248 | PARTIAL | CameraX defaults | No explicit bitrate or codec | S | Phone |
-| Mirror selfie preview / save mirrored selfies | O/RecorderView.swift:1249-1252 | MISSING | — | Two settings; CameraX `MirrorMode` | S | Phone |
-| "Fit entire recorded frame" vs fill | O/RecorderView.swift:1303 | PARTIAL | Always fits (A/RecorderScreen.kt:102) | The fill option | S | Yes |
-| Capture stabilisation toggle | O/RecorderView.swift:798-801 | MISSING | — | CameraX video stabilisation toggle | S | Phone |
+| Codec choice follows colour (HEVC Main10 / H.264), bitrate rule | O/CaptureSegmentWriter.swift:225-248 | PARTIAL | A/CaptureController.kt `build`: the original's bit rate (C/CaptureFormat.kt `bitRate`) | The codec is CameraX's choice: it has no public setting | S | Phone |
+| Mirror selfie preview / save mirrored selfies | O/RecorderView.swift:1249-1252 | DONE | More settings → Picture, A/CaptureController.kt `chooseMirrorPreview`, `chooseMirrorRecording` | — | | |
+| "Fit entire recorded frame" vs fill | O/RecorderView.swift:1303 | DONE | More settings → Framing, A/RecorderScreen.kt (`fitFrame`) | — | | |
+| Capture stabilisation toggle | O/RecorderView.swift:798-801 | DONE | Camera settings → Stabilize tile (A/RecorderSettingsSheet.kt `QuickSettings`), A/CaptureController.kt `chooseStabilization` | — | | |
 | Level horizon with max angle | O/RecorderView.swift:802-807, O/HorizonLevel.swift:8-282 | CORE ONLY | C/HorizonLevel.kt (framing and fixed magnification, the roll from gravity, the visible line, the correction over time) | A frame-processing capture path that turns and crops each frame, the gravity sensor, the setting | L | Phone |
-| Follow face (single camera crop follow) | O/RecorderView.swift:808-812, O/DualFaceDetector.swift:56-197 | CORE ONLY | C/CameraFraming.kt (`SingleCameraCrop`: reserve, crop, visible framing), C/DualCameraLayout.kt (`FaceTarget`, `FaceFraming.follow`) | Face detection and the crop pipeline on frames | L | Phone |
-| Front light (screen-edge lamp: width, tone, opacity) | O/RecorderFrontLight.swift:8-241 | MISSING | — | Pure UI overlay plus brightness | M | Yes (look), phone (effect) |
-| Tap to focus | O/CaptureController.swift:2442-2472, 3331-3348 | MISSING | — | `FocusMeteringAction` on tap, focus box | S | Phone |
-| Focus lock / manual focus with lens slider | O/RecorderView.swift:949-1041, 1191-1214 | MISSING | — | Camera2 interop `LENS_FOCUS_DISTANCE` | M | Phone |
+| Follow face (single camera crop follow) | O/RecorderView.swift:808-812, O/DualFaceDetector.swift:56-197 | CORE ONLY | C/CameraFraming.kt (`SingleCameraCrop`), C/DualCameraLayout.kt (`FaceTarget`, `FaceFraming.follow`) | Face detection and the crop pipeline on frames | L | Phone |
+| Front light (screen-edge lamp: width, tone, opacity) | O/RecorderFrontLight.swift:8-241 | DONE | Camera settings → Front light tile, A/FrontLight.kt, C/FrontLight.kt | — | | |
+| Tap to focus | O/CaptureController.swift:2442-2472, 3331-3348 | DONE | A/RecorderScreen.kt (tap on the picture), A/CameraFocus.kt `tap`, `FocusBox` | — | | |
+| Focus lock / manual focus with lens slider | O/RecorderView.swift:949-1041, 1191-1214 | DONE | A/CameraFocus.kt `FocusButton` (AF, MF, Locked, Fixed; swipe in manual focus), `FocusSettings` in More settings, C/FocusControl.kt | — | | |
 | Focus peaking | O/RecorderView.swift:966, O/CaptureController.swift:2422-2435 | MISSING | — | Frame analysis overlay | L | Phone |
 | Dual camera: two cameras into one picture, 4 layouts, inset shape, per-feed pan/zoom, swap | O/MultiCameraCapture.swift:93-330, O/DualCameraLayout.swift:5-124, O/RecorderView.swift:292-320, 1386-1531 | CORE ONLY | C/DualCameraLayout.kt (layouts, regions, inset resize, touch ownership, placement, mask coverage, frame pairing) | CameraX concurrent camera + own compositor and encoder path, the UI | L | Phone (few devices support it) |
 | Front landscape 16:9 selfie with the phone upright | O/CaptureController.swift:1871-1971 | N/A | — | Depends on an iOS 26 sensor mode | | |
 | Live video effects while recording (21 effects, panel, frame tools) | O/VideoEffects/LiveEffectsPanel.swift:20-321, O/VideoEffects/LiveVideoEffects.swift | MISSING | — | Depends on area 10 and a GL capture path | L | Phone |
 | Crash zoom / dolly zoom buttons, tap to select the subject | O/RecorderView.swift:105-133, O/CaptureController.swift:2005-2106 | MISSING | — | Same | L | Phone |
-| Microphone choice | O/RecorderView.swift:1332-1338, O/CaptureController.swift:2553-2636 | PARTIAL | A/RecorderScreen.kt:200-215, A/CaptureController.kt:270-357 (Android 12+, per session) | Remembered priority list including disconnected microphones; fallback timing rules (O/CaptureAudio.swift:6-109) | M | Phone |
-| Active microphone name and mismatch warning | O/RecorderView.swift:445-470 | DONE | A/RecorderScreen.kt:174-187, A/CaptureController.kt:136-143 | — | | |
-| Microphone level meter | O/RecorderView.swift:913-934 | PARTIAL | A/RecorderScreen.kt:167-173 (while recording only) | Level before recording, "Clipping" and "No signal" states | S | Phone |
+| Microphone choice | O/RecorderView.swift:1332-1338, O/CaptureController.swift:2553-2636 | DONE | The microphone pill's menu and More settings → Microphone, Microphone priority (A/RecorderMicrophone.kt, A/RecorderSettingsSheet.kt), A/CaptureController.kt `refreshMicrophones`, C/MicrophoneRoute.kt (the remembered order with disconnected microphones, the original's waits) | Android 12 and later; below, the system's microphone is shown | | |
+| Active microphone name and mismatch warning | O/RecorderView.swift:445-470 | DONE | A/RecorderMicrophone.kt `MicrophonePill`, A/CaptureController.kt `showActiveMicrophone` | — | | |
+| Microphone level meter | O/RecorderView.swift:913-934 | DONE | A/RecorderMicrophone.kt `MeterBars`, `MicrophonePanel` (before and during a take, "Clipping", "No signal"), A/CaptureController.kt `listen` | — | | |
 | Recording gain −40…+12 dB per microphone | O/RecorderView.swift:1348-1369, O/CaptureAudio.swift:144-185 | CORE ONLY | C/RecordingGain.kt (half-decibel grid, 20 ms ramp, unlimited) | Needs an own audio path; CameraX has no gain. The per-microphone setting | L | Phone |
-| Audio keeps running across camera switches (independent engine, gap fill, clock correction) | O/CaptureAudio.swift:190-321, O/LiveMicrophone.swift:22-58 | PARTIAL | CameraX persistent recording | Not verified what the sound does during a switch | S | Phone |
-| "Protect recording audio" | O/RecorderView.swift:1265-1270 | MISSING | — | Setting | S | Phone |
-| Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt:509, A/CaptureController.kt; the marks of an interrupted take are kept, indexed at launch with it (A/ProjectStore.kt `indexFinishedTakes`) | — | | |
-| Orientation follows the device, locked for the take | O/RecorderView.swift:341-390 | PARTIAL | A/CaptureController.kt:114-127 (recorded orientation follows; interface stays portrait) | Interface rotation | M | Yes |
-| Warnings: microphone off, silenced, camera lost, storage full | O/CaptureController.swift:617-687, 2672-2695 | PARTIAL | A/CaptureController.kt:474-516 | Thermal banner; auto-pause on missing audio | S | Partly |
-| Backgrounding saves the take | O/CaptureController.swift:1165-1180 | DONE | A/RecorderScreen.kt:198-204, A/CaptureController.kt:307 (`background`: the take is paused and its segment saved, as in the original; returning never resumes by itself) | — | | |
-| Camera and microphone permission flow | Info settings in project.pbxproj:972-983 | DONE | A/RecorderScreen.kt:79-96 | — | | |
-| Haptics on mark, presets, toggles | O/RecorderView.swift:71, 836, 1119 | MISSING | — | Haptic feedback | S | Phone |
-| Quick settings panel and "More settings" sheet | O/RecorderView.swift:723-766, 1225-1310 | MISSING | — | The sheet itself; its rows are the items above | M | Yes |
-| Long-press explanation of each setting | O/RecorderView.swift:846 | MISSING | — | Help texts | S | Yes |
+| Audio keeps running across camera switches (independent engine, gap fill, clock correction) | O/CaptureAudio.swift:190-321, O/LiveMicrophone.swift:22-58 | DONE | CameraX persistent recording: on a Galaxy A54 the sound runs unbroken across a camera change (issue 53) | — | | |
+| "Protect recording audio" | O/RecorderView.swift:1265-1270 | N/A | — | The setting keeps the original's audio session through call banners. Android does not take the microphone for a ringing call; an answered call silences it, and the take is then paused as in the original (A/CaptureController.kt `handle`) | | |
+| Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt `MarkButton`, A/CaptureController.kt `bookmark`; the marks of an interrupted take are kept, indexed at launch with it (A/ProjectStore.kt `indexFinishedTakes`) | — | | |
+| Orientation follows the device, locked for the take | O/RecorderView.swift:341-390 | DONE | A/CaptureController.kt `followDevice` (the recorded frame follows the phone between takes and is held from Record to Stop), A/RecorderTurn.kt (every control turns in place to stand upright) | The screen itself stays portrait | | |
+| Warnings: microphone off, silenced, camera lost, storage full | O/CaptureController.swift:617-687, 2672-2695 | PARTIAL | A/CaptureController.kt `handle`, `checkSpace`, `finalize` (warnings, and the take paused on a taken or failed microphone and on low storage) | Thermal banner | S | Phone |
+| Backgrounding saves the take | O/CaptureController.swift:1165-1180 | DONE | A/RecorderScreen.kt (lifecycle observer), A/CaptureController.kt `background` (the take is paused and its segment saved, as in the original; returning never resumes by itself) | — | | |
+| Camera and microphone permission flow | Info settings in project.pbxproj:972-983 | DONE | A/RecorderScreen.kt `RecorderScreen` | — | | |
+| Haptics on mark, presets, toggles | O/RecorderView.swift:71, 836, 1119 | DONE | A/RecorderScreen.kt `tick`, `confirm`: Mark, the assist tiles, a zoom preset pressed, a zoom time changed | — | | |
+| Quick settings panel and "More settings" sheet | O/RecorderView.swift:723-766, 1225-1310 | DONE | A/RecorderSettingsSheet.kt `CameraSettings`, `QuickSettings`, `MoreSettings` | Sections for the rows still missing above | | |
+| Long-press explanation of each setting | O/RecorderView.swift:846 | DONE | A/RecorderSettingsSheet.kt `AssistTile` (holding a tile, or the screen reader's "Explain" action, as the original's assists) | — | | |
 
 ## 4. Editor: timeline, playback, structure
 
