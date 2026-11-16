@@ -183,6 +183,10 @@ private object PlacementStills {
  * selected window outlined. A drag moves the window under the finger, a
  * pinch resizes it, a tap selects the picture in front there. [settle] is
  * called when the fingers lift, for the preview to show the draft.
+ *
+ * The pictures are drawn here only while a finger moves a window: the
+ * preview draws the draft itself by picture layers once it is settled, and
+ * the outline is then all that is drawn over it, so no picture is drawn twice.
  */
 @Composable
 internal fun PlacementOverlay(
@@ -190,6 +194,7 @@ internal fun PlacementOverlay(
     change: (PlacementDraft) -> Unit, settle: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val draft = work.draft
+    var dragging by remember { mutableStateOf(false) }
     val stills by produceState(emptyMap<String, Bitmap>(), draft.members, edit, (playhead * 30).roundToInt()) {
         val result = HashMap<String, Bitmap>()
         for (id in draft.members) {
@@ -226,7 +231,7 @@ internal fun PlacementOverlay(
                     if (pressed >= 2 && !pinching) { pinching = true; zoom = 1f }
                     pan += event.calculatePan()
                     if (pressed >= 2) zoom *= event.calculateZoom()
-                    if (pan.getDistance() > viewConfiguration.touchSlop || zoom != 1f) moved = true
+                    if (pan.getDistance() > viewConfiguration.touchSlop || zoom != 1f) { moved = true; dragging = true }
                     if (moved && start != null && target != null) {
                         event.changes.forEach { if (it.positionChanged()) it.consume() }
                         val translation = Point(pan.x.toDouble(), pan.y.toDouble())
@@ -242,12 +247,13 @@ internal fun PlacementOverlay(
                 if (!moved) PlacementEditing.hit(first.members, first.region.videos, Point(down.position.x.toDouble(), down.position.y.toDouble()), canvas)?.let { hit ->
                     if (hit != working.selected) onChange(working.selecting(hit))
                 } else onSettle()
+                dragging = false
             }
         },
     ) {
         val canvas = Size(size.width.toDouble(), size.height.toDouble())
-        drawRect(Color.Black)
-        drawIntoCanvas { target ->
+        if (dragging) drawRect(Color.Black)
+        if (dragging) drawIntoCanvas { target ->
             val native = target.nativeCanvas
             for (id in draft.order) {
                 val value = draft.region.videos[id] ?: continue
