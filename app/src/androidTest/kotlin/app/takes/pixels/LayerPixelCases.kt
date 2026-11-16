@@ -2,7 +2,17 @@
 
 package app.takes.pixels
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.HardwareRenderer
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.RenderNode
+import android.hardware.HardwareBuffer
+import android.media.ImageReader
 import android.opengl.GLES20
+import android.os.Build
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.GlTextureInfo
@@ -11,7 +21,10 @@ import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.GlShaderProgram
+import app.takes.LayerDrawing
+import app.takes.LayerPreviewShader
 import app.takes.LayersEffect
+import app.takes.SceneDrawing
 import app.takes.core.EditState
 import app.takes.core.EditTime
 import app.takes.core.LayerPlan
@@ -41,11 +54,11 @@ import kotlin.math.roundToLong
  * at a moment (in a column, or in a grid of [columns]) and asked for the
  * frame of the movie. Each lane shows the picture its sequence plays then,
  * black where it plays none. [picture] gives the picture of each picture of
- * the plan, by index.
+ * the plan, by index, or null for a black one.
  */
 class LayerStage(
     private val bench: Bench, val plan: LayerPlan, val width: Int, val height: Int, private val columns: Int = 1,
-    framesPerSecond: Double = 30.0, private val picture: (index: Int) -> Picture,
+    framesPerSecond: Double = 30.0, private val picture: (index: Int) -> Picture?,
 ) {
     private val lanes = plan.lanes
     private val rows = (lanes + columns - 1) / columns
@@ -54,8 +67,8 @@ class LayerStage(
     private var output: GlTextureInfo? = null
     private var failure: VideoFrameProcessingException? = null
     private val texture = IntArray(1)
-    private val bytes: ByteBuffer = ByteBuffer.allocateDirect(width * columns * height * rows * 4).order(ByteOrder.nativeOrder())
-    private val read: ByteBuffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+    // One cell of the input at a time, and the frame read back: the same size.
+    private val bytes: ByteBuffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
 
     init {
         program.setOutputListener(object : GlShaderProgram.OutputListener {
@@ -75,22 +88,25 @@ class LayerStage(
         val time = (timeUs + 1) / 1e6
         val shown = List(lanes) { lane -> plan.onLane(lane, time)?.let { picture(it.index) } }
         val across = width * columns
-        bytes.clear()
-        // OpenGL counts rows from the bottom: the last row of cells comes first.
-        for (row in 0 until height * rows) {
-            val fromTop = height * rows - 1 - row
-            val y = fromTop % height
-            for (x in 0 until across) {
-                val source = shown.getOrNull(fromTop / height * columns + x / width)
-                val color = source?.at(x % width, y) ?: 0
-                bytes.put((color shr 16).toByte()).put((color shr 8).toByte()).put(color.toByte()).put(0xff.toByte())
-            }
-        }
-        bytes.flip()
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture[0])
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
-        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, across, height * rows, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bytes)
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, across, height * rows, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+        // A cell at a time, so a frame of 4K lanes fits the test's memory. OpenGL counts rows from the bottom: the
+        // last row of cells is at the bottom, and a cell's last row first.
+        for (cell in 0 until rows * columns) {
+            val source = shown.getOrNull(cell)
+            bytes.clear()
+            for (row in 0 until height) {
+                val y = height - 1 - row
+                for (x in 0 until width) {
+                    val color = source?.at(x, y) ?: 0
+                    bytes.put((color shr 16).toByte()).put((color shr 8).toByte()).put(color.toByte()).put(0xff.toByte())
+                }
+            }
+            bytes.flip()
+            GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, cell % columns * width, (rows - 1 - cell / columns) * height, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bytes)
+        }
         GlUtil.checkGlError()
         output = null
         program.queueInputFrame(bench.objects, GlTextureInfo(texture[0], C.INDEX_UNSET, C.INDEX_UNSET, across, height * rows), timeUs)
@@ -98,8 +114,8 @@ class LayerStage(
         val drawn = checkNotNull(output) { "The effect gave no frame" }
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, drawn.fboId)
         GLES20.glPixelStorei(GLES20.GL_PACK_ALIGNMENT, 1)
-        read.clear()
-        GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, read)
+        bytes.clear()
+        GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bytes)
         GlUtil.checkGlError()
         program.releaseOutputFrame(drawn)
         val pixels = IntArray(width * height)
@@ -107,10 +123,31 @@ class LayerStage(
             val y = height - 1 - row
             for (x in 0 until width) {
                 val at = (row * width + x) * 4
-                pixels[y * width + x] = rgb(read.get(at).toInt() and 0xff, read.get(at + 1).toInt() and 0xff, read.get(at + 2).toInt() and 0xff)
+                pixels[y * width + x] = rgb(bytes.get(at).toInt() and 0xff, bytes.get(at + 1).toInt() and 0xff, bytes.get(at + 2).toInt() and 0xff)
             }
         }
         return Picture(width, height, pixels)
+    }
+
+    /**
+     * How long the effect takes to make the frame at [time], in milliseconds: the median of [times] draws of the
+     * same input, each waited for to the end. The pictures are uploaded once, before.
+     */
+    fun cost(time: Double, times: Int = 9): Double {
+        frame(time)
+        val timeUs = (time * 1e6).roundToLong() - 1
+        val took = List(times) {
+            output = null
+            GLES20.glFinish()
+            val began = System.nanoTime()
+            program.queueInputFrame(bench.objects, GlTextureInfo(texture[0], C.INDEX_UNSET, C.INDEX_UNSET, width * columns, height * rows), timeUs)
+            GLES20.glFinish()
+            val milliseconds = (System.nanoTime() - began) / 1e6
+            failure?.let { throw it }
+            program.releaseOutputFrame(checkNotNull(output) { "The effect gave no frame" })
+            milliseconds
+        }.sorted()
+        return took[times / 2]
     }
 
     fun release() {
@@ -290,7 +327,138 @@ class LayerPixelCases(private val bench: Bench) {
                 check(off <= LEVELS + 0.5) { "($x, $y) should show ${if (front) "the cropped picture" else "the picture under it"}: $off steps off" }
             }
         },
-    )
+    ) + TransitionPixelCases.SIZES.flatMap { (width, height) ->
+        listOf(
+            layers("a whip pan under an overlay: no copies of a line at ${width}x$height") { blurUnderOverlay(TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0), width, height) },
+            layers("a defocus under an overlay: no copies of a square at ${width}x$height, amount 1") {
+                blurUnderOverlay(TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0, blurAmount = 1.0), width, height)
+            },
+            layers("a defocus under an overlay: no copies of a square at ${width}x$height, default amount") {
+                blurUnderOverlay(TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0), width, height)
+            },
+        )
+    } + layers("whip pan and defocus under an overlay: the time a frame takes at 3840x2160") { blurCost(3840, 2160) } +
+        layers("a defocus in the preview: the lanes of the pair spread, then the disc, the picture in front sharp") { previewDefocus() }
+
+    /**
+     * The preview's layer shader, compiled and run by the platform as the editor runs it, on a layer of three lanes:
+     * a bright square on the first lane through a defocus into the second becomes one even disc, as in the export,
+     * and the third lane, in front in the top left corner, keeps its hard edge: only the pair's lanes are spread.
+     */
+    private fun Checks.previewDefocus() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return note("no preview shader below Android 13")
+        val (width, height) = 480 to 270
+        val radius = 30f
+        val half = 4
+        val edge = width / 8
+        val lanes = Bitmap.createBitmap(width, 3 * height, Bitmap.Config.ARGB_8888)
+        Canvas(lanes).apply {
+            drawColor(Color.BLACK)
+            val white = Paint().apply { color = Color.WHITE }
+            drawRect((width / 2 - half).toFloat(), (height / 2 - half).toFloat(), (width / 2 + half + 1).toFloat(), (height / 2 + half + 1).toFloat(), white)
+            // The third lane: white left of the edge, black right of it.
+            drawRect(0f, 2f * height, edge.toFloat(), 3f * height, white)
+        }
+        val values = FloatArray(24).also { it[0] = radius; it[1] = 0f; it[2] = 0.12f; it[3] = 0.1f }
+        val scene = SceneDrawing(SceneDrawing.DEFOCUS, 0f, 1f, FloatArray(3), values)
+        // The third lane as it is, shown in the top left quarter.
+        val front = FloatArray(LayerDrawing.MOST * LayerDrawing.STRIDE).also {
+            floatArrayOf(0f, 0f, width / 4f, height / 4f, width / 2f, height / 2f, width / 2f, height / 2f, 2f, 1f).copyInto(it)
+        }
+        val drawing = LayerDrawing(scene, true, 1, front)
+        val reader = ImageReader.newInstance(width, 3 * height, PixelFormat.RGBA_8888, 1, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
+        val node = RenderNode("lanes").apply {
+            setPosition(0, 0, width, 3 * height)
+            beginRecording().drawBitmap(lanes, 0f, 0f, null)
+            endRecording()
+            setRenderEffect(LayerPreviewShader().effect(drawing, width.toFloat(), height.toFloat()))
+        }
+        val renderer = HardwareRenderer().apply { setSurface(reader.surface); setContentRoot(node) }
+        try {
+            renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
+            val image = reader.acquireNextImage()
+            val drawn = Bitmap.wrapHardwareBuffer(checkNotNull(image.hardwareBuffer), null)!!.copy(Bitmap.Config.ARGB_8888, false)
+            image.close()
+            fun encoded(x: Int, y: Int) = (drawn.getPixel(x, y) shr 16) and 0xff
+            val inner = mutableListOf<Int>()
+            for (y in 0 until height) for (x in 0 until width) if (kotlin.math.hypot(x + 0.5 - width / 2.0, y + 0.5 - height / 2.0) <= radius - half * 1.5 - 3) inner += encoded(x, y)
+            val mean = inner.map { Light.linear(it / 255.0) }.average()
+            val even = (2 * half + 1.0) * (2 * half + 1.0) / (Math.PI * radius * radius)
+            val beside = listOf(encoded(edge - 2, height / 8), encoded(edge - 1, height / 8), encoded(edge, height / 8), encoded(edge + 1, height / 8))
+            note("inside the disc encoded %d to %d, %.5f in linear light (an even disc: %.5f); the picture in front across its edge: %s".format(inner.min(), inner.max(), mean, even, beside))
+            check(inner.max() - inner.min() <= 3) { "The disc ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
+            check(kotlin.math.abs(mean - even) <= even * 0.2) { "The disc is $mean on average, an even disc $even" }
+            check(beside == listOf(255, 255, 0, 0)) { "The picture in front is not sharp across its edge: $beside" }
+        } finally {
+            renderer.destroy()
+            reader.close()
+            node.discardDisplayList()
+        }
+    }
+
+    /** A transition of [settings] from A into B, each [SECONDS] long, with O over them in the corner from second 1.5 for 6 seconds. */
+    private fun underCorner(settings: TransitionSettings): LayerPlan {
+        val clips = TimelineEditing.setJoin(EditState(listOf(clip("A", SECONDS), clip("B", SECONDS))), 1, settings)!!.clips
+        return LayerPlan.planned(overlaid(EditState(clips).toTimeline(), "O", 1.5, 6.0, corner), 3)!!
+    }
+
+    /** The second of [plan]'s transition at which its picture has changed by [progress]. */
+    private fun at(plan: LayerPlan, progress: Double): Double = plan.transitions.first().let { it.origin.seconds + it.timing.motion * progress }
+
+    /**
+     * The mark of a whip pan or a defocus ([BlurMarks]) in A through the transition into a black B, at its peak,
+     * under O in the corner. The original draws the pair of an edit of tracks with the same transition as a
+     * sequence's (`YouRec/VideoToolCompositor.swift:295`, `YouRec/TransitionRenderer.swift:223-251`): blurred on a
+     * reduced picture, one even streak or disc, as the export of a sequence draws it. O stays sharp over it.
+     */
+    private fun Checks.blurUnderOverlay(settings: TransitionSettings, width: Int, height: Int) {
+        val plan = underCorner(settings)
+        val peak = at(plan, 0.5)
+        val moment = plan.moment(peak, FrameSize(width.toDouble(), height.toDouble()))
+        check(moment.layers.map { it::class.simpleName } == listOf("Mixed", "Whole")) { "The pair and the overlay, not ${moment.layers}" }
+        val placed = (moment.layers.last() as LayerPlan.Layer.Whole).window ?: return check(false) { "The overlay has no window" }
+        val whip = settings.style == TransitionStyle.Whip
+        val mark = if (whip) BlurMarks.line(width, height) else BlurMarks.square(width, height, settings)
+        val over = Picture.quadrants(width, height, rgb(250, 250, 250), rgb(10, 10, 10), rgb(240, 20, 20), rgb(20, 220, 240))
+        val stage = LayerStage(bench, plan, width, height) { index -> when (plan.pictures[index].id) { "A" -> mark; "B" -> null; else -> over } }
+        try {
+            val actual = stage.frame(peak)
+            if (whip) evenStreak(actual, settings) else evenDisc(actual, settings)
+            // The overlay in its window as it is: the middle of each of its four fields.
+            val window = placed.window
+            val want = DoubleArray(3)
+            for ((fx, fy) in listOf(0.25 to 0.25, 0.75 to 0.25, 0.25 to 0.75, 0.75 to 0.75)) {
+                val x = (window.minX + window.width * fx).toInt()
+                val y = (window.minY + window.height * fy).toInt()
+                over.encoded((x + 0.5 - window.midX) / placed.scale + placed.source.midX, (y + 0.5 - window.midY) / placed.scale + placed.source.midY, want)
+                val off = (0..2).maxOf { c -> kotlin.math.abs(actual.channel(x, y, c) - want[c] * 255) }
+                check(off <= LEVELS + 0.5) { "($x, $y) in the overlay's window is $off steps from the overlay" }
+            }
+        } finally {
+            stage.release()
+        }
+    }
+
+    /** The time the export's effect takes to draw a frame of [width] × [height] of each blur under an overlay, and of a dissolve. */
+    private fun Checks.blurCost(width: Int, height: Int) {
+        val picture = Picture.flat(width, height, rgb(120, 90, 60))
+        for (settings in listOf(
+            TransitionSettings(id = "T", style = TransitionStyle.Dissolve, duration = 1.0),
+            TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0),
+            TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0, blurAmount = 1.0),
+            TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0),
+        )) {
+            val plan = underCorner(settings)
+            val stage = LayerStage(bench, plan, width, height) { picture }
+            try {
+                for (progress in listOf(0.25, 0.5)) {
+                    note("%s%s at p=%.2f: %.1f ms".format(settings.style.name, settings.blurAmount?.let { " (amount $it)" } ?: "", progress, stage.cost(at(plan, progress))))
+                }
+            } finally {
+                stage.release()
+            }
+        }
+    }
 
     companion object {
         const val WIDTH = 320

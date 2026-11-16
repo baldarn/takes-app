@@ -190,8 +190,8 @@ object TransitionShader {
     internal const val TAIL = """
         // One side moved by an offset and blurred evenly along an axis, a radius to each side: in linear light. The
         // samples lie a pixel apart, up to 128 of them: on the reduced picture the export blurs, at most 960 pixels
-        // long, a smear without gaps. A larger picture drawn in one pass (the edits drawn by layers) takes fewer,
-        // down to 32 at 3840 pixels, so its cost stays what it was.
+        // long, a smear without gaps. A larger picture drawn in one pass (a preview's view longer than that) takes
+        // fewer, down to 32 at 3840 pixels, so its cost stays bounded.
         vec3 pan(float kind, vec2 q, vec2 offset, vec2 axis, float radius) {
             if (radius < 0.5) return lin(side(kind, q - offset));
             float most = clamp(floor(128.0 * 960.0 / max(uSize.x, uSize.y)), 32.0, 128.0);
@@ -206,7 +206,7 @@ object TransitionShader {
         // One side through an aperture: the even disc a lens out of focus makes of every point, a little brighter
         // at its rim, in linear light so highlights spread as discs. The 96 points lie on a sunflower spiral; the
         // side has been spread by a Gaussian as wide as the space between them, so they make a disc and not dots.
-        // A picture larger than 1920 pixels drawn in one pass takes 48, as it did.
+        // A picture larger than 1920 pixels drawn in one pass (a preview's view that long) takes 48.
         vec3 disc(float kind, vec2 q, float radius, float ring, float rim) {
             if (radius < 0.5) return lin(side(kind, q));
             float n = max(uSize.x, uSize.y) > 1920.0 ? 48.0 : 96.0;
@@ -402,6 +402,97 @@ class TransitionPreviewShader {
 }
 
 /**
+ * A whip pan or a defocus worked out as the original works it out (`YouRec/TransitionRenderer.swift:223-251`): each
+ * side reduced by the drawing's [SceneDrawing.blurScale] (`:268-275`), spread for a defocus, then blurred and mixed
+ * on the reduced picture by the transition shader's `scene()`. The renderer enlarges the result to the frame,
+ * filtered: [TransitionEffect] as the frame, [LayersEffect] as the pair in transition behind the pictures in front of
+ * it, as the original draws the pair of an edit of tracks (`YouRec/VideoToolCompositor.swift:295`). The reduced
+ * picture is at most 960 pixels on its long side, so the shader's samples lie no more than a pixel apart on the
+ * smear of a whip pan.
+ *
+ * It keeps the reduced pictures on the export's graphics context until [release]. [fill] and [held] are the
+ * renderer's kinds of the fill color and of its first kept frame, the second kept frame the kind after it.
+ */
+internal class ReducedBlur(private val fill: Float, private val held: Float) {
+    /**
+     * Whether the reduced pictures are half floats in linear light, where the GPU draws into them (OpenGL ES 3.2, or
+     * 3 with the extension), so a reduced picture is filtered as the original's linear working space filters it;
+     * else eight bits, encoded.
+     */
+    val linear by lazy {
+        val version = GLES20.glGetString(GLES20.GL_VERSION).orEmpty()
+        val extensions = GLES20.glGetString(GLES20.GL_EXTENSIONS).orEmpty()
+        version.startsWith("OpenGL ES 3.2") || (version.startsWith("OpenGL ES 3") && ("GL_EXT_color_buffer_float" in extensions || "GL_EXT_color_buffer_half_float" in extensions))
+    }
+
+    // The two sides, one to spread a side into, and the result. Made again when the size changes, which it does only
+    // near the ends of a blur, where the radius is small.
+    private var size = 0 to 0
+    private val work = IntArray(4)
+    private val framebuffers = IntArray(4)
+
+    private fun at(wanted: Pair<Int, Int>) {
+        if (wanted == size) return
+        release()
+        for (index in work.indices) {
+            work[index] = GlUtil.createTexture(wanted.first, wanted.second, /* useHighPrecisionColorComponents = */ linear)
+            // Read filtered and with its edge going on, as a reduced picture is enlarged and blurred.
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, work[index])
+            for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
+            for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
+            framebuffers[index] = GlUtil.createFboForTexture(work[index])
+        }
+        size = wanted
+    }
+
+    fun release() {
+        for (index in work.indices) if (work[index] != 0) {
+            GlUtil.deleteFbo(framebuffers[index])
+            GlUtil.deleteTexture(work[index])
+            work[index] = 0
+        }
+        size = 0 to 0
+    }
+
+    /**
+     * Works out [drawing], made for a frame [width] by [height], on its reduced picture and gives the texture that
+     * holds it, in linear light when [linear]. [reduce] draws a [SceneDrawing.reduce] of a side at the frame's size
+     * into the framebuffer in focus, writing linear light when [linear]; [pass] draws a drawing on the reduced picture
+     * from the kept frames given, reading and writing linear light when [linear]. The framebuffer bound before is in
+     * focus again after, at the frame's size.
+     */
+    fun draw(drawing: SceneDrawing, width: Int, height: Int, reduce: (SceneDrawing) -> Unit, pass: (SceneDrawing, IntArray, Int, Int) -> Unit): Int {
+        val bound = IntArray(1)
+        GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, bound, 0)
+        val reduced = TransitionGeometry.blurCanvas(FrameSize(width.toDouble(), height.toDouble()), drawing.blurScale)
+        at(reduced)
+        val (across, down) = reduced
+        val small = drawing.reduced(width, height, reduced)
+        // A defocus works out only the side showing outside its change-over; a whip pan always both.
+        val mix = drawing.values[if (drawing.mode == SceneDrawing.WHIP) 7 else 1]
+        val kinds = listOf(drawing.kindA, drawing.kindB).mapIndexed { index, kind ->
+            val shown = drawing.mode == SceneDrawing.WHIP || (if (index == 0) mix < 1f else mix > 0f)
+            if (kind != fill && shown) {
+                GlUtil.focusFramebufferUsingCurrentContext(framebuffers[index], across, down)
+                reduce(SceneDrawing.reduce(kind, width.toFloat() / across, height.toFloat() / down))
+                if (drawing.mode == SceneDrawing.DEFOCUS) {
+                    val sigma = TransitionGeometry.defocusSpread(small.blurRadius.toDouble()).toFloat()
+                    GlUtil.focusFramebufferUsingCurrentContext(framebuffers[2], across, down)
+                    pass(SceneDrawing.spread(held, sigma, 1f, 0f), intArrayOf(work[index], 0), across, down)
+                    GlUtil.focusFramebufferUsingCurrentContext(framebuffers[index], across, down)
+                    pass(SceneDrawing.spread(held, sigma, 0f, 1f), intArrayOf(work[2], 0), across, down)
+                }
+            }
+            if (kind == fill) kind else held + index
+        }
+        GlUtil.focusFramebufferUsingCurrentContext(framebuffers[3], across, down)
+        pass(SceneDrawing(small.mode, kinds[0], kinds[1], small.fill, small.values), intArrayOf(work[0], work[1]), across, down)
+        GlUtil.focusFramebufferUsingCurrentContext(bound[0], width, height)
+        return work[3]
+    }
+}
+
+/**
  * The longest side of a texture the device's GPU takes, in pixels; null when
  * it cannot be asked. Asked on a graphics context of its own, made and let go here.
  */
@@ -582,77 +673,17 @@ class TransitionEffect(
             return texture to GlUtil.createFboForTexture(texture)
         }
 
-        // The reduced pictures of a blur: the two sides, one to spread a side into, and the frame. Made again when
-        // the size changes, which it does only near the ends of a blur, where the radius is small.
-        private var workSize = 0 to 0
+        private val blur = ReducedBlur(SceneDrawing.FILL, SceneDrawing.HELD)
 
-        // Half floats in linear light where the GPU draws into them (OpenGL ES 3.2, or 3 with the extension), so a
-        // reduced picture is filtered as the original's linear working space filters it; else eight bits, encoded.
-        private val linearWork by lazy {
-            val version = GLES20.glGetString(GLES20.GL_VERSION).orEmpty()
-            val extensions = GLES20.glGetString(GLES20.GL_EXTENSIONS).orEmpty()
-            version.startsWith("OpenGL ES 3.2") || (version.startsWith("OpenGL ES 3") && ("GL_EXT_color_buffer_float" in extensions || "GL_EXT_color_buffer_half_float" in extensions))
-        }
-        private val work = IntArray(4)
-        private val workFramebuffers = IntArray(4)
-
-        private fun workAt(size: Pair<Int, Int>) {
-            if (size == workSize) return
-            releaseWork()
-            for (index in work.indices) {
-                work[index] = GlUtil.createTexture(size.first, size.second, /* useHighPrecisionColorComponents = */ linearWork)
-                // Read filtered and with its edge going on, as a reduced picture is enlarged and blurred.
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, work[index])
-                for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
-                for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
-                workFramebuffers[index] = GlUtil.createFboForTexture(work[index])
-            }
-            workSize = size
-        }
-
-        private fun releaseWork() {
-            for (index in work.indices) if (work[index] != 0) {
-                GlUtil.deleteFbo(workFramebuffers[index])
-                GlUtil.deleteTexture(work[index])
-                work[index] = 0
-            }
-            workSize = 0 to 0
-        }
-
-        /**
-         * A whip pan or a defocus as the original draws it (`YouRec/TransitionRenderer.swift:223-251`): each side
-         * reduced by the drawing's [SceneDrawing.blurScale] (`:268-275`), spread for a defocus, blurred and mixed on
-         * the reduced picture, which is then enlarged to the frame, filtered. The reduced picture is at most 960
-         * pixels on its long side, so the shader's samples lie no more than a pixel apart on the smear of a whip pan.
-         */
+        /** A whip pan or a defocus worked out on its reduced picture ([ReducedBlur]), which is then enlarged to the frame, filtered. */
         private fun drawBlurred(drawing: SceneDrawing, inputTexId: Int) {
-            val bound = IntArray(1)
-            GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, bound, 0)
-            val reduced = TransitionGeometry.blurCanvas(size, drawing.blurScale)
-            workAt(reduced)
-            val (width, height) = reduced
-            val small = drawing.reduced(canvas.width, canvas.height, reduced)
-            // A defocus works out only the side showing outside its change-over; a whip pan always both.
-            val mix = drawing.values[if (drawing.mode == SceneDrawing.WHIP) 7 else 1]
-            val kinds = listOf(drawing.kindA, drawing.kindB).mapIndexed { index, kind ->
-                val shown = drawing.mode == SceneDrawing.WHIP || (if (index == 0) mix < 1f else mix > 0f)
-                if (kind != SceneDrawing.FILL && shown) {
-                    GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[index], width, height)
-                    draw(SceneDrawing.reduce(kind, canvas.width.toFloat() / width, canvas.height.toFloat() / height), inputTexId, linearOut = linearWork)
-                    if (drawing.mode == SceneDrawing.DEFOCUS) {
-                        val sigma = TransitionGeometry.defocusSpread(small.blurRadius.toDouble()).toFloat()
-                        GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[2], width, height)
-                        draw(SceneDrawing.spread(SceneDrawing.HELD, sigma, 1f, 0f), inputTexId, intArrayOf(work[index], 0), width, height, linearWork, linearWork)
-                        GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[index], width, height)
-                        draw(SceneDrawing.spread(SceneDrawing.HELD, sigma, 0f, 1f), inputTexId, intArrayOf(work[2], 0), width, height, linearWork, linearWork)
-                    }
-                }
-                if (kind == SceneDrawing.FILL) kind else SceneDrawing.HELD + index
-            }
-            GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[3], width, height)
-            draw(SceneDrawing(small.mode, kinds[0], kinds[1], small.fill, small.values), inputTexId, intArrayOf(work[0], work[1]), width, height, linearWork, linearWork)
-            GlUtil.focusFramebufferUsingCurrentContext(bound[0], canvas.width, canvas.height)
-            draw(SceneDrawing(SceneDrawing.SINGLE, SceneDrawing.HELD, SceneDrawing.HELD, FloatArray(3), FloatArray(24)), inputTexId, intArrayOf(work[3], 0), linearIn = linearWork)
+            val linear = blur.linear
+            val blurred = blur.draw(
+                drawing, canvas.width, canvas.height,
+                reduce = { draw(it, inputTexId, linearOut = linear) },
+                pass = { scene, held, width, height -> draw(scene, inputTexId, held, width, height, linear, linear) },
+            )
+            draw(SceneDrawing(SceneDrawing.SINGLE, SceneDrawing.HELD, SceneDrawing.HELD, FloatArray(3), FloatArray(24)), inputTexId, intArrayOf(blurred, 0), linearIn = linear)
         }
 
         /**
@@ -718,7 +749,7 @@ class TransitionEffect(
 
         override fun release() {
             super.release()
-            releaseWork()
+            blur.release()
             if (program != 0) GLES20.glDeleteProgram(program)
         }
     }

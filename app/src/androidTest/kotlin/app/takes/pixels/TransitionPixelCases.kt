@@ -398,111 +398,29 @@ class TransitionPixelCases(private val bench: Bench) {
         }
     }
 
-    /**
-     * A thin bright line through a whip pan at its peak. The original smears it on a picture reduced to 960 pixels
-     * on its long side (`YouRec/TransitionRenderer.swift:223-234`, `:268-275`): one even streak, with no copies of it.
-     */
+    /** A thin bright line through a whip pan at its peak, in an export of a sequence: one even streak ([evenStreak]). */
     private fun Checks.whipSamples(width: Int, height: Int) {
         val settings = TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0)
         val laid = laid(settings, Form.Between) ?: return
-        val line = Picture(width, height) { x, _ -> if (abs(x - width / 2) <= 1) rgb(255, 255, 255) else 0 }
+        val line = BlurMarks.line(width, height)
         val black = Picture.flat(width, height, 0)
         val stage = Stage(bench, laid.clips, width, height) { index, _ -> if (index == 0) line else black }
         try {
-            val actual = stage.frame(laid.time(0.5))
-            val canvas = Size(width.toDouble(), height.toDouble())
-            val core = TransitionGeometry.whip(settings, 0.5, canvas)
-            val scale = TransitionGeometry.blurScale(core.blurRadius, canvas)
-            val encoded = IntArray(width) { actual.channel(it, height / 2, 0) }
-            val row = DoubleArray(width) { Light.linear(encoded[it] / 255.0) }
-            // Runs of lit pixels: one, unless the samples of the smear show as copies of the line.
-            val runs = mutableListOf<IntRange>()
-            var x = 0
-            while (x < width) {
-                if (row[x] <= LIT) { x++; continue }
-                val start = x
-                while (x < width && row[x] > LIT) x++
-                runs += start until x
-            }
-            check(runs.size == 1) { "${runs.size} separate streaks: ${runs.take(6)}" }
-            if (runs.isEmpty()) return
-            val center = width / 2 + core.firstOffset
-            // Inside the streak, away from its ends, which a pixel of the reduced picture and its enlargement soften.
-            val margin = 2 / scale + 2
-            val inner = ((center - core.blurRadius + margin).toInt()..(center + core.blurRadius - margin).toInt()).map { encoded[it] }
-            val lit = runs.first().first..runs.last().last
-            // The line is three pixels wide at full light: its light spread evenly over the length of the smear.
-            val even = 3 / (2 * core.blurRadius) * (1 - core.mix)
-            val mean = inner.map { Light.linear(it / 255.0) }.average()
-            note("lit from pixel %d to %d, encoded %d to %d inside, %.5f in linear light on average (an even smear: %.5f); core: radius %.2f about %.1f, reduced by %.3f"
-                .format(lit.first, lit.last, inner.min(), inner.max(), mean, even, core.blurRadius, center, scale))
-            check(inner.max() - inner.min() <= 2) { "The streak ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
-            check(abs(mean - even) <= even * 0.15) { "The streak is $mean on average, an even smear $even" }
-            check(abs(lit.first + 0.5 - (center - core.blurRadius)) <= margin + 1 && abs(lit.last + 0.5 - (center + core.blurRadius)) <= margin + 1) {
-                "The streak runs from ${lit.first} to ${lit.last}, the core's from ${center - core.blurRadius} to ${center + core.blurRadius}"
-            }
+            evenStreak(stage.frame(laid.time(0.5)), settings)
         } finally {
             stage.release()
         }
     }
 
-    /**
-     * A bright square a quarter of the radius wide through a defocus at its peak. The original blurs it on a reduced
-     * picture by an aperture (`YouRec/TransitionRenderer.swift:239-251`): one even disc, with no copies of the square.
-     */
+    /** A bright square through a defocus at its peak, in an export of a sequence: one even disc ([evenDisc]). */
     private fun Checks.defocusSamples(width: Int, height: Int, amount: Double?) {
         val settings = TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0, blurAmount = amount)
         val laid = laid(settings, Form.Between) ?: return
-        val canvas = Size(width.toDouble(), height.toDouble())
-        val core = TransitionGeometry.defocus(settings, 0.5, canvas)
-        val scale = TransitionGeometry.blurScale(core.blurRadius, canvas)
-        val (cx, cy) = width / 2 to height / 2
-        val half = (core.blurRadius / 8).roundToInt()
-        val square = Picture(width, height) { x, y -> if (abs(x - cx) <= half && abs(y - cy) <= half) rgb(255, 255, 255) else 0 }
+        val square = BlurMarks.square(width, height, settings)
         val black = Picture.flat(width, height, 0)
         val stage = Stage(bench, laid.clips, width, height) { index, _ -> if (index == 0) square else black }
         try {
-            val actual = stage.frame(laid.time(0.5))
-            val reach = core.blurRadius.toInt() + half + 8
-            val side = 2 * reach + 1
-            fun encoded(x: Int, y: Int) = actual.channel(cx - reach + x, cy - reach + y, 0)
-            fun lit(x: Int, y: Int) = Light.linear(encoded(x, y) / 255.0)
-            // Patches of lit pixels that touch: one, unless the samples of the disc show as copies of the square.
-            val seen = BooleanArray(side * side)
-            var patches = 0
-            for (start in 0 until side * side) {
-                if (seen[start] || lit(start % side, start / side) <= LIT) continue
-                patches++
-                val open = ArrayDeque(listOf(start))
-                seen[start] = true
-                while (open.isNotEmpty()) {
-                    val at = open.removeFirst()
-                    val (x, y) = at % side to at / side
-                    for ((nx, ny) in listOf(x - 1 to y, x + 1 to y, x to y - 1, x to y + 1)) {
-                        if (nx !in 0 until side || ny !in 0 until side || seen[ny * side + nx] || lit(nx, ny) <= LIT) continue
-                        seen[ny * side + nx] = true
-                        open += ny * side + nx
-                    }
-                }
-            }
-            // Inside the disc, away from its rim (softened by the square, a pixel of the reduced picture and its enlargement).
-            val margin = 2 / scale + 2 + half * 1.5
-            val inner = mutableListOf<Int>()
-            for (y in 0 until side) for (x in 0 until side) if (hypot((x - reach).toDouble(), (y - reach).toDouble()) <= core.blurRadius - margin) inner += encoded(x, y)
-            val mean = inner.map { Light.linear(it / 255.0) }.average()
-            // The square's light spread evenly over the disc, half of it mixed with the black second picture.
-            val area = (2 * half + 1.0) * (2 * half + 1.0)
-            val frame = TransitionGeometry.defocus(settings, 0.5, canvas)
-            val even = area / (Math.PI * core.blurRadius * core.blurRadius) * (1 - frame.mix)
-            // Where the light falls to half its inside along the row through the middle, on each side.
-            val row = DoubleArray(side) { lit(it, reach) }
-            val rim = listOf((reach downTo 0).firstOrNull { row[it] < mean / 2 }, (reach until side).firstOrNull { row[it] < mean / 2 })
-            note("%d patch(es) of light; inside the disc encoded %d to %d, %.5f in linear light on average (an even disc: %.5f); half light at pixels %s from the middle; core: radius %.2f, reduced by %.3f, square %d px"
-                .format(patches, inner.min(), inner.max(), mean, even, rim.map { it?.let { at -> abs(at - reach) } }, core.blurRadius, scale, 2 * half + 1))
-            check(patches == 1) { "$patches separate patches of light" }
-            check(inner.max() - inner.min() <= 3) { "The disc ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
-            check(abs(mean - even) <= even * 0.15) { "The disc is $mean on average, an even disc $even" }
-            check(rim.all { it != null && abs(abs(it - reach) - core.blurRadius) <= 2 / scale + 3 }) { "The disc's rim is at $rim, the core's radius ${core.blurRadius}" }
+            evenDisc(stage.frame(laid.time(0.5)), settings)
         } finally {
             stage.release()
         }
@@ -644,4 +562,115 @@ class TransitionPixelCases(private val bench: Bench) {
         /** Linear light above this counts as lit, in the pictures that are black but for one mark. */
         const val LIT = 0.0008
     }
+}
+
+/**
+ * The marks the two blurs are checked with, and what each must become at the peak of its transition, the first
+ * picture the mark and the second black, whichever export draws it: of a sequence or of picture layers.
+ */
+object BlurMarks {
+    /** A vertical line three pixels wide in the middle of a black picture. */
+    fun line(width: Int, height: Int) = Picture(width, height) { x, _ -> if (abs(x - width / 2) <= 1) rgb(255, 255, 255) else 0 }
+
+    /** Half the side of the square a defocus of [settings] blurs, beside its middle pixel: an eighth of the radius at the peak. */
+    fun half(width: Int, height: Int, settings: TransitionSettings): Int =
+        (TransitionGeometry.defocus(settings, 0.5, Size(width.toDouble(), height.toDouble())).blurRadius / 8).roundToInt()
+
+    /** A white square in the middle of a black picture, [half] pixels to each side of the middle one. */
+    fun square(width: Int, height: Int, settings: TransitionSettings): Picture {
+        val half = half(width, height, settings)
+        return Picture(width, height) { x, y -> if (abs(x - width / 2) <= half && abs(y - height / 2) <= half) rgb(255, 255, 255) else 0 }
+    }
+}
+
+/**
+ * [BlurMarks.line] through a whip pan of [settings] at its peak, drawn as [actual]. The original smears it on a picture
+ * reduced to 960 pixels on its long side (`YouRec/TransitionRenderer.swift:223-234`, `:268-275`): one even streak,
+ * with no copies of it.
+ */
+fun Checks.evenStreak(actual: Picture, settings: TransitionSettings) {
+    val (width, height) = actual.width to actual.height
+    val canvas = Size(width.toDouble(), height.toDouble())
+    val core = TransitionGeometry.whip(settings, 0.5, canvas)
+    val scale = TransitionGeometry.blurScale(core.blurRadius, canvas)
+    val encoded = IntArray(width) { actual.channel(it, height / 2, 0) }
+    val row = DoubleArray(width) { Light.linear(encoded[it] / 255.0) }
+    // Runs of lit pixels: one, unless the samples of the smear show as copies of the line.
+    val runs = mutableListOf<IntRange>()
+    var x = 0
+    while (x < width) {
+        if (row[x] <= TransitionPixelCases.LIT) { x++; continue }
+        val start = x
+        while (x < width && row[x] > TransitionPixelCases.LIT) x++
+        runs += start until x
+    }
+    check(runs.size == 1) { "${runs.size} separate streaks: ${runs.take(6)}" }
+    if (runs.isEmpty()) return
+    val center = width / 2 + core.firstOffset
+    // Inside the streak, away from its ends, which a pixel of the reduced picture and its enlargement soften.
+    val margin = 2 / scale + 2
+    val inner = ((center - core.blurRadius + margin).toInt()..(center + core.blurRadius - margin).toInt()).map { encoded[it] }
+    val lit = runs.first().first..runs.last().last
+    // The line is three pixels wide at full light: its light spread evenly over the length of the smear.
+    val even = 3 / (2 * core.blurRadius) * (1 - core.mix)
+    val mean = inner.map { Light.linear(it / 255.0) }.average()
+    note("lit from pixel %d to %d, encoded %d to %d inside, %.5f in linear light on average (an even smear: %.5f); core: radius %.2f about %.1f, reduced by %.3f"
+        .format(lit.first, lit.last, inner.min(), inner.max(), mean, even, core.blurRadius, center, scale))
+    check(inner.max() - inner.min() <= 2) { "The streak ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
+    check(abs(mean - even) <= even * 0.15) { "The streak is $mean on average, an even smear $even" }
+    check(abs(lit.first + 0.5 - (center - core.blurRadius)) <= margin + 1 && abs(lit.last + 0.5 - (center + core.blurRadius)) <= margin + 1) {
+        "The streak runs from ${lit.first} to ${lit.last}, the core's from ${center - core.blurRadius} to ${center + core.blurRadius}"
+    }
+}
+
+/**
+ * [BlurMarks.square] through a defocus of [settings] at its peak, drawn as [actual]. The original blurs it on a
+ * reduced picture by an aperture (`YouRec/TransitionRenderer.swift:239-251`): one even disc, with no copies of the square.
+ */
+fun Checks.evenDisc(actual: Picture, settings: TransitionSettings) {
+    val (width, height) = actual.width to actual.height
+    val canvas = Size(width.toDouble(), height.toDouble())
+    val core = TransitionGeometry.defocus(settings, 0.5, canvas)
+    val scale = TransitionGeometry.blurScale(core.blurRadius, canvas)
+    val (cx, cy) = width / 2 to height / 2
+    val half = BlurMarks.half(width, height, settings)
+    val reach = core.blurRadius.toInt() + half + 8
+    val side = 2 * reach + 1
+    fun encoded(x: Int, y: Int) = actual.channel(cx - reach + x, cy - reach + y, 0)
+    fun lit(x: Int, y: Int) = Light.linear(encoded(x, y) / 255.0)
+    // Patches of lit pixels that touch: one, unless the samples of the disc show as copies of the square.
+    val seen = BooleanArray(side * side)
+    var patches = 0
+    for (start in 0 until side * side) {
+        if (seen[start] || lit(start % side, start / side) <= TransitionPixelCases.LIT) continue
+        patches++
+        val open = ArrayDeque(listOf(start))
+        seen[start] = true
+        while (open.isNotEmpty()) {
+            val at = open.removeFirst()
+            val (x, y) = at % side to at / side
+            for ((nx, ny) in listOf(x - 1 to y, x + 1 to y, x to y - 1, x to y + 1)) {
+                if (nx !in 0 until side || ny !in 0 until side || seen[ny * side + nx] || lit(nx, ny) <= TransitionPixelCases.LIT) continue
+                seen[ny * side + nx] = true
+                open += ny * side + nx
+            }
+        }
+    }
+    // Inside the disc, away from its rim (softened by the square, a pixel of the reduced picture and its enlargement).
+    val margin = 2 / scale + 2 + half * 1.5
+    val inner = mutableListOf<Int>()
+    for (y in 0 until side) for (x in 0 until side) if (hypot((x - reach).toDouble(), (y - reach).toDouble()) <= core.blurRadius - margin) inner += encoded(x, y)
+    val mean = inner.map { Light.linear(it / 255.0) }.average()
+    // The square's light spread evenly over the disc, half of it mixed with the black second picture.
+    val area = (2 * half + 1.0) * (2 * half + 1.0)
+    val even = area / (Math.PI * core.blurRadius * core.blurRadius) * (1 - core.mix)
+    // Where the light falls to half its inside along the row through the middle, on each side.
+    val row = DoubleArray(side) { lit(it, reach) }
+    val rim = listOf((reach downTo 0).firstOrNull { row[it] < mean / 2 }, (reach until side).firstOrNull { row[it] < mean / 2 })
+    note("%d patch(es) of light; inside the disc encoded %d to %d, %.5f in linear light on average (an even disc: %.5f); half light at pixels %s from the middle; core: radius %.2f, reduced by %.3f, square %d px"
+        .format(patches, inner.min(), inner.max(), mean, even, rim.map { it?.let { at -> abs(at - reach) } }, core.blurRadius, scale, 2 * half + 1))
+    check(patches == 1) { "$patches separate patches of light" }
+    check(inner.max() - inner.min() <= 3) { "The disc ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
+    check(abs(mean - even) <= even * 0.15) { "The disc is $mean on average, an even disc $even" }
+    check(rim.all { it != null && abs(abs(it - reach) - core.blurRadius) <= 2 / scale + 3 }) { "The disc's rim is at $rim, the core's radius ${core.blurRadius}" }
 }

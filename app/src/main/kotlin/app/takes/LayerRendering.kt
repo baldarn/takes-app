@@ -22,6 +22,7 @@ import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
 import app.takes.core.TimelineTransition
 import app.takes.core.TitleMotionRanges
+import app.takes.core.TransitionGeometry
 import app.takes.core.TransitionScene
 
 /** How the app draws an edit ([EditRender]): the pictures it decodes at once, and what it says when an edit needs more. */
@@ -65,6 +66,9 @@ class LayerDrawing(val scene: SceneDrawing, val mixed: Boolean, val count: Int, 
         const val FILL = -1f
         const val HELD = 10f
 
+        /** The kind of the pair in transition blurred on a reduced picture and enlarged ([ReducedBlur]), in the export. */
+        const val BLURRED = HELD + MOST
+
         private val none = SceneDrawing(SceneDrawing.SINGLE, FILL, FILL, FloatArray(3), FloatArray(24))
 
         /**
@@ -102,6 +106,9 @@ class LayerDrawing(val scene: SceneDrawing, val mixed: Boolean, val count: Int, 
             }
             return LayerDrawing(scene, pair != null, count, values)
         }
+
+        /** [scene] alone over the whole canvas, with no titles: a pass of a blur, or a spread in the preview. */
+        fun scene(scene: SceneDrawing): LayerDrawing = LayerDrawing(scene, true, 0, FloatArray(MOST * STRIDE))
 
         /** [lane] alone over the whole canvas: what an export keeps a frame of. */
         fun lane(lane: Int, width: Float, height: Float): LayerDrawing =
@@ -144,7 +151,7 @@ object LayerShader {
     // Back to front over black: the pair in transition over the whole frame, then each picture inside its clip rectangle,
     // the canvas point taken back to the picture's own pixel through its window. The titles of a layer, where the renderer
     // draws them here ([title], by the layer's place back to front), go over its picture before it is moved: they shrink with it.
-    private val body = TransitionShader.HEAD + SIDE + TransitionShader.TAIL + """
+    private val body = SIDE + TransitionShader.TAIL + """
         vec3 over(vec3 under, vec4 top) { return top.rgb + (1.0 - top.a) * under; }
         vec3 placed(vec2 q, vec3 under, vec4 clip, vec4 map, vec2 layer, float slot) {
             if (!within(q, clip)) return under;
@@ -166,22 +173,30 @@ object LayerShader {
         uniform sampler2D uHeld0;
         uniform sampler2D uHeld1;
         uniform sampler2D uHeld2;
+        uniform sampler2D uHeld3;
         uniform sampler2D uTitle0;
         uniform sampler2D uTitle1;
         uniform sampler2D uTitle2;
         uniform vec2 uCells;
+        uniform vec3 uLinear;
         varying vec2 vTex;
         $uniforms
+        ${TransitionShader.HEAD}
         vec3 deck(float kind, vec2 p) {
             float row = floor((kind + 0.5) / uCells.x);
             float column = kind - row * uCells.x;
             return texture2D(uTex, vec2((p.x / uSize.x + column) / uCells.x, 1.0 - (p.y / uSize.y + row) / uCells.y)).rgb;
         }
+        // A kept frame of a lane, or with uLinear.x the reduced pictures of a blur in linear light, read filtered as
+        // such; the fourth, the pair in transition blurred on its reduced picture, in linear light with uLinear.z.
         vec3 held(float which, vec2 p) {
             vec2 at = vec2(p.x / uSize.x, 1.0 - p.y / uSize.y);
-            if (which > 1.5) return texture2D(uHeld2, at).rgb;
-            if (which > 0.5) return texture2D(uHeld1, at).rgb;
-            return texture2D(uHeld0, at).rgb;
+            if (which > 2.5) {
+                vec3 c = texture2D(uHeld3, at).rgb;
+                return uLinear.z > 0.5 ? enc(c) : c;
+            }
+            vec3 c = which > 1.5 ? texture2D(uHeld2, at).rgb : which > 0.5 ? texture2D(uHeld1, at).rgb : texture2D(uHeld0, at).rgb;
+            return uLinear.x > 0.5 ? enc(c) : c;
         }
         // A bitmap of titles, its first row at the top, with its colors already multiplied by their opacity.
         vec4 title(float slot, vec2 p) {
@@ -191,7 +206,11 @@ object LayerShader {
             return uTitled.x > 0.5 ? texture2D(uTitle0, at) : vec4(0.0);
         }
         $body
-        void main() { gl_FragColor = vec4(layers(vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y)), 1.0); }
+        // With uLinear.y the pixel is written in linear light, for a reduced picture of a blur.
+        void main() {
+            vec3 c = layers(vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y));
+            gl_FragColor = vec4(uLinear.y > 0.5 ? lin(c) : c, 1.0);
+        }
     """
 
     /** For the preview: the layer holds the lane views one above the other; the frame is drawn over the first. */
@@ -202,37 +221,67 @@ object LayerShader {
         vec3 held(float which, vec2 p) { return deck(which, p); }
         // The preview draws a picture's titles on its lane's view.
         vec4 title(float slot, vec2 p) { return vec4(0.0); }
+        ${TransitionShader.HEAD}
         $body
         vec4 main(vec2 xy) {
+            // A spread is made of the lanes of the pair in transition, each in its place, for the frame drawn after
+            // it; the other lanes pass as they are.
+            if (uMode > 8.5) {
+                float lane = floor(xy.y / uSize.y);
+                vec2 p = xy - vec2(0.0, lane * uSize.y);
+                if (abs(lane - uKind.x) < 0.5 || abs(lane - uKind.y) < 0.5) return vec4(spread(lane, p), 1.0);
+                return vec4(deck(lane, p), 1.0);
+            }
             if (xy.y >= uSize.y) return vec4(0.0);
             return vec4(layers(xy), 1.0);
         }
     """
 }
 
-/** The preview's side of the layer shader, on Android 13 and later. */
+/**
+ * The preview's side of the layer shader, on Android 13 and later. As
+ * [TransitionPreviewShader] does for a sequence, it draws on the view, about
+ * the size the original reduces a picture to before a blur, and spreads the
+ * lanes of a pair in a defocus first, across and then down.
+ */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class LayerPreviewShader {
     private val shader = RuntimeShader(LayerShader.PREVIEW)
+    private val across = RuntimeShader(LayerShader.PREVIEW)
+    private val down = RuntimeShader(LayerShader.PREVIEW)
+
+    private fun RuntimeShader.set(drawing: LayerDrawing, width: Float, height: Float): RenderEffect {
+        val scene = drawing.scene
+        setFloatUniform("uSize", width, height)
+        setFloatUniform("uMode", scene.mode.toFloat())
+        setFloatUniform("uKind", scene.kindA, scene.kindB)
+        setFloatUniform("uFill", scene.fill)
+        TransitionShader.names.forEachIndexed { row, name -> setFloatUniform(name, scene.values.copyOfRange(row * 4, row * 4 + 4)) }
+        setFloatUniform("uMixed", if (drawing.mixed) 1f else 0f)
+        setFloatUniform("uCount", drawing.count.toFloat())
+        setFloatUniform("uTitled", 0f, 0f, 0f)
+        for (layer in 0 until LayerDrawing.MOST) {
+            val at = layer * LayerDrawing.STRIDE
+            setFloatUniform("uClip$layer", drawing.values.copyOfRange(at, at + 4))
+            setFloatUniform("uMap$layer", drawing.values.copyOfRange(at + 4, at + 8))
+            setFloatUniform("uLayer$layer", drawing.values.copyOfRange(at + 8, at + 10))
+        }
+        return RenderEffect.createRuntimeShaderEffect(this, "content")
+    }
 
     /** The effect for a layer [width] pixels wide holding the lanes, each [height] pixels tall. */
     fun effect(drawing: LayerDrawing, width: Float, height: Float): RenderEffect {
+        val frame = shader.set(drawing, width, height)
         val scene = drawing.scene
-        shader.setFloatUniform("uSize", width, height)
-        shader.setFloatUniform("uMode", scene.mode.toFloat())
-        shader.setFloatUniform("uKind", scene.kindA, scene.kindB)
-        shader.setFloatUniform("uFill", scene.fill)
-        TransitionShader.names.forEachIndexed { row, name -> shader.setFloatUniform(name, scene.values.copyOfRange(row * 4, row * 4 + 4)) }
-        shader.setFloatUniform("uMixed", if (drawing.mixed) 1f else 0f)
-        shader.setFloatUniform("uCount", drawing.count.toFloat())
-        shader.setFloatUniform("uTitled", 0f, 0f, 0f)
-        for (layer in 0 until LayerDrawing.MOST) {
-            val at = layer * LayerDrawing.STRIDE
-            shader.setFloatUniform("uClip$layer", drawing.values.copyOfRange(at, at + 4))
-            shader.setFloatUniform("uMap$layer", drawing.values.copyOfRange(at + 4, at + 8))
-            shader.setFloatUniform("uLayer$layer", drawing.values.copyOfRange(at + 8, at + 10))
-        }
-        return RenderEffect.createRuntimeShaderEffect(shader, "content")
+        if (!drawing.mixed || scene.mode != SceneDrawing.DEFOCUS || !scene.blurs) return frame
+        // The shader takes half the samples of a disc on a picture longer than 1920 pixels.
+        val samples = if (maxOf(width, height) > 1920f) TransitionGeometry.DEFOCUS_SAMPLES / 2 else TransitionGeometry.DEFOCUS_SAMPLES
+        val sigma = TransitionGeometry.defocusSpread(scene.blurRadius.toDouble(), samples).toFloat()
+        fun spread(dx: Float, dy: Float) = LayerDrawing.scene(
+            SceneDrawing(SceneDrawing.SPREAD, scene.kindA, scene.kindB, scene.fill, FloatArray(24).also { it[0] = sigma; it[1] = dx; it[2] = dy }),
+        )
+        val spread = RenderEffect.createChainEffect(down.set(spread(0f, 1f), width, height), across.set(spread(1f, 0f), width, height))
+        return RenderEffect.createChainEffect(frame, spread)
     }
 }
 
@@ -247,7 +296,8 @@ class LayerPreviewShader {
  *
  * As [TransitionEffect] does for its two decks, it keeps the frame a lane
  * showed before a still holds it, or before the lane's run of pictures ends,
- * for a transition still showing it.
+ * for a transition still showing it; and it works out a whip pan or a defocus
+ * of the pair on a reduced picture ([ReducedBlur]), enlarged as the back layer.
  *
  * With [titled], the titles of each layer are drawn here, over its picture
  * before it is moved into its window, by [TitlePainter] as the preview draws
@@ -313,11 +363,19 @@ class LayersEffect(
 
         private fun uniform(name: String) = GLES20.glGetUniformLocation(program, name)
 
-        /** Draws [drawing]; a lane kept alone ([withTitles] false) carries no titles. */
-        private fun draw(drawing: LayerDrawing, inputTexId: Int, withTitles: Boolean = true) {
+        /**
+         * Draws [drawing] on a picture [width] by [height] pixels, into the framebuffer in focus; a lane kept alone
+         * or a pass of a blur ([withTitles] false) carries no titles. The kept frames are [held] (the reduced
+         * pictures, in the passes of a blur), read as linear light with [linearIn]; the pixels are written in linear
+         * light with [linearOut]. [blurred] is the pair blurred on its reduced picture, in linear light with [blurredLinear].
+         */
+        private fun draw(
+            drawing: LayerDrawing, inputTexId: Int, withTitles: Boolean = true, held: IntArray = kept, width: Int = canvas.width, height: Int = canvas.height,
+            linearIn: Boolean = false, linearOut: Boolean = false, blurred: Int = 0, blurredLinear: Boolean = false,
+        ) {
             GLES20.glUseProgram(program)
             // A kept frame that does not exist yet is never read; the input stands in so the sampler has a texture.
-            val textures = listOf(inputTexId) + kept.toList() + (titles?.textures ?: IntArray(LayerDrawing.MOST)).toList()
+            val textures = listOf(inputTexId) + held.toList() + (titles?.textures ?: IntArray(LayerDrawing.MOST)).toList() + blurred
             for ((unit, texture) in textures.withIndex()) {
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit)
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, if (texture != 0) texture else inputTexId)
@@ -325,10 +383,12 @@ class LayersEffect(
             GLES20.glUniform1i(uniform("uTex"), 0)
             for (lane in 0 until LayerDrawing.MOST) GLES20.glUniform1i(uniform("uHeld$lane"), lane + 1)
             for (slot in 0 until LayerDrawing.MOST) GLES20.glUniform1i(uniform("uTitle$slot"), LayerDrawing.MOST + slot + 1)
+            GLES20.glUniform1i(uniform("uHeld${LayerDrawing.MOST}"), 2 * LayerDrawing.MOST + 1)
             val titledSlots = titles?.drawn.takeIf { withTitles } ?: BooleanArray(LayerDrawing.MOST)
             GLES20.glUniform3f(uniform("uTitled"), if (titledSlots[0]) 1f else 0f, if (titledSlots[1]) 1f else 0f, if (titledSlots[2]) 1f else 0f)
+            GLES20.glUniform3f(uniform("uLinear"), if (linearIn) 1f else 0f, if (linearOut) 1f else 0f, if (blurredLinear) 1f else 0f)
             GLES20.glUniform2f(uniform("uCells"), columns.toFloat(), rows.toFloat())
-            GLES20.glUniform2f(uniform("uSize"), canvas.width.toFloat(), canvas.height.toFloat())
+            GLES20.glUniform2f(uniform("uSize"), width.toFloat(), height.toFloat())
             val scene = drawing.scene
             GLES20.glUniform1f(uniform("uMode"), scene.mode.toFloat())
             GLES20.glUniform2f(uniform("uKind"), scene.kindA, scene.kindB)
@@ -353,6 +413,25 @@ class LayersEffect(
         private fun target(): Pair<Int, Int> {
             val texture = GlUtil.createTexture(canvas.width, canvas.height, /* useHighPrecisionColorComponents = */ false)
             return texture to GlUtil.createFboForTexture(texture)
+        }
+
+        private val blur = ReducedBlur(LayerDrawing.FILL, LayerDrawing.HELD)
+
+        /**
+         * [drawing] with its pair in a whip pan or a defocus worked out on the reduced picture ([ReducedBlur]), as the
+         * export of a sequence does, then the frame drawn with that picture enlarged, filtered, in the pair's place.
+         */
+        private fun drawBlurred(drawing: LayerDrawing, inputTexId: Int) {
+            val linear = blur.linear
+            val blurred = blur.draw(
+                drawing.scene, canvas.width, canvas.height,
+                reduce = { draw(LayerDrawing.scene(it), inputTexId, withTitles = false, linearOut = linear) },
+                pass = { scene, held, width, height ->
+                    draw(LayerDrawing.scene(scene), inputTexId, withTitles = false, held = intArrayOf(held[0], held[1], 0), width = width, height = height, linearIn = linear, linearOut = linear)
+                },
+            )
+            val pair = SceneDrawing(SceneDrawing.SINGLE, LayerDrawing.BLURRED, LayerDrawing.BLURRED, FloatArray(3), FloatArray(24))
+            draw(LayerDrawing(pair, drawing.mixed, drawing.count, drawing.values), inputTexId, blurred = blurred, blurredLinear = linear)
         }
 
         /** Keeps the picture [lane] is showing now, unless it is the black of a lane with nothing on it; as [TransitionEffect] keeps a deck's. */
@@ -401,11 +480,12 @@ class LayersEffect(
                 }
             }, content)
             titles?.prepare(moment)
-            draw(drawing, inputTexId)
+            if (drawing.mixed && drawing.scene.blurs) drawBlurred(drawing, inputTexId) else draw(drawing, inputTexId)
         }
 
         override fun release() {
             super.release()
+            blur.release()
             if (program != 0) GLES20.glDeleteProgram(program)
             titles?.release()
         }
