@@ -8,22 +8,16 @@ import androidx.annotation.OptIn
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
-import android.media.AudioManager
-import android.media.audiofx.LoudnessEnhancer
-import kotlin.math.log10
-import app.takes.core.AudioItem
-import android.net.Uri
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import androidx.media3.exoplayer.source.ClippingMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.MergingMediaSource
 import android.os.Build
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
+import app.takes.core.TrackMixPiece
+import app.takes.core.TrackMixPlan
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import app.takes.core.EditState
@@ -34,7 +28,6 @@ import app.takes.core.TransitionScene
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import java.io.File
-import kotlin.math.roundToInt
 
 /**
  * Plays the edit, addressed by timeline seconds, as its [RenderPlan] arranges
@@ -44,9 +37,12 @@ import kotlin.math.roundToInt
  * holds while the next clip waits, so chains alternate between two decks, like
  * the two sequences of an export. Where no clip plays at all (a hold on a
  * color, a freeze) the clock runs on by itself.
+ *
+ * The players draw the picture alone. The sound is the audio engine's, the
+ * mix plan of the edit played into one output and kept with this clock
+ * ([MixPlayback]), as the export mixes it.
  */
 internal class EditorPlayer(private val context: Context) {
-    private val sessions = context.getSystemService(AudioManager::class.java)
 
     /**
      * A player for each lane an edit drawn by picture layers decodes at once ([EditRendering.LANES]); a sequence
@@ -54,66 +50,22 @@ internal class EditorPlayer(private val context: Context) {
      */
     val lanes = List(EditRendering.LANES) {
         ExoPlayer.Builder(context, DeckRenderers(context)).build().apply {
-            audioSessionId = sessions.generateAudioSessionId()
-            // A clip with noise reduction carries two sounds, recorded and cleaned (a WAV): play the cleaned one.
-            trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredAudioMimeType(MimeTypes.AUDIO_RAW).build()
+            // The sound is the mix's: a player decodes none.
+            trackSelectionParameters = trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true).build()
         }
     }
     val decks: List<ExoPlayer> = lanes.subList(0, RenderPlan.DECKS)
     private val sources = DefaultMediaSourceFactory(context)
 
-    /** The clip as something to play: its own file, or its picture merged with its cleaned sound when that plays in place of the recorded one. */
-    private fun source(clip: RenderPlan.Picture, file: File, clean: File?): MediaSource {
-        if (clean == null) return sources.createMediaSource(clippedItem(clip, file))
-        val merged = MergingMediaSource(
-            /* adjustPeriodTimeOffsets = */ true, /* clipDurations = */ true,
-            sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(file))), sources.createMediaSource(MediaItem.fromUri(Uri.fromFile(clean))),
-        )
-        return ClippingMediaSource.Builder(merged)
-            .setStartPositionUs(clip.sourceStartUs).setEndPositionUs(clip.sourceEndUs).build()
-    }
-    // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
-    private val boosts = lanes.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
+    /** The clip as something to play: its own file, cut where the plan cuts it. */
+    private fun source(clip: RenderPlan.Picture, file: File): MediaSource = sources.createMediaSource(clippedItem(clip, file))
 
-    // Sound on its own tracks: one audio-only player per track, holding the item that is
-    // playing there or the next one to come, so it can start on time.
-    private val tracks = List(AudioItem.TRACKS) { ExoPlayer.Builder(context).build().apply { audioSessionId = sessions.generateAudioSessionId() } }
-    private val trackBoosts = tracks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
-    private val cued = arrayOfNulls<AudioItem>(AudioItem.TRACKS)
-    private var files = emptyMap<String, File>()
+    /** The sound of the edit. */
+    private val mix = MixPlayback()
 
-    private fun apply(player: ExoPlayer, boost: LoudnessEnhancer?, level: Double) {
-        player.volume = level.coerceIn(0.0, 1.0).toFloat()
-        boost?.let {
-            runCatching {
-                if (level > 1) it.setTargetGain((2000 * log10(level)).roundToInt())
-                it.enabled = level > 1
-            }
-        }
-    }
+    /** Takes the mix [plan] of the edit to hear, its recordings in [files], the processed sound of a chain from [processed]. */
+    fun loadSound(plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> File?) = mix.load(plan, files, processed)
 
-    /** Sets how loud a deck plays, as a factor of the recorded sound. */
-    fun setSound(deck: Int, level: Double) = apply(lanes[deck], boosts[deck], level)
-
-    /** Sets how loud an audio track plays. */
-    fun setTrackSound(track: Int, level: Double) = apply(tracks[track], trackBoosts[track], level)
-
-    /** Lines a track up with [time]: inside its item, or waiting at the start of the next one. */
-    private fun cue(track: Int, time: Double, play: Boolean) {
-        val player = tracks[track]
-        val item = plan.cued(track, time)
-        if (item == null) { player.pause(); cued[track] = null; return }
-        val inside = time >= item.start
-        if (cued[track] != item) {
-            cued[track] = item
-            player.setMediaItem(clippedItem(item, files.getValue(item.sourceID)), if (inside) ((time - item.start) * 1000).toLong() else 0L)
-            player.prepare()
-        } else {
-            player.seekTo(if (inside) ((time - item.start) * 1000).toLong() else 0L)
-        }
-        if (player.playbackParameters.speed != speed.toFloat()) player.playbackParameters = PlaybackParameters(speed.toFloat())
-        player.playWhenReady = play && inside
-    }
     var playing by mutableStateOf(false); private set
 
     /** The review speed of this playback, preview only: the clips' own speeds times this, the pitch kept. */
@@ -147,10 +99,9 @@ internal class EditorPlayer(private val context: Context) {
     private val parked = arrayOfNulls<Sounding>(2)
 
     /**
-     * Takes the [plan] of the edit to play, with each source's file in [files] and the cleaned sound of the
-     * clips that play it in [clean], by index, and goes to [time].
+     * Takes the [plan] of the edit to play, with each source's file in [files], and goes to [time].
      */
-    fun load(plan: RenderPlan, files: Map<String, File>, clean: Map<Int, File>, time: Double) {
+    fun load(plan: RenderPlan, files: Map<String, File>, time: Double) {
         pause()
         if (layered != null) {
             layered = null
@@ -160,19 +111,17 @@ internal class EditorPlayer(private val context: Context) {
             for (lane in lanes.drop(decks.size)) if (lane.mediaItemCount > 0) lane.clearMediaItems()
         }
         this.plan = plan
-        this.files = files
-        cued.fill(null)
         items = plan.decks.map { it.clips }
         sounding = plan.freezes.filter { it.sounding }.map { Sounding(it.deck, it.from, it.until, it.shown, files.getValue(clips[it.clip].sourceID), it.sourceTime) }
         for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
         // The frames themselves, read ahead: a deck that is playing shows a frame near the freeze, not always the one before it.
         for (freeze in sounding) reading.execute { if (freeze in sounding) freeze.picture = heldFrame(freeze.file, freeze.source) }
         // What the decks hold. A change that leaves it as it is, such as a title or the angle of a wipe, needs no new playlists.
-        val media = items to clips.map { clip -> listOf(clip.id, clip.sourceID, clip.sourceStart, clip.sourceEnd, clip.rate, clean[clip.index]) }
+        val media = items to clips.map { clip -> listOf(clip.id, clip.sourceID, clip.sourceStart, clip.sourceEnd, clip.rate) }
         if (media != loaded) {
             loaded = media
             decks.forEachIndexed { deck, player ->
-                player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID), clean[it]) })
+                player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID)) })
                 player.prepare()
             }
         }
@@ -185,13 +134,11 @@ internal class EditorPlayer(private val context: Context) {
 
     /**
      * Takes an edit drawn by picture layers ([plan]) to play, one player a lane, with each source's file in [files],
-     * and goes to [time]. [sounds] plays the sound tracks: a render plan of the edit's sound items alone.
+     * and goes to [time].
      */
-    fun load(plan: LayerPlan, sounds: RenderPlan, files: Map<String, File>, time: Double) {
+    fun load(plan: LayerPlan, files: Map<String, File>, time: Double) {
         pause()
-        this.plan = sounds
-        this.files = files
-        cued.fill(null)
+        this.plan = RenderPlan.of(EditState())
         sounding = emptyList()
         for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
         loaded = null
@@ -209,11 +156,9 @@ internal class EditorPlayer(private val context: Context) {
         laneMedia = null
         loaded = null
         plan = RenderPlan.of(EditState())
-        cued.fill(null)
         sounding = emptyList()
         for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
         lanes.forEach { if (it.mediaItemCount > 0) it.clearMediaItems() }
-        tracks.forEach { if (it.mediaItemCount > 0) it.clearMediaItems() }
     }
 
     /** Plays the deck at its clip's speed, keeping the pitch. */
@@ -242,7 +187,7 @@ internal class EditorPlayer(private val context: Context) {
      * to where its sound is, and the frame it stood on is drawn over it.
      */
     fun seek(time: Double, starting: Boolean = false) {
-        layered?.let { this.time = it.seek(time, starting); for (track in tracks.indices) cue(track, this.time, play = false); return }
+        layered?.let { this.time = it.seek(time, starting); if (!starting) mix.seek(this.time); return }
         if (clips.isEmpty()) return
         this.time = time.coerceIn(0.0, duration)
         decks.forEachIndexed { deck, player ->
@@ -272,7 +217,7 @@ internal class EditorPlayer(private val context: Context) {
             }
             stopAtChainEnd(deck)
         }
-        for (track in tracks.indices) cue(track, time, play = false)
+        if (!starting) mix.seek(this.time)
     }
 
     /** Plays from [time], at [speed] times the edit's own pace. */
@@ -281,7 +226,7 @@ internal class EditorPlayer(private val context: Context) {
             this.speed = speed
             this.time = layers.seek(time, starting = true)
             layers.start()
-            for (track in tracks.indices) cue(track, this.time, play = true)
+            mix.play(this.time, speed)
             ticked = System.nanoTime()
             playing = true
             return
@@ -290,14 +235,14 @@ internal class EditorPlayer(private val context: Context) {
         this.speed = speed
         seek(time, starting = true) // line both decks up again
         for (deck in decks.indices) if (playing(deck, time) != null) decks[deck].play()
-        for (track in tracks.indices) cue(track, time, play = true)
+        mix.play(this.time, speed)
         ticked = System.nanoTime()
         playing = true
     }
 
     fun pause() {
         lanes.forEach { it.pause() }
-        tracks.forEach { it.pause() }
+        mix.pause()
         playing = false
     }
 
@@ -309,7 +254,7 @@ internal class EditorPlayer(private val context: Context) {
             ticked = now
             time = layers.tick(passed)
             if (time >= layers.plan.duration) { time = layers.plan.duration; pause(); return time }
-            if (playing) followTracks()
+            if (playing) mix.follow(time)
             return time
         }
         if (clips.isEmpty()) return 0.0
@@ -370,20 +315,8 @@ internal class EditorPlayer(private val context: Context) {
             }
             stopAtChainEnd(deck)
         }
-        if (playing) followTracks()
+        if (playing) mix.follow(time)
         return time
-    }
-
-    // Audio tracks: start the waiting item when its moment comes, then line up the next.
-    private fun followTracks() {
-        for (track in tracks.indices) {
-            val item = cued[track]
-            when {
-                item == null -> Unit
-                time >= item.end -> cue(track, time, play = true)
-                time >= item.start && !tracks[track].playWhenReady -> tracks[track].play()
-            }
-        }
     }
 
     private companion object {
@@ -411,8 +344,7 @@ internal class EditorPlayer(private val context: Context) {
 
     fun release() {
         reading.shutdownNow()
-        (boosts + trackBoosts).forEach { runCatching { it?.release() } }
-        tracks.forEach { it.release() }
+        mix.release()
         lanes.forEach { it.release() }
     }
 }

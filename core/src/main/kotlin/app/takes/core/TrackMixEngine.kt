@@ -85,13 +85,17 @@ private class LinearStretch(private val source: TrackMixSource, private val run:
  * tool follows it ([AudioEnvelope.fill]).
  */
 class TrackMixEngine(
-    val plan: TrackMixPlan,
+    plan: TrackMixPlan,
     val sampleRate: Int,
     val channels: Int,
     private val open: (TrackMixPiece) -> TrackMixSource?,
     private val stretch: TrackMixRetime = TrackMixRetime.linear,
     live: LiveAudioGain? = null,
 ) : AutoCloseable {
+    /** The plan being mixed. */
+    var plan: TrackMixPlan = plan
+        private set
+
     /** The frames of the whole mix ([TrackMixer.frames]). */
     val frames: Long = TrackMixer.frames(plan.duration, sampleRate).toLong()
 
@@ -101,7 +105,7 @@ class TrackMixEngine(
 
     private class Run(val run: TrackMixRun, val first: Long, val last: Long)
 
-    private inner class Piece(val piece: TrackMixPiece) {
+    private inner class Piece(var piece: TrackMixPiece) {
         val runs = piece.runs.map { run ->
             Run(run, TrackMixer.firstFrame(run.start, sampleRate).coerceAtMost(frames), TrackMixer.firstFrame(run.end, sampleRate).coerceAtMost(frames))
         }
@@ -124,9 +128,12 @@ class TrackMixEngine(
         }
     }
 
-    private inner class Lane(lane: TrackMixLane, live: LiveAudioGain?) {
+    private inner class Lane(lane: TrackMixLane, private val live: LiveAudioGain?) {
         val pieces = lane.pieces.map { Piece(it) }
-        val envelope = live?.let { lane.envelope(it) }
+        var envelope = live?.let { lane.envelope(it) }
+            private set
+
+        fun retuned(lane: TrackMixLane) { envelope = live?.let { lane.envelope(it) } }
         var next = 0
 
         fun seek(frame: Long) {
@@ -140,6 +147,25 @@ class TrackMixEngine(
     private var chunk = FloatArray(0)
     private var gains = DoubleArray(0)
     private var window = FloatArray(0)
+
+    /**
+     * Takes [next] in place of the plan when it differs from it only in its levels ([TrackMixPiece.envelope]):
+     * the mix goes on from where it is with the new levels, nothing opened again, as when a level is tried while
+     * the movie plays. False, and nothing changed, for any other difference.
+     */
+    fun adopt(next: TrackMixPlan): Boolean {
+        if (next.duration != plan.duration || next.lanes.size != lanes.size) return false
+        for ((lane, other) in lanes.zip(next.lanes)) {
+            if (lane.pieces.size != other.pieces.size) return false
+            for ((piece, given) in lane.pieces.zip(other.pieces)) if (piece.piece != given.copy(envelope = piece.piece.envelope)) return false
+        }
+        for ((lane, other) in lanes.zip(next.lanes)) {
+            for ((piece, given) in lane.pieces.zip(other.pieces)) piece.piece = given
+            lane.retuned(other)
+        }
+        plan = next
+        return true
+    }
 
     /** Plays on from [frame]: whatever was open is let go, a piece being heard there is opened again. */
     fun seek(frame: Long) {
