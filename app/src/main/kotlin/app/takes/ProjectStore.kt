@@ -494,6 +494,9 @@ class ProjectStore(context: Context) {
 
     fun commit(projectID: String, state: EditState) = change(projectID) { it.commit(state) }
 
+    /** [state] in a movie frame of [outputSize], fixed by the Crop tool; null gives it the first picture's shape again. */
+    fun commit(projectID: String, state: EditState, outputSize: app.takes.core.Size?) = change(projectID) { it.commit(state, outputSize = outputSize) }
+
     fun setExportSettings(projectID: String, settings: ExportSettings) = change(projectID) { it.copy(exportSettings = settings) }
 
     /** The next takes go into the edit at timeline second [at], as one undo step, instead of at the end. */

@@ -672,6 +672,17 @@
     <string name="editor_snap_on">On</string>
     <string name="editor_snap_off">Off</string>
     <string name="editor_snap_note">Snap aligns the playhead with nearby clip edges and bookmarks. Turn the magnet off for free positioning.</string>
+    <string name="crop_shape">Video shape</string>
+    <string name="crop_shape_whole">Whole project</string>
+    <string name="crop_shape_original">Original</string>
+    <string name="crop_shape_landscape">16:9</string>
+    <string name="crop_shape_portrait">9:16</string>
+    <string name="crop_shape_square">1:1</string>
+    <string name="crop_shape_feed">4:5</string>
+    <string name="crop_shape_custom">Custom</string>
+    <string name="crop_flip_horizontal">Flip horizontally</string>
+    <string name="crop_flip_vertical">Flip vertically</string>
+    <string name="crop_flip_note">Flips the footage. Titles keep their orientation.</string>
     <string name="crop_rotation">Rotation</string>
     <string name="crop_apply">Apply</string>
     <string name="crop_hint">Pinch to crop · drag to frame</string>

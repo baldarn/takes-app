@@ -131,7 +131,7 @@ class ExportMovie(
             LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) add(SingleColorLut.createFromCube(ColorLuts.cube(shown.color ?: ColorSettings(), luts, log))) }
             // A crop fills the frame with part of the footage, frame by frame; fitting then has nothing left to do.
             val source = size(shown.sourceID)
-            if (shown.crop != null && source != null) add(FramingEffect(plan.clips[part.index], shown.start - origin, source, frame))
+            if ((shown.crop != null || plan.clips[part.index].mirror != null) && source != null) add(FramingEffect(plan.clips[part.index], shown.start - origin, source, frame))
             add(fit())
             val clip = plan.clips[part.index]
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0

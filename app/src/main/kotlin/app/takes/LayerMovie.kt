@@ -73,7 +73,7 @@ class LayerMovie(
         val effects = buildList<Effect> {
             LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) add(SingleColorLut.createFromCube(ColorLuts.cube(shown.color ?: ColorSettings(), luts, log))) }
             val source = size(shown.sourceID)
-            if (shown.crop != null && source != null) add(FramingEffect(clip, begins, source, frame))
+            if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, begins, source, frame))
             add(fit())
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
             if (holdsFrames(clip)) add(TimeHoldEffect(clip, begins, rate.toDouble()))

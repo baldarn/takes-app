@@ -33,7 +33,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import app.takes.core.PictureFrame
-import app.takes.core.Point
 import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
 import app.takes.core.TransitionFrame
@@ -123,17 +122,12 @@ internal fun DeckPictures(
             // The player fits the whole picture in this view. Enlarge, turn and shift the
             // view so the picture lies where the framing puts it, as the export draws it.
             frames[index]?.let { framing ->
-                val frame = framing(FrameSize(size.width.toDouble(), size.height.toDouble()))
-                val source = frame.source
-                val fitted = minOf(size.width / source.width, size.height / source.height)
-                val enlarge = (frame.scale / fitted).toFloat()
-                // The layer scales and turns around the middle of the view, where the middle of the picture is, then moves.
-                val middle = Point(source.width / 2, source.height / 2).applying(frame.transform)
-                scaleX = enlarge
-                scaleY = enlarge
-                rotationZ = frame.rotation.toFloat()
-                translationX = (middle.x - size.width / 2).toFloat()
-                translationY = (middle.y - size.height / 2).toFloat()
+                val layer = framing(FrameSize(size.width.toDouble(), size.height.toDouble())).layer
+                scaleX = layer.scaleX.toFloat()
+                scaleY = layer.scaleY.toFloat()
+                rotationZ = layer.rotation.toFloat()
+                translationX = layer.translationX.toFloat()
+                translationY = layer.translationY.toFloat()
             }
         }
         AndroidView(

@@ -1,6 +1,7 @@
 package app.takes.core
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -246,6 +247,8 @@ data class TimelineClip(
      * (YouRec/Project.swift:59). Null for footage that plays.
      */
     val frozenFrame: FrozenFrameSegment? = null,
+    /** Flips of the clip's picture in the movie's frame, as the original saves them (YouRec/Project.swift:54). Null when it is not flipped. */
+    val mirror: MirrorSettings? = null,
 ) {
     /** How fast the clip plays by its own speed setting: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
@@ -280,6 +283,7 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        mirror != null -> MIRROR_SCHEMA
         // Readers before 19 knew no held frame and played the time effects at the clip's own speed.
         frozenFrame != null || videoEffects.orEmpty().any { it.kind in VideoEffectTiming.TIME_EFFECTS } -> TIME_EFFECTS_SCHEMA
         !videoEffects.isNullOrEmpty() -> 16
@@ -301,6 +305,8 @@ data class TimelineClip(
     companion object {
         /** The schema of a held frame and of the time effects that change how a clip plays. */
         const val TIME_EFFECTS_SCHEMA = 19
+        /** Readers before it would show a flipped clip the right way round. */
+        const val MIRROR_SCHEMA = 20
     }
 }
 
@@ -326,12 +332,43 @@ data class EditState(
      */
     @SerialName("timeline")
     val layered: TrackTimeline? = null,
+    /**
+     * The size of the movie's frame when the Crop tool has fixed it, as the
+     * original saves it (YouRec/Project.swift:141-145), as `[width, height]`.
+     * Null: the frame takes the shape of the first picture. Only
+     * [Project.commit] keeps it from one edit to the next, so an edit made
+     * from a timeline, which knows nothing of it, does not lose it.
+     */
+    @Serializable(with = SizeArraySerializer::class)
+    val outputSize: Size? = null,
 ) {
     /** True when the edit is a sequence of clips: every editing function is available, as it always was. */
     val isSequence: Boolean get() = layered == null
 
     /** The movie is as long as its picture; sound past the last clip is not played. A layered edit is as long as its timeline. */
     val duration: Double get() = layered?.duration?.seconds ?: TimelineEditing.duration(clips)
+
+    companion object {
+        /** Readers before it would give the movie the first picture's shape. */
+        const val OUTPUT_SIZE_SCHEMA = 21
+
+        /** The sizes a saved output size may have, as the original checks them (YouRec/Project.swift:470-473): even, 2 to 16384 pixels. */
+        fun validOutputSize(size: Size): Boolean =
+            size.width.isFinite() && size.height.isFinite() && size.width in 2.0..16384.0 && size.height in 2.0..16384.0 &&
+                size.width % 2 == 0.0 && size.height % 2 == 0.0
+    }
+}
+
+/** A size as CoreGraphics codes one: `[width, height]`. */
+internal object SizeArraySerializer : kotlinx.serialization.KSerializer<Size> {
+    private val numbers = kotlinx.serialization.builtins.ListSerializer(Double.serializer())
+    override val descriptor = numbers.descriptor
+    override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: Size) = numbers.serialize(encoder, listOf(value.width, value.height))
+    override fun deserialize(decoder: kotlinx.serialization.encoding.Decoder): Size {
+        val pair = numbers.deserialize(decoder)
+        if (pair.size != 2) throw kotlinx.serialization.SerializationException("A size has two numbers")
+        return Size(pair[0], pair[1])
+    }
 }
 
 /**
@@ -390,16 +427,21 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
     /** The name of the history file that holds [data]: the hash of its bytes. */
     fun filename(): String = named ?: (sha256(data()) + ".json").also { named = it }
 
-    /** The schema number a project needs once it holds this step, when it is a committed one: a timeline's or a layered timeline's, or its clips' when higher. */
+    /**
+     * The schema number a project needs once it holds this step, when it is a committed one: a timeline's or a
+     * layered timeline's, its clips' or its fixed output size's when higher.
+     */
     val schema: Int get() = maxOf(
         if (state.layered != null) TrackTimeline.LAYERED_SCHEMA else TrackTimeline.SCHEMA,
-        // A held frame or a time effect on a clip ([TimelineClip.TIME_EFFECTS_SCHEMA]).
+        // A held frame or a time effect ([TimelineClip.TIME_EFFECTS_SCHEMA]) or a mirror ([TimelineClip.MIRROR_SCHEMA]) on a clip.
         (timeline?.video?.map { it.content } ?: state.clips).maxOfOrNull { it.schema } ?: 0,
+        if (state.outputSize != null) EditState.OUTPUT_SIZE_SCHEMA else 0,
     )
 
     companion object {
         /** A step that saves [timeline], with [state] the edit it is ([TrackEditState.edit]): the sequence it reads back as, or the timeline itself. */
-        fun of(timeline: TrackTimeline, captureCursor: Int): EditSnapshot = EditSnapshot(TrackEditState.edit(timeline), captureCursor, timeline)
+        fun of(timeline: TrackTimeline, captureCursor: Int, outputSize: Size? = null): EditSnapshot =
+            EditSnapshot(TrackEditState.edit(timeline).copy(outputSize = outputSize), captureCursor, timeline)
 
         /**
          * The step [state] is saved as from now on: [timeline], its conversion,
@@ -409,12 +451,12 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
          * timeline ([EditState.layered]) is saved as its timeline.
          */
         fun committed(state: EditState, captureCursor: Int, timeline: TrackTimeline = saved(state).toTimeline()): EditSnapshot =
-            if (!state.isSequence) of(timeline, captureCursor)
-            else TrackSequenceForm.sequence(timeline)?.let { EditSnapshot(it, captureCursor, timeline) } ?: EditSnapshot(saved(state), captureCursor)
+            if (!state.isSequence) of(timeline, captureCursor, state.outputSize)
+            else TrackSequenceForm.sequence(timeline)?.let { EditSnapshot(it.copy(outputSize = state.outputSize), captureCursor, timeline) } ?: EditSnapshot(saved(state), captureCursor)
 
         /** What of [state] a step saves: not the takes it had seen, and no empty list of sound. */
         internal fun saved(state: EditState): EditState =
-            EditState(state.clips, audio = state.audio?.ifEmpty { null }, subtitles = state.subtitles, layered = state.layered)
+            EditState(state.clips, audio = state.audio?.ifEmpty { null }, subtitles = state.subtitles, layered = state.layered, outputSize = state.outputSize)
 
         /** The step saved as [bytes], which it keeps. */
         internal fun decoded(bytes: ByteArray): EditSnapshot =
@@ -428,7 +470,10 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
 /** The two forms of a saved step, and the reading of either. */
 internal object EditSnapshotSerializer : kotlinx.serialization.KSerializer<EditSnapshot> {
     @Serializable private class SequenceStep(val state: EditState, val captureCursor: Int)
-    @Serializable private class TimelineState(val timeline: TrackTimeline)
+    @Serializable private class TimelineState(
+        val timeline: TrackTimeline,
+        @Serializable(with = SizeArraySerializer::class) val outputSize: Size? = null,
+    )
     @Serializable private class TimelineStep(val state: TimelineState, val captureCursor: Int)
 
     /** What either form holds. A reader before the timeline sees a timeline step as an empty edit, which is why its schema is refused there. */
@@ -438,6 +483,7 @@ internal object EditSnapshotSerializer : kotlinx.serialization.KSerializer<EditS
         val audio: List<AudioItem>? = null,
         val subtitles: SubtitleSettings? = null,
         val timeline: TrackTimeline? = null,
+        @Serializable(with = SizeArraySerializer::class) val outputSize: Size? = null,
     )
     @Serializable private class ReadStep(val state: ReadState, val captureCursor: Int)
 
@@ -446,17 +492,17 @@ internal object EditSnapshotSerializer : kotlinx.serialization.KSerializer<EditS
     override fun serialize(encoder: kotlinx.serialization.encoding.Encoder, value: EditSnapshot) {
         val timeline = value.timeline
         if (timeline == null) SequenceStep.serializer().serialize(encoder, SequenceStep(value.state, value.captureCursor))
-        else TimelineStep.serializer().serialize(encoder, TimelineStep(TimelineState(timeline), value.captureCursor))
+        else TimelineStep.serializer().serialize(encoder, TimelineStep(TimelineState(timeline, value.state.outputSize), value.captureCursor))
     }
 
     override fun deserialize(decoder: kotlinx.serialization.encoding.Decoder): EditSnapshot {
         val step = ReadStep.serializer().deserialize(decoder)
         val state = step.state
         val timeline = state.timeline
-            ?: return EditSnapshot(EditState(state.clips, state.captureBase, state.audio, state.subtitles), step.captureCursor)
+            ?: return EditSnapshot(EditState(state.clips, state.captureBase, state.audio, state.subtitles, outputSize = state.outputSize), step.captureCursor)
         // A timeline step holds the timeline alone.
         if (state.clips.isNotEmpty() || state.audio != null || state.subtitles != null) throw kotlinx.serialization.SerializationException("A step in two forms")
-        return EditSnapshot.of(timeline, step.captureCursor)
+        return EditSnapshot.of(timeline, step.captureCursor, state.outputSize)
     }
 }
 
@@ -538,8 +584,8 @@ data class Project(
         val later = captureLedger.drop(snapshot.captureCursor)
         val appended = if (captureInsertions.isEmpty()) later else later.filterIndexed { index, _ -> snapshot.captureCursor + index !in captureInsertions }
         // A step that is a timeline gets the later takes where its picture ends, in front, without moving anything.
-        if (!snapshot.state.isSequence) return TrackEditState.appending(snapshot.state, appended, captureLedger.size)
-        return EditState(snapshot.state.clips + appended, captureLedger.size, snapshot.state.audio, snapshot.state.subtitles)
+        if (!snapshot.state.isSequence) return TrackEditState.appending(snapshot.state, appended, captureLedger.size).copy(outputSize = snapshot.state.outputSize)
+        return EditState(snapshot.state.clips + appended, captureLedger.size, snapshot.state.audio, snapshot.state.subtitles, outputSize = snapshot.state.outputSize)
     }
 
     val edit: EditState get() = materialized(snapshots[historyCursor])
@@ -571,14 +617,21 @@ data class Project(
     /**
      * A state built before a take arrived keeps its capture cursor, so the
      * newer takes are appended again rather than silently discarded.
+     *
+     * [outputSize] is the movie's fixed frame after the edit: the one [state]
+     * has, else the one the project has now, since most edits are made from a
+     * timeline that does not hold it. Only the Crop tool passes it, null
+     * to give the movie the first picture's shape again.
      */
-    fun commit(state: EditState, now: Long = System.currentTimeMillis()): Project {
+    fun commit(state: EditState, now: Long = System.currentTimeMillis(), outputSize: Size? = state.outputSize ?: edit.outputSize): Project {
         if (!canCommit(state)) return this
+        if (outputSize != null && !EditState.validOutputSize(outputSize)) return this
+        val shaped = if (state.outputSize == outputSize) state else state.copy(outputSize = outputSize)
         val cursor = (state.captureBase ?: captureLedger.size).coerceIn(0, captureLedger.size)
-        // Two edits are the same edit when they are the same timeline (docs/TRACKS-PLAN.md, 3.5).
-        val timeline = EditSnapshot.saved(state).toTimeline()
-        if (timeline == edit.toTimeline()) return this
-        val step = EditSnapshot.committed(state, cursor, timeline)
+        // Two edits are the same edit when they are the same timeline (docs/TRACKS-PLAN.md, 3.5) in the same frame.
+        val timeline = EditSnapshot.saved(shaped).toTimeline()
+        if (timeline == edit.toTimeline() && outputSize == edit.outputSize) return this
+        val step = EditSnapshot.committed(shaped, cursor, timeline)
         return copy(
             // Older readers must not silently drop what they do not know: from the first timeline step on, none of them reads the
             // project, from the first step that is no sequence, none that reads only sequences, and from the first held
@@ -637,8 +690,9 @@ data class Project(
             // Undo or another edit, the next take begins a step of its own on what is there now.
             val continuing = recordingInsertionStep == historyCursor && historyCursor > 0 && historyCursor == snapshots.lastIndex
             val current = edit
-            val next = TimelineEditing.insert(current, listOf(clip), recordingInsertion)
-                ?: if (current.isSequence) current.copy(clips = current.clips + clip) else TrackEditState.appending(current, listOf(clip), current.captureBase)
+            val next = (TimelineEditing.insert(current, listOf(clip), recordingInsertion)
+                ?: if (current.isSequence) current.copy(clips = current.clips + clip) else TrackEditState.appending(current, listOf(clip), current.captureBase))
+                .copy(outputSize = current.outputSize)
             // Its cursor is past the take: the ledger never replays what the step already holds.
             val snapshot = EditSnapshot.committed(next, captureLedger.size + 1)
             val step = if (continuing) historyCursor else historyCursor + 1
@@ -702,6 +756,7 @@ data class Project(
             state.layered?.let { if (TrackInvariants.violation(it, sources) != null) invalid() }
             if (state.clips.map { it.id }.toSet().size != state.clips.size) invalid()
             if (state.subtitles?.valid == false) invalid()
+            state.outputSize?.let { if (!EditState.validOutputSize(it)) invalid() }
             val sound = state.audio.orEmpty()
             if (sound.map { it.id }.toSet().size != sound.size) invalid()
             for (item in sound) {
@@ -742,7 +797,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = TimelineClip.TIME_EFFECTS_SCHEMA
+        const val LATEST_READABLE_SCHEMA = EditState.OUTPUT_SIZE_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
