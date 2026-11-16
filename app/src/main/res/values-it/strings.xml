@@ -481,6 +481,8 @@
     <string name="editor_speed">Velocità</string>
     <string name="speed_title">Velocità della clip</string>
     <string name="speed_note">Tutta la clip scorre più lenta o più veloce, immagine e audio, e l\'intonazione delle voci resta la stessa. Le clip successive si spostano.</string>
+    <string name="speed_apply">Applica</string>
+    <string name="speed_slider">Velocità di riproduzione</string>
     <string name="editor_subtitles">Sottotitoli</string>
     <string name="subtitles_title">Sottotitoli</string>
     <string name="subtitles_apply">Applica</string>

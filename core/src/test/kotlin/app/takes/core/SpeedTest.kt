@@ -151,4 +151,14 @@ class SpeedTest {
         val manifest = project.manifest { name, data -> files[name] = data }
         assertEquals(project, Project.readManifest(manifest) { files.getValue(it) })
     }
+
+    @Test fun sliderRatesLieOnTheGridOfFiveHundredths() {
+        assertEquals(1.35, SpeedSettings.stepped(1.3499999), 0.0)
+        assertEquals(1.35, SpeedSettings.stepped(1.36), 0.0)
+        assertEquals(0.25, SpeedSettings.stepped(0.1), 0.0)
+        assertEquals(4.0, SpeedSettings.stepped(4.2), 0.0)
+        // Every point of the grid is a rate a clip may hold.
+        for (step in 5..80) assertTrue(SpeedSettings(rate = SpeedSettings.stepped(step * 0.05)).valid)
+        assertEquals("0.7", SpeedSettings.stepped(0.7000001).toString())
+    }
 }

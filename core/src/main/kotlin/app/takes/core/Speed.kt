@@ -11,6 +11,13 @@ data class SpeedSettings(val id: String = newID(), val rate: Double = 1.0) {
     companion object {
         const val MINIMUM_RATE = 0.25
         const val MAXIMUM_RATE = 4.0
+
+        /** The step of the Speed tool's slider, as the original's (EditorTools.swift:1312). */
+        const val STEP = 0.05
+
+        /** [rate] on the slider's grid of twentieths ([STEP]) and inside its range, free of rounding noise. */
+        fun stepped(rate: Double): Double =
+            (Math.round(rate * 20) / 20.0).coerceIn(MINIMUM_RATE, MAXIMUM_RATE)
     }
 }
 

@@ -1177,36 +1177,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 )
             }
             if (pacing && location != null && current != null) {
-                AlertDialog(
-                    onDismissRequest = { pacing = false },
-                    title = { Text(stringResource(R.string.speed_title)) },
-                    text = {
-                        Column {
-                            toolScopeLabel?.let { Text(it, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
-                            // Two rows, so every speed is in view on a narrow phone.
-                            for (rates in listOf(listOf(0.25, 0.5, 0.75), listOf(1.0, 1.5, 2.0, 4.0))) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                for (rate in rates) {
-                                    FilterChip((toolSubject ?: current).rate == rate, onClick = {
-                                        // The same frame stays under the playhead.
-                                        val frame = current.sourceTime(location.offset)
-                                        if (toolScope != null) {
-                                            val under = TimelineEditing.locate(toolScope.state.clips, playhead)?.let { toolScope.state.clips[it.index].id }
-                                            val next = applied(toolScope) { state, at -> TimelineEditing.setSpeed(state, at, rate) }
-                                            val at = next?.clips?.indexOfFirst { it.id == under }?.takeIf { it >= 0 }
-                                            applyScoped(toolScope, next, if (next != null && at != null) TimelineEditing.clipStart(next.clips, at) + next.clips[at].offset(frame).coerceIn(0.0, next.clips[at].duration) else playhead)
-                                        } else {
-                                            val next = TimelineEditing.setSpeed(edit, location.index, rate)
-                                            commit(next, next?.let { TimelineEditing.clipStart(it.clips, location.index) + it.clips[location.index].offset(frame) } ?: playhead)
-                                        }
-                                        pacing = false
-                                    }, label = { Text(speedLabel(rate)) })
-                                }
-                            }
-                            Text(stringResource(R.string.speed_note), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
-                        }
-                    },
-                    confirmButton = { TextButton(onClick = { pacing = false }) { Text(stringResource(R.string.common_cancel)) } },
-                )
+                SpeedDialog((toolSubject ?: current).rate, toolScopeLabel, dismiss = { pacing = false }, apply = { rate ->
+                    // The same frame stays under the playhead.
+                    val frame = current.sourceTime(location.offset)
+                    if (toolScope != null) {
+                        val under = TimelineEditing.locate(toolScope.state.clips, playhead)?.let { toolScope.state.clips[it.index].id }
+                        val next = applied(toolScope) { state, at -> TimelineEditing.setSpeed(state, at, rate) }
+                        val at = next?.clips?.indexOfFirst { it.id == under }?.takeIf { it >= 0 }
+                        applyScoped(toolScope, next, if (next != null && at != null) TimelineEditing.clipStart(next.clips, at) + next.clips[at].offset(frame).coerceIn(0.0, next.clips[at].duration) else playhead)
+                    } else {
+                        val next = TimelineEditing.setSpeed(edit, location.index, rate)
+                        commit(next, next?.let { TimelineEditing.clipStart(it.clips, location.index) + it.clips[location.index].offset(frame) } ?: playhead)
+                    }
+                    pacing = false
+                })
             }
             Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
                 for ((label, step) in listOf(stringResource(R.string.editor_move_earlier) to -1, stringResource(R.string.editor_move_later) to 1)) {
