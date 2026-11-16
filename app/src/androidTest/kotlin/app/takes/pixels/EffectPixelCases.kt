@@ -322,8 +322,12 @@ class EffectPixelCases(private val bench: Bench) {
         /** A chain is kept at eight bits between its passes, where the original keeps half floats: a level more each pass. */
         const val CHAIN = 4
 
-        /** How many pixels of a case may lie further than its allowance, and by how much at most. */
-        const val OUTLIERS = 16
+        /**
+         * How many pixels of a case may lie further than its allowance, and by how much at most: those on a hard
+         * edge of the picture (a hue range with no softness, a kaleidoscope wedge), where one GPU's trigonometry
+         * puts a pixel on the other side. A Mali GPU had 45 of the 36,864, by up to 7 levels.
+         */
+        const val OUTLIERS = 64
         const val OUTLIER_LEVELS = 8
     }
 }
