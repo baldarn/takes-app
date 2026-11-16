@@ -53,7 +53,7 @@ internal object TrackWrapping {
     fun timeline(state: EditState): TrackTimeline = converted(state).timeline
 
     /** [state] with the fit of every transition in play saved, as every edit that moves footage starts ([TimelineEditing.fitted]); the same instance when none was missing. */
-    fun fitted(state: EditState): EditState = TimelineEditing.fitted(state.clips).let { if (it === state.clips) state else state.copy(clips = it) }
+    fun fitted(state: EditState): EditState = if (!state.isSequence) state else TimelineEditing.fitted(state.clips).let { if (it === state.clips) state else state.copy(clips = it) }
 
     private fun ClipAudio.normalized(): ClipAudio? = takeIf { it != ClipAudio() }
 
@@ -220,12 +220,21 @@ internal object TrackWrapping {
      * [state] after [operation] ran on its timeline. Null when the operation
      * answers null, when it changes nothing a sequence shows, or when what it
      * leaves cannot be written back ([back]): it does not apply.
+     *
+     * An edit that is not a sequence ([EditState.layered]) is its timeline:
+     * what the operation leaves is the edit, as it is ([TrackEditState.edit]),
+     * and [sound] and [settled], which say how a sequence keeps what the
+     * operation did, do not apply.
      */
     fun edit(
         state: EditState, sound: Boolean = true,
         settled: (AudioItem) -> AudioItem = { it }, operation: (TrackTimeline) -> TrackTimeline?,
     ): EditState? {
         val from = converted(state)
+        if (!state.isSequence) {
+            val next = operation(from.timeline) ?: return null
+            return if (next === from.timeline || next == from.timeline) null else next.toEdit(state.captureBase)
+        }
         val next = operation(from.timeline) ?: return null
         if (next === from.timeline) return null
         return back(state, from.seen, next, sound, settled)?.takeIf { it !== state }

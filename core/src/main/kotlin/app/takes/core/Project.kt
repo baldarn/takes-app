@@ -284,9 +284,22 @@ data class EditState(
     val audio: List<AudioItem>? = null,
     /** How the captions look and what was transcribed. Null when the project has no subtitles; the words are on the clips. */
     val subtitles: SubtitleSettings? = null,
+    /**
+     * The edit itself when it is a track timeline that no sequence of clips
+     * can be: pictures over one another, time with nothing in it
+     * ([TrackEditState]). Then [clips], [audio] and [subtitles] are only a
+     * view of it, and the editing functions run on it directly or say they
+     * are not available. Null for every edit that is a sequence, which is
+     * then written as it always was.
+     */
+    @SerialName("timeline")
+    val layered: TrackTimeline? = null,
 ) {
-    /** The movie is as long as its picture; sound past the last clip is not played. */
-    val duration: Double get() = TimelineEditing.duration(clips)
+    /** True when the edit is a sequence of clips: every editing function is available, as it always was. */
+    val isSequence: Boolean get() = layered == null
+
+    /** The movie is as long as its picture; sound past the last clip is not played. A layered edit is as long as its timeline. */
+    val duration: Double get() = layered?.duration?.seconds ?: TimelineEditing.duration(clips)
 }
 
 /**
@@ -322,7 +335,9 @@ data class AudioItem(
  * [timeline] and is written as a sequence of clips, `{"state":{"clips":…}}`.
  * One committed since is written as the original's track timeline alone,
  * `{"state":{"timeline":…}}`, and [state] is that timeline read as the
- * sequence the rest of the app edits ([TrackSequenceForm.sequence]).
+ * sequence the rest of the app edits ([TrackSequenceForm.sequence]), or,
+ * when it is not one (pictures over one another, gaps), the timeline itself
+ * with its view ([TrackEditState]).
  *
  * A step read from disk keeps the bytes it was read from, and one made here
  * the bytes it was first encoded to: [data] never encodes a step twice, and a
@@ -344,21 +359,23 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
     fun filename(): String = named ?: (sha256(data()) + ".json").also { named = it }
 
     companion object {
-        /** A step that saves [timeline], or null when the timeline is not one the sequence form can show. */
-        fun of(timeline: TrackTimeline, captureCursor: Int): EditSnapshot? =
-            TrackSequenceForm.sequence(timeline)?.let { EditSnapshot(it, captureCursor, timeline) }
+        /** A step that saves [timeline], with [state] the edit it is ([TrackEditState.edit]): the sequence it reads back as, or the timeline itself. */
+        fun of(timeline: TrackTimeline, captureCursor: Int): EditSnapshot = EditSnapshot(TrackEditState.edit(timeline), captureCursor, timeline)
 
         /**
          * The step [state] is saved as from now on: [timeline], its conversion,
-         * with [state] as that timeline shows it. A state whose timeline does
-         * not read back as a sequence, which no conversion makes, keeps the
-         * sequence form rather than being refused.
+         * with [state] as that timeline shows it. A sequence whose timeline
+         * does not read back as a sequence, which no conversion makes, keeps
+         * the sequence form rather than being refused. An edit that is a
+         * timeline ([EditState.layered]) is saved as its timeline.
          */
         fun committed(state: EditState, captureCursor: Int, timeline: TrackTimeline = saved(state).toTimeline()): EditSnapshot =
-            of(timeline, captureCursor) ?: EditSnapshot(saved(state), captureCursor)
+            if (!state.isSequence) of(timeline, captureCursor)
+            else TrackSequenceForm.sequence(timeline)?.let { EditSnapshot(it, captureCursor, timeline) } ?: EditSnapshot(saved(state), captureCursor)
 
         /** What of [state] a step saves: not the takes it had seen, and no empty list of sound. */
-        internal fun saved(state: EditState): EditState = EditState(state.clips, audio = state.audio?.ifEmpty { null }, subtitles = state.subtitles)
+        internal fun saved(state: EditState): EditState =
+            EditState(state.clips, audio = state.audio?.ifEmpty { null }, subtitles = state.subtitles, layered = state.layered)
 
         /** The step saved as [bytes], which it keeps. */
         internal fun decoded(bytes: ByteArray): EditSnapshot =
@@ -398,9 +415,9 @@ internal object EditSnapshotSerializer : kotlinx.serialization.KSerializer<EditS
         val state = step.state
         val timeline = state.timeline
             ?: return EditSnapshot(EditState(state.clips, state.captureBase, state.audio, state.subtitles), step.captureCursor)
-        // A timeline step holds the timeline alone, and one this version can show.
+        // A timeline step holds the timeline alone.
         if (state.clips.isNotEmpty() || state.audio != null || state.subtitles != null) throw kotlinx.serialization.SerializationException("A step in two forms")
-        return EditSnapshot.of(timeline, step.captureCursor) ?: throw kotlinx.serialization.SerializationException("A timeline that is not a sequence")
+        return EditSnapshot.of(timeline, step.captureCursor)
     }
 }
 
@@ -481,6 +498,8 @@ data class Project(
     private fun materialized(snapshot: EditSnapshot): EditState {
         val later = captureLedger.drop(snapshot.captureCursor)
         val appended = if (captureInsertions.isEmpty()) later else later.filterIndexed { index, _ -> snapshot.captureCursor + index !in captureInsertions }
+        // A step that is a timeline gets the later takes where its picture ends, in front, without moving anything.
+        if (!snapshot.state.isSequence) return TrackEditState.appending(snapshot.state, appended, captureLedger.size)
         return EditState(snapshot.state.clips + appended, captureLedger.size, snapshot.state.audio, snapshot.state.subtitles)
     }
 
@@ -531,6 +550,18 @@ data class Project(
     }
 
     /**
+     * [timeline], made from the current edit's timeline (`edit.toTimeline()`),
+     * as one edit: the sequence it is, or the timeline itself when it is no
+     * sequence ([TrackEditState.edit]). Unchanged when it is the current edit.
+     */
+    fun commit(timeline: TrackTimeline, now: Long = System.currentTimeMillis()): Project =
+        commit(timeline.toEdit(edit.captureBase), now)
+
+    /** The end of a Move ([TrackMoveSession.done]): one Undo step for [TrackMoveSession.Outcome.Moved], none otherwise. */
+    fun commit(outcome: TrackMoveSession.Outcome, now: Long = System.currentTimeMillis()): Project =
+        if (outcome is TrackMoveSession.Outcome.Moved) commit(outcome.timeline, now) else this
+
+    /**
      * Adds media that is not a take, such as an imported sound file. It joins
      * the project's files without appearing on the timeline by itself.
      */
@@ -563,7 +594,8 @@ data class Project(
             // Undo or another edit, the next take begins a step of its own on what is there now.
             val continuing = recordingInsertionStep == historyCursor && historyCursor > 0 && historyCursor == snapshots.lastIndex
             val current = edit
-            val next = TimelineEditing.insert(current, listOf(clip), recordingInsertion) ?: current.copy(clips = current.clips + clip)
+            val next = TimelineEditing.insert(current, listOf(clip), recordingInsertion)
+                ?: if (current.isSequence) current.copy(clips = current.clips + clip) else TrackEditState.appending(current, listOf(clip), current.captureBase)
             // Its cursor is past the take: the ledger never replays what the step already holds.
             val snapshot = EditSnapshot.committed(next, captureLedger.size + 1)
             val step = if (continuing) historyCursor else historyCursor + 1
@@ -576,7 +608,8 @@ data class Project(
                 snapshots = snapshots.take(step) + snapshot,
                 historyCursor = step,
                 // The next take follows this one.
-                recordingInsertion = snapshot.state.clips.let { TimelineEditing.clipStart(it, it.indexOfFirst { item -> item.id == clip.id } + 1) },
+                recordingInsertion = snapshot.state.layered?.let { timeline -> timeline.video.firstOrNull { it.id == clip.id }?.end?.seconds ?: snapshot.state.duration }
+                    ?: snapshot.state.clips.let { TimelineEditing.clipStart(it, it.indexOfFirst { item -> item.id == clip.id } + 1) },
                 recordingInsertionStep = step,
                 updatedAt = now,
             )
@@ -622,6 +655,8 @@ data class Project(
             if (with != null && with.first === sources && with.second === captureLedger) continue
             val state = materialized(snapshot)
             if (!state.duration.isFinite() || state.duration > MAX_DURATION) invalid()
+            // A step that is a timeline keeps the original's rules; its clips and sound items, a view of it, are checked as any.
+            state.layered?.let { if (TrackInvariants.violation(it, sources) != null) invalid() }
             if (state.clips.map { it.id }.toSet().size != state.clips.size) invalid()
             if (state.subtitles?.valid == false) invalid()
             val sound = state.audio.orEmpty()

@@ -195,6 +195,8 @@ object TimelineEditing {
      * picture and the sound that follows it, where today's rules say:
      */
     fun split(state: EditState, time: Double): EditState? {
+        // Off a sequence: the original's cut at the playhead, on the 1/30 s grid, of everything under it ([TrackEditing.splitAtPlayhead]).
+        if (!state.isSequence) return if (time.isFinite()) TrackEditState.editing(state) { TrackEditing.splitAtPlayhead(it, time) } else null
         val base = TrackWrapping.fitted(state)
         val clips = base.clips
         val (index, offset) = locate(clips, time) ?: return null
@@ -228,6 +230,8 @@ object TimelineEditing {
      */
     fun delete(state: EditState, index: Int): EditState? {
         val id = state.clips.getOrNull(index)?.id ?: return null
+        // Off a sequence: the picture with what it is linked to, as the track model deletes; their time closes, nothing else moves.
+        if (!state.isSequence) return TrackEditState.editing(state) { it.removing(it.selection(id)).timeline }
         return TrackWrapping.edit(TrackWrapping.fitted(state), sound = false) { it.removing(it.selection(id)).timeline }?.let(::settled)
     }
 
@@ -238,6 +242,8 @@ object TimelineEditing {
      * ([TrackSequenceView.moving]).
      */
     fun move(state: EditState, from: Int, to: Int): EditState? {
+        // Off a sequence there is no row to put a clip in: [SequenceOnly.Reorder], use [TrackMoveSession].
+        if (!state.isSequence) return null
         if (from !in state.clips.indices || to !in state.clips.indices || from == to) return null
         val id = state.clips[from].id
         val order = state.clips.map { it.id }.toMutableList().also { it.add(to, it.removeAt(from)) }.withIndex().associate { it.value to it.index }
@@ -294,6 +300,8 @@ object TimelineEditing {
         if (clips.isEmpty() || !time.isFinite()) return null
         val ids = clips.map { it.id }.toSet()
         if (ids.size != clips.size || state.clips.any { it.id in ids }) return null
+        // Off a sequence: time is opened at [time] on every lane and the clips go in there, in front ([TrackEditState.insert]).
+        if (!state.isSequence) return TrackEditState.insert(state, clips, time)
         // Kept until S5 (footage-put-after-the-picture): the movie ends with its picture, and so does the place footage can go.
         val at = time.coerceIn(0.0, state.duration)
         // Not adopted (insert-inside-a-transition): a transition running there is removed and the clip then showing is cut, the original's Paste rule for every insertion.
@@ -368,6 +376,8 @@ object TimelineEditing {
         val clip = state.clips.getOrNull(index) ?: return null
         val next = trimmed(clip, start, end, sourceDuration)
         if (next == clip) return null
+        // Off a sequence: the new bounds merged as an edited recipe, with its ripple ([TrackEditing.settingSourceBounds]).
+        if (!state.isSequence) return TrackEditState.editing(state) { TrackEditing.settingSourceBounds(it, clip.id, next.start, next.end) }
         // The clip's new bounds are merged as an edited recipe ([TrackEditing.settingSourceBounds]), the path the original's own
         // trim takes until S4. Not adopted (trim-removes-an-opening-of-a-middle-clip): the clips keep their order and follow
         // one another, where the merge sends a picture that lost its opening to the start of the timeline.
@@ -392,6 +402,11 @@ object TimelineEditing {
      * port's reading for separate pieces).
      */
     fun removeIntervals(state: EditState, index: Int, cuts: List<SourceInterval>): EditState? {
+        // Off a sequence: each stretch cut out of the picture and deleted with what it is linked to ([TrackEditing.removingSource]).
+        if (!state.isSequence) {
+            val id = state.clips.getOrNull(index)?.id ?: return null
+            return TrackEditState.editing(state) { TrackEditing.removingSource(it, id, cuts) }
+        }
         val clip = fitted(state.clips).getOrNull(index) ?: return null
         val kept = PauseDetector.keptIntervals(clip, cuts).filter { it.duration / clip.rate >= MINIMUM_CLIP }
         if (kept.isEmpty() || (kept.size == 1 && kept[0].start == clip.start && kept[0].end == clip.end)) return null
@@ -478,6 +493,8 @@ object TimelineEditing {
      * what fits is shorter than one frame: that is no transition.
      */
     fun setJoin(state: EditState, join: Int, settings: TransitionSettings?): EditState? {
+        // Off a sequence a join has no number: [SequenceOnly.Transition].
+        if (!state.isSequence) return null
         val base = TrackWrapping.fitted(state)
         val clips = base.clips
         val place = saved(join, clips.size) ?: return null
@@ -540,6 +557,8 @@ object TimelineEditing {
 
     /** Sets the join after the clip at [index] to [style] over [duration] seconds; a null [duration] removes it. */
     fun setTransition(state: EditState, index: Int, duration: Double?, style: TransitionStyle): EditState? {
+        // Off a sequence: [SequenceOnly.Transition].
+        if (!state.isSequence) return null
         if (index !in 0 until state.clips.size - 1) return null
         if (duration != null && (!duration.isFinite() || duration <= 0)) return null
         val current = transition(state.clips, index)
@@ -657,7 +676,8 @@ object TimelineEditing {
         scope: Set<String>? = null, opened: ClosedFloatingPointRange<Double>? = null,
     ): EditState? {
         if (!title.copy(start = 0.0, end = 1.0).valid || !range.start.isFinite() || !range.endInclusive.isFinite()) return null
-        val placements = layout(state.clips).placements
+        // Where each clip begins: in the layout of a sequence, or where its picture is on a timeline.
+        val starts = if (state.isSequence) layout(state.clips).placements.map { it.start } else TrackEditState.starts(state)
         val clips = state.clips.mapIndexed { index, clip ->
             if (scope != null && clip.id !in scope) return@mapIndexed clip
             val texts = clip.texts.orEmpty()
@@ -666,7 +686,7 @@ object TimelineEditing {
             val placed = if (opened != null && range == opened) {
                 previous?.let { title.copy(start = it.start, end = it.end) }
             } else {
-                val begins = placements[index].start
+                val begins = starts[index]
                 val from = maxOf(range.start, begins)
                 val to = minOf(range.endInclusive, begins + clip.duration)
                 if (to > from + 0.000001) title.copy(start = maxOf(0.0, clip.sourceTime(from - begins)), end = clip.sourceTime(to - begins)) else null
@@ -809,6 +829,8 @@ object TimelineEditing {
         val next = audio.normalized()
         if (next == item.audio) return null
         val result = TrackWrapping.edit(state) { timeline -> sound(state, timeline, id)?.let { TrackWrapping.sounding(timeline, it.id, audio, item.audio ?: ClipAudio()) } } ?: state
+        // Off a sequence the sound items are a view of the timeline's sounds, which have no amount of noise reduction.
+        if (!result.isSequence) return result.takeIf { it != state }
         // A sound of the timeline has no amount of noise reduction for all of it; a sound item keeps the one it is given, which does nothing until items are cleaned (S7).
         return result.copy(audio = result.audio?.map { if (it.id == id && it.audio != next) it.copy(audio = next) else it })
     }
@@ -871,6 +893,8 @@ object TimelineEditing {
         // The speed is merged as an edited recipe, with its ripple ([TrackEditing.settingSpeed]); the clips keep their order.
         val base = TrackWrapping.fitted(state)
         val result = TrackWrapping.edit(base, sound = false) { TrackEditing.settingSpeed(it, clip.id, speed) } ?: return null
+        // Off a sequence the fits are the track model's.
+        if (!state.isSequence) return result
         // Kept until S3b: where the clip's transitions are scaled to fit it, the fits saved are the ones today's rule finds
         // ([refitted]), to the last digit; the track model measures the clip in ticks and comes out a millionth apart.
         val wanted = refitted(base.clips.toMutableList().also { it[index] = it[index].copy(speed = speed) }, index).associateBy { it.id }

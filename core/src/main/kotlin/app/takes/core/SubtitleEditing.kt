@@ -18,6 +18,8 @@ object SubtitleEditing {
 
     /** Every caption of the edit in timeline seconds, in playback order. A muted clip shows none. */
     fun cues(state: EditState): List<SubtitleCue> {
+        // Off a sequence: from the words on the timeline's sounds; a caption names the picture whose sound it is on ([TrackSequenceView.cues]).
+        if (!state.isSequence) return TrackSequenceView.cues(state)
         if (state.subtitles == null) return emptyList()
         val cues = mutableListOf<SubtitleCue>()
         state.clips.forEachIndexed { index, clip ->
@@ -49,7 +51,7 @@ object SubtitleEditing {
 
     /** False once the footage changed after transcription: the words per caption can then no longer be changed. Undo restores it. */
     fun groupingAvailable(state: EditState): Boolean =
-        state.subtitles != null && state.subtitles.timingFingerprint == fingerprint(state.clips)
+        if (!state.isSequence) TrackSubtitles.groupingAvailable(state.toTimeline()) else state.subtitles != null && state.subtitles.timingFingerprint == fingerprint(state.clips)
 
     /**
      * What has to be transcribed: for each recording, the parts that clips
@@ -82,6 +84,11 @@ object SubtitleEditing {
      * one clip never changes another that shows the same footage.
      */
     fun install(state: EditState, words: Map<String, List<SubtitleWord>>, language: String): EditState {
+        // Off a sequence: the same words to the same sounds, and what they were timed for is the timeline's ([TrackSubtitles.fingerprint]).
+        if (!state.isSequence) return TrackEditState.editing(state) { timeline ->
+            val installed = TrackSubtitles.installingSourceWords(timeline, words, language, timeline.audio.filter { it.followsVideo != null }.mapTo(HashSet()) { it.id })
+            installed.copy(subtitles = (installed.subtitles ?: SubtitleSettings()).copy(language = language, timingFingerprint = TrackSubtitles.fingerprint(installed)))
+        } ?: state
         // The words go to the sounds of the timeline ([TrackSubtitles.installingSourceWords]). Kept until S8
         // (transcription-hears-sound-items): only to the sound that follows a clip's picture; a sound of its own gets none.
         val result = TrackWrapping.edit(state, sound = false) { timeline ->
@@ -97,6 +104,8 @@ object SubtitleEditing {
     /** Changes how the series looks. Null when the settings are not valid or nothing changes. */
     fun restyle(state: EditState, settings: SubtitleSettings): EditState? {
         if (state.subtitles == null || !settings.valid || settings == state.subtitles) return null
+        // Off a sequence: the look alone; what the captions were timed for stays the timeline's.
+        if (!state.isSequence) return TrackEditState.editing(state) { TrackSubtitles.restyling(it, settings.copy(timingFingerprint = it.subtitles?.timingFingerprint ?: "")) }
         val result = TrackWrapping.edit(state, sound = false) { timeline ->
             TrackSubtitles.restyling(timeline, settings.copy(timingFingerprint = timeline.subtitles?.timingFingerprint ?: ""))
         } ?: state

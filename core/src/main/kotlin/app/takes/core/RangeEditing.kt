@@ -236,6 +236,8 @@ object RangeEditing {
      * inside one, since a range cannot begin or end in the middle of it.
      */
     fun markTime(state: EditState, time: Double, pointsPerSecond: Double? = null): Double {
+        // Off a sequence: on the grid, or on the edge of an item near enough ([TrackMove.snapTarget]).
+        if (!state.isSequence) return TrackEditState.markTime(state, time, pointsPerSecond)
         val clips = state.clips
         val boundary = if (pointsPerSecond != null) snap(time, clips, pointsPerSecond) else time
         val joins = joinTimes(clips)
@@ -427,6 +429,11 @@ object RangeEditing {
      * scope covers nothing.
      */
     fun delete(given: EditState, scope: EditScope, playhead: Double? = null): Removed? {
+        // Off a sequence: as the original's editor deletes ([TrackSequenceView.delete]): linked picture and sound close their time, anything by itself leaves a gap.
+        if (!given.isSequence) {
+            val removed = TrackSequenceView.delete(given, scope, playhead) ?: return null
+            return Removed(removed.result.timeline.toEdit(given.captureBase), removed.position)
+        }
         // From here on the transitions that stay keep the fit they have.
         val state = given.copy(clips = TimelineEditing.fitted(given.clips))
         val all = pieces(state.clips)
@@ -500,6 +507,8 @@ object RangeEditing {
      * Null when the range is shorter than a frame or inverted, or nothing is covered.
      */
     fun copy(given: EditState, scope: EditScope): ClipFragment? {
+        // Off a sequence: [SequenceOnly.Clipboard].
+        if (!given.isSequence) return null
         // A transition travels with the fit it has.
         val state = given.copy(clips = TimelineEditing.fitted(given.clips))
         val items = state.audio.orEmpty()
@@ -596,6 +605,8 @@ object RangeEditing {
      * been committed and saved. Null when either does not apply.
      */
     fun cut(state: EditState, scope: EditScope, playhead: Double? = null): CutOut? {
+        // Off a sequence: [SequenceOnly.Clipboard].
+        if (!state.isSequence) return null
         val fragment = copy(state, scope) ?: return null
         val removed = delete(state, scope, playhead) ?: return null
         return CutOut(removed.state, fragment, removed.position)
@@ -640,6 +651,8 @@ object RangeEditing {
      * be placed.
      */
     fun paste(state: EditState, fragment: ClipFragment, at: Double): Pasted? {
+        // Off a sequence: [SequenceOnly.Clipboard].
+        if (!state.isSequence) return null
         if (fragment.isEmpty || !at.isFinite()) return null
         val copy = fresh(fragment)
         var clips = state.clips
@@ -722,7 +735,10 @@ object RangeEditing {
      * silently change the footage hidden under it. So does a range shorter
      * than a frame.
      */
-    fun scoped(state: EditState, scope: EditScope): Scoped = when (scope) {
+    fun scoped(state: EditState, scope: EditScope): Scoped = if (!state.isSequence) {
+        // Off a sequence: the items are cut at the two ends of a range wherever those fall ([TrackSequenceView.scoped]).
+        TrackSequenceView.scoped(state, scope).let { Scoped(if (it.result.timeline == state.toTimeline()) state else it.result.timeline.toEdit(state.captureBase), it.clips) }
+    } else when (scope) {
         EditScope.Whole -> Scoped(state, state.clips.map { it.id })
         is EditScope.Selected -> Scoped(state, state.clips.map { it.id }.filter { it in scope.targets.clips })
         is EditScope.Range -> {
@@ -747,6 +763,7 @@ object RangeEditing {
      * to the next, else the whole movie.
      */
     fun interval(state: EditState, range: TimeRange?, clipID: String?): TimeRange {
+        if (!state.isSequence) return TrackEditState.interval(state, range, clipID)
         if (range != null) return TimeRange(maxOf(0.0, range.start), minOf(state.duration, range.end))
         val index = state.clips.indexOfFirst { it.id == clipID }
         if (index < 0) return TimeRange(0.0, state.duration)
