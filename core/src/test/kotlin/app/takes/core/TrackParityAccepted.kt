@@ -35,7 +35,7 @@ internal object TrackParityAccepted {
         "regroup-at-the-count-it-has",
         // RangeEditing carries the playhead as before.
         "playhead-in-time-a-transition-holds",
-        // Not taken up: at the end of the movie the mark would be on the timeline itself, which a sequence cannot save.
+        // Adopted at S12 by TrackEditorEdits.addingBookmark; the clip's bookmark button (TimelineEditing.toggleBookmark) still marks its footage.
         "bookmark-at-the-last-second",
         // RangeEditing and removeIntervals drop a mark with its footage as before.
         "bookmark-outlives-its-footage",
@@ -43,7 +43,7 @@ internal object TrackParityAccepted {
         "fade-no-longer-than-its-item",
         // A trim keeps the fades a handle leaves, as since 0.8; a cut slices a fade on both sides alike.
         "fades-through-retimes-and-cuts",
-        // Not taken up: the takes of the capture ledger are inserted again at every read and must keep the ids they have.
+        // Adopted at S12 for footage (TrackEditorEdits.insertingFootage); the takes of the capture ledger are inserted again at every read and keep their ids.
         "insert-new-identity",
         // Not taken up: the piece left of a sound item keeps the item's id, so the saved bytes of a project do not move.
         "later-piece-new-identity",

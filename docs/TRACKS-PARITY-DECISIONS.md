@@ -145,3 +145,21 @@ The kinds kept until S4 stay kept until the visible S4: `handle-trim-outwards-ov
 `handle-trim-inwards-is-a-deletion`, `split-refused-near-an-edge`,
 `range-end-within-a-frame-of-a-cut`, `removed-transition-leaves-its-time` and
 `close-that-holds-pushes-nothing` (the last two need gaps drawn), and the fit's last digits.
+
+## At S12
+
+S12 gives the editor the original's own paste targets, add buttons in gaps and bookmarks
+anywhere as edits of a project (`TrackEditorEdits`, on the timeline through the track
+model). Two kinds kept until S12 are decided with it. Both stay in the accepted list as
+Invisible: the sequence wrappers that the parity suite compares still keep today's result,
+and the new calls are the original's behaviour by construction.
+
+| Kind | Decision | Why |
+|---|---|---|
+| bookmark-at-the-last-second | Adopted | "Add bookmark" is `TrackEditorEdits.addingBookmark`, the original's `addBookmark` (`TrackTimeline.swift:1162-1174`): at the playhead it marks the picture in front, a sound when one is chosen or no picture plays, and the timeline itself in empty time and at the very end. Such a mark makes an edit that is no sequence, which a project now saves. `TimelineEditing.toggleBookmark`, the wrapper of the clip's bookmark button, still marks the footage it was made on; it ends when the editor calls the new function instead. |
+| insert-new-identity | Adopted for footage, not for takes | Footage added from the library or with an add button is `TrackEditorEdits.insertingFootage`, the original's `inserting` (`TimelineEditing.swift:86-127`): every clip is a copy with an id of its own, and the call answers the inserted items as its selection, so the editor never looks for a clip by the id it gave. A take of the capture ledger keeps its entry's id (`TimelineEditing.insert`, `Project.materialized`, `UnusedTakes.add`): the ledger's takes are put in again every time a project is read and must be the same clips each time. That is this port's own rule and is not adopted. |
+
+`bookmark-outlives-its-footage` is not decided here: a mark whose footage is cut away is
+kept by the track model (`TrackBookmarks.hidden`) and dropped by `RangeEditing` and
+`removeIntervals`, which S12 does not change.
+
