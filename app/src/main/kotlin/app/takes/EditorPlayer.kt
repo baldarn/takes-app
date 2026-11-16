@@ -27,6 +27,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import app.takes.core.EditState
+import app.takes.core.LayerPlan
 import app.takes.core.RenderPlan
 import app.takes.core.TimelineEditing
 import app.takes.core.TransitionScene
@@ -46,13 +47,19 @@ import kotlin.math.roundToInt
  */
 internal class EditorPlayer(private val context: Context) {
     private val sessions = context.getSystemService(AudioManager::class.java)
-    val decks = List(2) {
+
+    /**
+     * A player for each lane an edit drawn by picture layers decodes at once ([EditRendering.LANES]); a sequence
+     * plays on the first two, its decks.
+     */
+    val lanes = List(EditRendering.LANES) {
         ExoPlayer.Builder(context, DeckRenderers(context)).build().apply {
             audioSessionId = sessions.generateAudioSessionId()
             // A clip with noise reduction carries two sounds, recorded and cleaned (a WAV): play the cleaned one.
             trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredAudioMimeType(MimeTypes.AUDIO_RAW).build()
         }
     }
+    val decks: List<ExoPlayer> = lanes.subList(0, RenderPlan.DECKS)
     private val sources = DefaultMediaSourceFactory(context)
 
     /** The clip as something to play: its own file, or its picture merged with its cleaned sound when that plays in place of the recorded one. */
@@ -66,7 +73,7 @@ internal class EditorPlayer(private val context: Context) {
             .setStartPositionUs(clip.sourceStartUs).setEndPositionUs(clip.sourceEndUs).build()
     }
     // A player's volume stops at 1; a boosted clip is previewed with an enhancer on its audio session.
-    private val boosts = decks.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
+    private val boosts = lanes.map { runCatching { LoudnessEnhancer(it.audioSessionId) }.getOrNull() }
 
     // Sound on its own tracks: one audio-only player per track, holding the item that is
     // playing there or the next one to come, so it can start on time.
@@ -86,7 +93,7 @@ internal class EditorPlayer(private val context: Context) {
     }
 
     /** Sets how loud a deck plays, as a factor of the recorded sound. */
-    fun setSound(deck: Int, level: Double) = apply(decks[deck], boosts[deck], level)
+    fun setSound(deck: Int, level: Double) = apply(lanes[deck], boosts[deck], level)
 
     /** Sets how loud an audio track plays. */
     fun setTrackSound(track: Int, level: Double) = apply(tracks[track], trackBoosts[track], level)
@@ -145,6 +152,13 @@ internal class EditorPlayer(private val context: Context) {
      */
     fun load(plan: RenderPlan, files: Map<String, File>, clean: Map<Int, File>, time: Double) {
         pause()
+        if (layered != null) {
+            layered = null
+            laneMedia = null
+            loaded = null
+            // A lane past the decks plays only for an edit drawn by layers.
+            for (lane in lanes.drop(decks.size)) if (lane.mediaItemCount > 0) lane.clearMediaItems()
+        }
         this.plan = plan
         this.files = files
         cued.fill(null)
@@ -163,6 +177,43 @@ internal class EditorPlayer(private val context: Context) {
             }
         }
         seek(time)
+    }
+
+    /** The edit drawn by picture layers that is loaded, null for a sequence; and what its lanes hold. */
+    private var layered: LanePlayback? = null
+    private var laneMedia: Any? = null
+
+    /**
+     * Takes an edit drawn by picture layers ([plan]) to play, one player a lane, with each source's file in [files],
+     * and goes to [time]. [sounds] plays the sound tracks: a render plan of the edit's sound items alone.
+     */
+    fun load(plan: LayerPlan, sounds: RenderPlan, files: Map<String, File>, time: Double) {
+        pause()
+        this.plan = sounds
+        this.files = files
+        cued.fill(null)
+        sounding = emptyList()
+        for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
+        loaded = null
+        val playback = LanePlayback(lanes, plan) { speed }
+        playback.prepare(files, laneMedia)
+        laneMedia = playback.media
+        layered = playback
+        seek(time)
+    }
+
+    /** Takes nothing to play: an edit that cannot be drawn. */
+    fun unload() {
+        pause()
+        layered = null
+        laneMedia = null
+        loaded = null
+        plan = RenderPlan.of(EditState())
+        cued.fill(null)
+        sounding = emptyList()
+        for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
+        lanes.forEach { if (it.mediaItemCount > 0) it.clearMediaItems() }
+        tracks.forEach { if (it.mediaItemCount > 0) it.clearMediaItems() }
     }
 
     /** Plays the deck at its clip's speed, keeping the pitch. */
@@ -191,6 +242,7 @@ internal class EditorPlayer(private val context: Context) {
      * to where its sound is, and the frame it stood on is drawn over it.
      */
     fun seek(time: Double, starting: Boolean = false) {
+        layered?.let { this.time = it.seek(time, starting); for (track in tracks.indices) cue(track, this.time, play = false); return }
         if (clips.isEmpty()) return
         this.time = time.coerceIn(0.0, duration)
         decks.forEachIndexed { deck, player ->
@@ -225,6 +277,15 @@ internal class EditorPlayer(private val context: Context) {
 
     /** Plays from [time], at [speed] times the edit's own pace. */
     fun play(time: Double, speed: Double = 1.0) {
+        layered?.let { layers ->
+            this.speed = speed
+            this.time = layers.seek(time, starting = true)
+            layers.start()
+            for (track in tracks.indices) cue(track, this.time, play = true)
+            ticked = System.nanoTime()
+            playing = true
+            return
+        }
         if (clips.isEmpty()) return
         this.speed = speed
         seek(time, starting = true) // line both decks up again
@@ -235,16 +296,23 @@ internal class EditorPlayer(private val context: Context) {
     }
 
     fun pause() {
-        decks.forEach { it.pause() }
+        lanes.forEach { it.pause() }
         tracks.forEach { it.pause() }
         playing = false
     }
 
     /** Advances the hand-over between decks and returns the timeline time. Call once per frame while playing. */
     fun tick(): Double {
-        if (clips.isEmpty()) return 0.0
         val now = System.nanoTime()
         val passed = ((now - ticked) / 1e9).coerceIn(0.0, 0.1)
+        layered?.let { layers ->
+            ticked = now
+            time = layers.tick(passed)
+            if (time >= layers.plan.duration) { time = layers.plan.duration; pause(); return time }
+            if (playing) followTracks()
+            return time
+        }
+        if (clips.isEmpty()) return 0.0
         ticked = now
         // The clock is the deck that began playing last; where none plays, time runs on by itself.
         val leading = plan.leading(time)
@@ -302,8 +370,13 @@ internal class EditorPlayer(private val context: Context) {
             }
             stopAtChainEnd(deck)
         }
-        // Audio tracks: start the waiting item when its moment comes, then line up the next.
-        if (playing) for (track in tracks.indices) {
+        if (playing) followTracks()
+        return time
+    }
+
+    // Audio tracks: start the waiting item when its moment comes, then line up the next.
+    private fun followTracks() {
+        for (track in tracks.indices) {
             val item = cued[track]
             when {
                 item == null -> Unit
@@ -311,7 +384,6 @@ internal class EditorPlayer(private val context: Context) {
                 time >= item.start && !tracks[track].playWhenReady -> tracks[track].play()
             }
         }
-        return time
     }
 
     private companion object {
@@ -341,6 +413,6 @@ internal class EditorPlayer(private val context: Context) {
         reading.shutdownNow()
         (boosts + trackBoosts).forEach { runCatching { it?.release() } }
         tracks.forEach { it.release() }
-        decks.forEach { it.release() }
+        lanes.forEach { it.release() }
     }
 }

@@ -161,6 +161,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import app.takes.core.TimelineSnapping
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TrackRenderPlan
+import app.takes.core.EditRender
+import app.takes.core.LayerSound
+import app.takes.core.TimelineTransition
 import app.takes.core.EffectValue
 import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectSettings
@@ -260,7 +263,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // Noise reduction runs in the background, one recording at a time. Until a clip's
     // cleaned sound is ready the preview plays the recorded sound; then the players reload.
     // The render plan of the edit as it is shown, before any cleaned sound is at hand: it marks every clip that asks for noise reduction.
-    val asked = remember(edit) { TrackRenderPlan.of(edit) }
+    // How the edit is drawn: a sequence on two decks; pictures over one another or apart by picture layers, a player a
+    // lane; or not at all, past the pictures the device decodes at once. For layers the render plan holds the sound tracks alone.
+    val render = remember(edit) { EditRender.of(edit, EditRendering.LANES) }
+    val layers = (render as? EditRender.Layers)?.plan
+    val layerSound = remember(layers, edit) { layers?.let { LayerSound(it, edit.clips, edit.audio.orEmpty()) } }
+    val refusal = (render as? EditRender.TooManyLayers)?.let { EditRendering.tooMany(context, it) }
+    val asked = remember(render) { (render as? EditRender.Sequence)?.plan ?: RenderPlan.of(EditState(audio = edit.audio)) }
     val cleaning = asked.pictures.filter { it.soundRemoved }.map { files.getValue(it.sourceID) to (asked.clips[it.index].audio?.denoise ?: 0.0) }.distinct()
     var cleaned by remember { mutableIntStateOf(0) }
     var cleaningProgress by remember { mutableStateOf<Float?>(null) }
@@ -282,9 +291,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }.toMap()
     }
     val plan = remember(asked, clean) { if (asked.pictures.none { it.soundRemoved }) asked else TrackRenderPlan.of(edit, clean.keys) }
-    LaunchedEffect(clips, sounds, cleaned) {
+    LaunchedEffect(clips, sounds, cleaned, layers, refusal != null) {
         playhead = playhead.coerceIn(0.0, duration)
-        editor.load(plan, files, clean, playhead)
+        when {
+            layers != null -> editor.load(layers, plan, files, playhead)
+            refusal != null -> editor.unload()
+            else -> editor.load(plan, files, clean, playhead)
+        }
     }
     // The Crop tool: the framing it is working on and the clips it goes on, shown in the preview and not saved until applied.
     var cropping by remember { mutableStateOf<Cropping?>(null) }
@@ -446,7 +459,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         value = withContext(Dispatchers.IO) { project.recordings.mapNotNull { source -> frameRate(store.file(project, source))?.let { source.id to it } }.toMap() }
     }
     val ceiling = project.exportSettings.frameRate
-    val movieRate = remember(clips, rates, ceiling) { plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling).toDouble() }
+    val movieRate = remember(clips, rates, ceiling, layers) {
+        (layers?.pictures?.map { rates[it.sourceID] }?.let { TransitionScene.frameRate(it, ceiling) } ?: plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling)).toDouble()
+    }
     val frames = remember(movieRate) {
         val movie = movieRate
         val rate: (TransitionLayout.Join) -> Double = { movie }
@@ -461,28 +476,39 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val sourceTime = if (location != null && current != null) current.sourceTime(location.offset) else 0.0
     // Which deck shows each clip, and the clip each deck is playing now or holding the last frame of.
     val deckClips = List(2) { deck ->
-        plan.onDeck(deck, playhead)?.index ?: plan.held(deck, playhead)?.index ?: location?.index?.takeIf { plan.pictures[it].deck == deck }
+        plan.onDeck(deck, playhead)?.index ?: plan.held(deck, playhead)?.index ?: location?.index?.takeIf { plan.pictures.getOrNull(it)?.deck == deck }
+    }
+    // For an edit drawn by layers, the picture each lane shows: playing, holding a frame, or waiting to play next.
+    val lanePictures = layers?.let { drawn ->
+        List(drawn.lanes) { lane ->
+            drawn.onLane(lane, playhead)?.index ?: drawn.freezes.firstOrNull { it.lane == lane && playhead >= it.from && playhead < it.until }?.picture
+                ?: drawn.pictures.filter { it.lane == lane && it.start > playhead }.minByOrNull { it.start }?.index
+        }
+    }
+    // The clip each deck or lane shows, and the second of the movie it begins at.
+    val shownClips: List<Pair<TimelineClip, Double>?> = List(EditRendering.LANES) { deck ->
+        if (layers != null) lanePictures?.getOrNull(deck)?.let { layers.pictures[it].content to layers.pictures[it].start }
+        else deckClips.getOrNull(deck)?.let { plan.clips[it] to plan.pictures[it].start }
     }
     // What each deck sounds like: its clip's own level and what the transitions at its ends leave of it.
-    val deckSounds = List(2) { deck -> plan.deckLevel(deck, playhead) }
+    val deckSounds = if (layers != null && layerSound != null) List(layers.lanes) { lane -> layerSound.laneLevel(lane, playhead) } else List(2) { deck -> plan.deckLevel(deck, playhead) }
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
-    val deckColors = deckClips.map { index -> index?.let { plan.pictures[it].color } }
+    val deckColors = shownClips.map { it?.first?.color }
     // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
     // is open what the tool would leave on it.
-    val cropOf = { index: Int ->
-        val clip = plan.clips[index]
-        val start = plan.pictures[index].start
+    val cropFor = { clip: TimelineClip, start: Double ->
         val offset = (playhead - start).coerceIn(0.0, clip.duration)
         val shows = PictureFraming.motionTime(clip, offset)
         val framed = cropping
         (if (framed != null) framed.shown(clip, shows, start + offset) else clip.crop) to shows
     }
+    val cropOf = { index: Int -> cropFor(plan.clips[index], plan.pictures[index].start) }
     // The framing each deck shows at this moment, for a frame of the size it is drawn in: a crop is sampled at the
     // source second its clip shows, so one that moves between two poses moves as the footage plays or is scrubbed.
-    val deckFrames = deckClips.map { index ->
-        val size = index?.let { sizes[plan.pictures[it].sourceID] }
-        val (crop, shows) = index?.let(cropOf) ?: (null to 0.0)
+    val deckFrames = shownClips.map { shown ->
+        val size = shown?.let { sizes[it.first.sourceID] }
+        val (crop, shows) = shown?.let { cropFor(it.first, it.second) } ?: (null to 0.0)
         if (crop == null || size == null) null else {
             val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame) }
             framing
@@ -497,8 +523,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The titles under the playhead, with the one being worked on as it is now.
     val titledEdit = titling?.applied(edit)
     val titled = titledEdit?.clips ?: clips
-    val titlePlan = remember(titledEdit, plan) { titledEdit?.let { TrackRenderPlan.of(it) } ?: plan }
+    val titlePlan = remember(titledEdit, plan) { titledEdit?.takeIf { it.isSequence }?.let { TrackRenderPlan.of(it) } ?: plan }
     val shownTitles = titlePlan.titlesShown(playhead, frames)
+    // An edit drawn by layers has its titles inside the layer of their picture: each lane's, as a clip by itself.
+    val titleLayers = remember(titledEdit, layers) { titledEdit?.takeIf { !it.isSequence }?.let { (EditRender.of(it, EditRendering.LANES) as? EditRender.Layers)?.plan } ?: layers }
+    val laneTitles = lanePictures.orEmpty().map { index ->
+        val picture = index?.let { layers?.pictures?.getOrNull(it) } ?: return@map emptyList()
+        val clip = titleLayers?.pictures?.firstOrNull { it.id == picture.id }?.content ?: picture.content
+        if (clip.texts.isNullOrEmpty()) emptyList() else listOf(clip).let { alone -> TitleMotionRanges(alone).shown(alone, (playhead - picture.start).coerceIn(0.0, picture.duration), frames) }
+    }
     val titlePainter = remember { TitlePainter(context.assets) }
     // Taking a color from the picture: the preview as it is on screen, without the titles over it.
     var previewBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
@@ -524,10 +557,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     // Subtitles, laid out once for the movie's shape and drawn by the code the export uses.
-    val captionPlan = remember(subtitling, plan) { subtitling?.let { TrackRenderPlan.of(it) } ?: plan }
-    val captions = captionPlan.captions
-    val captionLayout = remember(captions, captionPlan.subtitles?.style, captionPlan.subtitles?.resolvedFont, canvas) {
-        val look = captionPlan.subtitles
+    val captionPlan = remember(subtitling, plan) { subtitling?.takeIf { it.isSequence }?.let { TrackRenderPlan.of(it) } ?: plan }
+    val captionLayers = remember(subtitling, layers) { subtitling?.takeIf { !it.isSequence }?.let { (EditRender.of(it, EditRendering.LANES) as? EditRender.Layers)?.plan } ?: layers }
+    val captions = captionLayers?.captions ?: captionPlan.captions
+    val captionLook = if (captionLayers != null) captionLayers.subtitles else captionPlan.subtitles
+    val captionLayout = remember(captions, captionLook?.style, captionLook?.resolvedFont, canvas) {
+        val look = captionLook
         val shape = canvas
         if (look == null || shape == null) null else SubtitleLayout(captions, look, shape.first, shape.second)
     }
@@ -673,13 +708,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                 }
                 // The video effects after the color, as the export draws them: at the source second the deck shows.
-                val effectPreviews = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) List(2) { EffectPreview() } else null }
-                val effects = List(2) { deck ->
+                val effectPreviews = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) List(EditRendering.LANES) { EffectPreview() } else null }
+                val effects = List(EditRendering.LANES) { deck ->
                     val grade = grades[deck]
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List grade?.asComposeRenderEffect()
-                    val shaded = deckClips[deck]?.let { index ->
-                        val clip = plan.clips[index]
-                        val offset = (playhead - plan.pictures[index].start).coerceIn(0.0, clip.duration)
+                    val shaded = shownClips[deck]?.let { (clip, start) ->
+                        val offset = (playhead - start).coerceIn(0.0, clip.duration)
                         // While the Video effects tool is open, its draft (or nothing, comparing with the original).
                         val work = effecting
                         val shown = if (work != null) work.shown(clip, clip.sourceTime(offset), playhead) else clip.videoEffects
@@ -691,7 +725,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
                 val content = { index: Int, frame: FrameSize -> RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = cropOf(index).first != null) }
                 val pictures: @Composable () -> Unit = {
-                    DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                    when {
+                        layers != null -> {
+                            val perTransition = { _: TimelineTransition -> movieRate }
+                            LayerPictures(
+                                editor.lanes, layers.lanes, effects, deckFrames, laneTitles, titlePainter,
+                                moment = { frame -> layers.moment(playhead, frame, perTransition) },
+                                content = { index, frame ->
+                                    val picture = layers.pictures[index]
+                                    RenderPlan.content(frame, sizes[picture.sourceID], cropped = cropFor(picture.content, picture.start).first != null)
+                                },
+                            )
+                        }
+                        refusal != null -> LayersRefused(refusal)
+                        else -> DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                    }
                 }
                 // Full screen the decks are drawn there alone, with the titles and subtitles over them.
                 if (fullPreview) FullPreview(
@@ -708,7 +756,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     Canvas(Modifier.fillMaxSize()) {
                         drawIntoCanvas { target ->
                             titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
-                            captionPlan.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
+                            captionLook?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                         }
                     }
                 } else pictures()
@@ -790,7 +838,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (guiding) placing?.let { subtitleGuide(it) }
                     drawIntoCanvas { target ->
                         titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
-                        captionPlan.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
+                        captionLook?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                     }
                 }
                 // With Placement open, the pictures as they will be placed, and the gestures that place them.
