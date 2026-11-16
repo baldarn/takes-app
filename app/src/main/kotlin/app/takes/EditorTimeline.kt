@@ -87,6 +87,7 @@ import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TimelineZoom
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -94,6 +95,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 private val Panel = Color(0xFF1B1D21)
@@ -473,7 +475,8 @@ internal fun Timeline(
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             }
         }
-        Canvas(Modifier.fillMaxWidth().height(StripTop)) {
+        // In a layer of its own, drawn again at every frame of a scroll without drawing what is around it.
+        Canvas(Modifier.fillMaxWidth().height(StripTop).graphicsLayer()) {
             val half = size.width / 2
             val step = TimelineZoom.rulerStep((pixelsPerSecond / density.density).toDouble())
             val total = maxOf(rows?.duration ?: TimelineEditing.duration(clips), length)
@@ -540,6 +543,8 @@ internal fun ClipStrip(
         }
     }
     val peaks by produceState<ByteArray?>(null, file) { value = Waveforms.peaks(file) }
+    // The waveform is drawn a screen to either side of the one in view, so a scroll draws it again only once it has gone a screen.
+    val screen by remember(offset, viewport) { derivedStateOf { floor((scroll.value - offset) / viewport.coerceAtLeast(1)).toInt() } }
     val loudness = (clip.audio?.gain ?: 1.0).toFloat()
     Box(
         Modifier.offset { IntOffset(offset.roundToInt(), top) }.width(with(density) { width.toDp() })
@@ -568,8 +573,8 @@ internal fun ClipStrip(
                 val levels = peaks ?: return@Canvas
                 val step = 3.dp.toPx()
                 // Draw only the columns near the screen.
-                var x = ((scroll.value - viewport - offset).coerceAtLeast(0f) / step).toInt() * step
-                val last = minOf(size.width, scroll.value + viewport - offset)
+                var x = ((screen - 1f) * viewport).coerceAtLeast(0f).let { (it / step).toInt() * step }
+                val last = minOf(size.width, (screen + 2f) * viewport)
                 while (x < last) {
                     val from = clip.sourceTime((x / pixelsPerSecond).toDouble())
                     val level = WaveformBuilder.level(levels, from, minOf(clip.end, from + step / pixelsPerSecond * clip.rate))
@@ -856,7 +861,9 @@ private fun BoxWithConstraintsScope.AddSiteButton(site: AddSite, pixelsPerSecond
             }
         }
     }
-    val at = middleX ?: return
+    // Composed while the button fits; where it stands is read when it is placed, so a scroll moves it without composing it again.
+    val fits by remember(site, pixelsPerSecond, width) { derivedStateOf { middleX != null } }
+    if (!fits) return
     val label = stringResource(
         when (site.site) {
             VideoInsertionSite.Start -> R.string.add_site_start
@@ -865,7 +872,7 @@ private fun BoxWithConstraintsScope.AddSiteButton(site: AddSite, pixelsPerSecond
         },
     )
     Box(
-        Modifier.offset { IntOffset((at - button / 2).roundToInt(), (middle - 22.dp).roundToPx()) }.size(44.dp)
+        Modifier.offset { IntOffset(((middleX ?: return@offset IntOffset.Zero) - button / 2).roundToInt(), (middle - 22.dp).roundToPx()) }.size(44.dp)
             .clickable(onClickLabel = label) { add(site.site) }.semantics { contentDescription = label },
         Alignment.Center,
     ) {

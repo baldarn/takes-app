@@ -1,6 +1,8 @@
 package app.takes
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import app.takes.core.EditState
@@ -39,7 +41,7 @@ internal class EditorClipboard(
  */
 @Composable
 internal fun rememberClipboard(
-    store: ProjectStore, projectID: String, edit: EditState, saved: EditState, marks: RangeMarks, playhead: Double, playing: Boolean,
+    store: ProjectStore, projectID: String, edit: EditState, saved: EditState, marks: RangeMarks, playhead: () -> Double, playing: Boolean,
     pause: () -> Unit, commit: (EditState?, Double) -> Unit, select: (RangeMarks) -> Unit, said: (String) -> Unit,
 ): EditorClipboard {
     val copied = stringResource(R.string.clipboard_copied)
@@ -48,11 +50,12 @@ internal fun rememberClipboard(
     val nothingPasted = stringResource(R.string.clipboard_paste_nothing)
     val held = store.clipboards[projectID]
     // None while playing, as the original (EditorView.swift:627-632).
-    val found = remember(edit, held, playhead, playing) { held?.takeIf { !playing }?.let { TrackEditorEdits.pasteChoices(edit, it, playhead) } }
+    // Derived, so that a scrub composes the editor again only when the choices change.
+    val found by remember(edit, held, playing, playhead) { derivedStateOf { held?.takeIf { !playing }?.let { TrackEditorEdits.pasteChoices(edit, it, playhead()) } } }
     val labels = found?.targets.orEmpty().map { pasteLabel(it.labelKey(edit.toTimeline())) }
     // The pasted items selected, the playhead where they begin (EditorView.swift:861-869).
     val pasting = { target: TimelinePasteTarget? ->
-        val made = held?.let { TrackEditorEdits.pasting(edit, it, playhead, target) }
+        val made = held?.let { TrackEditorEdits.pasting(edit, it, playhead(), target) }
         if (made == null) store.error = nothingPasted else {
             commit(made.edit, made.position)
             select(RangeMarks(selected = TrackComponents.targets(made.edit, made.selection)))
@@ -73,7 +76,7 @@ internal fun rememberClipboard(
         },
         // Copy and delete as one Undo step. The clipboard takes the pieces once the edit is saved.
         cut = {
-            TrackSequenceView.selection(edit, edit.toTimeline(), marks.scope)?.let { TrackEditorEdits.cutting(edit, it, playhead) }?.let { lifted ->
+            TrackSequenceView.selection(edit, edit.toTimeline(), marks.scope)?.let { TrackEditorEdits.cutting(edit, it, playhead()) }?.let { lifted ->
                 commit(lifted.edit, lifted.position)
                 if (store.selected?.edit != saved) {
                     store.clipboards[projectID] = lifted.clipboard

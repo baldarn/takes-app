@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import app.takes.core.TextOverlay
 import app.takes.core.TransitionSettings
 import app.takes.core.TransitionStyle
@@ -104,6 +105,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -188,6 +191,7 @@ import app.takes.core.TransitionTiming
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -202,6 +206,13 @@ internal val BookmarkColor = Color(0xFFFF7A45)
 internal fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
     return "%d:%02d.%d".format(tenths / 600, tenths / 10 % 60, tenths % 10)
+}
+
+/** The time of the playhead and the length of the movie, composed again only when the tenth of a second shown changes. */
+@Composable
+private fun PlayheadTime(playhead: () -> Double, duration: Double) {
+    val shown by remember(playhead) { derivedStateOf { preciseLabel(playhead()) } }
+    Text("$shown / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
 }
 
 @Composable
@@ -247,6 +258,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val duration = MovieLength.of(edit, withSound)
     val files = remember(project.sources) { project.sources.associate { it.id to store.file(project, it) } }
     val editor = remember { EditorPlayer(context) }
+    // Read where it is drawn or used, or through a derived state that changes when what it shows does: a read in the
+    // body of the editor would compose all of it again at every frame of a scrub or of playback.
     var playhead by remember { mutableDoubleStateOf(0.0) }
     var scale by remember { mutableFloatStateOf(48f) } // dp of timeline per second
     // From the whole project to 720 dp a second, as the original's viewport (C/TimelineZoom.kt).
@@ -295,7 +308,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var cleaningProgress by remember { mutableStateOf<Float?>(null) }
     // Enhance audio or Censor, open on what it acts on.
     var audioTool by remember { mutableStateOf<Pair<AudioToolKind, AudioToolWork>?>(null) }
-    val listening = (playhead / LISTEN_STEP).toInt()
+    val listening by remember { derivedStateOf { (playhead / LISTEN_STEP).toInt() } }
     LaunchedEffect(timeline, listening, files) {
         val from = listening * LISTEN_STEP
         val requests = TrackAudioRegions.windowRequests(timeline, EditInterval.of(maxOf(0.0, from - LISTEN_STEP), from + LISTEN_AHEAD)).values
@@ -407,7 +420,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             store.commit(project.id, next)
         }
     }
-    val location = TrackEditState.locate(edit, playhead)
+    // The clip under the playhead, by its place in the clips; where in it the playhead is, [TrackEditState.locate] at the time it is needed.
+    val located by remember(edit) { derivedStateOf { TrackEditState.locate(edit, playhead)?.index } }
     // The marked range and the selection: the editor's own, never saved. They follow the edit as it changes.
     var marks by remember { mutableStateOf(RangeMarks()) }
     // Link of picture and sound that cover different times, waiting for the question to be answered.
@@ -433,9 +447,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         commit(next, time)
     }
     // The clip a tool shows the settings of: the one of its scope under the playhead, else the first.
-    val toolSubject = toolScope?.let { scoped ->
-        val under = TimelineEditing.locate(scoped.state.clips, playhead)?.let { scoped.state.clips[it.index] }?.takeIf { it.id in scoped.clips }
-        under ?: scoped.state.clips.firstOrNull { it.id == scoped.clips.firstOrNull() }
+    val toolSubject by remember(toolScope) {
+        derivedStateOf {
+            toolScope?.let { scoped ->
+                val under = TimelineEditing.locate(scoped.state.clips, playhead)?.let { scoped.state.clips[it.index] }?.takeIf { it.id in scoped.clips }
+                under ?: scoped.state.clips.firstOrNull { it.id == scoped.clips.firstOrNull() }
+            }
+        }
     }
 
     // Trim handles change the clip under the playhead. The draft is shown in
@@ -506,17 +524,24 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val unusedFailed = stringResource(R.string.unused_failed)
     // The unused takes chosen so far, in the order they will play; null while the list is closed.
     var choosing by remember { mutableStateOf<List<String>?>(null) }
-    val current = location?.let { clips[it.index] }
-    val sourceTime = if (location != null && current != null) current.sourceTime(location.offset) else 0.0
+    val current = located?.let { clips[it] }
     // Which deck shows each clip, and the clip each deck is playing now or holding the last frame of.
-    val deckClips = List(2) { deck ->
-        plan.onDeck(deck, playhead)?.index ?: plan.held(deck, playhead)?.index ?: location?.index?.takeIf { plan.pictures.getOrNull(it)?.deck == deck }
+    val deckClips by remember(plan, edit) {
+        derivedStateOf {
+            List(2) { deck ->
+                plan.onDeck(deck, playhead)?.index ?: plan.held(deck, playhead)?.index ?: located?.takeIf { plan.pictures.getOrNull(it)?.deck == deck }
+            }
+        }
     }
     // For an edit drawn by layers, the picture each lane shows: playing, holding a frame, or waiting to play next.
-    val lanePictures = layers?.let { drawn ->
-        List(drawn.lanes) { lane ->
-            drawn.onLane(lane, playhead)?.index ?: drawn.freezes.firstOrNull { it.lane == lane && playhead >= it.from && playhead < it.until }?.picture
-                ?: drawn.pictures.filter { it.lane == lane && it.start > playhead }.minByOrNull { it.start }?.index
+    val lanePictures by remember(layers) {
+        derivedStateOf {
+            layers?.let { drawn ->
+                List(drawn.lanes) { lane ->
+                    drawn.onLane(lane, playhead)?.index ?: drawn.freezes.firstOrNull { it.lane == lane && playhead >= it.from && playhead < it.until }?.picture
+                        ?: drawn.pictures.filter { it.lane == lane && it.start > playhead }.minByOrNull { it.start }?.index
+                }
+            }
         }
     }
     // The clip each deck or lane shows, and the second of the movie it begins at.
@@ -546,10 +571,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // source second its clip shows, so one that moves between two poses moves as the footage plays or is scrubbed.
     val deckFrames = shownClips.map { shown ->
         val size = shown?.let { sizes[it.first.sourceID] }
+        val tool = cropping
+        // A clip's own crop and flip: sampled at the source second when the picture is drawn, which a scrub does not compose again.
+        if (tool == null) {
+            val (clip, start) = shown ?: return@map null
+            if (size == null || (clip.crop == null && clip.mirror == null)) return@map null
+            val framing: (FrameSize) -> PictureFrame = { frame ->
+                val shows = PictureFraming.motionTime(clip, (playhead - start).coerceIn(0.0, clip.duration))
+                PictureFraming.frame(clip.crop, shows, size, frame, clip.mirror)
+            }
+            return@map framing
+        }
         val (crop, shows) = shown?.let { cropFor(it.first, it.second) } ?: (null to 0.0)
         // The flip too, the one being worked on while the Crop tool is open.
-        val tool = cropping
-        val mirror = shown?.let { (clip, start) -> if (tool == null) clip.mirror else tool.mirrorShown(clip, shows, start + (playhead - start).coerceIn(0.0, clip.duration)) }
+        val mirror = shown?.let { (clip, start) -> tool.mirrorShown(clip, shows, start + (playhead - start).coerceIn(0.0, clip.duration)) }
         if ((crop == null && mirror == null) || size == null) null else {
             val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame, mirror) }
             framing
@@ -559,10 +594,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val titledEdit = titling?.applied(edit)
     val titled = titledEdit?.clips ?: clips
     val titlePlan = remember(titledEdit, plan) { titledEdit?.takeIf { it.isSequence }?.let { TrackRenderPlan.of(it) } ?: plan }
-    val shownTitles = titlePlan.titlesShown(playhead, frames)
+    // Worked out where they are drawn, at each frame, without composing the editor again.
+    fun shownTitles() = titlePlan.titlesShown(playhead, frames)
     // An edit drawn by layers has its titles inside the layer of their picture: each lane's, as a clip by itself.
     val titleLayers = remember(titledEdit, layers) { titledEdit?.takeIf { !it.isSequence }?.let { (EditRender.of(it, EditRendering.LANES) as? EditRender.Layers)?.plan } ?: layers }
-    val laneTitles = lanePictures.orEmpty().map { index ->
+    // Worked out where the pictures are composed.
+    fun laneTitles() = lanePictures.orEmpty().map { index ->
         val picture = index?.let { layers?.pictures?.getOrNull(it) } ?: return@map emptyList()
         val clip = titleLayers?.pictures?.firstOrNull { it.id == picture.id }?.content ?: picture.content
         if (clip.texts.isNullOrEmpty()) emptyList() else listOf(clip).let { alone -> TitleMotionRanges(alone).shown(alone, (playhead - picture.start).coerceIn(0.0, picture.duration), frames) }
@@ -611,6 +648,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The stops of the previous and next change buttons, from the edit as it is shown.
     val navigation = remember(edit) { TimelineNavigation.of(edit) }
+    val changeBack by remember(navigation) { derivedStateOf { navigation.destination(playhead, false) != null } }
+    val changeOn by remember(navigation) { derivedStateOf { navigation.destination(playhead, true) != null } }
     // The magnet: when a scroll of the timeline by hand ends, the playhead settles on a clip edge or a bookmark
     // within reach on screen, as in the original (EditorTimeline.swift:515-525).
     val snap = remember { SnapSetting(context) }
@@ -680,7 +719,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // Bookmarks anywhere: on the picture in front or the one selected, on a selected sound, or in empty time and at the
     // end (EditorView.swift:1259-1295). Made on the saved edit, so a draft on the screen is never committed with one.
-    val bookmarks = rememberBookmarks(edit, saved, playhead, marks.selected, editable = moving == null, commit = commit, said = { feedback = it })
+    val bookmarks = rememberBookmarks(edit, saved, { playhead }, marks.selected, editable = moving == null, commit = commit, said = { feedback = it })
     var bookmarksOpen by remember { mutableStateOf(false) }
     val soundName = stringResource(R.string.editor_sound_default_name)
     val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
@@ -795,11 +834,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val effectPreviews = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) List(EditRendering.LANES) { EffectPreview() } else null }
                 // A palette from the scene is analysed in the background the first time it is shown, and drawn once it is.
                 var palettesReady by remember { mutableIntStateOf(0) }
-                val effects = List(EditRendering.LANES) { deck ->
+                // Made where the pictures are composed: at each frame only while a clip on view has effects, whose passes change with the time.
+                fun effects() = List(EditRendering.LANES) { deck ->
                     val grade = grades[deck]
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List grade?.asComposeRenderEffect()
                     var restored: android.graphics.RenderEffect? = null
-                    val shaded = shownClips[deck]?.let { (clip, start) ->
+                    val shaded = shownClips[deck]?.takeIf { (clip, _) -> effecting != null || !clip.videoEffects.isNullOrEmpty() }?.let { (clip, start) ->
                         val offset = (playhead - start).coerceIn(0.0, clip.duration)
                         // While the Video effects tool is open, its draft (or nothing, comparing with the original).
                         val work = effecting
@@ -822,6 +862,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val graded = if (restored != null && grade != null) android.graphics.RenderEffect.createChainEffect(grade, restored) else grade ?: restored
                     (if (shaded != null && graded != null) android.graphics.RenderEffect.createChainEffect(shaded, graded) else shaded ?: graded)?.asComposeRenderEffect()
                 }
+                val pastPictures by remember(asked) { derivedStateOf { playhead >= asked.duration + MovieLength.MARGIN } }
                 // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
                 val content = { index: Int, frame: FrameSize -> RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = cropOf(index).first != null) }
                 val pictures: @Composable () -> Unit = {
@@ -829,7 +870,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         layers != null -> {
                             val perTransition = { _: TimelineTransition -> movieRate }
                             LayerPictures(
-                                editor.lanes, layers.lanes, effects, deckFrames, laneTitles, titlePainter,
+                                editor.lanes, layers.lanes, effects(), deckFrames, laneTitles(), titlePainter,
                                 moment = { frame -> layers.moment(playhead, frame, perTransition) },
                                 content = { index, frame ->
                                     val picture = layers.pictures[index]
@@ -839,9 +880,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         }
                         refusal != null -> LayersRefused(refusal)
                         else -> Box {
-                            DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                            DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
                             // Past the last picture the movie is black under its sound, as it is exported.
-                            if (playhead >= asked.duration + MovieLength.MARGIN) Box(Modifier.matchParentSize().background(Color.Black))
+                            if (pastPictures) Box(Modifier.matchParentSize().background(Color.Black))
                         }
                     }
                 }
@@ -858,7 +899,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     pictures()
                     Canvas(Modifier.fillMaxSize()) {
                         drawIntoCanvas { target ->
-                            titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
+                            titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles())
                             captionLook?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                         }
                     }
@@ -935,12 +976,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val tapLabel = stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play)
                 val tapping = if (titling != null || transitioning?.settings?.style == TransitionStyle.Split || cropping != null || effecting != null || placementWork != null || clips.isEmpty()) Modifier
                 else Modifier.pointerInput(Unit) { detectTapGestures(onTap = { cancelPending(); toggle() }) }.semantics { onClick(tapLabel) { cancelPending(); toggle(); true } }
-                Canvas(Modifier.fillMaxSize().then(titleMoving).then(framing).then(reframing).then(placeCaptions).then(tapping)) {
+                // In a layer of its own: the titles are drawn again at every frame of a scrub, and nothing around them is.
+                Canvas(Modifier.fillMaxSize().then(titleMoving).then(framing).then(reframing).then(placeCaptions).then(tapping).graphicsLayer()) {
                     if (sampling) return@Canvas
                     if (cropping != null) cropGuides()
                     if (guiding) placing?.let { subtitleGuide(it) }
                     drawIntoCanvas { target ->
-                        titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
+                        titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles())
                         captionLook?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                     }
                 }
@@ -965,14 +1007,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
         Column(Modifier.layoutId(EditorSlot.Transport)) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
+            PlayheadTime({ playhead }, duration)
             val tight = PaddingValues(horizontal = 6.dp)
             // As the original's transport: the bookmarks in one menu, and on either side of Play the previous and the
             // next change, which a tap takes to the nearest cut or change of treatment and a hold to the nearest change only.
             val toChange = { forward: Boolean, effectsOnly: Boolean -> navigation.destination(playhead, forward, effectsOnly)?.let(jump); Unit }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                EditorBookmarks(bookmarks, playhead, bookmarksOpen, open = { editor.pause(); bookmarksOpen = it }, go = jump)
-                ChangeButton(forward = false, enabled = navigation.destination(playhead, false) != null) { toChange(false, it) }
+                EditorBookmarks(bookmarks, { playhead }, bookmarksOpen, open = { editor.pause(); bookmarksOpen = it }, go = jump)
+                ChangeButton(forward = false, enabled = changeBack) { toChange(false, it) }
             }
             val reviewLabel = stringResource(R.string.editor_quick_review)
             TextButton(
@@ -984,7 +1026,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 Icon(if (pausing) Icons.Filled.Pause else Icons.Filled.PlayArrow, stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), Modifier.size(32.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ChangeButton(forward = true, enabled = navigation.destination(playhead, true) != null) { toChange(true, it) }
+                ChangeButton(forward = true, enabled = changeOn) { toChange(true, it) }
                 // The original's span menu, with a step in and out for those who cannot pinch.
                 ZoomMenu(
                     TimelineZoom.span(scale.toDouble(), timelineWidth, duration),
@@ -1084,6 +1126,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             if (after.snap != null && after.snap != before.snap) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         }
         val addSites = remember(edit) { AddSite.of(edit) }
+        val markedView by remember(marks) { derivedStateOf { MarkedView.of(marks, playhead) } }
         // In landscape the timeline keeps the original's 164 points and scrolls up and down past them (EditorView.swift:376).
         Column(Modifier.layoutId(EditorSlot.Timeline).then(if (landscape) Modifier.heightIn(max = 164.dp).verticalScroll(timelineRows) else Modifier)) {
         Timeline(
@@ -1120,7 +1163,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
             },
             // The clip being trimmed where the draft has it: an outward trim over a neighbour makes the draft one of rows, in another order.
-            trim?.let { draft -> shown.indexOfFirst { it.id == clips.getOrNull(draft.index)?.id }.takeIf { it >= 0 } ?: draft.index } ?: location?.index,
+            trim?.let { draft -> shown.indexOfFirst { it.id == clips.getOrNull(draft.index)?.id }.takeIf { it >= 0 } ?: draft.index } ?: located,
             trim?.let { draft -> shown.indexOfFirst { it.id == clips.getOrNull(draft.index)?.id }.takeIf { it >= 0 }?.let { draft.copy(index = it) } ?: draft }, pixelsPerSecond,
             // A leading trim of a row of clips keeps what follows still while the draft closes up; a draft of rows has every picture at its own place.
             shift = trim?.takeIf { it.leading && trimmed?.isSequence != false }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
@@ -1132,10 +1175,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     jump(time.coerceIn(0.0, duration))
                 }
             },
-            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },
+            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) located?.let { trim = Trim(it, leading, clips[it]) } },
             dragTrim = dragTrim, endTrim = endTrim,
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
-            marked = if (transitioning == null && trim == null && auditioning == null && moving == null) MarkedView.of(marks, playhead) else null,
+            marked = if (transitioning == null && trim == null && auditioning == null && moving == null) markedView else null,
             level = levelGesture,
             pinch = { factor -> if (factor == null) pinchStart = scale.toDouble() else zoomTo(TimelineZoom.pinched(pinchStart, factor.toDouble(), timelineWidth, duration)) },
             rows = rows,
@@ -1430,14 +1473,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val deleted = stringResource(R.string.selection_deleted)
             val nothingToDelete = stringResource(R.string.selection_nothing_to_delete)
             val clipboard = rememberClipboard(
-                store, project.id, edit, saved, marks, playhead, editor.playing, pause = { editor.pause() }, commit = commit,
+                store, project.id, edit, saved, marks, { playhead }, editor.playing, pause = { editor.pause() }, commit = commit,
                 select = { marks = it }, said = { feedback = it },
             )
             val open = marks.range != null || marks.start != null
             // The transitions offered beside Mark, as the original offers them (EditorView.swift:633-674, 803-826): with the
             // playhead on a join (Transitions.swift:254-257) that has room for a frame, a new one or the one that is there;
             // and every other one the playhead is inside. A join between two clips comes before an opening or a close there.
-            val offered = if (!edit.isSequence) emptyList() else remember(clips, playhead) {
+            val offered = if (!edit.isSequence) emptyList() else remember(clips) { derivedStateOf {
                 // The change buttons stop on the first frame that shows a change. The original's cuts lie on
                 // its frame grid, so that frame is the join; here a cut can fall between frames, so a join
                 // less than a frame behind the playhead still counts as under it.
@@ -1445,10 +1488,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     .let { found -> found.firstOrNull { it.edge == 0 } ?: found.firstOrNull() }
                     ?.takeIf { TimelineEditing.joinMaximum(clips, it.index) >= PauseDetector.FRAME }
                 listOfNotNull(on) + TimelineEditing.transitions(clips).filter { it.index != on?.index && playhead >= it.range.start && playhead <= it.range.endInclusive }
-            }
+            } }.value
             // Off a row of clips: Placement where pictures play together, Close gap where nothing plays.
-            val spot = remember(edit, playhead) { edit.layered?.let { PlacementSpots.at(it, playhead) } }
-            val gap = remember(edit, playhead) { edit.layered?.let { TrackEditState.gaps(edit).firstOrNull { playhead >= it.start - 0.0005 && playhead < it.end } } }
+            val spot by remember(edit) { derivedStateOf { edit.layered?.let { PlacementSpots.at(it, playhead) } } }
+            val gaps = remember(edit) { edit.layered?.let { TrackEditState.gaps(edit) } }
+            val gap by remember(gaps) { derivedStateOf { gaps?.firstOrNull { playhead >= it.start - 0.0005 && playhead < it.end } } }
             val placementLabel = stringResource(R.string.placement_open)
             val closeGapLabel = stringResource(R.string.gap_close_description)
             val gapClosed = stringResource(R.string.gap_closed)
@@ -1581,13 +1625,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     },
                 ),
             )
+            // Whether Split cuts at the playhead. Knowing it means making the cut, too much for every frame of a scrub on the
+            // main thread: it is worked out on another thread for the latest time, and the button shows the latest answer.
+            val splits by produceState(remember { TimelineEditing.split(edit, Snapshot.withoutReadObservation { playhead }) != null }, edit) {
+                snapshotFlow { playhead }.conflate().collect { at -> value = withContext(Dispatchers.Default) { TimelineEditing.split(edit, at) != null } }
+            }
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
-                TextButton(onClick = { commit(TimelineEditing.split(edit, playhead), playhead); marks = marks.cleared() }, compact,
-                    enabled = TimelineEditing.split(edit, playhead) != null, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
+                TextButton(onClick = { TimelineEditing.split(edit, playhead)?.let { commit(it, playhead); marks = marks.cleared() } }, compact,
+                    enabled = splits, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
                 // With a range or a selection these four apply to the clips in it; a scope that holds no clip has nothing for them.
                 val scopeHasClips = toolScope == null || toolSubject != null
-                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
-                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
+                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = located != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
+                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
                 TextButton(onClick = {
                     editor.pause()
                     // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.
@@ -1599,7 +1648,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val framed = toolSubject ?: current
                     if (framed != null) cropping = Cropping.opening(edit, toolScope, framed)
                 }, compact, enabled = current != null && sizes[current.sourceID] != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
-                TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
+                TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
                 TextButton(onClick = {
                     editor.pause()
                     val subject = toolSubject ?: current
@@ -1615,11 +1664,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         // Over the marked range when there is one, as in the original.
                         if (clips.isNotEmpty()) titling = Titling(TextOverlay.fresh(), marks.range?.let { it.start..it.end } ?: TimelineEditing.newTitleRange(clips, playhead), null, null, null)
                     },
-                    compact, enabled = location != null, contentPadding = tight,
+                    compact, enabled = located != null, contentPadding = tight,
                 ) { Text(stringResource(R.string.editor_title)) }
                 // On the join nearest to the playhead: between two clips, or the opening or the close of the movie.
                 // Off a row of clips a join has no number: drawn as off, a tap says why.
-                ReasonedButton(TrackEditState.unavailable(edit, SequenceOnly.Transition)?.text(), explain = { store.error = it }, enabled = location != null, onClick = {
+                ReasonedButton(TrackEditState.unavailable(edit, SequenceOnly.Transition)?.text(), explain = { store.error = it }, enabled = located != null, onClick = {
                     editor.pause()
                     val joins = TimelineEditing.layout(clips).joins
                     joins.minByOrNull { abs(it.time - playhead) + if (it.edge == 0) 0.0 else 0.0001 }?.let { transitioning = Transitioning.at(edit, it.index, canvas) }
@@ -1628,7 +1677,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     editor.pause()
                     // On the clips of the range or the selection, cut at the ends of a range, else on the clip under the playhead.
                     if (current != null) pausing = toolScope?.let { Pausing(saved, it.state, it.clips, toolScopeLabel) } ?: Pausing(saved, edit, listOf(current.id), null)
-                }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
+                }, compact, enabled = located != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
                 TextButton(onClick = { editor.pause(); addingAudio = playhead }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
                 TextButton(onClick = { editor.pause(); subtitling = edit }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) {
                     Icon(Icons.Outlined.Subtitles, stringResource(R.string.editor_subtitles), tint = if (edit.subtitles != null) TitleColor else LocalContentColor.current)
@@ -1712,7 +1761,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     dismissButton = { TextButton(onClick = { choosing = null }) { Text(stringResource(R.string.common_cancel)) } },
                 )
             }
-            if (pacing && location != null && current != null) {
+            if (pacing && current != null) TrackEditState.locate(edit, playhead)?.let { location ->
                 SpeedDialog((toolSubject ?: current).rate, toolScopeLabel, dismiss = { pacing = false }, apply = { rate ->
                     // The same frame stays under the playhead.
                     val frame = current.sourceTime(location.offset)
@@ -1731,9 +1780,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val nothingToMove = stringResource(R.string.move_nothing)
             ArrangeTools(
                 TrackEditState.unavailable(edit, SequenceOnly.Reorder)?.text(), explain = { store.error = it },
-                reorderable = { step -> location?.let { it.index + step in clips.indices } == true },
+                reorderable = { step -> located?.let { it + step in clips.indices } == true },
                 reorder = { step ->
-                    location?.let { at ->
+                    TrackEditState.locate(edit, playhead)?.let { at ->
                         val target = at.index + step
                         val next = TimelineEditing.move(edit, at.index, target)
                         commit(next, next?.let { TimelineEditing.clipStart(it.clips, target) + at.offset } ?: playhead)
@@ -1749,7 +1798,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 },
                 linking = linking, canLink = marks.canDelete && clips.isNotEmpty(), link = toggleLink,
                 addVideo = { editor.pause(); addSite = null; adding = true },
-                canDelete = location != null, delete = { location?.let { commit(TimelineEditing.delete(edit, it.index), clipStart(edit, it.index)) } },
+                canDelete = located != null, delete = { located?.let { commit(TimelineEditing.delete(edit, it), clipStart(edit, it)) } },
             )
             }
         }
@@ -1758,13 +1807,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     store.importing?.let { step ->
         AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text(stringResource(R.string.common_importing)) }, text = { Text(step) })
     }
-    if (editingColor && location != null && current != null) {
+    val colored = located
+    if (editingColor && colored != null && current != null) {
         ColorDialog(
             (toolSubject ?: current).color ?: ColorSettings(),
             importLut = { uri -> store.importLut(project.id, uri) },
             save = { color ->
                 if (toolScope != null) applyScoped(toolScope, applied(toolScope) { state, at -> TimelineEditing.setColor(state, at, color) }, playhead)
-                else commit(TimelineEditing.setColor(edit, location.index, color), playhead)
+                else commit(TimelineEditing.setColor(edit, colored, color), playhead)
                 editingColor = false
             },
             dismiss = { editingColor = false },
@@ -1794,7 +1844,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
-    if (editingAudio && location != null && current != null) {
+    if (editingAudio && located != null && current != null) {
         // The clip under the playhead; in a scope its clips, cut at the ends of a range, and the sounds on the audio tracks
         // selected with them, which have no noise reduction.
         val base = toolScope?.state ?: edit

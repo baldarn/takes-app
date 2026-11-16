@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,7 +102,9 @@ internal fun BookmarksPanel(
  * on the picture in front or the one selected, on a selected sound, or in
  * empty time and at the end (EditorView.swift:1259-1268). They are made on
  * the [saved] edit, so a draft on the screen is never committed with one;
- * while not [editable] (a Move) nothing changes.
+ * while not [editable] (a Move) nothing changes. [playhead] is read when it
+ * is needed, so that a scrub composes the editor again only when it passes
+ * a bookmark.
  */
 internal class EditorBookmarkActions(
     val list: List<ResolvedBookmark>, val under: ResolvedBookmark?, val previous: Double?, val next: Double?,
@@ -113,30 +116,41 @@ internal class EditorBookmarkActions(
 
 @Composable
 internal fun rememberBookmarks(
-    edit: EditState, saved: EditState, playhead: Double, selected: EditTargets, editable: Boolean,
+    edit: EditState, saved: EditState, playhead: () -> Double, selected: EditTargets, editable: Boolean,
     commit: (EditState?, Double) -> Unit, said: (String) -> Unit,
 ): EditorBookmarkActions {
     val list = remember(edit) { TrackEditorEdits.bookmarks(edit) }
+    val around by remember(list, playhead) {
+        derivedStateOf {
+            val at = playhead()
+            Triple(
+                list.firstOrNull { abs(it.time.seconds - at) < 0.5 / 30 },
+                list.lastOrNull { it.time.seconds < at - 0.02 }?.time?.seconds,
+                list.firstOrNull { it.time.seconds > at + 0.02 }?.time?.seconds,
+            )
+        }
+    }
     val added = stringResource(R.string.bookmark_added)
     val removed = stringResource(R.string.bookmark_removed)
     return EditorBookmarkActions(
         list,
-        under = list.firstOrNull { abs(it.time.seconds - playhead) < 0.5 / 30 },
-        previous = list.lastOrNull { it.time.seconds < playhead - 0.02 }?.time?.seconds,
-        next = list.firstOrNull { it.time.seconds > playhead + 0.02 }?.time?.seconds,
+        under = around.first,
+        previous = around.second,
+        next = around.third,
         add = {
             val preferred = selected.clips.singleOrNull() ?: selected.audio.singleOrNull()?.let { TrackSequenceView.soundID(saved, it) }
-            if (editable) TrackEditorEdits.addingBookmark(saved, playhead, preferred)?.let { next -> commit(next, playhead); said(added) }
+            val at = playhead()
+            if (editable) TrackEditorEdits.addingBookmark(saved, at, preferred)?.let { next -> commit(next, at); said(added) }
         },
-        remove = { id -> if (editable) TrackEditorEdits.removingBookmark(saved, id)?.let { next -> commit(next, playhead); said(removed) } },
-        rename = { id, label -> if (editable) TrackEditorEdits.renamingBookmark(saved, id, label)?.let { commit(it, playhead) } },
+        remove = { id -> if (editable) TrackEditorEdits.removingBookmark(saved, id)?.let { next -> commit(next, playhead()); said(removed) } },
+        rename = { id, label -> if (editable) TrackEditorEdits.renamingBookmark(saved, id, label)?.let { commit(it, playhead()) } },
         editable = editable,
     )
 }
 
 /** The Bookmarks button of the transport with its menu, and the list it opens ([open]). */
 @Composable
-internal fun EditorBookmarks(bookmarks: EditorBookmarkActions, playhead: Double, opened: Boolean, open: (Boolean) -> Unit, go: (Double) -> Unit) {
+internal fun EditorBookmarks(bookmarks: EditorBookmarkActions, playhead: () -> Double, opened: Boolean, open: (Boolean) -> Unit, go: (Double) -> Unit) {
     BookmarksMenu(
         under = bookmarks.under != null, canToggle = bookmarks.editable,
         toggle = bookmarks.toggle, previous = bookmarks.previous, next = bookmarks.next,
@@ -144,7 +158,7 @@ internal fun EditorBookmarks(bookmarks: EditorBookmarkActions, playhead: Double,
         manage = { open(true) },
     )
     if (opened) BookmarksPanel(
-        bookmarks.list, playhead, add = bookmarks.add, go = { open(false); go(it) },
+        bookmarks.list, playhead(), add = bookmarks.add, go = { open(false); go(it) },
         rename = bookmarks.rename, remove = bookmarks.remove, dismiss = { open(false) },
     )
 }
