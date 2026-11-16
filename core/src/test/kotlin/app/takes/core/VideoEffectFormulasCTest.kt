@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -128,6 +129,25 @@ class VideoEffectFormulasCTest {
 
     private val screen = EffectColorMath.linear(EffectRGB(.1, .8, .15))
     private val subject = EffectImage.of(24, 16) { x, y -> if (x in 8..15 && y in 4..11) v(.6, .4, .3) else screen }
+
+    /** Algorithm 2 refines the key on the picture where algorithm 1 blurs it, and the pass draws the window's matte it is given. Renderer:524-527. */
+    @Test fun theTemporalMatteRefinesTheKeyAndDrawsTheWindow() {
+        val temporal = key(softness = 1.0).copy(algorithm = 2)
+        val u = EffectFrame.of(listOf(temporal), 0.5, 0).single()
+        assertTrue(u.flags and EffectUniforms.FLAG_TEMPORAL_MATTE != 0)
+        val sharp = c.matte(subject, { screen }, EffectFrame.of(listOf(key()), 0.5, 0).single())
+        val refined = c.matte(subject, { screen }, u)
+        assertEquals(MaskRefinement.refinedMask(EffectMask.of(sharp), subject, 1.0).toImage(), refined)
+        val solid = EffectImage.flat(1, 1, c.solidBackground(EffectRGB(.2, .3, .4), 1.0))
+        try {
+            c.chromaKeyPass(u, subject, solid)
+            fail("Algorithm 2 needs its window's matte")
+        } catch (_: IllegalArgumentException) {
+        }
+        // A window that keeps everything: the subject comes back as it is.
+        val kept = c.chromaKeyPass(u, subject, solid, temporalMatte = MaskPlane.of(24, 16) { _, _ -> 1f })
+        assertEquals(subject[10, 6], kept[10, 6])
+    }
 
     @Test fun thePassKeysOverASolidBackground() {
         val effect = key()

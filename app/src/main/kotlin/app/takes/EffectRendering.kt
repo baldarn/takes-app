@@ -29,6 +29,7 @@ import app.takes.core.EffectUniforms
 import app.takes.core.Size as EffectSize
 import app.takes.core.TimelineClip
 import app.takes.core.VideoEffectID
+import app.takes.core.VideoEffectMatteKind
 import app.takes.core.VideoEffectSettings
 import app.takes.core.VideoEffectTime
 import app.takes.core.VideoEffectTiming
@@ -230,9 +231,10 @@ object EffectShader {
             return o * (1.0 - 0.15 * smoothstep(0.2, 0.75, length(uv - 0.5)));
         }
         // Metal:333-335, :351-353. The subject: auxAt the person's refined mask, when uX0.x says the frame has one
-        // (else the picture as it is); a colour: by hue.
+        // (else the picture as it is); a colour by the temporal matte (uX0.y, algorithm 2): auxAt the window's matte;
+        // a colour otherwise: by hue.
         vec3 colorIsolation(vec3 c, float y, vec2 uv) {
-            if (uP0.x > 0.5) return uX0.x > 0.5 ? mix(vec3(y), c, auxAt(uv).r) : c;
+            if (uP0.x > 0.5 || uX0.y > 0.5) return uX0.x > 0.5 ? mix(vec3(y), c, auxAt(uv).r) : c;
             vec3 h = hsv(srgb(c));
             vec3 target = hsv(srgb(uP1.xyz));
             float r = uP2.x / 360.0;
@@ -1017,6 +1019,7 @@ class VideoEffectChain(
             val sourceTime = shown.sourceTime
             frameOffset = offset
             frameSourceTime = sourceTime
+            frameNumber++
             personFrames.clear()
             placed.clear()
             val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime), shown.holdTime)
@@ -1088,18 +1091,50 @@ class VideoEffectChain(
                         Auxiliary(aux = smoothed, back = blurred.texture, more = person.texture, extras = floatArrayOf(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f))
                     }
                 }
-                // The subject: the person's mask refined on the picture with the effect's softness (Renderer:483-491).
-                VideoEffectID.ColorIsolation -> if (pass.number("mode") > .5) {
-                    person(width, height)?.let { person ->
-                        val refined = gpu.refined(EffectSource(person), source, "isolation", pass.number("softness"), person = true)
-                        Auxiliary(aux = refined.texture, extras = floatArrayOf(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f))
-                    } ?: Auxiliary()
-                } else {
-                    Auxiliary()
+                // The subject: the person's mask refined on the picture with the effect's softness; with the temporal
+                // matte, that mask or the weight by hue, through the window (Renderer:483-491).
+                VideoEffectID.ColorIsolation -> {
+                    val temporal = settings(pass)?.usesTemporalMatte == true
+                    val matte = if (pass.number("mode") > .5) {
+                        person(width, height)?.let { person -> gpu.refined(EffectSource(person), source, "isolation", pass.number("softness"), person = true) }
+                    } else if (temporal) {
+                        val color = EffectShader.slot(pass, 1)
+                        gpu.isolationAlpha(source, "isolation", app.takes.core.EffectVector(color[0].toDouble(), color[1].toDouble(), color[2].toDouble()), pass.p[2].x, pass.p[3].x)
+                    } else {
+                        null
+                    }
+                    if (matte == null) {
+                        Auxiliary()
+                    } else {
+                        val finished = if (temporal) windowed(pass, matte, source, VideoEffectMatteKind.ISOLATION) else matte
+                        Auxiliary(aux = finished.texture, extras = floatArrayOf(1f, if (temporal) 1f else 0f, 0f, 0f, 0f, 0f, 0f, 0f))
+                    }
                 }
                 VideoEffectID.ChromaKey -> chromaKey(pass, source)
                 VideoEffectID.AutoBackground -> autoBackground(pass, source)
                 else -> Auxiliary()
+            }
+        }
+
+        /** The settings of [pass] on this clip. */
+        private fun settings(pass: EffectUniforms): VideoEffectSettings? = clip.videoEffects.orEmpty().firstOrNull { it.id == pass.id }
+
+        /** The temporal matte of [pass]: its [raw] matte blended with the frames before through its window ([EffectMatteWindow]). */
+        private fun windowed(pass: EffectUniforms, raw: EffectTarget, source: EffectSource, kind: VideoEffectMatteKind): EffectTarget {
+            // Without OpenGL ES 3, or where its passes fail, the frame's own matte, as the original falls back to the raw one (Renderer:417-419).
+            if (!windowsChecked) {
+                windowsChecked = true
+                windowsWork = EffectMatteWindow.supported()
+            }
+            if (!windowsWork) return raw
+            val window = windows.getOrPut(pass.id) { EffectMatteWindow(kind) }
+            val start = settings(pass)?.start ?: frameSourceTime
+            return try {
+                window.apply(gpu, raw, source, frameNumber, frameSourceTime, start, "window.${pass.id}")
+            } catch (failure: GlUtil.GlException) {
+                android.util.Log.w("EffectRendering", "No temporal matte on this device", failure)
+                windowsWork = false
+                raw
             }
         }
 
@@ -1132,7 +1167,13 @@ class VideoEffectChain(
             val grow = pass.number("grow") * scale
             if (grow != 0.0) matte = gpu.morph(EffectSource(matte), "matte.grown", grow)
             val softness = pass.number("softness")
-            if (softness > 0) matte = gpu.blur(EffectSource(matte), "matte.soft", softness * 1.5 * scale)
+            // The temporal matte refines the key on the picture and blends it through the window (Renderer:524-527).
+            if (settings(pass)?.usesTemporalMatte == true) {
+                if (softness > 0) matte = gpu.refined(EffectSource(matte), source, "matte.refined", softness)
+                matte = windowed(pass, matte, source, VideoEffectMatteKind.KEY)
+            } else if (softness > 0) {
+                matte = gpu.blur(EffectSource(matte), "matte.soft", softness * 1.5 * scale)
+            }
             val gain = 2.0.pow(pass.number("backgroundBrightness"))
             val background = replaced(pass, source, 20.0)
             val extras = floatArrayOf(screen.x.toFloat(), screen.y.toFloat(), screen.z.toFloat(), gain.toFloat(), 0f, 0f, 0f, 0f)
@@ -1210,6 +1251,10 @@ class VideoEffectChain(
         private var frameOffset = 0.0
         private var frameSourceTime = 0.0
         private val personFrames = HashMap<Boolean, PersonFrame?>()
+        private val windows = HashMap<String, EffectMatteWindow>()
+        private var windowsWork = true
+        private var windowsChecked = false
+        private var frameNumber = 0L
         private var personTexture = 0
         private var personUploaded: app.takes.core.PersonMaskChunks.Mask? = null
         private val placed = HashMap<Triple<Int, Int, Boolean>, EffectTarget>()
@@ -1327,6 +1372,8 @@ class VideoEffectChain(
         override fun release() {
             super.release()
             releaseTargets()
+            windows.values.forEach { it.delete() }
+            windows.clear()
             gpu.release()
             for (lattice in lattices.values) GLES20.glDeleteTextures(1, intArrayOf(lattice.texture), 0)
             if (pictureTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(pictureTexture), 0)

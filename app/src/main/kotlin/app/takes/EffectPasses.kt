@@ -194,6 +194,34 @@ internal object EffectPassShaders {
         }
     """
 
+    /** `ve_isolationAlpha` (Metal:591-597): how much of its colour each pixel keeps, by hue, for the temporal matte. */
+    val ISOLATION_ALPHA = """
+        $HEAD
+        uniform vec3 uColor;
+        uniform vec2 uRange; // degrees, softness
+        vec3 hsv(vec3 c) {
+            float hi = max(c.r, max(c.g, c.b));
+            float lo = min(c.r, min(c.g, c.b));
+            float d = hi - lo;
+            float h = 0.0;
+            if (d > 1e-6) {
+                if (hi == c.r) h = mod((c.g - c.b) / d + 6.0, 6.0);
+                else if (hi == c.g) h = (c.b - c.r) / d + 2.0;
+                else h = (c.r - c.g) / d + 4.0;
+            }
+            return vec3(h / 6.0, hi > 1e-6 ? d / hi : 0.0, hi);
+        }
+        float hueDistance(float a, float b) { float d = abs(a - b); return min(d, 1.0 - d); }
+        void main() {
+            vec3 h = hsv(srgb(at(pixel())));
+            vec3 target = hsv(srgb(uColor));
+            float r = uRange.x / 360.0;
+            float soft = max(0.001, uRange.y * 0.1);
+            float w = (1.0 - smoothstep(r, r + soft, hueDistance(h.x, target.x))) * smoothstep(0.08, 0.2, h.y);
+            gl_FragColor = vec4(vec3(w), 1.0);
+        }
+    """
+
     /** `ve_morphology`: the largest (growing) or smallest value along [uDir] up to [uReach] pixels. */
     val MORPHOLOGY = """
         $HEAD
@@ -641,6 +669,13 @@ internal class EffectGpu {
             p.setFloatsUniform("uScreen", floatArrayOf(screen.x.toFloat(), screen.y.toFloat(), screen.z.toFloat()))
             p.setFloatsUniform("uKey", floatArrayOf(0f, strength.toFloat(), balance.toFloat(), if (blue) 1f else 0f))
             p.setFloatsUniform("uClip", floatArrayOf(blackClip.toFloat(), whiteClip.toFloat()))
+        })
+
+    /** Color Isolation's weight at every pixel of [source] ([app.takes.core.VideoEffectFormulas.colorIsolationWeight]), into [key]. */
+    fun isolationAlpha(source: EffectSource, key: String, color: EffectVector, range: Double, softness: Double): EffectTarget =
+        draw(EffectPassShaders.ISOLATION_ALPHA, source, key, source.width, source.height, { p ->
+            p.setFloatsUniform("uColor", floatArrayOf(color.x.toFloat(), color.y.toFloat(), color.z.toFloat()))
+            p.setFloatsUniform("uRange", floatArrayOf(range.toFloat(), softness.toFloat()))
         })
 
     /**

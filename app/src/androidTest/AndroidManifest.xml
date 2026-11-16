@@ -27,4 +27,9 @@
         android:name="app.takes.effects.PersonMaskRunner"
         android:label="Person-mask analysis"
         android:targetPackage="app.takes.dev" />
+    <!-- Exports of a recording with the temporal matte, timed: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.effects.TemporalExportRunner -->
+    <instrumentation
+        android:name="app.takes.effects.TemporalExportRunner"
+        android:label="Temporal matte exports"
+        android:targetPackage="app.takes.dev" />
 </manifest>

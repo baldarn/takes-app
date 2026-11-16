@@ -357,7 +357,7 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
 
     private fun settings(kind: VideoEffectID, values: Map<String, Any>, intensity: Double? = null): VideoEffectSettings {
         var effect = VideoEffectSettings(kind)
-        // Color Isolation and Chroma Key are made with the spatial matte on Android for now.
+        // Color Isolation and Chroma Key with the single-frame matte, algorithm 1, as older recipes keep it; TemporalMattePixelCases draws algorithm 2.
         if (kind == VideoEffectID.ColorIsolation || kind == VideoEffectID.ChromaKey) effect = effect.copy(algorithm = 1)
         for ((id, value) in values) effect = effect.with(id, when (value) {
             is Boolean -> EffectValue.Toggle(value)

@@ -103,7 +103,8 @@ internal object AndroidVideoEffects {
         VideoEffectID.Quantization -> effect.number("smoothing", at) > 0 || (people && effect.toggle("faceDetail", at) && effect.number("colors", at) <= 4)
         // The preview reads the person's mask as it is, without the guided filter, and the picture as the background behind it.
         VideoEffectID.AutoBackground -> true
-        VideoEffectID.ColorIsolation -> effect.choice("mode", at) == "The subject"
+        // The preview draws each frame's own matte; the export blends it with the frames before (algorithm 2).
+        VideoEffectID.ColorIsolation -> effect.choice("mode", at) == "The subject" || effect.usesTemporalMatte
         else -> false
     }
 
@@ -177,9 +178,8 @@ internal data class EffectsWork(
         val next = effects.toMutableMap()
         for (piece in on.pieces) {
             val clip = piece.clip
+            // Color Isolation and Chroma Key are made with the temporal matte, algorithm 2 (VideoEffectModel.swift:200-202).
             var effect = VideoEffectSettings(kind, clip.start, clip.end).copy(id = id)
-            // Color Isolation of one hue and Chroma Key's keyer are the single-frame renderings.
-            if (kind == VideoEffectID.ColorIsolation || kind == VideoEffectID.ChromaKey) effect = effect.copy(algorithm = 1)
             // A Crash Zoom moves towards the target set by hand.
             if (kind == VideoEffectID.CrashZoom) effect = effect.with("trackFace", EffectValue.Toggle(false))
             if (kind == VideoEffectID.NegativeStrobe) effect = effect.copy(phaseOffset = maxOf(0.0, piece.start - on.start), strobeTimeMap = strobeClock(clip))

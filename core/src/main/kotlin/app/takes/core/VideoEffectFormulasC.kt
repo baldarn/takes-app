@@ -16,7 +16,7 @@ import kotlin.math.sqrt
  * Conventions are those of [VideoEffectFormulas]. The person hint refines
  * the key with a person mask ([EffectMask]); match colour and the Studio and
  * Window backgrounds are shared with Auto Background, [AutoBackgroundFormulas].
- * The temporal matte is not here.
+ * The temporal matte's window is [VideoEffectTemporalMatte]; its raw matte is [matte].
  */
 
 /** What a keyed pixel is drawn against, all read at the pixel: the new [background], the [screen] colour, and the blurred background the light wrap adds. */
@@ -185,9 +185,13 @@ object VideoEffectFormulasC {
      * of each pixel against the screen ([screen] under it), bounded by the
      * person [hint] when there is one ([hinted], read between the hint's
      * pixels), grown by "grow" pixels at 1080, then softened by a Gaussian
-     * of `1.5 · softness` pixels at 1080. Renderer:506-530, Metal:468-480.
+     * of `1.5 · softness` pixels at 1080. With the temporal matte
+     * ([EffectUniforms.FLAG_TEMPORAL_MATTE]) the softness refines the matte on
+     * the picture instead ([MaskRefinement.refinedMask], [lite] the recorder's
+     * lite quality), and this is the raw matte its window blends
+     * ([VideoEffectTemporalMatte]). Renderer:506-530, Metal:468-480.
      */
-    fun matte(input: EffectImage, screen: (Point) -> EffectVector, u: EffectUniforms, hint: PersonHint? = null): EffectImage {
+    fun matte(input: EffectImage, screen: (Point) -> EffectVector, u: EffectUniforms, hint: PersonHint? = null, lite: Boolean = false): EffectImage {
         val scale = VideoEffectPasses.pixelScale(input.width, input.height)
         var matte = EffectImage.of(input.width, input.height) { x, y ->
             val uv = input.uv(x, y)
@@ -200,6 +204,9 @@ object VideoEffectFormulasC {
         val grow = u.number("grow") * scale
         if (grow != 0.0) matte = morph(matte, grow)
         val softness = u.number("softness")
+        if (u.flags and EffectUniforms.FLAG_TEMPORAL_MATTE != 0) {
+            return if (softness > 0) MaskRefinement.refinedMask(EffectMask.of(matte), input, softness, lite = lite).toImage() else matte
+        }
         return if (softness > 0) VideoEffectPasses.blur(matte, softness * 1.5 * scale) else matte
     }
 
@@ -341,7 +348,7 @@ object VideoEffectFormulasC {
             null
         }
         val wrap = AutoBackgroundFormulas.wrapImage(u, input, background)
-        val matte = matte(input, screen, u, hint)
+        val matte = matte(input, screen, u, hint, lite)
         val match = if (u.number("matchColor") > .5) AutoBackgroundFormulas.matchReference(input, EffectMask.of(matte), background) else null
         return ChromaKeyPictures(matte, screen, background, wrap, match)
     }
@@ -359,9 +366,11 @@ object VideoEffectFormulasC {
     }
 
     /**
-     * A whole spatial Chroma Key pass, with the person hint when the frame
-     * has a [person] mask. A recipe with the temporal matte
-     * ([EffectUniforms.FLAG_TEMPORAL_MATTE]) needs what is not here.
+     * A whole Chroma Key pass, with the person hint when the frame has a
+     * [person] mask. A recipe with the temporal matte
+     * ([EffectUniforms.FLAG_TEMPORAL_MATTE]) is drawn with [temporalMatte],
+     * its raw [matte] blended over the frames before by
+     * [VideoEffectTemporalMatte.temporalMatte].
      */
     fun chromaKeyPass(
         u: EffectUniforms,
@@ -370,9 +379,17 @@ object VideoEffectFormulasC {
         cleanPlate: EffectImage? = null,
         person: EffectMask? = null,
         lite: Boolean = false,
+        temporalMatte: MaskPlane? = null,
     ): EffectImage {
-        require(u.flags and EffectUniforms.FLAG_TEMPORAL_MATTE == 0) { "The temporal matte is not referenced" }
-        val pictures = chromaKeyPictures(u, input, background, cleanPlate, person, lite)
+        val temporal = u.flags and EffectUniforms.FLAG_TEMPORAL_MATTE != 0
+        require(temporal == (temporalMatte != null)) { "A recipe with the temporal matte is drawn with its window's matte, and only such a recipe" }
+        var pictures = chromaKeyPictures(u, input, background, cleanPlate, person, lite)
+        if (temporalMatte != null) {
+            // The window's matte in place of the frame's own, for the key and for match colour (Renderer:524-541).
+            val matte = EffectImage.of(input.width, input.height) { x, y -> EffectVector(temporalMatte.sample((x + .5f) / input.width, (y + .5f) / input.height).toDouble()) }
+            val match = if (u.number("matchColor") > .5) AutoBackgroundFormulas.matchReference(input, EffectMask.of(matte), background) else null
+            pictures = pictures.copy(matte = matte, match = match)
+        }
         return EffectImage.of(input.width, input.height) { x, y -> chromaKeyPixel(u, input, pictures, x, y) }
     }
 
