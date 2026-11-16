@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -199,9 +200,10 @@ internal fun PlacementPanel(
                 Text(reframe, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
                 Switch(draft.reframe, onCheckedChange = { change(draft.reframing(it)) }, enabled = !playing, modifier = Modifier.semantics { contentDescription = reframe })
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { change(draft.broughtToFront()) }, enabled = !playing) { Text(stringResource(R.string.placement_bring_front), maxLines = 1) }
-                TextButton(onClick = { change(draft.sentToBack()) }, enabled = !playing) { Text(stringResource(R.string.placement_send_back), maxLines = 1) }
+            // One under the other where the two do not fit side by side.
+            FlowRow(Modifier.fillMaxWidth()) {
+                TextButton(onClick = { change(draft.broughtToFront()) }, enabled = !playing) { Text(stringResource(R.string.placement_bring_front), maxLines = 1, softWrap = false) }
+                TextButton(onClick = { change(draft.sentToBack()) }, enabled = !playing) { Text(stringResource(R.string.placement_send_back), maxLines = 1, softWrap = false) }
             }
             draft.current?.let { value ->
                 Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -209,10 +211,9 @@ internal fun PlacementPanel(
                     Text(fill, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
                     Switch(value.fill, onCheckedChange = { change(draft.filling(it)) }, enabled = !playing, modifier = Modifier.semantics { contentDescription = fill })
                 }
-                Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { change(draft.centered()) }, enabled = !playing) { Text(stringResource(R.string.placement_center)) }
-                    Box(Modifier.weight(1f))
-                    TextButton(onClick = { change(draft.cropReset()) }, enabled = !playing && value.edgeCrop != null) { Text(stringResource(R.string.placement_reset_crop)) }
+                FlowRow(Modifier.fillMaxWidth().heightIn(min = 44.dp), Arrangement.SpaceBetween) {
+                    TextButton(onClick = { change(draft.centered()) }, enabled = !playing) { Text(stringResource(R.string.placement_center), maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { change(draft.cropReset()) }, enabled = !playing && value.edgeCrop != null) { Text(stringResource(R.string.placement_reset_crop), maxLines = 1, softWrap = false) }
                 }
             }
             if (draft.replacesTransition(work.timeline)) Text(stringResource(R.string.placement_replaces_transition), color = Color(0xFFFF9F0A), fontSize = 12.sp)

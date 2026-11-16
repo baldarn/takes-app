@@ -1,5 +1,6 @@
 package app.takes
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -202,7 +203,7 @@ internal fun SelectionBar(
     deleteLabel: Int = R.string.selection_delete, restoreSync: SyncAction? = null,
 ) {
     val because = unavailable?.let { reason -> { explain(reason) } }
-    Row(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         val markLabel = stringResource(when (step) {
             RangeMarks.Step.MarkStart -> R.string.range_mark_start
             RangeMarks.Step.MarkEnd -> R.string.range_mark_end

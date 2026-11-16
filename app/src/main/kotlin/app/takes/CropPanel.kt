@@ -1,5 +1,6 @@
 package app.takes
 
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
@@ -373,15 +374,15 @@ internal fun CropPanel(
                 )
                 Text(String.format(Locale.getDefault(), "%.1f×", crop.zoom), color = Color.White, fontSize = 14.sp, maxLines = 1)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // The size goes under the button where the two do not fit side by side.
+            FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                 TextButton(onClick = { adjust(CropGestures.reset(crop)) }, enabled = ready) { Text(stringResource(R.string.crop_reset_framing)) }
-                Box(Modifier.weight(1f))
                 if (source != null && canvas != null) {
                     val area = crop.rect(source, canvas)
                     val width = Math.round(area.width).toInt()
                     val height = Math.round(area.height).toInt()
                     val spoken = stringResource(R.string.crop_source_area, width, height)
-                    Text("$width × $height px", color = Soft, fontSize = 12.sp, maxLines = 1, modifier = Modifier.semantics { contentDescription = spoken })
+                    Text("$width × $height px", color = Soft, fontSize = 12.sp, maxLines = 1, modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp).semantics { contentDescription = spoken })
                 }
             }
             // Position, closed until asked for: the picture itself is dragged.
@@ -520,9 +521,9 @@ internal fun AnimationControls(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (motion == null) ends() else {
             val timing = motion.timing
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // The curve goes under the end where the two do not fit side by side.
+            FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Arrangement.spacedBy(8.dp)) {
                 ends()
-                Box(Modifier.weight(1f))
                 val curve = stringResource(timing.curve.label)
                 Capsule(curve, stringResource(R.string.motion_curve) + ": " + curve, trailing = Icons.Filled.ExpandMore) { close ->
                     for (choice in EffectCurve.entries) {

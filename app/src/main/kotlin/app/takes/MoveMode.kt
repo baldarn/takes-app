@@ -1,5 +1,7 @@
 package app.takes
 
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
@@ -157,8 +159,7 @@ internal fun MoveBar(
 ) {
     val offset = session.offset.seconds
     Column(Modifier.fillMaxWidth().background(Color(0xFF1B1D21)).padding(horizontal = 8.dp, vertical = 4.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (picking) {
+        if (picking) Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.CenterFocusStrong, null, Modifier.padding(end = 8.dp).size(22.dp), tint = PickColor)
                 val title = stringResource(R.string.move_pick_title)
                 val note = stringResource(R.string.move_pick_note)
@@ -168,45 +169,59 @@ internal fun MoveBar(
                 }
                 val back = stringResource(R.string.move_pick_back_description)
                 TextButton(onClick = { pick(false) }, Modifier.semantics { contentDescription = back }) { Text(stringResource(R.string.move_pick_back)) }
-                return@Row
-            }
+        // Cancel and Done go to a line of their own where the row has no room for them.
+        } else FlowRow(Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
             val start = TrackMove.preciseLabel(session.anchor, session.boundaries.times) ?: preciseLabel(session.anchor.seconds)
             val startLabel = stringResource(R.string.move_selection_start)
-            Column(Modifier.semantics(mergeDescendants = true) { contentDescription = startLabel; stateDescription = start }) {
+            Column(Modifier.align(Alignment.CenterVertically).semantics(mergeDescendants = true) { contentDescription = startLabel; stateDescription = start }) {
                 Text(start, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1)
                 Text(startLabel, color = Quiet, fontSize = 11.sp, maxLines = 1)
             }
-            Row(Modifier.padding(start = 6.dp), Arrangement.spacedBy(4.dp), Alignment.CenterVertically) {
+            Row(Modifier.align(Alignment.CenterVertically).padding(start = 6.dp), Arrangement.spacedBy(4.dp), Alignment.CenterVertically) {
                 StopButton(Icons.AutoMirrored.Filled.KeyboardTab, mirrored = true, R.string.move_previous, GripYellow, session.previousStop != null, previous)
                 StopButton(Icons.AutoMirrored.Filled.KeyboardTab, mirrored = false, R.string.move_next, GripYellow, session.nextStop != null, next)
                 StopButton(Icons.Filled.CenterFocusStrong, mirrored = false, R.string.move_choose, PickColor, session.canPickBoundary) { pick(true) }
             }
-            Row(Modifier.weight(1f), Arrangement.End, Alignment.CenterVertically) {
-                TextButton(onClick = cancel, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(stringResource(R.string.common_cancel)) }
-                TextButton(onClick = done, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(stringResource(R.string.common_done), fontWeight = FontWeight.Bold) }
+            Row(Modifier.weight(1f).align(Alignment.CenterVertically), Arrangement.End, Alignment.CenterVertically) {
+                TextButton(onClick = cancel, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(stringResource(R.string.common_cancel), maxLines = 1, softWrap = false) }
+                TextButton(onClick = done, contentPadding = PaddingValues(horizontal = 10.dp)) { Text(stringResource(R.string.common_done), fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }
             }
         }
         // How far it moved, with a frame earlier and later beside it (docs/EDITOR-TRACKS-DESIGN.md:106-110).
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val earlier = stringResource(R.string.move_nudge_earlier)
-            val later = stringResource(R.string.move_nudge_later)
+        // At the largest sizes the offset stands over the two nudges, which have the width between them.
+        val earlier = stringResource(R.string.move_nudge_earlier)
+        val later = stringResource(R.string.move_nudge_later)
+        val nudgeEarlier = @Composable {
             TextButton(onClick = { nudge(-1) }, Modifier.semantics { contentDescription = earlier }, enabled = !picking, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(stringResource(R.string.move_nudge_earlier_short), color = if (picking) Quiet else MoveColor, fontWeight = FontWeight.SemiBold)
-            }
-            val shift = signedSeconds(offset)
-            val shiftLabel = stringResource(R.string.move_offset_description, shift)
-            Column(Modifier.padding(horizontal = 8.dp).semantics(mergeDescendants = true) { contentDescription = shiftLabel }, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(stringResource(R.string.move_offset, shift), color = MoveColor, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1)
-                Text(if (session.snap != null) stringResource(R.string.move_snapped) else stringResource(R.string.move_hint), color = Quiet, fontSize = 11.sp, maxLines = 1)
-            }
-            TextButton(onClick = { nudge(1) }, Modifier.semantics { contentDescription = later }, enabled = !picking, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(stringResource(R.string.move_nudge_later_short), color = if (picking) Quiet else MoveColor, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.move_nudge_earlier_short), color = if (picking) Quiet else MoveColor, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
             }
         }
+        val nudgeLater = @Composable {
+            TextButton(onClick = { nudge(1) }, Modifier.semantics { contentDescription = later }, enabled = !picking, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text(stringResource(R.string.move_nudge_later_short), color = if (picking) Quiet else MoveColor, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+            }
+        }
+        val shift = signedSeconds(offset)
+        val shiftLabel = stringResource(R.string.move_offset_description, shift)
+        val moved: @Composable (Modifier) -> Unit = { modifier ->
+            Column(modifier.padding(horizontal = 8.dp).semantics(mergeDescendants = true) { contentDescription = shiftLabel }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stringResource(R.string.move_offset, shift), color = MoveColor, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1)
+                Text(if (session.snap != null) stringResource(R.string.move_snapped) else stringResource(R.string.move_hint), color = Quiet, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (accessibilityText()) {
+            moved(Modifier.fillMaxWidth())
+            FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { nudgeEarlier(); nudgeLater() }
+        } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            nudgeEarlier()
+            moved(Modifier.weight(1f))
+            nudgeLater()
+        }
         // The four scopes, a scope that would move no more than a narrower one off (EditorView.swift:950-956).
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), Arrangement.spacedBy(6.dp)) {
+        // Two columns where a name does not fit a quarter of the width, as the original's grid (EditorView.swift:902-905).
+        FitGrid(4, Modifier.fillMaxWidth().padding(vertical = 4.dp), wrapping = true) {
             for (each in TimelineMoveScope.entries) {
-                MoveScopeButton(each, chosen = each == session.scope, enabled = !picking && each in session.scopes, Modifier.weight(1f)) { scope(each) }
+                MoveScopeButton(each, chosen = each == session.scope, enabled = !picking && each in session.scopes, Modifier) { scope(each) }
             }
         }
     }
@@ -344,7 +359,7 @@ internal fun ArrangeTools(
 ) {
     val tight = PaddingValues(horizontal = 8.dp)
     val compact = Modifier.defaultMinSize(minWidth = 48.dp)
-    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
+    ToolRow(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
         for ((label, step) in listOf(stringResource(R.string.editor_move_earlier) to -1, stringResource(R.string.editor_move_later) to 1)) {
             val description = stringResource(if (step < 0) R.string.editor_move_clip_earlier else R.string.editor_move_clip_later)
             ReasonedButton(

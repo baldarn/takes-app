@@ -210,10 +210,10 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
         ) { setFrontLight(!frontLight) }
     }
     Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            tiles.forEach { it(Modifier.weight(1f)) }
-            // Tiles keep the width they have when there are four of them, as in the original.
-            repeat(maxOf(0, 4 - tiles.size)) { Spacer(Modifier.weight(1f)) }
+        // Tiles keep the width they have when there are four of them, as in the original; two columns where a
+        // name does not fit a quarter of the width, as the original's grids at accessibility sizes.
+        FitGrid(4, spacing = 8.dp, wrapping = true) {
+            tiles.forEach { it(Modifier) }
         }
         if (capture.offersHDR) RecordingColor(capture)
     }

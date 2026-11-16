@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -290,7 +291,7 @@ private fun FaceRow(face: ImportedFontFace, filename: String?, repeated: Map<Str
             .then(if (use != null) Modifier.clickable { use(face) }.semantics { contentDescription = label; role = Role.Button } else Modifier),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(44.dp, 40.dp).clip(RoundedCornerShape(7.dp)).background(Plain), Alignment.Center) {
+        Box(Modifier.sizeIn(minWidth = 44.dp, minHeight = 40.dp).clip(RoundedCornerShape(7.dp)).background(Plain).padding(horizontal = 4.dp), Alignment.Center) {
             Text("Aa", color = Color.White, fontSize = 22.sp, fontFamily = FontFamily(typeface), maxLines = 1)
         }
         Column(Modifier.weight(1f)) {

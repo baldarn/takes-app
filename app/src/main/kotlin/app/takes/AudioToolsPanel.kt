@@ -1,8 +1,8 @@
 package app.takes
 
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -184,13 +184,13 @@ internal fun CensorDialog(initial: AudioCensorSettings, apply: (AudioCensorSetti
                     valueRange = AudioCensorSettings.MINIMUM_LEVEL_DB.toFloat()..AudioCensorSettings.MAXIMUM_LEVEL_DB.toFloat(),
                 )
                 Text(stringResource(R.string.censor_wave), color = Color.White)
-                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                FlowRow {
                     for ((wave, name) in listOf(CensorWaveform.Sine to R.string.censor_sine, CensorWaveform.Triangle to R.string.censor_triangle, CensorWaveform.Square to R.string.censor_square)) {
                         FilterChip(selected = settings.waveform == wave, onClick = { settings = settings.copy(waveform = wave) }, label = { Text(stringResource(name)) }, modifier = Modifier.padding(end = 6.dp))
                     }
                 }
                 Text(stringResource(R.string.censor_envelope), color = Color.White)
-                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                FlowRow {
                     for ((shape, name) in listOf(CensorEnvelope.Short to R.string.censor_short, CensorEnvelope.Soft to R.string.censor_soft, CensorEnvelope.Pulse to R.string.censor_pulse)) {
                         FilterChip(selected = settings.envelope == shape, onClick = { settings = settings.copy(envelope = shape) }, label = { Text(stringResource(name)) }, modifier = Modifier.padding(end = 6.dp))
                     }

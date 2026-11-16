@@ -1,5 +1,6 @@
 package app.takes
 
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -222,9 +223,12 @@ internal fun SoundDialog(
                 else headroomNote?.let { Text(stringResource(it), color = Quiet, fontSize = 13.sp) }
                 if (unset) Text(stringResource(R.string.sound_choose_level), color = Quiet, fontSize = 13.sp)
                 if (mixedMute && !muteChosen) Text(stringResource(R.string.sound_mixed_mute), color = Quiet, fontSize = 13.sp)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = muted, onCheckedChange = { muted = it; muteChosen = true }, modifier = Modifier.semantics { contentDescription = muteLabel })
-                    Text(stringResource(R.string.sound_mute_switch), color = Color.White, maxLines = 1, modifier = Modifier.weight(1f).padding(start = 10.dp))
+                // Reset goes under the switch where the two do not fit side by side.
+                FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                    Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = muted, onCheckedChange = { muted = it; muteChosen = true }, modifier = Modifier.semantics { contentDescription = muteLabel })
+                        Text(stringResource(R.string.sound_mute_switch), color = Color.White, maxLines = 1, modifier = Modifier.padding(start = 10.dp, end = 8.dp))
+                    }
                     TextButton(onClick = { volume = 0.0; muted = false; volumeChosen = true; muteChosen = true }) { Text(stringResource(R.string.sound_reset_zero)) }
                 }
                 for (edge in AudioFadeEdge.entries) {
@@ -242,7 +246,7 @@ internal fun SoundDialog(
                 }
                 if (tools != null && targets.isNotEmpty()) {
                     HorizontalDivider(Modifier.padding(top = 4.dp))
-                    Row {
+                    FlowRow {
                         TextButton(onClick = { tools(AudioToolKind.Enhance) }) { Text(stringResource(R.string.sound_enhance)) }
                         TextButton(onClick = { tools(AudioToolKind.Censor) }) { Text(stringResource(R.string.sound_censor)) }
                     }

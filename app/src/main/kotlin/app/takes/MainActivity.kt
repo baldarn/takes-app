@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
                             PrimaryTabRow(selectedTabIndex = tab, modifier = Modifier.navigationBarsPadding()) {
                                 titles.forEachIndexed { index, title ->
                                     Tab(selected = tab == index, onClick = { tab = index }, enabled = !locked,
-                                        modifier = Modifier.alpha(if (locked && tab != index) 0.38f else 1f), text = { Text(stringResource(title)) })
+                                        modifier = Modifier.alpha(if (locked && tab != index) 0.38f else 1f), text = { TabLabel(stringResource(title)) })
                                 }
                             }
                         }

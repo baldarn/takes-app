@@ -5,6 +5,7 @@ import android.media.MediaMetadataRetriever
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -103,11 +104,12 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text(stringResource(R.string.projects_title), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { pickVideos("") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Icon(Icons.Outlined.FileDownload, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_import), Modifier.padding(start = 4.dp)) }
-                    Button(onClick = { store.create()?.let { open(it, 0) } }, contentPadding = PaddingValues(horizontal = 14.dp)) { Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_new_recording), Modifier.padding(start = 4.dp)) }
+            // The buttons go under the title where they do not fit beside it, as at the largest text sizes.
+            FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.projects_title), Modifier.align(Alignment.CenterVertically), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                FlowRow(Modifier.align(Alignment.CenterVertically)) {
+                    TextButton(onClick = { pickVideos("") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Icon(Icons.Outlined.FileDownload, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_import), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false) }
+                    Button(onClick = { store.create()?.let { open(it, 0) } }, contentPadding = PaddingValues(horizontal = 14.dp)) { Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_new_recording), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false) }
                 }
             }
         }
@@ -213,14 +215,16 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
             if (store.selectedID == project.id) Icon(Icons.Filled.CheckCircle, stringResource(R.string.projects_selected), Modifier.padding(start = 8.dp).size(22.dp), tint = SelectedGreen)
         }
         // As in the original: the two main actions stay visible, the rest is in a menu.
+        // The two go one over the other where they do not fit beside the menu, which stays at the end.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val tight = PaddingValues(horizontal = 8.dp)
-            TextButton(onClick = { open(project, 0) }, contentPadding = tight) { Text(stringResource(R.string.projects_continue_recording), maxLines = 1, softWrap = false) }
-            if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }, contentPadding = tight) {
-                Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp))
-                Text(stringResource(R.string.projects_edit), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false)
+            FlowRow(Modifier.weight(1f)) {
+                TextButton(onClick = { open(project, 0) }, contentPadding = tight) { Text(stringResource(R.string.projects_continue_recording), maxLines = 1, softWrap = false) }
+                if (project.sources.isNotEmpty()) TextButton(onClick = { open(project, 2) }, contentPadding = tight) {
+                    Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp))
+                    Text(stringResource(R.string.projects_edit), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false)
+                }
             }
-            Box(Modifier.weight(1f))
             Box {
                 var menu by remember { mutableStateOf(false) }
                 val choose = { action: () -> Unit -> menu = false; action() }

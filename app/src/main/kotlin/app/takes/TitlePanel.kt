@@ -251,17 +251,15 @@ fun TitleInspector(
     val memory = remember { TitleMemory(context) }
     var tab by remember { mutableStateOf(TitleTab.Looks) }
     val design = appearance ?: plain
-    for (row in TitleTab.entries.chunked(4)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (value in row) {
-                Cell(tab == value, { tab = value }, Modifier.weight(1f), minHeight = 46) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(value.icon, null, Modifier.size(20.dp))
-                        Text(stringResource(value.label), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
+    // Two columns where a name does not fit a quarter of the width, as the original's grids at large sizes.
+    FitGrid(4) {
+        for (value in TitleTab.entries) {
+            Cell(tab == value, { tab = value }, minHeight = 46) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(value.icon, null, Modifier.size(20.dp))
+                    Text(stringResource(value.label), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
     HorizontalDivider(color = Plain)
@@ -316,12 +314,9 @@ private fun Cell(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Mo
 
 @Composable
 private fun <T> Segments(options: List<Pair<String, T>>, selected: T, columns: Int = options.size, choose: (T) -> Unit) {
-    for (row in options.chunked(columns)) {
-        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(4.dp)) {
-            for ((name, value) in row) {
-                Cell(value == selected, { choose(value) }, Modifier.weight(1f)) { Text(name, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            }
-            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+    FitGrid(columns, Modifier.fillMaxWidth(), spacing = 4.dp) {
+        for ((name, value) in options) {
+            Cell(value == selected, { choose(value) }) { Text(name, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
@@ -382,15 +377,12 @@ private fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: Clos
             Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, Modifier.size(18.dp), tint = Soft)
         }
         if (expanded) {
-            for (row in EditorDurationPresets.wholeSeconds.chunked(5)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (value in row) {
-                        Cell(
-                            abs(shown - value) < 1e-4, { set(timing.setting(OverlayTiming.Edge.End, timing.range.start + value)) }, Modifier.weight(1f),
-                            enabled = EditorDurationPresets.fits(value, timing.available),
-                        ) { Text(stringResource(R.string.title_seconds, seconds(value)), fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-                    }
-                    repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
+            FitGrid(5) {
+                for (value in EditorDurationPresets.wholeSeconds) {
+                    Cell(
+                        abs(shown - value) < 1e-4, { set(timing.setting(OverlayTiming.Edge.End, timing.range.start + value)) },
+                        enabled = EditorDurationPresets.fits(value, timing.available),
+                    ) { Text(stringResource(R.string.title_seconds, seconds(value)), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -445,7 +437,7 @@ private fun Looks(appearance: TitleDesign?, design: TitleDesign, words: String, 
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Specimen(demo, applied(value))
-            Text(label, color = Soft, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, color = Soft, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
     if (library.isNotEmpty()) {
@@ -752,18 +744,15 @@ private fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boo
         TitleMove.None to R.string.title_move_none, TitleMove.Fade to R.string.title_move_fade, TitleMove.Drift to R.string.title_move_drift,
         TitleMove.Scale to R.string.title_move_scale, TitleMove.Wipe to R.string.title_move_wipe,
     )
-    for (row in TitleMove.entries.chunked(3)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (mode in row) {
-                Cell(move == mode, {
-                    val next = if (exit) motion.copy(exit = mode) else motion.copy(entrance = mode)
-                    set(next)
-                    // As the original: choosing a move plays it once, unless the phone has animations turned off.
-                    val still = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-                    if (mode != TitleMove.None && !still) replay(exit, next)
-                }, Modifier.weight(1f)) { Text(stringResource(names.getValue(mode)), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            }
-            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+    FitGrid(3) {
+        for (mode in TitleMove.entries) {
+            Cell(move == mode, {
+                val next = if (exit) motion.copy(exit = mode) else motion.copy(entrance = mode)
+                set(next)
+                // As the original: choosing a move plays it once, unless the phone has animations turned off.
+                val still = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+                if (mode != TitleMove.None && !still) replay(exit, next)
+            }) { Text(stringResource(names.getValue(mode)), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
     if (move == TitleMove.Drift || move == TitleMove.Wipe) {

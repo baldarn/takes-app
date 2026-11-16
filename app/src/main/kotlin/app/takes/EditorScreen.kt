@@ -70,7 +70,7 @@ import android.os.Looper
 import android.view.PixelCopy
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -210,9 +210,9 @@ internal fun preciseLabel(seconds: Double): String {
 
 /** The time of the playhead and the length of the movie, composed again only when the tenth of a second shown changes. */
 @Composable
-private fun PlayheadTime(playhead: () -> Double, duration: Double) {
+private fun PlayheadTime(playhead: () -> Double, duration: Double, modifier: Modifier = Modifier) {
     val shown by remember(playhead) { derivedStateOf { preciseLabel(playhead()) } }
-    Text("$shown / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
+    Text("$shown / ${preciseLabel(duration)}", modifier, color = Color.White, fontSize = 14.sp, maxLines = 2)
 }
 
 @Composable
@@ -808,13 +808,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // landscape branch (EditorView.swift:354-383). The parts are the same ones in both orientations, so turning the
     // phone keeps the players, the scroll and a tool's draft.
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    // What a tool panel takes beside the picture in portrait; a panel of buttons takes the room it needs.
+    // What a tool panel takes beside the picture in portrait; a panel of buttons takes the room it needs. Larger text
+    // gives the panel more, as the original's panels grow at accessibility sizes (EditorTools.swift:1103).
     val toolWeight = when {
         moving != null -> 0f
         placementWork != null || effecting != null || cropping != null -> 1f
         titling != null || transitioning != null || pausing != null || subtitling != null -> 1.5f
         else -> 0f
-    }
+    } * LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val timelineRows = rememberScrollState()
     val toolRows = rememberScrollState()
     EditorFrame(landscape, toolWeight, modifier.fillMaxSize().then(previewing)) {
@@ -1010,7 +1011,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
         Column(Modifier.layoutId(EditorSlot.Transport)) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            PlayheadTime({ playhead }, duration)
+            // Measured after the buttons, so at a large font size the time goes on two lines rather than they shrink.
+            PlayheadTime({ playhead }, duration, Modifier.weight(1f, fill = false))
             val tight = PaddingValues(horizontal = 6.dp)
             // As the original's transport: the bookmarks in one menu, and on either side of Play the previous and the
             // next change, which a tap takes to the nearest cut or change of treatment and a hold to the nearest change only.
@@ -1466,7 +1468,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 modifier = Modifier.layoutId(EditorSlot.Tools),
             )
         } else {
-            // Tools act on the clip under the playhead. Short rows, so nothing is cut off at any font size.
+            // Tools act on the clip under the playhead. Rows that go onto more lines when their buttons do not fit (ToolRows.kt).
             val tight = PaddingValues(horizontal = 8.dp)
             val compact = Modifier.defaultMinSize(minWidth = 48.dp)
             val endAfterStart = stringResource(R.string.range_end_after_start)
@@ -1633,7 +1635,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val splits by produceState(remember { TimelineEditing.split(edit, Snapshot.withoutReadObservation { playhead }) != null }, edit) {
                 snapshotFlow { playhead }.conflate().collect { at -> value = withContext(Dispatchers.Default) { TimelineEditing.split(edit, at) != null } }
             }
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
+            ToolRow(Modifier.fillMaxWidth()) {
                 TextButton(onClick = { TimelineEditing.split(edit, playhead)?.let { commit(it, playhead); marks = marks.cleared() } }, compact,
                     enabled = splits, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
                 // With a range or a selection these four apply to the clips in it; a scope that holds no clip has nothing for them.
@@ -1658,7 +1660,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (subject != null) effecting = EffectsWork.opening(edit, toolScope, subject)
                 }, compact, enabled = current != null && scopeHasClips, contentPadding = tight) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.editor_effects)) }
             }
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
+            ToolRow(Modifier.fillMaxWidth()) {
                 TextButton(
                     onClick = {
                         editor.pause()
@@ -1982,7 +1984,7 @@ internal fun ColorSettings.label(): String =
 @Composable
 internal fun <T> Choices(label: String, options: List<Pair<String, T>>, selected: T, choose: (T) -> Unit) {
     Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
-    Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
     }
 }

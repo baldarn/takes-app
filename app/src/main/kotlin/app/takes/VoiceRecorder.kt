@@ -606,9 +606,13 @@ internal fun VoiceRecordingDialog(store: ProjectStore, projectID: String, positi
                 .verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // At the largest sizes the title has a line of its own over Cancel and Done, as the original's stacks there.
+            val large = accessibilityText()
+            if (large) Text(stringResource(R.string.voice_title), Modifier.fillMaxWidth().padding(top = 8.dp), color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { askToDiscard(leave = true) }, enabled = !busy) { Text(stringResource(R.string.common_cancel)) }
-                Text(stringResource(R.string.voice_title), Modifier.weight(1f), color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                if (large) Spacer(Modifier.weight(1f))
+                else Text(stringResource(R.string.voice_title), Modifier.weight(1f), color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
                 TextButton(onClick = { useTake(save = true) }, enabled = draft.hasAudio && !busy) {
                     Text(stringResource(R.string.common_done), fontWeight = FontWeight.SemiBold)
                 }
@@ -626,7 +630,8 @@ internal fun VoiceRecordingDialog(store: ProjectStore, projectID: String, positi
                         color = Mint, trackColor = Color.White.copy(alpha = 0.15f), drawStopIndicator = {},
                     )
                 }
-                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) {
+                // Record and Play side by side, one over the other at the largest sizes.
+                val buttons: @Composable (Modifier, Modifier) -> Unit = { recordWidth, playWidth ->
                     val title = when (VoiceRecording.recordTitle(recording, draft.hasAudio)) {
                         VoiceRecording.RecordTitle.Stop -> R.string.voice_stop
                         VoiceRecording.RecordTitle.RecordMore -> R.string.voice_record_more
@@ -634,7 +639,7 @@ internal fun VoiceRecordingDialog(store: ProjectStore, projectID: String, positi
                     }
                     Button(
                         onClick = { if (recording) draft.stopRecording() else draft.record() },
-                        Modifier.weight(1f).heightIn(min = 44.dp), enabled = !busy && !draft.denied && permitted,
+                        recordWidth.heightIn(min = 44.dp), enabled = !busy && !draft.denied && permitted,
                         colors = ButtonDefaults.buttonColors(containerColor = RecordRed, contentColor = Color.White),
                     ) {
                         Icon(if (recording) Icons.Filled.Stop else Icons.Filled.FiberManualRecord, null, Modifier.size(18.dp))
@@ -642,12 +647,14 @@ internal fun VoiceRecordingDialog(store: ProjectStore, projectID: String, positi
                     }
                     OutlinedButton(
                         onClick = { if (playing) draft.stopPlayback() else useTake(save = false) },
-                        Modifier.widthIn(min = 72.dp).heightIn(min = 44.dp), enabled = draft.hasAudio && !recording && !busy,
+                        playWidth.widthIn(min = 72.dp).heightIn(min = 44.dp), enabled = draft.hasAudio && !recording && !busy,
                     ) {
                         Icon(if (playing) Icons.Filled.Stop else Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
                         Text(stringResource(if (playing) R.string.voice_stop else R.string.voice_play), Modifier.padding(start = 6.dp))
                     }
                 }
+                if (large) Column(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) { buttons(Modifier.fillMaxWidth(), Modifier.fillMaxWidth()) }
+                else Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) { buttons(Modifier.weight(1f), Modifier) }
                 when {
                     busy -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)

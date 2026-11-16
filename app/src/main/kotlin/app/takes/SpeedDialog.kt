@@ -2,7 +2,7 @@ package app.takes
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -59,7 +59,7 @@ internal fun SpeedDialog(rate: Double, scope: String?, apply: (Double) -> Unit, 
                     valueRange = SpeedSettings.MINIMUM_RATE.toFloat()..SpeedSettings.MAXIMUM_RATE.toFloat(), steps = steps,
                     modifier = Modifier.fillMaxWidth().semantics { contentDescription = name; stateDescription = speedLabel(chosen) },
                 )
-                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+                FlowRow(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
                     for (quick in listOf(0.5, 1.0, 1.5, 2.0)) FilterChip(abs(chosen - quick) < 0.001, onClick = { chosen = quick }, label = { Text(speedLabel(quick)) })
                 }
                 Text(stringResource(R.string.speed_note), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
