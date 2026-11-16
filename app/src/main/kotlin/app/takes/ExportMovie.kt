@@ -135,7 +135,7 @@ class ExportMovie(
             val clip = plan.clips[part.index]
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
             // A held frame, of a freeze or a cadence, is kept before the effects, which draw it at the second it holds.
-            if (holdsFrames(clip)) add(TimeHoldEffect(clip, shown.start - origin))
+            if (holdsFrames(clip)) add(TimeHoldEffect(clip, shown.start - origin, rate.toDouble()))
             // The clip's video effects on the picture as it lies in the frame, bars included; titles come after.
             if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, clip), sourceFPS))
             // Step Printing blends the frames of each block as the chain drew them.

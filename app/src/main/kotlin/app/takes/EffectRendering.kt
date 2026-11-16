@@ -922,7 +922,7 @@ class VideoEffectChain(
             val program = prepared()
             val offset = (presentationTimeUs / 1e6 - begins).coerceIn(0.0, clip.duration)
             // A held frame, of a freeze or of a cadence, is drawn as it looks at the second it holds (TimeEffectRendering.kt).
-            val shown = if (holdsFrames(clip)) VideoEffectTiming.shown(clip, frameOffset(presentationTimeUs, begins, clip), sourceFPS, clock)
+            val shown = if (holdsFrames(clip)) VideoEffectTiming.shown(clip, movieFrameOffset(presentationTimeUs, begins, clip, frameRate), sourceFPS, clock)
             else app.takes.core.VideoEffectShown(clip.sourceTime(offset))
             val sourceTime = shown.sourceTime
             val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime), shown.holdTime)

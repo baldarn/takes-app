@@ -17,4 +17,9 @@
         android:name="app.takes.sound.SoundGateRunner"
         android:label="Sound gate of the audio engine"
         android:targetPackage="app.takes.dev" />
+    <!-- Exports of the time effects with every frame's time checked: adb shell am instrument -w app.takes.dev.test/app.takes.pixels.TimeExportRunner -->
+    <instrumentation
+        android:name="app.takes.pixels.TimeExportRunner"
+        android:label="Exports of the time effects"
+        android:targetPackage="app.takes.dev" />
 </manifest>

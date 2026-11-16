@@ -218,7 +218,7 @@ class TimePixelCases(private val bench: Bench, private val width: Int = 192, pri
 
     /** The frames a hold gives on, one for each frame fed, against the frame the core says each shows. */
     private fun holds(label: String, clip: TimelineClip, frames: Int, shownFrame: (Int) -> Int) = Case("Hold: $label") {
-        val stage = FramesStage(bench, TimeHoldEffect(clip, 0.0), width, height)
+        val stage = FramesStage(bench, TimeHoldEffect(clip, 0.0, RATE), width, height)
         try {
             var worst = 0
             val shown = ArrayList<Int>()

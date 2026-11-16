@@ -125,6 +125,20 @@ data class TimedPiece(val startUs: Long, val endUs: Long, val speed: SpeedParame
 fun frameOffset(presentationTimeUs: Long, begins: Double, clip: TimelineClip): Double =
     ((presentationTimeUs + 1) / 1e6 - begins).coerceIn(0.0, clip.duration)
 
+/**
+ * [frameOffset] at the frame of the movie nearest to it, on a movie of
+ * [frameRate] frames a second: a cadence holds by the movie's clock. Footage
+ * at another rate than the movie's (a clip sped up) gives frames between the
+ * movie's, and the movie shows each at the frame nearest to it, so that is
+ * where its hold is decided; the original decides it at the movie's frame
+ * (YouRec/VideoToolCompositor.swift:173). [sequenceStart] is where the
+ * sequence begins on the movie's grid, in seconds of the sequence.
+ */
+fun movieFrameOffset(presentationTimeUs: Long, begins: Double, clip: TimelineClip, frameRate: Double): Double {
+    val time = (presentationTimeUs + 1) / 1e6
+    return (Math.round(time * frameRate) / frameRate - begins).coerceIn(0.0, clip.duration)
+}
+
 /** Whether a clip's picture needs [TimeHoldEffect]: a held frame, or a cadence that holds frames. */
 fun holdsFrames(clip: TimelineClip): Boolean =
     clip.frozenFrame != null || clip.videoEffects.orEmpty().any { it.enabled && (it.kind == VideoEffectID.Undercranking || it.kind == VideoEffectID.SuperEight) }
@@ -206,7 +220,7 @@ internal object TimeShaders {
  * the cadence moves on. Other frames go through as they are. [begins] is
  * where the clip starts on its sequence, as for [VideoEffectChain].
  */
-class TimeHoldEffect(private val clip: TimelineClip, private val begins: Double) : GlEffect {
+class TimeHoldEffect(private val clip: TimelineClip, private val begins: Double, private val frameRate: Double) : GlEffect {
     private val clock = VideoEffectSequenceClock.of(clip)
 
     override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = !holdsFrames(clip)
@@ -228,7 +242,7 @@ class TimeHoldEffect(private val clip: TimelineClip, private val begins: Double)
 
         override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
             val copy = program ?: TimeShaders.program(TimeShaders.COPY).also { program = it }
-            val offset = frameOffset(presentationTimeUs, begins, clip)
+            val offset = movieFrameOffset(presentationTimeUs, begins, clip, frameRate)
             val key = VideoEffectTiming.heldFrame(clip, offset, clock)
             if (key == null) {
                 heldKey = null
