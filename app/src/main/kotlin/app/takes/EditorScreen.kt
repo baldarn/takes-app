@@ -23,6 +23,8 @@ import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.activity.result.PickVisualMediaRequest
@@ -87,6 +89,9 @@ import app.takes.core.PlacementDraft
 import app.takes.core.PlacementSpots
 import app.takes.core.SequenceOnly
 import app.takes.core.TrackEditState
+import app.takes.core.TrackComponents
+import app.takes.core.TimelineLinkError
+import app.takes.core.TimelineLinkOutcome
 import app.takes.core.TrackMoveSession
 import app.takes.core.toEdit
 import app.takes.core.toTimeline
@@ -381,6 +386,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val location = TrackEditState.locate(edit, playhead)
     // The marked range and the selection: the editor's own, never saved. They follow the edit as it changes.
     var marks by remember { mutableStateOf(RangeMarks()) }
+    // Link of picture and sound that cover different times, waiting for the question to be answered.
+    var pendingLink by remember { mutableStateOf<PendingLink?>(null) }
     LaunchedEffect(saved) { marks = marks.retained(saved) }
     // The last thing that happened, said beside the Mark button for a moment.
     var feedback by remember { mutableStateOf<String?>(null) }
@@ -392,7 +399,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val toolSounds = (marks.scope as? EditScope.Selected)?.targets?.audio.orEmpty()
     val toolScopeLabel = when (val scope = marks.scope) {
         is EditScope.Range -> stringResource(R.string.selection_tool_range, preciseLabel(scope.range.start), preciseLabel(scope.range.end))
-        is EditScope.Selected -> stringResource(R.string.selection_tool_selected, selectionCount(scope.targets))
+        is EditScope.Selected -> stringResource(R.string.selection_tool_selected, selectionCount(edit, scope.targets))
         EditScope.Whole -> null
     }
     // A tool cuts the clips at the ends of the range, and the pieces inside are new clips: a range limited
@@ -968,11 +975,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val rows = remember(live, trimmed ?: edit) {
             if (session != null && live != null) TimelineRows.of(live, session.draft, session.moving.video, session.ghost) else TimelineRows.of(trimmed ?: edit)
         }
+        // The sounds of their own on rows of their own, from the timeline, and the pictures whose sound was unlinked into one of them.
+        val drawnEdit = live ?: trimmed ?: edit
+        val soundRows = remember(drawnEdit) { TrackComponents.soundRows(drawnEdit) }
+        val soundless = remember(drawnEdit) { drawnEdit.layered?.let(TrackComponents::soundless).orEmpty() }
         val snapFeedback = { before: TrackMoveSession, after: TrackMoveSession ->
             if (after.snap != null && after.snap != before.snap) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         }
         Timeline(
-            live?.clips ?: leveled?.shown(shown) ?: shown, files, live?.audio.orEmpty().takeIf { live != null } ?: leveled?.shownSounds(sounds) ?: sounds, names,
+            live?.clips ?: leveled?.shown(shown) ?: shown, files, leveled?.takeIf { live == null }?.shownSounds(soundRows.items) ?: soundRows.items, names,
             // A tap picks one item, or lets go of it when it is all that is picked; a long press adds it or takes it out.
             select = { clip, audio ->
                 if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
@@ -1021,6 +1032,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             level = levelGesture,
             pinch = { factor -> if (factor == null) pinchStart = scale.toDouble() else zoomTo(TimelineZoom.pinched(pinchStart, factor.toDouble(), timelineWidth, duration)) },
             rows = rows,
+            soundRows = soundRows.count, syncOffsets = soundRows.offsets, soundless = soundless, movingSounds = session?.moving?.audio.orEmpty(),
             moveDrag = session?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },
@@ -1256,6 +1268,68 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val placementLabel = stringResource(R.string.placement_open)
             val closeGapLabel = stringResource(R.string.gap_close_description)
             val gapClosed = stringResource(R.string.gap_closed)
+            val syncRestored = stringResource(R.string.sync_restored)
+            // The one sound selected, when it plays apart from its picture: offered back in sync.
+            val syncOffset = remember(edit, marks) { if (open || marks.selected.isEmpty) null else TrackComponents.offset(edit, marks.selected) }
+            // Unlink and Link (EditorView.swift:1137-1161): Unlink when the selection is one link, else Link of what is selected.
+            val heldCount = selectionCount(edit, marks.selected)
+            val unlinkedNote = stringResource(R.string.link_unlinked, heldCount)
+            val linkedNote = stringResource(R.string.link_linked)
+            val clearRange = stringResource(R.string.link_clear_range)
+            val linkErrors = TimelineLinkError.entries.associateWith { error ->
+                stringResource(
+                    when (error) {
+                        TimelineLinkError.TooFew -> R.string.link_too_few
+                        TimelineLinkError.NonContiguous -> R.string.link_non_contiguous
+                        TimelineLinkError.NoIntersection -> R.string.link_no_intersection
+                        TimelineLinkError.ConfirmationRequired -> R.string.link_intersection_title
+                        TimelineLinkError.TransitionBoundary -> R.string.link_transition_boundary
+                    },
+                )
+            }
+            val linking = remember(edit, marks) { !open && !marks.selected.isEmpty && TrackComponents.isLinked(edit, marks.selected) }
+            val applyLink = { base: EditState, targets: EditTargets, intersection: Boolean ->
+                when (val joined = TrackComponents.linking(base, targets, intersection)) {
+                    is TimelineLinkOutcome.Refused -> store.error = linkErrors.getValue(joined.error)
+                    is TimelineLinkOutcome.Done -> { commit(joined.value.state, playhead); marks = RangeMarks(selected = joined.value.targets); feedback = linkedNote }
+                }
+            }
+            val toggleLink = {
+                cancelPendingPlay()
+                editor.pause()
+                when {
+                    open -> store.error = clearRange
+                    linking -> TrackComponents.unlinking(edit, marks.selected)?.let { done ->
+                        commit(done.state, playhead)
+                        marks = RangeMarks(selected = done.targets)
+                        feedback = unlinkedNote
+                    }
+                    else -> when (val plan = TrackComponents.linkPlan(edit, marks.selected)) {
+                        is TimelineLinkOutcome.Refused -> store.error = linkErrors.getValue(plan.error)
+                        is TimelineLinkOutcome.Done -> {
+                            val shared = plan.value.intersection
+                            if (plan.value.needsIntersection && shared != null) pendingLink = PendingLink(edit, marks.selected, shared.start.seconds, shared.end.seconds)
+                            else applyLink(edit, marks.selected, false)
+                        }
+                    }
+                }
+                Unit
+            }
+            pendingLink?.let { pending ->
+                val stale = stringResource(R.string.link_stale)
+                AlertDialog(
+                    onDismissRequest = { pendingLink = null },
+                    title = { Text(stringResource(R.string.link_intersection_title)) },
+                    text = { Text(stringResource(R.string.link_intersection_message, preciseLabel(pending.start), preciseLabel(pending.end))) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            pendingLink = null
+                            if (pending.base == edit) applyLink(pending.base, pending.targets, true) else store.error = stale
+                        }) { Text(stringResource(R.string.link_intersection_confirm)) }
+                    },
+                    dismissButton = { TextButton(onClick = { pendingLink = null }) { Text(stringResource(R.string.common_cancel)) } },
+                )
+            }
             SelectionBar(
                 step = marks.step,
                 // On the frame grid, on a cut when one is near, and never inside a transition.
@@ -1272,26 +1346,33 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 title = if (open || !marks.selected.isEmpty) selectionTitle(saved, if (open) marks.rangeTargets else marks.selected, names) else null,
                 detail = when {
                     marks.start != null -> stringResource(R.string.range_choose_end)
-                    else -> marks.range?.let { preciseLabel(it.duration) } ?: selectionCount(marks.selected)
+                    else -> marks.range?.let { preciseLabel(it.duration) } ?: selectionCount(edit, marks.selected)
                 },
                 message = feedback ?: stringResource(R.string.range_hint),
                 clear = { marks = marks.cleared(); feedback = cleared },
                 // The movie as it would be without the range, played across the place where the range began.
                 preview = marks.range?.let { range ->
                     {
-                        RangeEditing.delete(edit, marks.scope)?.let { removed ->
+                        TrackComponents.delete(edit, marks.scope)?.let { removed ->
                             ReviewWindows.cut(range.start, removed.state.duration, playhead)?.let { auditioning = Audition(removed.state, it) }
                         }
                         Unit
                     }
                 },
                 // One Undo step; the playhead stays on its frame, or goes to the cut when its frame went away.
+                // A linked pair closes the time it leaves; a picture or a sound by itself leaves a gap (EditorView.swift:1125-1132).
                 delete = if (!marks.canDelete) null else ({
-                    val removed = RangeEditing.delete(edit, marks.scope, playhead)
+                    val removed = TrackComponents.delete(edit, marks.scope, playhead)
                     if (removed != null) commit(removed.state, removed.position ?: playhead)
                     marks = marks.cleared()
                     feedback = if (removed != null) deleted else nothingToDelete
                 }),
+                deleteLabel = if (!open && TrackComponents.leavesGap(edit, marks.selected)) R.string.selection_delete_gap else R.string.selection_delete,
+                restoreSync = syncOffset?.let { off ->
+                    SyncAction(signedSeconds(off.seconds)) {
+                        TrackComponents.restoringSync(edit, off.audio)?.let { next -> commit(next, playhead); feedback = syncRestored }
+                    }
+                },
                 canCopy = marks.canCopy,
                 unavailable = TrackEditState.unavailable(edit, SequenceOnly.Clipboard)?.text(),
                 explain = { store.error = it },
@@ -1518,6 +1599,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 ) {
                     Icon(Icons.Filled.SwapHoriz, null, Modifier.size(18.dp))
                     Text(stringResource(R.string.move_button), Modifier.padding(start = 2.dp))
+                }
+                // Unlink or Link, the stable slot beside Move (EditorView.swift:949).
+                val linkDescription = stringResource(if (linking) R.string.link_unlink_description else R.string.link_link_description)
+                TextButton(
+                    onClick = toggleLink, compact.semantics { contentDescription = linkDescription },
+                    enabled = marks.canDelete && clips.isNotEmpty(), contentPadding = tight,
+                ) {
+                    Icon(if (linking) Icons.Filled.LinkOff else Icons.Filled.Link, null, Modifier.size(18.dp))
+                    Text(stringResource(if (linking) R.string.link_unlink else R.string.link_link), Modifier.padding(start = 2.dp))
                 }
                 // New takes go in at the playhead; Stop in the recorder ends the run.
                 TextButton(onClick = { editor.pause(); adding = true }, compact, contentPadding = tight) { Text(stringResource(R.string.editor_add_video)) }
@@ -1811,3 +1901,6 @@ private data class Titling(
 
 /** A playback rate as the person reads it: 0.5×, 2×. */
 internal fun speedLabel(rate: Double): String = (if (rate % 1.0 == 0.0) rate.toInt().toString() else rate.toString()) + "×"
+
+/** Link of [targets] on [base] waiting for the question whether to link only the time from [start] to [end] that they share. */
+private data class PendingLink(val base: EditState, val targets: EditTargets, val start: Double, val end: Double)

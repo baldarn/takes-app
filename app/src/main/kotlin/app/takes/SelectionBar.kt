@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -64,6 +65,7 @@ import app.takes.core.EditState
 import app.takes.core.EditTargets
 import app.takes.core.RangeMarks
 import app.takes.core.TimeRange
+import app.takes.core.TrackComponents
 import kotlin.math.roundToInt
 
 /** The marked range and the selection on the timeline. */
@@ -72,6 +74,12 @@ internal val RangeColor = Color(0xFFFFD60A)
 /** What Copy, Cut and Paste are drawn in. */
 private val ClipboardColor = Color(0xFF64D2FF)
 private val Quiet = Color(0xFFA0A4AB)
+
+/** A sound out of sync with its picture. */
+private val SyncColor = Color(0xFFFF6961)
+
+/** Restore sync for the one sound selected, [shown] its offset as the original writes it (+0.50). */
+internal class SyncAction(val shown: String, val restore: () -> Unit)
 
 /** What a transition is offered in: the original's orange. */
 private val TransitionColor = Color(0xFFFF9F0A)
@@ -143,9 +151,24 @@ internal fun selectionTitle(edit: EditState, targets: EditTargets?, names: Map<S
 
 /** How many items are selected: 2 videos + 1 audio part. */
 @Composable
-internal fun selectionCount(targets: EditTargets): String = listOfNotNull(
-    targets.clips.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.selection_videos, it, it) },
-    targets.audio.size.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.selection_audio_parts, it, it) },
+internal fun selectionCount(targets: EditTargets): String = selectionCount(targets.clips.size, targets.audio.size)
+
+/**
+ * How many pictures and sounds [targets] hold on [edit], with what they are
+ * linked to: a clip with its own sound is 1 video + 1 audio part, as the
+ * original counts it (TrackTimeline.swift:236-239). That says what the
+ * selection holds: video and audio, video, or audio.
+ */
+@Composable
+internal fun selectionCount(edit: EditState, targets: EditTargets): String {
+    val held = remember(edit, targets) { TrackComponents.selection(edit, targets) }
+    return selectionCount(held.video.size, held.audio.size)
+}
+
+@Composable
+private fun selectionCount(videos: Int, sounds: Int): String = listOfNotNull(
+    videos.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.selection_videos, it, it) },
+    sounds.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.selection_audio_parts, it, it) },
 ).joinToString(" + ")
 
 /**
@@ -174,6 +197,7 @@ internal fun SelectionBar(
     editSound: (() -> Unit)? = null,
     transitions: List<TransitionChip> = emptyList(),
     unavailable: String? = null, explain: (String) -> Unit = {},
+    deleteLabel: Int = R.string.selection_delete, restoreSync: SyncAction? = null,
 ) {
     val because = unavailable?.let { reason -> { explain(reason) } }
     Row(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -207,13 +231,27 @@ internal fun SelectionBar(
                         copy?.let { item(R.string.clipboard_copy, Icons.Outlined.ContentCopy, canCopy, because ?: it) }
                         cut?.let { item(R.string.clipboard_cut, Icons.Outlined.ContentCut, canCopy, because ?: it) }
                         if (paste != null) item(R.string.clipboard_clear, Icons.Filled.Close, action = clearClipboard)
+                        restoreSync?.let { sync ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.sync_restore, sync.shown)) }, onClick = { menu = false; sync.restore() },
+                                leadingIcon = { Icon(Icons.Filled.Sync, null) },
+                            )
+                        }
                         preview?.let { item(R.string.range_preview_cut, Icons.Outlined.Slideshow, action = it) }
+                    }
+                }
+                // The one sound selected plays apart from its picture: by how much, and Restore sync (EditorView.swift:649-655).
+                restoreSync?.let { sync ->
+                    val description = stringResource(R.string.sync_restore_description, sync.shown)
+                    TextButton(onClick = sync.restore, Modifier.semantics { contentDescription = description }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                        Icon(Icons.Filled.Sync, null, Modifier.size(18.dp), tint = SyncColor)
+                        Text(stringResource(R.string.sync_badge, sync.shown), Modifier.padding(start = 2.dp), color = SyncColor, fontSize = 12.sp, maxLines = 1)
                     }
                 }
                 preview?.let { BarIcon(Icons.Outlined.Slideshow, R.string.range_preview_cut, Color.White, it) }
                 copy?.let { ClipboardButton(Icons.Outlined.ContentCopy, R.string.clipboard_copy, R.string.clipboard_copy_selection, canCopy, because ?: it, off = because != null) }
                 cut?.let { ClipboardButton(Icons.Outlined.ContentCut, R.string.clipboard_cut, R.string.clipboard_cut_selection, canCopy, because ?: it, off = because != null) }
-                delete?.let { BarIcon(Icons.Outlined.Delete, R.string.selection_delete, RecordRed, it) }
+                delete?.let { BarIcon(Icons.Outlined.Delete, deleteLabel, RecordRed, it) }
                 editSound?.let { BarIcon(Icons.Outlined.Tune, R.string.editor_edit_sound, Color.White, it) }
                 BarIcon(Icons.Filled.Close, R.string.selection_clear, Color.White.copy(alpha = 0.8f), clear)
                 paste?.let { PasteButton(canPaste, replacesTransition, because ?: it, off = because != null) }

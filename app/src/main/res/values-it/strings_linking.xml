@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Scollega e Collega: video e audio come componenti -->
+    <string name="link_unlink">Scollega</string>
+    <string name="link_link">Collega</string>
+    <string name="link_unlink_description">Scollega il video e l\'audio selezionati</string>
+    <string name="link_link_description">Collega le parti selezionate</string>
+    <string name="link_unlinked">Scollegati %1$s · Annulla ripristina i collegamenti</string>
+    <string name="link_linked">Collegati · Annulla disponibile</string>
+    <string name="link_clear_range">Togli l\'intervallo di tempo, poi tocca una parte e tieni premute le altre per selezionarle per Collega.</string>
+    <string name="link_too_few">Tocca una parte per selezionarla, poi tieni premute altre parti video o audio per aggiungerle. Tienile premute di nuovo per toglierle dalla selezione.</string>
+    <string name="link_non_contiguous">Le parti selezionate non sono contigue. Ogni sequenza video o audio deve toccarsi bordo a bordo, senza vuoti né sovrapposizioni. Avvicina le parti con l\'aggancio, poi riprova Collega.</string>
+    <string name="link_no_intersection">Il video e l\'audio selezionati non si sovrappongono nel tempo. Spostali su un intervallo comune prima di collegarli.</string>
+    <string name="link_transition_boundary">Il tempo in comune inizia o finisce dentro una transizione. Modifica o togli quella transizione prima di collegare l\'intersezione.</string>
+    <string name="link_intersection_title">Collegare solo il tempo in comune?</string>
+    <string name="link_intersection_message">Video e audio coprono tempi diversi. Dividere a %1$s e %2$s e collegare l\'intervallo in comune? Le parti fuori restano separate. Niente viene eliminato o spostato.</string>
+    <string name="link_intersection_confirm">Collega l\'intersezione</string>
+    <string name="link_stale">La timeline è cambiata. Tocca di nuovo Collega per rivedere la selezione attuale.</string>
+
+    <!-- Ripristina sincronia -->
+    <string name="sync_restore">Ripristina sincronia audio (%1$s s)</string>
+    <string name="sync_restore_description">Ripristina la sincronia audio: il suono è spostato di %1$s secondi rispetto al video</string>
+    <string name="sync_restored">Sincronia ripristinata · Annulla disponibile</string>
+    <string name="sync_badge">%1$s s</string>
+    <string name="sync_badge_description">Fuori sincronia rispetto al video di %1$s secondi</string>
+
+    <!-- Eliminare un componente da solo -->
+    <string name="selection_delete_gap">Elimina, lascia vuoto</string>
+    <string name="selection_material">%1$s · %2$s</string>
+</resources>
