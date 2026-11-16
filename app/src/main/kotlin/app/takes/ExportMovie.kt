@@ -51,7 +51,7 @@ class SectionFramesEffect(private val first: Int, private val count: Int, privat
     }
 }
 
-/** What an export renders a movie from: its frame rate, the picture of any section of it, and the sound of all of it. */
+/** What an export renders a movie's picture from: its frame rate and the picture of any section of it. Its sound is the audio engine's ([mixedSound]). */
 interface MovieRender {
     /** The movie's frames a second. */
     val rate: Int
@@ -59,13 +59,19 @@ interface MovieRender {
     /** The picture of [section], without sound: exactly its frames, the first at zero. */
     fun picture(section: ExportSections.Section): Composition
 
-    /** The sound of the whole movie, without picture. */
-    fun sound(): Composition
 }
 
 /**
- * One movie as the export renders it: the sound of all of it in one pass, and the picture of any twelve
- * seconds of it. What every stretch is made from is the movie's [RenderPlan], so that a section holds exactly
+ * The sound of a whole movie, without picture, for the encoder: the mix the audio engine wrote to [mix]
+ * ([writeMix]), one item on one sequence. It is made once: sound encoded twelve seconds at a time does not
+ * join, each run of the encoder beginning and ending with frames of its own.
+ */
+fun mixedSound(mix: File): Composition = Composition.Builder(
+    listOf(EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).addItem(EditedMediaItem.Builder(MediaItem.fromUri(android.net.Uri.fromFile(mix))).build()).build()),
+).build()
+
+/**
+ * One movie's picture as the export renders it: any twelve seconds of it. What every stretch is made from is the movie's [RenderPlan], so that a section holds exactly
  * the frames the whole movie has in those seconds; here the plan is turned into what Media3 renders, and
  * nothing about the edit is decided.
  *
@@ -78,19 +84,17 @@ interface MovieRender {
  *
  * The decks carry the picture alone. A deck that carries sound and opens on a still asks Media3 for its
  * silence the moment its picture is taken, and Media3 has none to give until the first sequence with sound
- * has given its own: the export then stopped with "Asset loader error". The sound of every clip plays from
- * sequences of sound alone ([RenderPlan.voices]), which wait instead.
+ * has given its own: the export then stopped with "Asset loader error". The sound of the movie is the audio
+ * engine's, mixed beside it into one file ([mixedSound]).
  *
- * [plan] is the plan of the edit, made with the clips whose cleaned sound is in [clean] (by index), and
- * [ceiling] the most frames a second the settings allow. [files] gives each source's file, [canvas] the
- * movie's size, [sizes] the upright size of each recording, [rates] the frames a second each states, [voiced]
- * whether it has sound, [black] a black picture for the stretches without a clip, and [luts] the folder the
+ * [plan] is the plan of the edit and [ceiling] the most frames a second the settings allow. [files] gives
+ * each source's file, [canvas] the movie's size, [sizes] the upright size of each recording, [rates] the
+ * frames a second each states, [black] a black picture for the stretches without a clip, and [luts] the folder the
  * color tables are kept in.
  */
 class ExportMovie(
     private val context: Context, private val plan: RenderPlan, ceiling: Int, private val files: Map<String, File>, val canvas: Pair<Int, Int>,
-    private val sizes: Map<String, Pair<Int, Int>?>, rates: Map<String, Double?>, private val voiced: Map<String, Boolean>,
-    private val clean: Map<Int, File>, private val black: File, private val luts: File,
+    private val sizes: Map<String, Pair<Int, Int>?>, rates: Map<String, Double?>, private val black: File, private val luts: File,
 ) : MovieRender {
     private val decks = plan.sequences.size
 
@@ -189,41 +193,6 @@ class ExportMovie(
             // The movie is always SDR, so HDR footage from a phone camera is tone-mapped.
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
             .build()
-    }
-
-    /**
-     * The sound of the whole movie, without picture. It is made once: sound encoded twelve seconds at a time
-     * does not join, each run of the encoder beginning and ending with frames of its own.
-     *
-     * Sound on its own tracks plays from one sequence a track, silent between its sounds; the movie ends with
-     * its picture, so later sound is left out ([RenderPlan.soundtracks]). The clips' sound plays at the clips'
-     * own times, the cleaned sound of a clip that has it in place of the recorded one; clips that dissolve into
-     * each other overlap, so chains alternate ([RenderPlan.voices]). Every run follows its own level and fades
-     * and any transition at its ends, sample by sample, and fades for a few milliseconds at every cut.
-     */
-    override fun sound(): Composition {
-        fun sequence(entries: List<RenderPlan.Entry>): EditedMediaItemSequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).apply {
-            for (entry in entries) when (entry) {
-                is RenderPlan.Entry.Gap -> addGap(entry.micros)
-                is RenderPlan.Entry.Sound -> addItem(
-                    EditedMediaItem.Builder(clippedItem(entry, files.getValue(entry.item.sourceID))).setRemoveVideo(true)
-                        .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor(plan.soundEnvelope(entry.item), entry.start)), emptyList()))
-                        .build(),
-                )
-                is RenderPlan.Entry.Clip -> plan.pictures[entry.index].let { heard ->
-                    addItem(
-                        EditedMediaItem.Builder(clippedItem(heard, clean[heard.index] ?: files.getValue(heard.sourceID))).setRemoveVideo(true)
-                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor(plan.clipEnvelope(heard.index), heard.start)), emptyList()))
-                            .apply { steadySpeed(heard.rate)?.let(::setSpeed) }
-                            .build(),
-                    )
-                }
-            }
-        }.build()
-        val heard = plan.soundtracks + plan.voices { voiced[it] == true }
-        // A movie with no sound anywhere still has a sound track, silent.
-        val silence = listOfNotNull((total * 1e6).roundToLong().takeIf { it > 0 }?.let { RenderPlan.Entry.Gap(0.0, it) })
-        return Composition.Builder(heard.map { sequence(it.entries) }.ifEmpty { listOf(sequence(silence)) }).build()
     }
 
     private companion object {

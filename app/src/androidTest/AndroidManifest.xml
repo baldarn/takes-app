@@ -12,4 +12,9 @@
         android:name="app.takes.pixels.TransitionPixelRunner"
         android:label="Transition shader pixel tests"
         android:targetPackage="app.takes.dev" />
+    <!-- The sound gate of the audio engine: adb shell am instrument -w app.takes.dev.test/app.takes.sound.SoundGateRunner -->
+    <instrumentation
+        android:name="app.takes.sound.SoundGateRunner"
+        android:label="Sound gate of the audio engine"
+        android:targetPackage="app.takes.dev" />
 </manifest>
