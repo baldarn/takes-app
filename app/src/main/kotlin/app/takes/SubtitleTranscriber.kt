@@ -95,6 +95,8 @@ object SubtitleTranscriber {
         // What is listened to, named by what the captions are timed for, so a checkpoint is taken up only for the same mix.
         val stretches = listOf(SubtitleStretch(TrackSubtitles.fingerprint(timeline), range.start.seconds, range.end.seconds))
         if (TrackCaptions.heard(timeline, range).isEmpty()) throw Failure(Failure.Reason.NoSound)
+        // Asked first too, so a phone without the memory hears so before the mix is read; asked again before loading.
+        if (!SubtitleModel.hasMemory(context, model)) throw Failure(Failure.Reason.Memory)
         // What a job that died with the app left behind goes first; a job that is running keeps its own.
         SubtitleScratch.clear(context.cacheDir)
         val scratch = SubtitleScratch.open(context.cacheDir)
