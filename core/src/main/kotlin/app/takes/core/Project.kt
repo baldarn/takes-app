@@ -358,6 +358,9 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
     /** The name of the history file that holds [data]: the hash of its bytes. */
     fun filename(): String = named ?: (sha256(data()) + ".json").also { named = it }
 
+    /** The schema number a project needs once it holds this step, when it is a committed one: a timeline's, or a layered timeline's. */
+    val schema: Int get() = if (state.layered != null) TrackTimeline.LAYERED_SCHEMA else TrackTimeline.SCHEMA
+
     companion object {
         /** A step that saves [timeline], with [state] the edit it is ([TrackEditState.edit]): the sequence it reads back as, or the timeline itself. */
         fun of(timeline: TrackTimeline, captureCursor: Int): EditSnapshot = EditSnapshot(TrackEditState.edit(timeline), captureCursor, timeline)
@@ -541,8 +544,9 @@ data class Project(
         if (timeline == edit.toTimeline()) return this
         val step = EditSnapshot.committed(state, cursor, timeline)
         return copy(
-            // Older readers must not silently drop what they do not know: from the first timeline step on, none of them reads the project.
-            schemaVersion = maxOf(schemaVersion, TrackTimeline.SCHEMA),
+            // Older readers must not silently drop what they do not know: from the first timeline step on, none of them reads the
+            // project, and from the first step that is no sequence, none that reads only sequences.
+            schemaVersion = maxOf(schemaVersion, step.schema),
             snapshots = snapshots.take(historyCursor + 1) + step,
             historyCursor = historyCursor + 1,
             updatedAt = now,
@@ -601,7 +605,7 @@ data class Project(
             val step = if (continuing) historyCursor else historyCursor + 1
             return copy(
                 // An edit step, saved as a timeline like every other.
-                schemaVersion = maxOf(schemaVersion, TrackTimeline.SCHEMA),
+                schemaVersion = maxOf(schemaVersion, snapshot.schema),
                 sources = sources + source,
                 captureLedger = captureLedger + clip,
                 captureInsertions = captureInsertions + captureLedger.size,
@@ -699,7 +703,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = TrackTimeline.SCHEMA
+        const val LATEST_READABLE_SCHEMA = TrackTimeline.LAYERED_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
