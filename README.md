@@ -126,9 +126,20 @@ app.
 Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1
 for the `rnnoise` module.
 
-    ./gradlew :core:test            # project model, storage and zoom curve
-    ./gradlew :speech:testDebugUnitTest   # speech model download and recognizer; see speech/README.md
-    ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+    ./gradlew :core:test                     # the editing model, on the JVM (below)
+    ./gradlew :rnnoise:testDebugUnitTest     # the noise-reduction C library
+    ./gradlew :speech:testDebugUnitTest      # speech models; see speech/README.md
+    ./gradlew :app:lintDebug                 # Android lint
+    ./gradlew :app:assembleDebug             # app/build/outputs/apk/debug/app-debug.apk
+
+All of them in one command, which is what the CI runs on every pull request:
+
+    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :app:lintDebug :app:assembleDebug
+
+`core` holds nearly all the tests: the editing model with the track timeline, the parity
+sample and the golden projects. What each command covers, and the pixel tests that run
+on a phone or an emulator, are in
+[CONTRIBUTING.md, "Tests and lint"](CONTRIBUTING.md#tests-and-lint).
 
 ## Layout
 
