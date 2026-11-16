@@ -1082,6 +1082,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             pinch = { factor -> if (factor == null) pinchStart = scale.toDouble() else zoomTo(TimelineZoom.pinched(pinchStart, factor.toDouble(), timelineWidth, duration)) },
             rows = rows,
             soundRows = soundRows.count, syncOffsets = soundRows.offsets, soundless = soundless, movingSounds = movingSounds,
+            length = duration,
             moveDrag = session?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },
