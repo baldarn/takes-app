@@ -59,7 +59,6 @@
     <string name="projects_continue_recording">Continua ripresa</string>
     <string name="projects_edit">Modifica</string>
     <string name="projects_originals">Originali</string>
-    <string name="projects_hide_originals">Nascondi originali</string>
     <string name="projects_add_videos">Aggiungi video</string>
     <string name="projects_zip">Esporta ZIP</string>
     <string name="projects_zip_fallback_name">Progetto</string>
@@ -68,7 +67,6 @@
         <item quantity="many">%1$d cambi camera</item>
         <item quantity="other">%1$d cambi camera</item>
     </plurals>
-    <string name="projects_play_failed">Nessuna app su questo dispositivo può riprodurre la ripresa.</string>
     <string name="projects_default_name">Ripresa %1$s</string>
     <string name="projects_importing_progress">Importazione %1$d di %2$d…</string>
     <string name="projects_import_failed_one">Non è stato possibile importare il video. Forse non è un filmato riproducibile.</string>
@@ -764,4 +762,25 @@
     <string name="export_problem_saved_section_unreadable">Non è possibile leggere una sezione salvata dell\'esportazione.</string>
     <string name="export_problem_sections_not_whole">Le sezioni salvate dell\'esportazione non contengono tutto il filmato.</string>
     <string name="export_problem_paused_not_removed">Non è stato possibile rimuovere l\'esportazione in pausa.</string>
+    <string name="originals_title">Riprese originali</string>
+    <string name="originals_none">Nessun file originale trovato.</string>
+    <string name="originals_review">Rivedi l\'originale</string>
+    <string name="originals_recorded">%1$s registrati</string>
+    <string name="originals_sound_length">File audio · %1$s</string>
+    <string name="originals_share_one">Condividi l\'originale %1$s</string>
+    <string name="originals_share_all">Condividi tutti gli originali</string>
+    <string name="originals_save_all">Salva tutti gli originali nella galleria</string>
+    <string name="originals_share">Condividi l\'originale</string>
+    <string name="originals_save">Salva l\'originale nella galleria</string>
+    <string name="originals_note">Gli originali restano nel progetto come sono stati registrati o importati; il montaggio non li cambia mai.</string>
+    <string name="originals_missing">Il file di questo originale manca.</string>
+    <string name="originals_range_start">Inizio dell\'originale</string>
+    <string name="originals_range_end">Fine dell\'originale</string>
+    <string name="originals_add_range">Aggiungi l\'intervallo alla fine della timeline</string>
+    <plurals name="originals_saved">
+        <item quantity="one">L\'originale è stato salvato nella galleria.</item>
+        <item quantity="many">%1$d originali sono stati salvati nella galleria.</item>
+        <item quantity="other">%1$d originali sono stati salvati nella galleria.</item>
+    </plurals>
+    <string name="originals_save_failed">%1$d originali su %2$d non sono stati salvati nella galleria.</string>
 </resources>
