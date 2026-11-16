@@ -34,7 +34,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -82,7 +81,6 @@ import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TimelineZoom
 import androidx.compose.ui.graphics.nativeCanvas
-import app.takes.core.TransitionLayout
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -161,6 +159,8 @@ internal fun Timeline(
     rows: TimelineRows? = null, moveDrag: MoveDrag? = null,
     soundRows: Int = AudioItem.TRACKS, syncOffsets: Map<String, Double> = emptyMap(), soundless: Set<String> = emptySet(),
     movingSounds: Set<String> = emptySet(),
+    /** How long the movie is as the editor plays and exports it, which can run past the last picture while sound goes on ([app.takes.core.MovieLength]). */
+    length: Double = 0.0,
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -312,7 +312,7 @@ internal fun Timeline(
     ) {
         val viewport = constraints.maxWidth
         Column(Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).padding(top = StripTop).fillMaxHeight()) {
-            val width = with(density) { ((rows?.duration ?: TimelineEditing.duration(clips)) * pixelsPerSecond).toFloat().toDp() }
+            val width = with(density) { (maxOf(rows?.duration ?: TimelineEditing.duration(clips), length) * pixelsPerSecond).toFloat().toDp() }
             if (rows != null) PictureRows(
                 clips, files, rows, current, trim, pixelsPerSecond, viewport, scroll, marked, Modifier.width(width).height(strip),
                 openTitle = openTitle, select = { onSelect(it, null) },
@@ -407,7 +407,7 @@ internal fun Timeline(
         Canvas(Modifier.fillMaxWidth().height(StripTop)) {
             val half = size.width / 2
             val step = TimelineZoom.rulerStep((pixelsPerSecond / density.density).toDouble())
-            val total = rows?.duration ?: TimelineEditing.duration(clips)
+            val total = maxOf(rows?.duration ?: TimelineEditing.duration(clips), length)
             val start = ((scroll.value - half) / pixelsPerSecond).toDouble().coerceAtLeast(0.0)
             val end = ((scroll.value + half) / pixelsPerSecond).toDouble().coerceAtMost(total)
             for (time in TimelineZoom.rulerMarks(start, end, step)) {
