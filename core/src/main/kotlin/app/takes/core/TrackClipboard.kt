@@ -45,6 +45,29 @@ data class TimelinePasteTarget(val kind: Kind, val time: EditTime, val anchor: A
         return abs(time.ticks - playhead.ticks) < REACH || playhead.ticks == displayFrame
     }
 
+    /**
+     * What the target is called, for the editor to put in its own words:
+     * [Label.Key.Start], [Label.Key.End] and [Label.Key.Gap] alone, or
+     * [Label.Key.Video] and [Label.Key.Audio] with the numbers of the two
+     * items, from 1 in the order the timeline keeps them (0 for one that is
+     * not there). [label] is the original's English.
+     */
+    fun labelKey(timeline: TrackTimeline): Label = when (anchor) {
+        Anchor.Start -> Label(Label.Key.Start)
+        Anchor.End -> Label(Label.Key.End)
+        Anchor.Gap -> Label(Label.Key.Gap)
+        is Anchor.Between -> {
+            val picture = kind == Kind.Picture
+            val ids = if (picture) timeline.video.map { it.id } else timeline.audio.map { it.id }
+            Label(if (picture) Label.Key.Video else Label.Key.Audio, ids.indexOf(anchor.left) + 1, ids.indexOf(anchor.right) + 1)
+        }
+    }
+
+    /** See [labelKey]: [left] and [right] are 0 for the keys that take no numbers. */
+    data class Label(val key: Key, val left: Int = 0, val right: Int = 0) {
+        enum class Key { Start, End, Gap, Video, Audio }
+    }
+
     /** "Start", "End", "Gap", or the two items by their numbers: "Video · V2 | V3". */
     fun label(timeline: TrackTimeline): String = when (anchor) {
         Anchor.Start -> "Start"
@@ -133,6 +156,42 @@ object TrackClipboard {
         if (first?.start != EditTime.ZERO) cuts += TimelinePasteTarget(outer, EditTime.ZERO, TimelinePasteTarget.Anchor.Start)
         if (last?.end != duration) cuts += TimelinePasteTarget(outer, duration, TimelinePasteTarget.Anchor.End)
         return cuts
+    }
+
+    /**
+     * The targets the playhead at [playhead] is on ([TimelinePasteTarget.isAt]),
+     * in the order of [pasteTargets]: none pastes at the playhead, one is
+     * the Paste button's, several are the menu of Paste. While playing or
+     * moving the editor offers none. YouRec/EditorView.swift:631-632, :775-798.
+     */
+    fun targetsAt(timeline: TrackTimeline, playhead: EditTime, targets: List<TimelinePasteTarget> = pasteTargets(timeline)): List<TimelinePasteTarget> =
+        targets.filter { it.isAt(playhead) }
+
+    /**
+     * True when pasting [clipboard] at [playhead] on [targets] (those
+     * [targetsAt] gives) undoes a transition, which the Paste button says
+     * ("Replaces transition"): the clipboard opens the picture sequence,
+     * because it is between two pictures or, with no target, inserts time,
+     * and the playhead is inside a transition or a target carries one.
+     * YouRec/EditorView.swift:775-780.
+     */
+    fun replacesTransition(timeline: TrackTimeline, clipboard: TimelineClipboard, playhead: EditTime, targets: List<TimelinePasteTarget>): Boolean {
+        if (clipboard.timeline.video.isEmpty()) return false
+        val opens = if (targets.isEmpty()) clipboard.insertsTime else targets.any { it.anchor is TimelinePasteTarget.Anchor.Between }
+        if (!opens) return false
+        return timeline.generated.any { it.interval.start < playhead && playhead < it.interval.end } || targets.any { it.transition != null }
+    }
+
+    /**
+     * The target of "Paste here" on an add button of the timeline: the
+     * picture's start or end (the timeline's when there is no picture), or
+     * the gap the button is in. With an empty timeline the start has no
+     * target and pastes at zero. YouRec/EditorView.swift:871-879.
+     */
+    fun target(timeline: TrackTimeline, site: VideoInsertionSite, targets: List<TimelinePasteTarget> = pasteTargets(timeline)): TimelinePasteTarget? = when (site) {
+        VideoInsertionSite.Start -> targets.firstOrNull { it.kind != TimelinePasteTarget.Kind.Project && it.anchor == TimelinePasteTarget.Anchor.Start }
+        VideoInsertionSite.End -> targets.firstOrNull { it.kind != TimelinePasteTarget.Kind.Project && it.anchor == TimelinePasteTarget.Anchor.End }
+        is VideoInsertionSite.Gap -> TimelinePasteTarget(TimelinePasteTarget.Kind.Picture, EditTime.of(site.after), TimelinePasteTarget.Anchor.Gap)
     }
 
     /**

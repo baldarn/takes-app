@@ -48,10 +48,14 @@ object InsertionSites {
     }
 
     /**
-     * Where this port's edit has picture. Its clips follow one another from
-     * time zero without gaps, so that is the whole movie, or nothing.
+     * Where the edit of [state] has picture: the stretches of its timeline
+     * with a picture or a transition's time ([videoCoverage]). A sequence of
+     * clips has one, from zero to its end, or none.
      */
-    fun coverage(state: EditState): List<Span> = if (state.duration > 0) listOf(Span(0.0, state.duration)) else emptyList()
+    fun coverage(state: EditState): List<Span> = coverage(state.toTimeline())
+
+    /** Where [timeline] has picture ([videoCoverage]). */
+    fun coverage(timeline: TrackTimeline): List<Span> = timeline.videoCoverage.map { Span(it.start.seconds, it.end.seconds) }
 
     /**
      * The original's rule, for any [coverage] (see [union]) and [length]
@@ -78,9 +82,21 @@ object InsertionSites {
         }
     }
 
-    /** The add buttons the timeline of [state] offers: this port's edit has no gaps, and an empty one has only its start. */
-    fun sites(state: EditState): List<VideoInsertionSite> =
-        if (state.duration > 0) listOf(VideoInsertionSite.Start, VideoInsertionSite.End) else listOf(VideoInsertionSite.Start)
+    /** The add buttons the timeline of [state] offers ([sites] of its timeline). */
+    fun sites(state: EditState): List<VideoInsertionSite> = sites(state.toTimeline())
+
+    /**
+     * The add buttons of [timeline], each once, in order: the start, one in
+     * every stretch without picture between two pictures, named by where the
+     * picture before it ends, and the end. With no picture, the start alone.
+     * YouRec/EditorTimeline.swift:318-366, without what decides whether a
+     * button fits on the screen.
+     */
+    fun sites(timeline: TrackTimeline): List<VideoInsertionSite> {
+        val coverage = timeline.videoCoverage
+        if (coverage.isEmpty()) return listOf(VideoInsertionSite.Start)
+        return listOf(VideoInsertionSite.Start) + coverage.zipWithNext { left, _ -> VideoInsertionSite.Gap(left.end.seconds) } + VideoInsertionSite.End
+    }
 
     /**
      * The timeline second to pass to [TimelineEditing.insert],
@@ -88,9 +104,10 @@ object InsertionSites {
      *
      * Without a [site] that is the [playhead], kept inside the movie; null
      * when it is not a number. With one it is where the original's rule
-     * starts the new video: zero for the start, the end of the movie for the
-     * end, and for a gap whichever of the two the rule falls back to, since
-     * there are no gaps here.
+     * starts the new video, as the editor of the original shows it before
+     * the length is known (YouRec/EditorView.swift:599): zero for the start
+     * of a timeline whose picture begins at zero, the end of the picture for
+     * the end, the left edge of a gap for the gap.
      */
     fun time(state: EditState, playhead: Double, site: VideoInsertionSite? = null): Double? {
         if (site != null) return placement(site, coverage(state), 0.0).start
