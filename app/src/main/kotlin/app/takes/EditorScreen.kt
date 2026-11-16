@@ -914,7 +914,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 settings = work.settings, existing = work.initial != null, change = { transitioning = work.changed(it) },
                 index = work.join, count = saved.clips.size, edge = place?.edge ?: 0, join = join,
                 maximum = TimelineEditing.joinMaximum(saved.clips, work.join), projectDuration = duration,
-                lengthChange = duration - (TimelineEditing.setJoin(saved, work.join, null) ?: saved).duration,
+                // Against the timeline as saved, as the original's note reads: an existing transition opens unchanged, a new one against the straight cut.
+                lengthChange = duration - (if (work.initial != null) saved else TimelineEditing.setJoin(saved, work.join, null) ?: saved).duration,
                 audioMaximum = TransitionDefaults.audioMaximum(clips.maxOfOrNull { it.duration }),
                 framesPerSecond = TimelineEditing.layout(clips).join(work.join)?.let(frames) ?: TransitionScene.FRAMES_PER_SECOND,
                 playing = editor.playing,
