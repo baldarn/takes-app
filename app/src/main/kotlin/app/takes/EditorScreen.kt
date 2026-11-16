@@ -125,6 +125,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -551,6 +554,83 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val soundName = stringResource(R.string.editor_sound_default_name)
     val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
 
+    // The review speed, preview only as in the original (EditorView.swift:454-465): reviews of a cut, a transition or the playhead play at 1×.
+    var reviewSpeed by remember { mutableDoubleStateOf(1.0) }
+    var reviewSpeedsOpen by remember { mutableStateOf(false) }
+    val chooseReviewSpeed = { speed: Double ->
+        reviewSpeed = speed
+        reviewSpeedsOpen = false
+        if (editor.playing && auditionReturn == null && auditionEnd == null && auditioning == null) editor.play(playhead, speed)
+    }
+    // The movie full screen, with a transport of its own (A/FullPreview.kt).
+    var fullPreview by remember { mutableStateOf(false) }
+    // The decks are drawn on new surfaces each way; paused, they show nothing there until they are put on their frame again.
+    LaunchedEffect(fullPreview) {
+        repeat(2) { withFrameNanos { } }
+        if (!editor.playing) editor.seek(playhead)
+    }
+    // Play or pause, from the Play button or a tap on the picture. A pause during a quick review goes back to where it began.
+    val togglePlay: () -> Unit = {
+        auditionEnd = null
+        val framed = cropping
+        if (editor.playing) { editor.pause(); auditionReturn?.let { auditionReturn = null; jump(it) } }
+        // The Crop tool plays what it works on and stops at its end, as the original's preview does.
+        else if (framed != null) {
+            auditionEnd = (framed.on.end - PauseDetector.FRAME / 2).takeIf { framed.on.end < duration - 0.0005 }
+            val from = framed.playFrom(playhead)
+            playhead = from
+            editor.play(from, reviewSpeed)
+        } else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead, reviewSpeed)
+    }
+
+    // Quick review, as the original's (EditorView.swift:526-547): with a range marked, the movie as it would be without it,
+    // across the cut; otherwise a second on each side of the playhead, or of where the review under way began, and back.
+    val quickReview: () -> Unit = {
+        val range = marks.range
+        val removed = range?.let { RangeEditing.delete(edit, marks.scope) }
+        val cut = if (range != null && removed != null) ReviewWindows.cut(range.start, removed.state.duration, playhead) else null
+        if (cut != null && removed != null) { editor.pause(); auditionEnd = null; auditionReturn = null; auditioning = Audition(removed.state, cut) }
+        else if (clips.isNotEmpty()) {
+            val review = ReviewWindows.quick(auditionReturn ?: playhead, duration)
+            editor.pause()
+            auditionEnd = review.end
+            auditionReturn = review.returnTo
+            playhead = review.start
+            editor.play(review.start)
+        }
+    }
+    // Play waits a moment for a second tap, which asks for a quick review instead; with a screen reader it plays at once,
+    // and the review is one of the button's actions.
+    var pendingPlay by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var playTapTime by remember { mutableLongStateOf(0L) }
+    var playTapAnchor by remember { mutableDoubleStateOf(0.0) }
+    val cancelPendingPlay: () -> Unit = { pendingPlay?.cancel(); pendingPlay = null }
+    val playTapped: () -> Unit = {
+        val reader = context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)?.isTouchExplorationEnabled == true
+        val now = android.os.SystemClock.uptimeMillis()
+        if (reader) togglePlay()
+        else if (now - playTapTime < (ReviewWindows.DOUBLE_TAP * 1000).toLong()) {
+            cancelPendingPlay()
+            playTapTime = 0L
+            editor.pause()
+            playhead = playTapAnchor
+            quickReview()
+        } else {
+            playTapTime = now
+            playTapAnchor = playhead
+            if (editor.playing) togglePlay()
+            else {
+                cancelPendingPlay()
+                pendingPlay = scope.launch {
+                    kotlinx.coroutines.delay((ReviewWindows.DOUBLE_TAP * 1000).toLong())
+                    pendingPlay = null
+                    playTapTime = 0L
+                    togglePlay()
+                }
+            }
+        }
+    }
+
     Column(modifier.fillMaxSize().then(previewing)) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -585,7 +665,28 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
                 // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
                 val content = { index: Int, frame: FrameSize -> RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = cropOf(index).first != null) }
-                DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                val pictures: @Composable () -> Unit = {
+                    DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                }
+                // Full screen the decks are drawn there alone, with the titles and subtitles over them.
+                if (fullPreview) FullPreview(
+                    aspect = canvas?.let { it.first.toFloat() / it.second }, playing = editor.playing, playhead = playhead, duration = duration, speed = reviewSpeed,
+                    togglePlay = togglePlay, seek = jump, setSpeed = chooseReviewSpeed,
+                    change = { forward -> navigation.destination(playhead, forward) != null },
+                    toChange = { forward, effectsOnly -> navigation.destination(playhead, forward, effectsOnly)?.let(jump) },
+                    previousBookmark = TimelineEditing.previousBookmark(clips, playhead), nextBookmark = TimelineEditing.nextBookmark(clips, playhead),
+                    bookmarkUnder = location?.let { TimelineEditing.bookmarkAt(clips, it.index, sourceTime) } != null,
+                    toggleBookmark = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
+                    bookmarks = TimelineEditing.bookmarkTimes(clips), close = { fullPreview = false },
+                ) {
+                    pictures()
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawIntoCanvas { target ->
+                            titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
+                            captionPlan.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
+                        }
+                    }
+                } else pictures()
                 // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
                 val work by rememberUpdatedState(titling)
                 var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle
@@ -652,7 +753,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val placing by rememberUpdatedState(subtitling?.subtitles?.let { look -> captionLayout?.takeIf { SubtitleEditing.active(it.cues, playhead).isNotEmpty() }?.let { SubtitlePlacing(it.placement, look) } })
                 var guiding by remember { mutableStateOf(false) }
                 val placeCaptions = if (subtitling == null) Modifier else Modifier.subtitlePlacing({ placing }, { next -> editor.pause(); subtitling?.let { SubtitleEditing.restyle(it, next) }?.let { subtitling = it } }, { guiding = it }, subtitlePlacingActions())
-                Canvas(Modifier.fillMaxSize().then(moving).then(framing).then(reframing).then(placeCaptions)) {
+                // Otherwise a tap on the picture plays or pauses, as in the original (EditorView.swift:449).
+                val toggle by rememberUpdatedState(togglePlay)
+                val cancelPending by rememberUpdatedState(cancelPendingPlay)
+                val tapLabel = stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play)
+                val tapping = if (titling != null || transitioning?.settings?.style == TransitionStyle.Split || cropping != null || effecting != null || clips.isEmpty()) Modifier
+                else Modifier.pointerInput(Unit) { detectTapGestures(onTap = { cancelPending(); toggle() }) }.semantics { onClick(tapLabel) { cancelPending(); toggle(); true } }
+                Canvas(Modifier.fillMaxSize().then(moving).then(framing).then(reframing).then(placeCaptions).then(tapping)) {
                     if (sampling) return@Canvas
                     if (cropping != null) cropGuides()
                     if (guiding) placing?.let { subtitleGuide(it) }
@@ -663,6 +770,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
             }
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
+            else {
+                ReviewSpeed(reviewSpeed, reviewSpeedsOpen, Modifier.align(Alignment.BottomStart).padding(8.dp), toggle = { reviewSpeedsOpen = !reviewSpeedsOpen }, choose = chooseReviewSpeed)
+                val fullLabel = stringResource(R.string.full_preview_open)
+                IconButton(
+                    onClick = { cancelPendingPlay(); fullPreview = true }, Modifier.align(Alignment.TopEnd).semantics { contentDescription = fullLabel },
+                    enabled = titling == null && transitioning == null && cropping == null && effecting == null && subtitling == null && auditioning == null,
+                ) { Icon(Icons.Filled.OpenInFull, null, tint = Color.White) }
+            }
         }
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
@@ -681,21 +796,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 )
                 ChangeButton(forward = false, enabled = navigation.destination(playhead, false) != null) { toChange(false, it) }
             }
+            val reviewLabel = stringResource(R.string.editor_quick_review)
             TextButton(
-                onClick = {
-                    auditionEnd = null
-                    val framed = cropping
-                    if (editor.playing) editor.pause()
-                    // The Crop tool plays what it works on and stops at its end, as the original's preview does.
-                    else if (framed != null) {
-                        auditionEnd = (framed.on.end - PauseDetector.FRAME / 2).takeIf { framed.on.end < duration - 0.0005 }
-                        val from = framed.playFrom(playhead)
-                        playhead = from
-                        editor.play(from)
-                    } else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead)
-                },
+                onClick = playTapped,
+                modifier = Modifier.semantics { customActions = listOf(CustomAccessibilityAction(reviewLabel) { quickReview(); true }) },
                 enabled = clips.isNotEmpty(), contentPadding = tight,
-            ) { Icon(if (editor.playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), Modifier.size(32.dp)) }
+            ) {
+                val pausing = editor.playing || pendingPlay != null
+                Icon(if (pausing) Icons.Filled.Pause else Icons.Filled.PlayArrow, stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play), Modifier.size(32.dp))
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ChangeButton(forward = true, enabled = navigation.destination(playhead, true) != null) { toChange(true, it) }
                 val zoomOutLabel = stringResource(R.string.editor_zoom_timeline_out)

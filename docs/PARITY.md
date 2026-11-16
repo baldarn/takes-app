@@ -142,14 +142,14 @@ The port goes beyond the original in three places, not counted above: Italian lo
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
-| Preview of the edit with play/pause | O/EditorView.swift:449, 565 | PARTIAL | A/EditorScreen.kt:190-359, 674-679 | Tap on the preview to play/pause | S | Yes |
+| Preview of the edit with play/pause | O/EditorView.swift:449, 565 | DONE | A/EditorScreen.kt (`togglePlay`, a tap on the picture while no tool takes its gestures) | — | | |
 | Scrolling thumbnail timeline with waveform under a fixed playhead; scrubbing pauses | O/EditorTimeline.swift:506-525 | DONE | A/EditorScreen.kt:934-1037 | — | | |
 | Timeline zoom | O/EditorTimeline.swift:577-582, 186-191 | PARTIAL | A/EditorScreen.kt:683-684 (− / + buttons, 6–480 dp/s) | Pinch; "whole project / 5 min / 1 min / 10 s / 1 s" menu; time ruler | M | Yes |
 | Detailed waveform at high zoom (1000 bins/s tiles) | O/WaveformDetail.swift:4-66 | PARTIAL | C/Waveform.kt:42 (50 peaks/s), A/EditorScreen.kt:1074-1088 | Detail tiles | M | Yes |
 | Timecode and duration | O/EditorTimeline.swift:1052-1055 | DONE | A/EditorScreen.kt:656 | — | | |
-| Review speed 1–3× with pitch kept | O/EditorView.swift:454-465 | MISSING | — | Preview-only speed | S | Yes |
-| Double-tap play "quick review" with pre/post-roll and return; preview a cut | O/EditorView.swift:526-547, O/EditorController.swift:408-467 | MISSING | — | | M | Yes |
-| Full-screen preview | O/TrackEditors.swift:22-86 | MISSING | — | | M | Yes |
+| Review speed 1–3× with pitch kept | O/EditorView.swift:454-465 | DONE | A/Transport.kt (`ReviewSpeed`), A/EditorPlayer.kt (`play(time, speed)`); reviews of a cut, a transition or the playhead play at 1× | — | | |
+| Double-tap play "quick review" with pre/post-roll and return; preview a cut | O/EditorView.swift:526-547, O/EditorController.swift:408-467 | DONE | A/EditorScreen.kt (`playTapped`, `quickReview`), C/ReviewWindows.kt; with a screen reader Play plays at once and the review is an action of the button | — | | |
+| Full-screen preview | O/TrackEditors.swift:22-86 | DONE | A/FullPreview.kt: the editor's players in a full-screen window that turns with the phone, with speed, position, changes, Play and bookmarks; the controls hide while playing | No inspection zoom (missing in the editor too) | | |
 | Preview inspection zoom (pinch 1–8×) | O/EditorView.swift:1586-1601 | MISSING | — | | S | Yes |
 | Previous/next change (cuts and effects) | O/TimelineNavigation.swift:56-165 | DONE | A/Transport.kt (`ChangeButton`), C/TimelineNavigation.kt: tap for cuts and changes, hold for changes only | — | | |
 | Split at the playhead | O/TimelineEditing.swift:45-62 | DONE | A/EditorScreen.kt:724, C/TimelineEditing.kt:56 | Not frame-quantised (original snaps to 1/30 s) | | |

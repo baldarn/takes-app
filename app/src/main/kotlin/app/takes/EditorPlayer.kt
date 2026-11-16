@@ -104,9 +104,13 @@ internal class EditorPlayer(private val context: Context) {
         } else {
             player.seekTo(if (inside) ((time - item.start) * 1000).toLong() else 0L)
         }
+        if (player.playbackParameters.speed != speed.toFloat()) player.playbackParameters = PlaybackParameters(speed.toFloat())
         player.playWhenReady = play && inside
     }
     var playing by mutableStateOf(false); private set
+
+    /** The review speed of this playback, preview only: the clips' own speeds times this, the pitch kept. */
+    private var speed = 1.0
 
     private var plan = RenderPlan.of(EditState())
     private val clips get() = plan.pictures
@@ -163,7 +167,7 @@ internal class EditorPlayer(private val context: Context) {
 
     /** Plays the deck at its clip's speed, keeping the pitch. */
     private fun pace(player: ExoPlayer, clip: Int) {
-        val rate = clips.getOrNull(clip)?.rate?.toFloat() ?: 1f
+        val rate = ((clips.getOrNull(clip)?.rate ?: 1.0) * speed).toFloat()
         if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
     }
 
@@ -219,8 +223,10 @@ internal class EditorPlayer(private val context: Context) {
         for (track in tracks.indices) cue(track, time, play = false)
     }
 
-    fun play(time: Double) {
+    /** Plays from [time], at [speed] times the edit's own pace. */
+    fun play(time: Double, speed: Double = 1.0) {
         if (clips.isEmpty()) return
+        this.speed = speed
         seek(time, starting = true) // line both decks up again
         for (deck in decks.indices) if (playing(deck, time) != null) decks[deck].play()
         for (track in tracks.indices) cue(track, time, play = true)
@@ -242,7 +248,7 @@ internal class EditorPlayer(private val context: Context) {
         ticked = now
         // The clock is the deck that began playing last; where none plays, time runs on by itself.
         val leading = plan.leading(time)
-        time = if (leading == null) time + passed else {
+        time = if (leading == null) time + passed * speed else {
             val chain = chains[leading]
             val deck = clips[chain.first].deck
             val player = decks[deck]
@@ -250,7 +256,7 @@ internal class EditorPlayer(private val context: Context) {
             when {
                 // A deck parked elsewhere, or one that ran past its chain: its chain is over for it.
                 clip == null || clip > chain.last -> chain.end
-                clip < chain.first -> time + passed
+                clip < chain.first -> time + passed * speed
                 // Stopped on the last frame of the chain.
                 !player.playWhenReady && clip == chain.last && player.playbackState == Player.STATE_READY &&
                     player.currentPosition >= player.duration - 30 -> chain.end
