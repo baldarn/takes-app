@@ -168,6 +168,29 @@ object TransitionGeometry {
     fun blurScale(radius: Double, canvas: Size): Double =
         minOf(1.0, maxOf(960 / maxOf(canvas.width, canvas.height), 2 / maxOf(2.0, radius)))
 
+    /**
+     * The picture a blur of [scale] ([blurScale]) is worked out on: the
+     * canvas reduced by it, in whole pixels, at least one each way. The
+     * original keeps the reduced picture's fractional size
+     * (`YouRec/TransitionRenderer.swift:271-275`); a texture has whole pixels.
+     */
+    fun blurCanvas(canvas: Size, scale: Double): Pair<Int, Int> =
+        maxOf(1, Math.round(canvas.width * scale).toInt()) to maxOf(1, Math.round(canvas.height * scale).toInt())
+
+    /**
+     * The samples a defocus takes of the disc, on a sunflower spiral. They
+     * lie about `radius·√(π/n)` apart, so the picture is first blurred by a
+     * Gaussian of [defocusSpread] to fill the space between them: without it
+     * a point of light becomes [DEFOCUS_SAMPLES] dots, not a disc.
+     */
+    const val DEFOCUS_SAMPLES = 96
+
+    /** The Gaussian's share of the spacing of the samples of the disc: measured to leave the disc of a point even to 3 %. */
+    const val DEFOCUS_SPREAD = 0.55
+
+    /** The standard deviation, in pixels, of the Gaussian a picture is spread by before a disc of [radius] pixels taken in [samples]. */
+    fun defocusSpread(radius: Double, samples: Int = DEFOCUS_SAMPLES): Double = DEFOCUS_SPREAD * maxOf(0.0, radius) * kotlin.math.sqrt(Math.PI / samples)
+
     const val SPLIT_EDGE = 0.15
     const val HITCHCOCK_FEATHER = 0.08
     const val DEFAULT_BLUR_AMOUNT = 0.75

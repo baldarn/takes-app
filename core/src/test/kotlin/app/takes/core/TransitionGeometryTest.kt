@@ -215,6 +215,23 @@ class TransitionGeometryTest {
         assertEquals(1.0, TransitionGeometry.blurScale(100.0, Size(640.0, 360.0)), 0.0)
     }
 
+    // YouRec/TransitionRenderer.swift:268-275: at most 960 pixels on the long side once reduced.
+    @Test fun reducedPictureOfABlur() {
+        val uhd = Size(3840.0, 2160.0)
+        assertEquals(960 to 540, TransitionGeometry.blurCanvas(uhd, TransitionGeometry.blurScale(100.0, uhd)))
+        assertEquals(960 to 540, TransitionGeometry.blurCanvas(Size(1920.0, 1080.0), 0.5))
+        assertEquals(1080 to 1920, TransitionGeometry.blurCanvas(Size(1080.0, 1920.0), 1.0))
+        assertEquals(1 to 1, TransitionGeometry.blurCanvas(Size(2.0, 2.0), 0.01))
+    }
+
+    @Test fun defocusSpreadFillsTheSpaceBetweenSamples() {
+        assertEquals(0.0, TransitionGeometry.defocusSpread(0.0), 0.0)
+        // 96 samples over a disc of radius 27 lie 4.88 pixels apart.
+        assertEquals(0.55 * 27 * kotlin.math.sqrt(Math.PI / 96), TransitionGeometry.defocusSpread(27.0), 1e-12)
+        assertEquals(2.687, TransitionGeometry.defocusSpread(27.0), 0.001)
+        assertEquals(0.55 * 27 * kotlin.math.sqrt(Math.PI / 48), TransitionGeometry.defocusSpread(27.0, 48), 1e-12)
+    }
+
     @Test fun progressRunsThroughMotionAndHold() {
         val plain = timing(TransitionSettings(duration = 1.0))
         assertEquals(0.25, plain.progress(0.25), 0.0)

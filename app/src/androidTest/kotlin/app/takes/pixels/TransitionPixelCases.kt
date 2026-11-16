@@ -1,5 +1,17 @@
 package app.takes.pixels
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.HardwareRenderer
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.RenderNode
+import android.hardware.HardwareBuffer
+import android.media.ImageReader
+import android.os.Build
+import app.takes.SceneDrawing
+import app.takes.TransitionPreviewShader
 import app.takes.core.EditState
 import app.takes.core.Rect
 import app.takes.core.Size
@@ -30,7 +42,7 @@ import kotlin.math.roundToInt
  *  - dissolve, fade through color, wipe: [MIX_LEVELS], and a wipe's edge may sit [Recipe]'s nudge either way;
  *  - Hitchcock, split screen: [FRAMED_LEVELS] (a steep key, a scaled picture);
  *  - whip pan against an even smear and defocus against an even disc: [WHIP_BOUND] and [DEFOCUS_BOUND]
- *    in linear light, since the shader's 32 and 48 samples only approximate them;
+ *    in linear light, since the shader's samples (and the spread of a defocus) only approximate them;
  *  - positions measured on a frame: stated with each case.
  */
 class TransitionPixelCases(private val bench: Bench) {
@@ -326,13 +338,70 @@ class TransitionPixelCases(private val bench: Bench) {
         },
     ) + SIZES.flatMap { (width, height) ->
         listOf(
-            Case("Whip pan: spacing of the samples at ${width}x$height") { whipSamples(width, height) },
-            Case("Defocus: spacing of the samples at ${width}x$height, amount 1") { defocusSamples(width, height, 1.0) },
-            Case("Defocus: spacing of the samples at ${width}x$height, default amount") { defocusSamples(width, height, null) },
+            Case("Whip pan: no copies of a line at ${width}x$height") { whipSamples(width, height) },
+            Case("Defocus: no copies of a square at ${width}x$height, amount 1") { defocusSamples(width, height, 1.0) },
+            Case("Defocus: no copies of a square at ${width}x$height, default amount") { defocusSamples(width, height, null) },
         )
+    } + Case("Whip pan and defocus: the time a frame takes at 3840x2160") { blurCost(3840, 2160) } +
+        Case("Defocus in the preview: the decks spread, then the disc") { previewDefocus() }
+
+    /**
+     * The preview's shader, compiled and run by the platform as the editor runs it, on a layer of two decks: a
+     * bright square in the first through a defocus becomes one even disc, as in the export.
+     */
+    private fun Checks.previewDefocus() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return note("no preview shader below Android 13")
+        val (width, height) = 480 to 270
+        val radius = 30f
+        val half = 4
+        val decks = Bitmap.createBitmap(width, 2 * height, Bitmap.Config.ARGB_8888)
+        Canvas(decks).apply {
+            drawColor(Color.BLACK)
+            drawRect((width / 2 - half).toFloat(), (height / 2 - half).toFloat(), (width / 2 + half + 1).toFloat(), (height / 2 + half + 1).toFloat(), Paint().apply { color = Color.WHITE })
+        }
+        val values = FloatArray(24).also { it[0] = radius; it[1] = 0f; it[2] = 0.12f; it[3] = 0.1f }
+        val drawing = SceneDrawing(SceneDrawing.DEFOCUS, 0f, 1f, FloatArray(3), values)
+        val reader = ImageReader.newInstance(width, 2 * height, PixelFormat.RGBA_8888, 1, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
+        val node = RenderNode("decks").apply {
+            setPosition(0, 0, width, 2 * height)
+            beginRecording().drawBitmap(decks, 0f, 0f, null)
+            endRecording()
+            setRenderEffect(TransitionPreviewShader().effect(drawing, width.toFloat(), height.toFloat()))
+        }
+        val renderer = HardwareRenderer().apply { setSurface(reader.surface); setContentRoot(node) }
+        try {
+            renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
+            val image = reader.acquireNextImage()
+            val drawn = Bitmap.wrapHardwareBuffer(checkNotNull(image.hardwareBuffer), null)!!.copy(Bitmap.Config.ARGB_8888, false)
+            image.close()
+            fun encoded(x: Int, y: Int) = (drawn.getPixel(x, y) shr 16) and 0xff
+            val row = (0 until width).map { encoded(it, height / 2) }
+            val lit = row.indices.filter { Light.linear(row[it] / 255.0) > LIT }
+            val gaps = if (lit.isEmpty()) 0 else (lit.first()..lit.last()).count { it !in lit }
+            val inner = mutableListOf<Int>()
+            for (y in 0 until height) for (x in 0 until width) if (hypot(x + 0.5 - width / 2.0, y + 0.5 - height / 2.0) <= radius - half * 1.5 - 3) inner += encoded(x, y)
+            val mean = inner.map { Light.linear(it / 255.0) }.average()
+            val even = (2 * half + 1.0) * (2 * half + 1.0) / (Math.PI * radius * radius)
+            note("lit from pixel %s to %s on the middle row, %d dark between; inside the disc encoded %d to %d, %.5f in linear light (an even disc: %.5f)"
+                .format(lit.firstOrNull(), lit.lastOrNull(), gaps, inner.min(), inner.max(), mean, even))
+            check(lit.isNotEmpty() && gaps == 0) { "The disc has $gaps dark pixels across its middle" }
+            check(inner.max() - inner.min() <= 3) { "The disc ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
+            check(abs(mean - even) <= even * 0.2) { "The disc is $mean on average, an even disc $even" }
+            // Where the light falls to half its inside, on each side of the middle.
+            val rim = listOf((width / 2 downTo 0).firstOrNull { Light.linear(row[it] / 255.0) < mean / 2 }, (width / 2 until width).firstOrNull { Light.linear(row[it] / 255.0) < mean / 2 })
+            note("half light at pixels %s from the middle; radius %.1f".format(rim.map { it?.let { at -> abs(at - width / 2) } }, radius))
+            check(rim.all { it != null && abs(abs(it - width / 2) - radius) <= 3 }) { "The disc's rim is at $rim, the radius $radius" }
+        } finally {
+            renderer.destroy()
+            reader.close()
+            node.discardDisplayList()
+        }
     }
 
-    /** A thin bright line through a whip pan at its peak: every sample of the smear shows as a copy of it. */
+    /**
+     * A thin bright line through a whip pan at its peak. The original smears it on a picture reduced to 960 pixels
+     * on its long side (`YouRec/TransitionRenderer.swift:223-234`, `:268-275`): one even streak, with no copies of it.
+     */
     private fun Checks.whipSamples(width: Int, height: Int) {
         val settings = TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0)
         val laid = laid(settings, Form.Between) ?: return
@@ -341,88 +410,122 @@ class TransitionPixelCases(private val bench: Bench) {
         val stage = Stage(bench, laid.clips, width, height) { index, _ -> if (index == 0) line else black }
         try {
             val actual = stage.frame(laid.time(0.5))
-            val core = TransitionGeometry.whip(settings, 0.5, Size(width.toDouble(), height.toDouble()))
-            val row = DoubleArray(width) { Light.linear(actual.channel(it, height / 2, 0) / 255.0) }
-            // Runs of lit pixels, each at its center of light.
-            val copies = mutableListOf<Double>()
+            val canvas = Size(width.toDouble(), height.toDouble())
+            val core = TransitionGeometry.whip(settings, 0.5, canvas)
+            val scale = TransitionGeometry.blurScale(core.blurRadius, canvas)
+            val encoded = IntArray(width) { actual.channel(it, height / 2, 0) }
+            val row = DoubleArray(width) { Light.linear(encoded[it] / 255.0) }
+            // Runs of lit pixels: one, unless the samples of the smear show as copies of the line.
+            val runs = mutableListOf<IntRange>()
             var x = 0
             while (x < width) {
                 if (row[x] <= LIT) { x++; continue }
-                var weight = 0.0
-                var moment = 0.0
-                while (x < width && row[x] > LIT) { weight += row[x]; moment += row[x] * (x + 0.5); x++ }
-                copies += moment / weight
+                val start = x
+                while (x < width && row[x] > LIT) x++
+                runs += start until x
             }
-            check(copies.size >= 2) { "No copies of the line found" }
-            if (copies.size < 2) return
-            val gaps = copies.zipWithNext { a, b -> b - a }
+            check(runs.size == 1) { "${runs.size} separate streaks: ${runs.take(6)}" }
+            if (runs.isEmpty()) return
             val center = width / 2 + core.firstOffset
-            val unlit = (copies.first().toInt()..copies.last().toInt()).count { row[it] <= LIT }
-            note("%d copies of the line, %.2f px apart (%.2f to %.2f), from %.1f to %.1f; core: radius %.2f, line moved to %.1f".format(copies.size, gaps.average(), gaps.min(), gaps.max(), copies.first(), copies.last(), core.blurRadius, center))
-            check(copies.size == 32) { "${copies.size} copies of the line" }
-            check(abs(gaps.average() - core.blurRadius / 16) <= 0.25) { "The copies are ${gaps.average()} px apart" }
-            check(abs(copies.average() - center) <= 1.0) { "The smear is centered at ${copies.average()}, the core's offset puts the line at $center" }
-            check(copies.first() >= center - core.blurRadius - 1 && copies.last() <= center + core.blurRadius + 1) { "The copies reach past the radius" }
-            original("a motion blur smears the line without a break along its length", unlit == 0, "$unlit of ${copies.last().toInt() - copies.first().toInt() + 1} pixels along the smear are left dark between the copies")
+            // Inside the streak, away from its ends, which a pixel of the reduced picture and its enlargement soften.
+            val margin = 2 / scale + 2
+            val inner = ((center - core.blurRadius + margin).toInt()..(center + core.blurRadius - margin).toInt()).map { encoded[it] }
+            val lit = runs.first().first..runs.last().last
+            // The line is three pixels wide at full light: its light spread evenly over the length of the smear.
+            val even = 3 / (2 * core.blurRadius) * (1 - core.mix)
+            val mean = inner.map { Light.linear(it / 255.0) }.average()
+            note("lit from pixel %d to %d, encoded %d to %d inside, %.5f in linear light on average (an even smear: %.5f); core: radius %.2f about %.1f, reduced by %.3f"
+                .format(lit.first, lit.last, inner.min(), inner.max(), mean, even, core.blurRadius, center, scale))
+            check(inner.max() - inner.min() <= 2) { "The streak ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
+            check(abs(mean - even) <= even * 0.15) { "The streak is $mean on average, an even smear $even" }
+            check(abs(lit.first + 0.5 - (center - core.blurRadius)) <= margin + 1 && abs(lit.last + 0.5 - (center + core.blurRadius)) <= margin + 1) {
+                "The streak runs from ${lit.first} to ${lit.last}, the core's from ${center - core.blurRadius} to ${center + core.blurRadius}"
+            }
         } finally {
             stage.release()
         }
     }
 
-    /** A small bright square through a defocus at its peak: every sample of the disc shows as a copy of it. */
+    /**
+     * A bright square a quarter of the radius wide through a defocus at its peak. The original blurs it on a reduced
+     * picture by an aperture (`YouRec/TransitionRenderer.swift:239-251`): one even disc, with no copies of the square.
+     */
     private fun Checks.defocusSamples(width: Int, height: Int, amount: Double?) {
         val settings = TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0, blurAmount = amount)
         val laid = laid(settings, Form.Between) ?: return
+        val canvas = Size(width.toDouble(), height.toDouble())
+        val core = TransitionGeometry.defocus(settings, 0.5, canvas)
+        val scale = TransitionGeometry.blurScale(core.blurRadius, canvas)
         val (cx, cy) = width / 2 to height / 2
-        val dot = Picture(width, height) { x, y -> if (abs(x - cx) <= 1 && abs(y - cy) <= 1) rgb(255, 255, 255) else 0 }
+        val half = (core.blurRadius / 8).roundToInt()
+        val square = Picture(width, height) { x, y -> if (abs(x - cx) <= half && abs(y - cy) <= half) rgb(255, 255, 255) else 0 }
         val black = Picture.flat(width, height, 0)
-        val stage = Stage(bench, laid.clips, width, height) { index, _ -> if (index == 0) dot else black }
+        val stage = Stage(bench, laid.clips, width, height) { index, _ -> if (index == 0) square else black }
         try {
             val actual = stage.frame(laid.time(0.5))
-            val core = TransitionGeometry.defocus(settings, 0.5, Size(width.toDouble(), height.toDouble()))
-            val reach = core.blurRadius.toInt() + 8
+            val reach = core.blurRadius.toInt() + half + 8
             val side = 2 * reach + 1
-            fun lit(x: Int, y: Int) = Light.linear(actual.channel(cx - reach + x, cy - reach + y, 0) / 255.0)
-            // Patches of lit pixels that touch, each at its center of light.
+            fun encoded(x: Int, y: Int) = actual.channel(cx - reach + x, cy - reach + y, 0)
+            fun lit(x: Int, y: Int) = Light.linear(encoded(x, y) / 255.0)
+            // Patches of lit pixels that touch: one, unless the samples of the disc show as copies of the square.
             val seen = BooleanArray(side * side)
-            val copies = mutableListOf<Pair<Double, Double>>()
+            var patches = 0
             for (start in 0 until side * side) {
                 if (seen[start] || lit(start % side, start / side) <= LIT) continue
+                patches++
                 val open = ArrayDeque(listOf(start))
                 seen[start] = true
-                var weight = 0.0
-                var mx = 0.0
-                var my = 0.0
                 while (open.isNotEmpty()) {
                     val at = open.removeFirst()
                     val (x, y) = at % side to at / side
-                    val value = lit(x, y)
-                    weight += value; mx += value * x; my += value * y
                     for ((nx, ny) in listOf(x - 1 to y, x + 1 to y, x to y - 1, x to y + 1)) {
                         if (nx !in 0 until side || ny !in 0 until side || seen[ny * side + nx] || lit(nx, ny) <= LIT) continue
                         seen[ny * side + nx] = true
                         open += ny * side + nx
                     }
                 }
-                copies += (mx / weight - reach) to (my / weight - reach)
             }
-            check(copies.size >= 2) { "No copies of the square found" }
-            if (copies.size < 2) return
-            val distances = copies.map { hypot(it.first, it.second) }
-            val nearest = copies.map { one -> copies.filter { it !== one }.minOf { hypot(it.first - one.first, it.second - one.second) } }
-            var inside = 0
-            var covered = 0
-            for (y in 0 until side) for (x in 0 until side) if (hypot((x - reach).toDouble(), (y - reach).toDouble()) <= core.blurRadius - 2) {
-                inside++
-                if (lit(x, y) > LIT) covered++
-            }
-            note("%d copies of the square, each %.2f px from its nearest (%.2f to %.2f), the farthest %.2f px out; core: radius %.2f".format(copies.size, nearest.average(), nearest.min(), nearest.max(), distances.max(), core.blurRadius))
-            check(copies.size in 40..48) { "${copies.size} copies of the square" }
-            check(distances.max() <= core.blurRadius + 1.5) { "A copy lies ${distances.max()} px out, past the radius" }
-            check(distances.max() >= core.blurRadius * 0.9) { "The copies reach ${distances.max()} px, the radius is ${core.blurRadius}" }
-            original("an aperture blur fills the whole disc with the light of a point", covered >= inside * 0.9, "${covered * 100 / maxOf(1, inside)} % of the disc is lit")
+            // Inside the disc, away from its rim (softened by the square, a pixel of the reduced picture and its enlargement).
+            val margin = 2 / scale + 2 + half * 1.5
+            val inner = mutableListOf<Int>()
+            for (y in 0 until side) for (x in 0 until side) if (hypot((x - reach).toDouble(), (y - reach).toDouble()) <= core.blurRadius - margin) inner += encoded(x, y)
+            val mean = inner.map { Light.linear(it / 255.0) }.average()
+            // The square's light spread evenly over the disc, half of it mixed with the black second picture.
+            val area = (2 * half + 1.0) * (2 * half + 1.0)
+            val frame = TransitionGeometry.defocus(settings, 0.5, canvas)
+            val even = area / (Math.PI * core.blurRadius * core.blurRadius) * (1 - frame.mix)
+            // Where the light falls to half its inside along the row through the middle, on each side.
+            val row = DoubleArray(side) { lit(it, reach) }
+            val rim = listOf((reach downTo 0).firstOrNull { row[it] < mean / 2 }, (reach until side).firstOrNull { row[it] < mean / 2 })
+            note("%d patch(es) of light; inside the disc encoded %d to %d, %.5f in linear light on average (an even disc: %.5f); half light at pixels %s from the middle; core: radius %.2f, reduced by %.3f, square %d px"
+                .format(patches, inner.min(), inner.max(), mean, even, rim.map { it?.let { at -> abs(at - reach) } }, core.blurRadius, scale, 2 * half + 1))
+            check(patches == 1) { "$patches separate patches of light" }
+            check(inner.max() - inner.min() <= 3) { "The disc ranges from ${inner.min()} to ${inner.max()} inside: the samples show" }
+            check(abs(mean - even) <= even * 0.15) { "The disc is $mean on average, an even disc $even" }
+            check(rim.all { it != null && abs(abs(it - reach) - core.blurRadius) <= 2 / scale + 3 }) { "The disc's rim is at $rim, the core's radius ${core.blurRadius}" }
         } finally {
             stage.release()
+        }
+    }
+
+    /** The time the export's effect takes to draw a frame of [width] × [height] of a dissolve, of a whip pan and of a defocus, each at its peak. */
+    private fun Checks.blurCost(width: Int, height: Int) {
+        val picture = Picture.flat(width, height, rgb(120, 90, 60))
+        for (settings in listOf(
+            TransitionSettings(id = "T", style = TransitionStyle.Dissolve, duration = 1.0),
+            TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0),
+            TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0, blurAmount = 1.0),
+            TransitionSettings(id = "T", style = TransitionStyle.Defocus, duration = 1.0),
+        )) {
+            val laid = laid(settings, Form.Between) ?: return
+            val stage = Stage(bench, laid.clips, width, height) { _, _ -> picture }
+            try {
+                for (progress in listOf(0.25, 0.5)) {
+                    note("%s%s at p=%.2f: %.1f ms".format(settings.style.name, settings.blurAmount?.let { " (amount $it)" } ?: "", progress, stage.cost(laid.time(progress))))
+                }
+            } finally {
+                stage.release()
+            }
         }
     }
 
@@ -516,22 +619,22 @@ class TransitionPixelCases(private val bench: Bench) {
         val MOMENTS = listOf(0.0, 0.25, 0.5, 0.75, 1.0)
 
         /** The sizes the sample spacing of the two blurs is measured at. */
-        val SIZES = listOf(1920 to 1080)
+        val SIZES = listOf(1920 to 1080, 3840 to 2160)
 
         const val ALONE_LEVELS = 1.0
         const val MIX_LEVELS = 2.0
         const val FRAMED_LEVELS = 3.0
 
         /**
-         * How far, in linear light, 32 samples along the smear may be from the even smear, on a frame of [WIDTH] by
-         * [HEIGHT]: there the samples lie closer than two pixels. Measured: 0.006 at most.
+         * How far, in linear light, the samples along the smear may be from the even smear, on a frame of [WIDTH] by
+         * [HEIGHT]: there they lie a pixel apart. Measured on a Galaxy A54: 0.007 at most.
          */
         const val WHIP_BOUND = 0.02
 
         /**
-         * How far, in linear light, 48 samples of the disc with a brighter rim may be from the even disc, on a frame
-         * of [WIDTH] by [HEIGHT]. Measured: 0.024 at most. At full size the samples lie far apart, which the cases
-         * measuring their spacing show; these bounds say nothing of that.
+         * How far, in linear light, 96 samples of the disc with a brighter rim, on a picture spread first, may be from
+         * the even disc, on a frame of [WIDTH] by [HEIGHT]; the spread softens the edges of the blocks. Measured on a
+         * Galaxy A54: 0.040 at most. That no sample shows at full size the cases with a line and a square check.
          */
         const val DEFOCUS_BOUND = 0.05
 

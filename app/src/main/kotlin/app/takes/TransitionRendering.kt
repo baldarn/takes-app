@@ -24,6 +24,7 @@ import app.takes.core.Size as FrameSize
 import app.takes.core.TimelineClip
 import app.takes.core.TrackRenderPlan
 import app.takes.core.TransitionFrame
+import app.takes.core.TransitionGeometry
 import app.takes.core.TransitionLayout
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionStyle
@@ -36,7 +37,36 @@ import app.takes.core.TransitionStyle
  * The preview and the export run the same shader text on the same numbers,
  * each in its own shading language, so a transition looks the same in both.
  */
-class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: FloatArray, val values: FloatArray) {
+class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: FloatArray, val values: FloatArray, val blurScale: Double = 1.0) {
+    /** The blur radius of a whip pan or a defocus, in pixels of the picture drawn; 0 for every other style. */
+    val blurRadius: Float get() = when (mode) {
+        WHIP -> values[6]
+        DEFOCUS -> values[0]
+        else -> 0f
+    }
+
+    /** Whether the shader blurs here: a whip pan or a defocus whose radius reaches half a pixel. */
+    val blurs: Boolean get() = blurRadius >= 0.5f
+
+    /**
+     * The same drawing on the picture reduced from [width] × [height] to
+     * [small]: the offsets and the radius in its pixels, as the original
+     * multiplies them by the scale (`YouRec/TransitionRenderer.swift:228-233`, `:244-247`).
+     */
+    fun reduced(width: Int, height: Int, small: Pair<Int, Int>): SceneDrawing {
+        val sx = small.first.toFloat() / width
+        val sy = small.second.toFloat() / height
+        val scaled = values.copyOf()
+        when (mode) {
+            WHIP -> {
+                scaled[0] *= sx; scaled[1] *= sy; scaled[2] *= sx; scaled[3] *= sy
+                scaled[6] *= if (values[5] > 0.5f) sy else sx
+            }
+            DEFOCUS -> scaled[0] *= (sx + sy) / 2
+        }
+        return SceneDrawing(mode, kindA, kindB, fill, scaled)
+    }
+
     companion object {
         /** Where a side's picture comes from, as the shader's `uKind`: a deck (0 or 1), the fill color, or the frame kept of a deck (3 or 4). */
         const val FILL = 2f
@@ -50,6 +80,20 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         const val HITCHCOCK = 5
         const val WHIP = 6
         const val DEFOCUS = 7
+
+        /**
+         * The passes before a blur, each over one side ([kindA]): [REDUCE] makes the reduced picture, the average of
+         * the pixels each of its pixels covers (`values` 0 and 1: how many across and down); [SPREAD] blurs it by a
+         * Gaussian (`values` 0: the standard deviation in pixels, 1 and 2: the direction) before a defocus.
+         */
+        const val REDUCE = 8
+        const val SPREAD = 9
+
+        /** [REDUCE] of [kind] on a picture [across] by [down] pixels of the frame to each of its own. */
+        fun reduce(kind: Float, across: Float, down: Float) = SceneDrawing(REDUCE, kind, kind, FloatArray(3), FloatArray(24).also { it[0] = across; it[1] = down })
+
+        /** [SPREAD] of [kind] by [sigma] pixels along ([dx], [dy]). */
+        fun spread(kind: Float, sigma: Float, dx: Float, dy: Float) = SceneDrawing(SPREAD, kind, kind, FloatArray(3), FloatArray(24).also { it[0] = sigma; it[1] = dx; it[2] = dy })
 
         /** The styles the shader draws, which are the ones the editor offers: all nine of the original. */
         val drawn: List<TransitionStyle> = listOf(TransitionStyle.Dissolve, TransitionStyle.FadeColor, TransitionStyle.Wipe, TransitionStyle.Split, TransitionStyle.Hitchcock, TransitionStyle.Whip, TransitionStyle.FlashCut, TransitionStyle.Still, TransitionStyle.Defocus)
@@ -108,11 +152,11 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
                     // Offsets are along the travel: to the right, or down the screen.
                     if (frame.vertical) put(0, 0.0, frame.firstOffset, 0.0, frame.secondOffset) else put(0, frame.firstOffset, 0.0, frame.secondOffset, 0.0)
                     put(1, if (frame.vertical) 0.0 else 1.0, if (frame.vertical) 1.0 else 0.0, frame.blurRadius, frame.mix)
-                    SceneDrawing(WHIP, first, second, fill, values)
+                    SceneDrawing(WHIP, first, second, fill, values, frame.blurScale)
                 }
                 is TransitionFrame.Defocus -> {
                     put(0, frame.blurRadius, frame.mix, frame.ringAmount, frame.ringSize)
-                    SceneDrawing(DEFOCUS, first, second, fill, values)
+                    SceneDrawing(DEFOCUS, first, second, fill, values, frame.blurScale)
                 }
             }
         }
@@ -144,24 +188,34 @@ object TransitionShader {
 
     /** What comes after `side()`: the drawing of every style from the two sides. */
     internal const val TAIL = """
-        // One side moved by an offset and blurred evenly along an axis, a radius to each side: in linear light.
+        // One side moved by an offset and blurred evenly along an axis, a radius to each side: in linear light. The
+        // samples lie a pixel apart, up to 128 of them: on the reduced picture the export blurs, at most 960 pixels
+        // long, a smear without gaps. A larger picture drawn in one pass (the edits drawn by layers) takes fewer,
+        // down to 32 at 3840 pixels, so its cost stays what it was.
         vec3 pan(float kind, vec2 q, vec2 offset, vec2 axis, float radius) {
             if (radius < 0.5) return lin(side(kind, q - offset));
+            float most = clamp(floor(128.0 * 960.0 / max(uSize.x, uSize.y)), 32.0, 128.0);
+            float n = min(most, ceil(2.0 * radius));
             vec3 sum = vec3(0.0);
-            for (int i = 0; i < 32; i++) {
-                sum += lin(side(kind, q - offset + axis * radius * ((float(i) + 0.5) / 16.0 - 1.0)));
+            for (int i = 0; i < 128; i++) {
+                if (float(i) >= n) break;
+                sum += lin(side(kind, q - offset + axis * radius * ((float(i) + 0.5) / n * 2.0 - 1.0)));
             }
-            return sum / 32.0;
+            return sum / n;
         }
         // One side through an aperture: the even disc a lens out of focus makes of every point, a little brighter
-        // at its rim, in linear light so highlights spread as discs. The points lie on a sunflower spiral.
+        // at its rim, in linear light so highlights spread as discs. The 96 points lie on a sunflower spiral; the
+        // side has been spread by a Gaussian as wide as the space between them, so they make a disc and not dots.
+        // A picture larger than 1920 pixels drawn in one pass takes 48, as it did.
         vec3 disc(float kind, vec2 q, float radius, float ring, float rim) {
             if (radius < 0.5) return lin(side(kind, q));
+            float n = max(uSize.x, uSize.y) > 1920.0 ? 48.0 : 96.0;
             vec3 sum = vec3(0.0);
             float total = 0.0;
             vec2 turn = vec2(1.0, 0.0);
-            for (int i = 0; i < 48; i++) {
-                float r = sqrt((float(i) + 0.5) / 48.0);
+            for (int i = 0; i < 96; i++) {
+                if (float(i) >= n) break;
+                float r = sqrt((float(i) + 0.5) / n);
                 float weight = 1.0 + ring * step(1.0 - rim, r);
                 sum += weight * lin(side(kind, q + turn * (r * radius)));
                 total += weight;
@@ -170,10 +224,41 @@ object TransitionShader {
             }
             return sum / total;
         }
+        // One side reduced: the average, in linear light, of the uA.x by uA.y pixels a pixel of the reduced picture
+        // covers, each read at its middle (a read between pixels would mix them as they are encoded), up to 8 by 8.
+        vec3 reduce(float kind, vec2 q) {
+            vec2 reads = clamp(ceil(uA.xy), 1.0, 8.0);
+            vec3 sum = vec3(0.0);
+            for (int j = 0; j < 8; j++) {
+                for (int i = 0; i < 8; i++) {
+                    if (float(i) >= reads.x || float(j) >= reads.y) continue;
+                    sum += lin(side(kind, q + ((vec2(float(i), float(j)) + 0.5) / reads - 0.5) * uA.xy));
+                }
+            }
+            return enc(sum / (reads.x * reads.y));
+        }
+        // One side blurred along the direction uA.yz by a Gaussian of uA.x pixels, in linear light, out to three of them.
+        vec3 spread(float kind, vec2 q) {
+            float sigma = uA.x;
+            if (sigma < 0.25) return side(kind, q);
+            float reach = min(20.0, ceil(3.0 * sigma));
+            vec3 sum = vec3(0.0);
+            float total = 0.0;
+            for (int i = -20; i <= 20; i++) {
+                float x = float(i);
+                if (abs(x) > reach) continue;
+                float weight = exp(-0.5 * x * x / (sigma * sigma));
+                sum += weight * lin(side(kind, q + uA.yz * x));
+                total += weight;
+            }
+            return enc(sum / total);
+        }
         // Whether a pixel is in a rectangle given as left, top, width, height.
         bool within(vec2 p, vec4 r) { return p.x >= r.x && p.y >= r.y && p.x < r.x + r.z && p.y < r.y + r.w; }
         vec3 scene(vec2 q) {
             if (uMode < 0.5) return side(uKind.x, q);
+            if (uMode > 8.5) return spread(uKind.x, q);
+            if (uMode > 7.5) return reduce(uKind.x, q);
             if (uMode < 1.5) return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), uA.x));
             if (uMode < 2.5) return enc(uA.x * lin(side(uKind.x, q)) + uA.y * lin(uFill) + uA.z * lin(side(uKind.y, q)));
             if (uMode < 3.5) {
@@ -232,16 +317,24 @@ object TransitionShader {
         uniform sampler2D uHeld0;
         uniform sampler2D uHeld1;
         uniform float uHalves;
+        uniform vec2 uLinear;
         varying vec2 vTex;
         $UNIFORMS
+        $HEAD
         vec3 deck(float kind, vec2 p) { return texture2D(uTex, vec2(p.x / uSize.x, 1.0 - (p.y / uSize.y + kind) / uHalves)).rgb; }
+        // With uLinear.x the kept pictures are the reduced ones of a blur, in linear light: read filtered as such.
         vec3 held(float which, vec2 p) {
             vec2 at = vec2(p.x / uSize.x, 1.0 - p.y / uSize.y);
-            if (which > 0.5) return texture2D(uHeld1, at).rgb;
-            return texture2D(uHeld0, at).rgb;
+            vec3 c = which > 0.5 ? texture2D(uHeld1, at).rgb : texture2D(uHeld0, at).rgb;
+            return uLinear.x > 0.5 ? enc(c) : c;
         }
-        $BODY
-        void main() { gl_FragColor = vec4(scene(vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y)), 1.0); }
+        $SIDE
+        $TAIL
+        // With uLinear.y the pixel is written in linear light, for a reduced picture of a blur.
+        void main() {
+            vec3 c = scene(vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y));
+            gl_FragColor = vec4(uLinear.y > 0.5 ? lin(c) : c, 1.0);
+        }
     """
 
     const val VERTEX = """
@@ -258,6 +351,11 @@ object TransitionShader {
         vec3 held(float which, vec2 p) { return deck(which, p); }
         $BODY
         vec4 main(vec2 xy) {
+            // A spread is made of both decks, each in its half, for the frame drawn after it.
+            if (uMode > 8.5) {
+                float deckAt = min(floor(xy.y / uSize.y), 1.0);
+                return vec4(spread(deckAt, xy - vec2(0.0, deckAt * uSize.y)), 1.0);
+            }
             if (xy.y >= uSize.y) return vec4(0.0);
             return vec4(scene(xy), 1.0);
         }
@@ -266,19 +364,40 @@ object TransitionShader {
     val names = listOf("uA", "uB", "uC", "uD", "uE", "uF")
 }
 
-/** The preview's side of the shader, on Android 13 and later. */
+/**
+ * The preview's side of the shader, on Android 13 and later. It draws on the
+ * view, whose picture is already about the size the original reduces a
+ * picture to before a blur (960 pixels on its long side), so it is not
+ * reduced; a defocus spreads both decks first, across and then down, each
+ * pass an effect of its own under the frame's.
+ */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class TransitionPreviewShader {
     private val shader = RuntimeShader(TransitionShader.PREVIEW)
+    private val across = RuntimeShader(TransitionShader.PREVIEW)
+    private val down = RuntimeShader(TransitionShader.PREVIEW)
+
+    private fun RuntimeShader.set(drawing: SceneDrawing, width: Float, height: Float): RenderEffect {
+        setFloatUniform("uSize", width, height)
+        setFloatUniform("uMode", drawing.mode.toFloat())
+        setFloatUniform("uKind", drawing.kindA, drawing.kindB)
+        setFloatUniform("uFill", drawing.fill)
+        TransitionShader.names.forEachIndexed { row, name -> setFloatUniform(name, drawing.values.copyOfRange(row * 4, row * 4 + 4)) }
+        return RenderEffect.createRuntimeShaderEffect(this, "content")
+    }
 
     /** The effect for a layer [width] pixels wide holding the two decks, each [height] pixels tall. */
     fun effect(drawing: SceneDrawing, width: Float, height: Float): RenderEffect {
-        shader.setFloatUniform("uSize", width, height)
-        shader.setFloatUniform("uMode", drawing.mode.toFloat())
-        shader.setFloatUniform("uKind", drawing.kindA, drawing.kindB)
-        shader.setFloatUniform("uFill", drawing.fill)
-        TransitionShader.names.forEachIndexed { row, name -> shader.setFloatUniform(name, drawing.values.copyOfRange(row * 4, row * 4 + 4)) }
-        return RenderEffect.createRuntimeShaderEffect(shader, "content")
+        val frame = shader.set(drawing, width, height)
+        if (drawing.mode != SceneDrawing.DEFOCUS || !drawing.blurs) return frame
+        // The shader takes half the samples of a disc on a picture longer than 1920 pixels.
+        val samples = if (maxOf(width, height) > 1920f) TransitionGeometry.DEFOCUS_SAMPLES / 2 else TransitionGeometry.DEFOCUS_SAMPLES
+        val sigma = TransitionGeometry.defocusSpread(drawing.blurRadius.toDouble(), samples).toFloat()
+        val spread = RenderEffect.createChainEffect(
+            down.set(SceneDrawing.spread(0f, sigma, 0f, 1f), width, height),
+            across.set(SceneDrawing.spread(0f, sigma, 1f, 0f), width, height),
+        )
+        return RenderEffect.createChainEffect(frame, spread)
     }
 }
 
@@ -425,10 +544,18 @@ class TransitionEffect(
 
         private fun uniform(name: String) = GLES20.glGetUniformLocation(program, name)
 
-        private fun draw(drawing: SceneDrawing, inputTexId: Int) {
+        /**
+         * Draws [drawing] on a picture [width] by [height] pixels, into the framebuffer in focus. The kept
+         * frames are [held] (the reduced pictures, in the passes of a blur); with [linearIn] they hold linear
+         * light, and with [linearOut] the picture drawn does.
+         */
+        private fun draw(
+            drawing: SceneDrawing, inputTexId: Int, held: IntArray = kept, width: Int = canvas.width, height: Int = canvas.height,
+            linearIn: Boolean = false, linearOut: Boolean = false,
+        ) {
             GLES20.glUseProgram(program)
             // A kept frame that does not exist yet is never read; the input stands in so the sampler has a texture.
-            for ((unit, texture) in listOf(inputTexId, kept[0], kept[1]).withIndex()) {
+            for ((unit, texture) in listOf(inputTexId, held[0], held[1]).withIndex()) {
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit)
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, if (texture != 0) texture else inputTexId)
             }
@@ -436,7 +563,8 @@ class TransitionEffect(
             GLES20.glUniform1i(uniform("uHeld0"), 1)
             GLES20.glUniform1i(uniform("uHeld1"), 2)
             GLES20.glUniform1f(uniform("uHalves"), decks.toFloat())
-            GLES20.glUniform2f(uniform("uSize"), canvas.width.toFloat(), canvas.height.toFloat())
+            GLES20.glUniform2f(uniform("uLinear"), if (linearIn) 1f else 0f, if (linearOut) 1f else 0f)
+            GLES20.glUniform2f(uniform("uSize"), width.toFloat(), height.toFloat())
             GLES20.glUniform1f(uniform("uMode"), drawing.mode.toFloat())
             GLES20.glUniform2f(uniform("uKind"), drawing.kindA, drawing.kindB)
             GLES20.glUniform3fv(uniform("uFill"), 1, drawing.fill, 0)
@@ -452,6 +580,79 @@ class TransitionEffect(
         private fun target(): Pair<Int, Int> {
             val texture = GlUtil.createTexture(canvas.width, canvas.height, /* useHighPrecisionColorComponents = */ false)
             return texture to GlUtil.createFboForTexture(texture)
+        }
+
+        // The reduced pictures of a blur: the two sides, one to spread a side into, and the frame. Made again when
+        // the size changes, which it does only near the ends of a blur, where the radius is small.
+        private var workSize = 0 to 0
+
+        // Half floats in linear light where the GPU draws into them (OpenGL ES 3.2, or 3 with the extension), so a
+        // reduced picture is filtered as the original's linear working space filters it; else eight bits, encoded.
+        private val linearWork by lazy {
+            val version = GLES20.glGetString(GLES20.GL_VERSION).orEmpty()
+            val extensions = GLES20.glGetString(GLES20.GL_EXTENSIONS).orEmpty()
+            version.startsWith("OpenGL ES 3.2") || (version.startsWith("OpenGL ES 3") && ("GL_EXT_color_buffer_float" in extensions || "GL_EXT_color_buffer_half_float" in extensions))
+        }
+        private val work = IntArray(4)
+        private val workFramebuffers = IntArray(4)
+
+        private fun workAt(size: Pair<Int, Int>) {
+            if (size == workSize) return
+            releaseWork()
+            for (index in work.indices) {
+                work[index] = GlUtil.createTexture(size.first, size.second, /* useHighPrecisionColorComponents = */ linearWork)
+                // Read filtered and with its edge going on, as a reduced picture is enlarged and blurred.
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, work[index])
+                for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
+                for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
+                workFramebuffers[index] = GlUtil.createFboForTexture(work[index])
+            }
+            workSize = size
+        }
+
+        private fun releaseWork() {
+            for (index in work.indices) if (work[index] != 0) {
+                GlUtil.deleteFbo(workFramebuffers[index])
+                GlUtil.deleteTexture(work[index])
+                work[index] = 0
+            }
+            workSize = 0 to 0
+        }
+
+        /**
+         * A whip pan or a defocus as the original draws it (`YouRec/TransitionRenderer.swift:223-251`): each side
+         * reduced by the drawing's [SceneDrawing.blurScale] (`:268-275`), spread for a defocus, blurred and mixed on
+         * the reduced picture, which is then enlarged to the frame, filtered. The reduced picture is at most 960
+         * pixels on its long side, so the shader's samples lie no more than a pixel apart on the smear of a whip pan.
+         */
+        private fun drawBlurred(drawing: SceneDrawing, inputTexId: Int) {
+            val bound = IntArray(1)
+            GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, bound, 0)
+            val reduced = TransitionGeometry.blurCanvas(size, drawing.blurScale)
+            workAt(reduced)
+            val (width, height) = reduced
+            val small = drawing.reduced(canvas.width, canvas.height, reduced)
+            // A defocus works out only the side showing outside its change-over; a whip pan always both.
+            val mix = drawing.values[if (drawing.mode == SceneDrawing.WHIP) 7 else 1]
+            val kinds = listOf(drawing.kindA, drawing.kindB).mapIndexed { index, kind ->
+                val shown = drawing.mode == SceneDrawing.WHIP || (if (index == 0) mix < 1f else mix > 0f)
+                if (kind != SceneDrawing.FILL && shown) {
+                    GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[index], width, height)
+                    draw(SceneDrawing.reduce(kind, canvas.width.toFloat() / width, canvas.height.toFloat() / height), inputTexId, linearOut = linearWork)
+                    if (drawing.mode == SceneDrawing.DEFOCUS) {
+                        val sigma = TransitionGeometry.defocusSpread(small.blurRadius.toDouble()).toFloat()
+                        GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[2], width, height)
+                        draw(SceneDrawing.spread(SceneDrawing.HELD, sigma, 1f, 0f), inputTexId, intArrayOf(work[index], 0), width, height, linearWork, linearWork)
+                        GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[index], width, height)
+                        draw(SceneDrawing.spread(SceneDrawing.HELD, sigma, 0f, 1f), inputTexId, intArrayOf(work[2], 0), width, height, linearWork, linearWork)
+                    }
+                }
+                if (kind == SceneDrawing.FILL) kind else SceneDrawing.HELD + index
+            }
+            GlUtil.focusFramebufferUsingCurrentContext(workFramebuffers[3], width, height)
+            draw(SceneDrawing(small.mode, kinds[0], kinds[1], small.fill, small.values), inputTexId, intArrayOf(work[0], work[1]), width, height, linearWork, linearWork)
+            GlUtil.focusFramebufferUsingCurrentContext(bound[0], canvas.width, canvas.height)
+            draw(SceneDrawing(SceneDrawing.SINGLE, SceneDrawing.HELD, SceneDrawing.HELD, FloatArray(3), FloatArray(24)), inputTexId, intArrayOf(work[3], 0), linearIn = linearWork)
         }
 
         /**
@@ -512,11 +713,12 @@ class TransitionEffect(
                     is TransitionScene.Source.Fill -> SceneDrawing.FILL
                 }
             }, content)
-            draw(drawing, inputTexId)
+            if (drawing.blurs) drawBlurred(drawing, inputTexId) else draw(drawing, inputTexId)
         }
 
         override fun release() {
             super.release()
+            releaseWork()
             if (program != 0) GLES20.glDeleteProgram(program)
         }
     }

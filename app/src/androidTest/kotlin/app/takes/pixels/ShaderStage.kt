@@ -145,6 +145,27 @@ class Stage(
         return Picture(width, height, pixels)
     }
 
+    /**
+     * How long the effect takes to make the frame at [time], in milliseconds: the median of [times] draws of the
+     * same input, each waited for to the end. The pictures are uploaded once, before.
+     */
+    fun cost(time: Double, times: Int = 9): Double {
+        frame(time)
+        val timeUs = (time * 1e6).roundToLong() - 1
+        val took = List(times) {
+            output = null
+            GLES20.glFinish()
+            val began = System.nanoTime()
+            program.queueInputFrame(bench.objects, GlTextureInfo(texture[0], C.INDEX_UNSET, C.INDEX_UNSET, width, height * decks), timeUs)
+            GLES20.glFinish()
+            val milliseconds = (System.nanoTime() - began) / 1e6
+            failure?.let { throw it }
+            program.releaseOutputFrame(checkNotNull(output) { "The effect gave no frame" })
+            milliseconds
+        }.sorted()
+        return took[times / 2]
+    }
+
     fun release() {
         program.release()
         GLES20.glDeleteTextures(1, texture, 0)

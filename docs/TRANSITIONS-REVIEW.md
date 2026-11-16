@@ -21,7 +21,7 @@ Nothing here was run on a device or an emulator. Section 5 lists what that leave
 | **Editor: duration maximum, length note, audition** | differs | F8, F13, F14. |
 | **Editor: how it opens** | differs, deliberate | Nearest join instead of the join exactly under the playhead (`app/EditorScreen.kt:976-980` against `YouRec/EditorView.swift:1012`, `YouRec/Transitions.swift:254-257`). Known; not treated further. |
 | **Picture: dissolve, fade through color, wipe, split screen, Hitchcock, flash cut (30 fps), still** | matches | Same recipe, in linear light. Residual differences are subtle (F18). |
-| **Picture: whip pan, defocus** | differs | Fixed-tap approximations of `CIMotionBlur` and `CIBokehBlur` (F2, F3). |
+| **Picture: whip pan, defocus** | differs, narrowed | Blurred on a reduced picture as the original's are, with no sample showing; the kernels stand in for `CIMotionBlur` and `CIBokehBlur` (F2, F3, fixed for issue 33). |
 | **Picture: titles during a transition** | differs | Drawn once over the finished frame with an opacity, not through the transition with their clip (F1). |
 | **Picture: preview below Android 13** | differs, documented | Four styles are shown as cross-fades and split screen's brief entry and exit are not dissolves; the export is unaffected (F4). |
 | **Sound: levels** | matches | Same ramps, same 8 ms minimum, same J/L cuts and split first/second, and preview and export read the same function. [R][P] |
@@ -53,6 +53,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 - **Android.** `disc()` takes 48 samples on a sunflower spiral, the same spiral for every pixel, with a weight of 1.12 on the outer 10 % of the radius (`app/TransitionRendering.kt:150-164`). Softness is not passed to the shader (`:112-115`), and the picture is not reduced.
 - **Difference.** The radius is the same (`core/TransitionGeometry.kt:154-160`). The fill of the disc is not: at 1080p and full amount the radius peaks at 54 px, so 48 samples are about 14 px apart; at 4K, 108 px and about 28 px apart. A point of light becomes 48 dots rather than a disc, and a hard edge becomes a stack of 48 copies. Because the pattern is the same at every pixel it reads as structure, not as noise. The change-over window (`(t − 0.35) / 0.3`) and the timing match.
 - **Fix.** Blur a reduced copy (the original's `blurScale` is already computed in `core/TransitionPicture.kt:228-231` and unused), in two passes or with a few hundred samples at the reduced size; rotate the spiral per pixel if a single pass is kept.
+- **Status.** Fixed (issue 33). The export reduces each side by the original's `blurScale` (at most 960 pixels on the long side) in linear light, spreads it by a Gaussian as wide as the space between the samples (`core/TransitionGeometry.kt` `defocusSpread`), takes 96 samples of the disc on the reduced picture and enlarges the result, filtered (`app/TransitionRendering.kt` `drawBlurred`). The preview draws on the view, about that size already, and spreads both decks first with two more effects of the same shader; there too a square becomes one even disc ("Defocus in the preview"). On a Galaxy A54 a bright square at 1080p and 4K comes out as one even disc, its encoded values inside at most 2 levels apart (`TransitionPixelCases`, "Defocus: no copies of a square"), and a 4K frame of the effect at the peak takes 102 to 107 ms instead of 312 ms (a dissolve: 24 ms). Softness 0.25 and the exact profile of `CIBokehBlur` are still not in either source; the Gaussian softens the rim by about a quarter of the space between samples. Edits drawn by layers (`app/LayerRendering.kt`) still draw the disc in one pass at full size, without the spread.
 
 ### F3. Whip pan is 32 evenly spaced samples — every use of the style [R] for the code, [I] for the look
 
@@ -60,6 +61,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 - **Android.** `pan()` averages 32 samples spread evenly over ± radius (`app/TransitionRendering.kt:140-147`), at full size.
 - **Difference.** Offsets, direction, reverse, axis, easing of the slide and of the mix, and the linear rise and fall of the blur all match (`core/TransitionGeometry.kt:125-132`). The smear does not: at 1080p the radius peaks at 130 px, so samples are 8 px apart; at 4K, 259 px and 16 px apart. A vertical edge at the peak is 32 distinct copies. How `CIMotionBlur` weights its extent is not in the source of either side, so the box shape itself is an assumption.
 - **Fix.** As F2: blur a reduced copy, or raise the tap count with the radius.
+- **Status.** Fixed (issue 33). The export smears each side on the reduced picture with its edges going on, the samples a pixel apart (up to 128), and enlarges the result, filtered, in linear light. On a Galaxy A54 a three-pixel line at 1080p and 4K becomes one streak of even light, the same encoded value along it (`TransitionPixelCases`, "Whip pan: no copies of a line"), and a 4K frame of the effect at the peak takes 92 ms instead of 173 ms. The box shape of the smear is still an assumption. Edits drawn by layers still smear in one pass at full size, with up to 128 samples on a picture of 960 pixels and 32 at 3840.
 
 ### F4. Below Android 13 the preview draws four styles as cross-fades — every use on those devices [R]
 
@@ -260,10 +262,10 @@ Every other label in `app/src/main/res/values/strings.xml:310-395` is the origin
 | Wipe | smoothstep | band of half-width `max(1, 3.5 % of the span)` or 0.5 px, starting and ending wholly off the canvas, second behind the edge; angle clockwise on screen | same; y is turned once, at `:79` |
 | Split screen | linear | each clip without its bars framed in its half over black, second half over first, a line of 0.25 grey `max(1, 0.2 %)` wide; 15 % blend in and out | same; content rectangles agree (`YouRec/TransitionRenderer.swift:293-297`, `app/Exporter.kt:289-295`, `app/EditorScreen.kt:724-731`) |
 | Hitchcock | smoothstep | key from the first picture's encoded brightness, Rec. 709 weights, feather 0.08, threshold from −0.08 to 1.08 | same in SDR |
-| Whip pan | smoothstep slide and mix, linear blur | slide 65 % of the axis, blur radius 12 % of the short side at the midpoint | geometry same, blur differs (F3) |
+| Whip pan | smoothstep slide and mix, linear blur | slide 65 % of the axis, blur radius 12 % of the short side at the midpoint | geometry same; blur on a reduced picture, kernel assumed (F3) |
 | Flash cut | none | whole frames | same at 30 fps (F6) |
 | Still | smoothstep exit | last frame shown before the freeze, held; then cut or dissolve | same recipe; the frame is chosen differently in the export (F17) |
-| Defocus | linear | radius 5 % of the short side × amount at the midpoint; change-over from 35 % to 65 % | radius and window same, blur differs (F2) |
+| Defocus | linear | radius 5 % of the short side × amount at the midpoint; change-over from 35 % to 65 % | radius and window same; blur on a reduced picture, kernel approximated (F2) |
 
 At progress 0 and 1 both sides return the first or the second picture untouched (`YouRec/TransitionRenderer.swift:192`; `core/TransitionPicture.kt:153-155`, shader mode 0). A missing side is the fade's colour for a fade and black otherwise (`:184-187`; `core/TransitionPicture.kt:124-125`). Crop, color and speed are applied to each clip before the transition on both sides; clips of another shape are fitted with black bars that take part in the transition on both. Rotation and mirror of a clip do not exist in the Android app.
 
