@@ -104,6 +104,11 @@
     <string name="editor_bookmark_add">Add bookmark</string>
     <string name="editor_bookmark_remove">Remove bookmark</string>
     <string name="editor_pause">Pause</string>
+    <string name="editor_quick_review">Quick review</string>
+    <string name="full_preview_open">Open full-screen preview</string>
+    <string name="full_preview_position">Full preview position</string>
+    <string name="editor_review_speed">Review speed</string>
+    <string name="editor_review_at">Review at %1$s</string>
     <string name="editor_zoom_timeline_out">Zoom timeline out</string>
     <string name="editor_zoom_timeline_in">Zoom timeline in</string>
     <string name="editor_reducing_noise">Reducing noise… %1$d%%</string>

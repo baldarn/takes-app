@@ -46,6 +46,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.Row
 
 private val BookmarkTint = Color(0xFFFF7A45)
 private val SnapTint = Color(0xFFFFD60A)
@@ -153,6 +156,35 @@ internal fun SnapToggle(on: Boolean, toggle: () -> Unit, explain: () -> Unit) {
         }
     }
 }
+
+/**
+ * The review speed over the corner of the picture, as the original's: the
+ * speed in a capsule, which opens the five it offers, 1× to 3×. It changes
+ * the preview only; the sound keeps its pitch.
+ */
+@Composable
+internal fun ReviewSpeed(speed: Double, open: Boolean, modifier: Modifier, toggle: () -> Unit, choose: (Double) -> Unit) {
+    val name = stringResource(R.string.editor_review_speed)
+    Row(
+        modifier.clip(RoundedCornerShape(22.dp)).background(Color.Black.copy(alpha = 0.65f)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(
+            onClick = toggle, Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 44.dp).semantics { contentDescription = name; stateDescription = speedLabel(speed) },
+            contentPadding = PaddingValues(horizontal = 8.dp),
+        ) { Text(speedLabel(speed), color = Color.White, fontWeight = FontWeight.SemiBold) }
+        if (open) for (choice in REVIEW_SPEEDS) {
+            val label = stringResource(R.string.editor_review_at, speedLabel(choice))
+            TextButton(
+                onClick = { choose(choice) }, Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp).semantics { contentDescription = label },
+                contentPadding = PaddingValues(horizontal = 4.dp),
+            ) { Text(speedLabel(choice), color = if (choice == speed) SnapTint else Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+        }
+    }
+}
+
+/** The review speeds the original offers (EditorController.swift:304). */
+private val REVIEW_SPEEDS = listOf(1.0, 1.5, 2.0, 2.5, 3.0)
 
 /** Whether the playhead snaps, kept across launches as the original keeps it; on until turned off. */
 internal class SnapSetting(context: Context) {

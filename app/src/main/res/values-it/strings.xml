@@ -107,6 +107,11 @@
     <string name="editor_bookmark_add">Aggiungi segnalibro</string>
     <string name="editor_bookmark_remove">Rimuovi segnalibro</string>
     <string name="editor_pause">Pausa</string>
+    <string name="editor_quick_review">Revisione rapida</string>
+    <string name="full_preview_open">Apri l\'anteprima a schermo intero</string>
+    <string name="full_preview_position">Posizione dell\'anteprima</string>
+    <string name="editor_review_speed">Velocità di revisione</string>
+    <string name="editor_review_at">Rivedi a %1$s</string>
     <string name="editor_zoom_timeline_out">Riduci la timeline</string>
     <string name="editor_zoom_timeline_in">Ingrandisci la timeline</string>
     <string name="editor_reducing_noise">Riduzione del rumore… %1$d%%</string>
