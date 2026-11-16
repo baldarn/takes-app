@@ -359,6 +359,8 @@ object TrackSequenceView {
 
     /** The id the sound item [id] of [state] has on the converted timeline. */
     fun soundID(state: EditState, id: String): String {
+        // The sound items of an edit that is not a sequence have the ids of their sounds ([TrackEditState]).
+        if (!state.isSequence) return id
         val clip = state.clips.firstOrNull { it.id == id } ?: return id
         val item = state.audio.orEmpty().firstOrNull { it.id == id }
         return if (clip.audio?.muted == true && item?.sourceID == clip.sourceID) TrackTimeline.counterpart(id) else TrackTimeline.alias(id)

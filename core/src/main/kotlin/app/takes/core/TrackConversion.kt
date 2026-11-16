@@ -43,6 +43,8 @@ object TrackConversion {
         sound.withFades(AudioEdgeFades(fadeIn, fadeOut))
 
     fun timeline(state: EditState): TrackTimeline {
+        // An edit that is not a sequence is its timeline, with what a tool wrote into its view.
+        state.layered?.let { return TrackEditState.merged(state, it) }
         val clips = state.clips
         val layout = TimelineEditing.layout(clips)
         val count = clips.size

@@ -89,6 +89,8 @@ object AudioUnlinking {
      */
     fun refusal(state: EditState, index: Int, itemsReduceNoise: Boolean = false): Refusal? {
         val clip = state.clips.getOrNull(index) ?: return Refusal.NoClip
+        // Off a sequence the track model unlinks whatever is linked: refused only where nothing is.
+        if (!state.isSequence) return if (TrackSequenceView.unlink(state, index) == null) Refusal.AlreadyDetached else null
         if (namesake(state, index) != null) return Refusal.AlreadyDetached
         if (clip.rate != 1.0) return Refusal.Speed
         if ((clip.audio?.denoise ?: 0.0) > 0 && !itemsReduceNoise) return Refusal.NoiseReduction
@@ -122,6 +124,8 @@ object AudioUnlinking {
      * them). Null when [refusal] gives a reason.
      */
     fun unlink(state: EditState, index: Int, itemsReduceNoise: Boolean = false): EditState? {
+        // Off a sequence: the link of the picture is removed and nothing else changes ([TrackLinking.unlinked]).
+        if (!state.isSequence) return TrackSequenceView.unlink(state, index)?.timeline?.toEdit(state.captureBase)
         if (refusal(state, index, itemsReduceNoise) != null) return null
         val clip = state.clips[index]
         val item = item(state, index) ?: return null
@@ -154,6 +158,8 @@ object AudioUnlinking {
      * fade is the user's and becomes the clip's own, on top of the transition.
      */
     fun relink(state: EditState, index: Int): EditState? {
+        // Off a sequence: the picture and the sound unlinked from it are linked again where they can be ([TrackLinking.joining]).
+        if (!state.isSequence) return TrackSequenceView.relink(state, index)?.timeline?.toEdit(state.captureBase)
         if (!matches(state, index)) return null
         val item = detachedSound(state, index) ?: return null
         val clip = state.clips[index]
@@ -176,6 +182,7 @@ object AudioUnlinking {
      * A trimmed item is in sync when what is left of it plays at its moment.
      */
     fun syncOffset(state: EditState, index: Int): Double? {
+        if (!state.isSequence) return TrackSequenceView.syncOffset(state, index)
         val item = detachedSound(state, index) ?: return null
         val clip = state.clips[index]
         if (clip.rate != 1.0 || item.sourceID != clip.sourceID) return null
@@ -191,6 +198,7 @@ object AudioUnlinking {
      * both tracks are busy there.
      */
     fun restoreSync(state: EditState, index: Int): EditState? {
+        if (!state.isSequence) return TrackSequenceView.restoreSync(state, index)?.timeline?.toEdit(state.captureBase)
         val item = detachedSound(state, index) ?: return null
         val offset = syncOffset(state, index)?.takeIf { it != 0.0 } ?: return null
         return TimelineEditing.moveAudio(state, item.id, item.start - offset)
@@ -205,6 +213,8 @@ object AudioUnlinking {
      * sound twice.
      */
     fun setSound(state: EditState, index: Int, audio: ClipAudio, itemsReduceNoise: Boolean = false): EditState? {
+        // Off a sequence: on the sound of the picture, wherever it is.
+        if (!state.isSequence) return TrackSequenceView.setSound(state, index, audio)?.timeline?.toEdit(state.captureBase)
         val item = detachedSound(state, index) ?: return TimelineEditing.setAudio(state, index, audio)
         if (audio.denoise > 0 && !itemsReduceNoise) return null
         return TimelineEditing.setAudioItemSound(state, item.id, audio)
