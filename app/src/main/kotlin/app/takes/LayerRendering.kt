@@ -21,6 +21,7 @@ import app.takes.core.PlacedPicture
 import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
 import app.takes.core.TimelineTransition
+import app.takes.core.TitleMotionRanges
 import app.takes.core.TransitionScene
 
 /** How the app draws an edit ([EditRender]): the pictures it decodes at once, and what it says when an edit needs more. */
@@ -54,8 +55,8 @@ object EditRendering {
  */
 class LayerDrawing(val scene: SceneDrawing, val mixed: Boolean, val count: Int, val values: FloatArray) {
     companion object {
-        /** The most layers drawn whole in one frame: lanes are at most [EditRendering.LANES], and a pair in transition takes two. */
-        const val MOST = 4
+        /** The most layers in one frame, and the most lanes: [EditRendering.LANES]. A pair in transition takes two lanes and is one layer. */
+        const val MOST = EditRendering.LANES
 
         /** Numbers each layer takes: clip rectangle, the two middles, then its kind and scale (and two unused). */
         const val STRIDE = 12
@@ -137,19 +138,23 @@ object LayerShader {
     private val uniforms = TransitionShader.UNIFORMS + """
         uniform float uMixed;
         uniform float uCount;
+        uniform vec3 uTitled;
     """ + (0 until LayerDrawing.MOST).joinToString("") { "\n        uniform vec4 uClip$it;\n        uniform vec4 uMap$it;\n        uniform vec2 uLayer$it;" }
 
     // Back to front over black: the pair in transition over the whole frame, then each picture inside its clip rectangle,
-    // the canvas point taken back to the picture's own pixel through its window.
+    // the canvas point taken back to the picture's own pixel through its window. The titles of a layer, where the renderer
+    // draws them here ([title], by the layer's place back to front), go over its picture before it is moved: they shrink with it.
     private val body = TransitionShader.HEAD + SIDE + TransitionShader.TAIL + """
-        vec3 placed(vec2 q, vec3 under, vec4 clip, vec4 map, vec2 layer) {
+        vec3 over(vec3 under, vec4 top) { return top.rgb + (1.0 - top.a) * under; }
+        vec3 placed(vec2 q, vec3 under, vec4 clip, vec4 map, vec2 layer, float slot) {
             if (!within(q, clip)) return under;
-            return side(layer.x, (q - map.xy) / layer.y + map.zw);
+            vec2 p = (q - map.xy) / layer.y + map.zw;
+            return over(side(layer.x, p), title(slot, clamp(p, vec2(0.5), uSize - 0.5)));
         }
         vec3 layers(vec2 q) {
             vec3 c = vec3(0.0);
-            if (uMixed > 0.5) c = scene(q);
-    """ + (0 until LayerDrawing.MOST).joinToString("") { "\n            if (uCount > $it.5) c = placed(q, c, uClip$it, uMap$it, uLayer$it);" } + """
+            if (uMixed > 0.5) c = over(scene(q), title(0.0, q));
+    """ + (0 until LayerDrawing.MOST).joinToString("") { "\n            if (uCount > $it.5) c = placed(q, c, uClip$it, uMap$it, uLayer$it, $it.0 + uMixed);" } + """
             return c;
         }
     """
@@ -161,7 +166,9 @@ object LayerShader {
         uniform sampler2D uHeld0;
         uniform sampler2D uHeld1;
         uniform sampler2D uHeld2;
-        uniform sampler2D uHeld3;
+        uniform sampler2D uTitle0;
+        uniform sampler2D uTitle1;
+        uniform sampler2D uTitle2;
         uniform vec2 uCells;
         varying vec2 vTex;
         $uniforms
@@ -172,10 +179,16 @@ object LayerShader {
         }
         vec3 held(float which, vec2 p) {
             vec2 at = vec2(p.x / uSize.x, 1.0 - p.y / uSize.y);
-            if (which > 2.5) return texture2D(uHeld3, at).rgb;
             if (which > 1.5) return texture2D(uHeld2, at).rgb;
             if (which > 0.5) return texture2D(uHeld1, at).rgb;
             return texture2D(uHeld0, at).rgb;
+        }
+        // A bitmap of titles, its first row at the top, with its colors already multiplied by their opacity.
+        vec4 title(float slot, vec2 p) {
+            vec2 at = p / uSize;
+            if (slot > 1.5) return uTitled.z > 0.5 ? texture2D(uTitle2, at) : vec4(0.0);
+            if (slot > 0.5) return uTitled.y > 0.5 ? texture2D(uTitle1, at) : vec4(0.0);
+            return uTitled.x > 0.5 ? texture2D(uTitle0, at) : vec4(0.0);
         }
         $body
         void main() { gl_FragColor = vec4(layers(vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y)), 1.0); }
@@ -187,6 +200,8 @@ object LayerShader {
         $uniforms
         vec3 deck(float kind, vec2 p) { return content.eval(vec2(p.x, p.y + kind * uSize.y)).rgb; }
         vec3 held(float which, vec2 p) { return deck(which, p); }
+        // The preview draws a picture's titles on its lane's view.
+        vec4 title(float slot, vec2 p) { return vec4(0.0); }
         $body
         vec4 main(vec2 xy) {
             if (xy.y >= uSize.y) return vec4(0.0);
@@ -210,6 +225,7 @@ class LayerPreviewShader {
         TransitionShader.names.forEachIndexed { row, name -> shader.setFloatUniform(name, scene.values.copyOfRange(row * 4, row * 4 + 4)) }
         shader.setFloatUniform("uMixed", if (drawing.mixed) 1f else 0f)
         shader.setFloatUniform("uCount", drawing.count.toFloat())
+        shader.setFloatUniform("uTitled", 0f, 0f, 0f)
         for (layer in 0 until LayerDrawing.MOST) {
             val at = layer * LayerDrawing.STRIDE
             shader.setFloatUniform("uClip$layer", drawing.values.copyOfRange(at, at + 4))
@@ -232,16 +248,22 @@ class LayerPreviewShader {
  * As [TransitionEffect] does for its two decks, it keeps the frame a lane
  * showed before a still holds it, or before the lane's run of pictures ends,
  * for a transition still showing it.
+ *
+ * With [titled], the titles of each layer are drawn here, over its picture
+ * before it is moved into its window, by [TitlePainter] as the preview draws
+ * them. They are not drawn on the lanes themselves: an effect after a lane's
+ * `Presentation` made Media3 give one lane the frames of another
+ * (docs/EXPORT-TWO-SEQUENCES.md, section 8; seen here with three lanes).
  */
 class LayersEffect(
     private val plan: LayerPlan, private val canvas: Size, private val lanes: Int, private val columns: Int,
-    private val frames: (TimelineTransition) -> Double, private val content: (Int) -> Rect,
+    private val frames: (TimelineTransition) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
 ) : GlEffect {
     init {
         require(lanes in 1..LayerDrawing.MOST) { "At most ${LayerDrawing.MOST} lanes" }
     }
 
-    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program()
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program(context.assets)
 
     /** A moment a frame of [lane] is kept for, as in [TransitionEffect]: the start of a freeze or the end of a run, at [at]. */
     private class Keep(val at: Double, val lane: Int, val until: Double, val last: Double)
@@ -252,7 +274,8 @@ class LayersEffect(
     private var spare = 0
     private var spareFramebuffer = 0
 
-    private inner class Program : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
+    private inner class Program(assets: android.content.res.AssetManager) : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
+        private val titles = if (titled) LayerTitles(plan, canvas.width, canvas.height, assets) else null
         private val size = FrameSize(canvas.width.toDouble(), canvas.height.toDouble())
         private val rows = (lanes + columns - 1) / columns
         private val freezes = plan.freezes.map { Keep(it.from, it.lane, it.until, it.shown + EDGE) }
@@ -290,16 +313,20 @@ class LayersEffect(
 
         private fun uniform(name: String) = GLES20.glGetUniformLocation(program, name)
 
-        private fun draw(drawing: LayerDrawing, inputTexId: Int) {
+        /** Draws [drawing]; a lane kept alone ([withTitles] false) carries no titles. */
+        private fun draw(drawing: LayerDrawing, inputTexId: Int, withTitles: Boolean = true) {
             GLES20.glUseProgram(program)
             // A kept frame that does not exist yet is never read; the input stands in so the sampler has a texture.
-            val textures = listOf(inputTexId) + kept.toList()
+            val textures = listOf(inputTexId) + kept.toList() + (titles?.textures ?: IntArray(LayerDrawing.MOST)).toList()
             for ((unit, texture) in textures.withIndex()) {
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit)
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, if (texture != 0) texture else inputTexId)
             }
             GLES20.glUniform1i(uniform("uTex"), 0)
             for (lane in 0 until LayerDrawing.MOST) GLES20.glUniform1i(uniform("uHeld$lane"), lane + 1)
+            for (slot in 0 until LayerDrawing.MOST) GLES20.glUniform1i(uniform("uTitle$slot"), LayerDrawing.MOST + slot + 1)
+            val titledSlots = titles?.drawn.takeIf { withTitles } ?: BooleanArray(LayerDrawing.MOST)
+            GLES20.glUniform3f(uniform("uTitled"), if (titledSlots[0]) 1f else 0f, if (titledSlots[1]) 1f else 0f, if (titledSlots[2]) 1f else 0f)
             GLES20.glUniform2f(uniform("uCells"), columns.toFloat(), rows.toFloat())
             GLES20.glUniform2f(uniform("uSize"), canvas.width.toFloat(), canvas.height.toFloat())
             val scene = drawing.scene
@@ -334,7 +361,7 @@ class LayersEffect(
             GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, bound, 0)
             if (spare == 0) target().let { spare = it.first; spareFramebuffer = it.second }
             GlUtil.focusFramebufferUsingCurrentContext(spareFramebuffer, canvas.width, canvas.height)
-            draw(LayerDrawing.lane(lane, canvas.width.toFloat(), canvas.height.toFloat()), inputTexId)
+            draw(LayerDrawing.lane(lane, canvas.width.toFloat(), canvas.height.toFloat()), inputTexId, withTitles = false)
             val empty = SAMPLES.all { (x, y) ->
                 GLES20.glReadPixels((x * (canvas.width - 1)).toInt(), (y * (canvas.height - 1)).toInt(), 1, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixel.rewind())
                 pixel.get(0).toInt() == 0 && pixel.get(1).toInt() == 0 && pixel.get(2).toInt() == 0
@@ -373,12 +400,14 @@ class LayersEffect(
                     is TransitionScene.Source.Fill -> LayerDrawing.FILL
                 }
             }, content)
+            titles?.prepare(moment)
             draw(drawing, inputTexId)
         }
 
         override fun release() {
             super.release()
             if (program != 0) GLES20.glDeleteProgram(program)
+            titles?.release()
         }
     }
 
@@ -387,5 +416,79 @@ class LayersEffect(
         const val KEEP_WINDOW = 0.2
         const val KEEP_FRAMES = 2.5
         val SAMPLES = listOf(0.5f to 0.5f, 0.21f to 0.27f, 0.83f to 0.31f, 0.29f to 0.77f, 0.71f to 0.69f)
+    }
+}
+
+/**
+ * The titles of each layer of an export's frame, as a bitmap a layer drawn by
+ * [TitlePainter] and given to the layer shader as a texture: the titles a
+ * picture shows at the second of its footage it shows, as a clip by itself
+ * ([TitleMotionRanges]), each as opaque as its picture's share of a pair in
+ * transition. A layer's bitmap is drawn again only when what it shows changes.
+ */
+private class LayerTitles(private val plan: LayerPlan, private val width: Int, private val height: Int, assets: android.content.res.AssetManager) {
+    private val painter = TitlePainter(assets)
+    private val ranges = HashMap<Int, TitleMotionRanges>()
+    private val bitmaps = arrayOfNulls<android.graphics.Bitmap>(LayerDrawing.MOST)
+    private val shown = Array(LayerDrawing.MOST) { emptyList<TitleMotionRanges.Shown>() }
+
+    /** The texture of each layer's titles, 0 before it is first drawn. */
+    val textures = IntArray(LayerDrawing.MOST)
+
+    /** Whether each layer, back to front, has titles in this frame. */
+    val drawn = BooleanArray(LayerDrawing.MOST)
+
+    private fun of(source: TransitionScene.Source, share: Double): List<TitleMotionRanges.Shown> {
+        if (share <= 0) return emptyList()
+        val (index, offset) = when (source) {
+            is TransitionScene.Source.Clip -> source.index to source.offset
+            is TransitionScene.Source.Held -> source.index to source.offset
+            is TransitionScene.Source.Fill -> return emptyList()
+        }
+        val clip = plan.pictures[index].content
+        if (clip.texts.isNullOrEmpty()) return emptyList()
+        val alone = listOf(clip)
+        // Opacity in steps, so a steady title is drawn once, as the export draws the titles of a sequence.
+        return ranges.getOrPut(index) { TitleMotionRanges(alone) }.shown(alone, offset)
+            .map { it.copy(share = (it.share * share * 64).toInt() / 64.0) }.filter { it.share > 0 }
+    }
+
+    /** Draws the titles of [moment]'s layers, in the order [LayerDrawing.of] places them. */
+    fun prepare(moment: LayerPlan.Moment) {
+        val layers = moment.layers
+        val back = layers.indexOfLast { it is LayerPlan.Layer.Mixed }
+        val wanted = ArrayList<List<TitleMotionRanges.Shown>>()
+        (layers.getOrNull(back) as? LayerPlan.Layer.Mixed)?.let { pair ->
+            wanted += of(pair.first, pair.firstShare) + if (pair.second == pair.first) emptyList() else of(pair.second, pair.secondShare)
+        }
+        for (layer in layers.drop(back + 1)) if (layer is LayerPlan.Layer.Whole && wanted.size < LayerDrawing.MOST) wanted += of(layer.source, 1.0)
+        for (slot in 0 until LayerDrawing.MOST) {
+            val titles = wanted.getOrNull(slot).orEmpty()
+            drawn[slot] = titles.isNotEmpty()
+            if (titles.isEmpty() || titles == shown[slot]) continue
+            shown[slot] = titles
+            val bitmap = bitmaps[slot] ?: android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888).also { bitmaps[slot] = it }
+            bitmap.eraseColor(android.graphics.Color.TRANSPARENT)
+            painter.draw(android.graphics.Canvas(bitmap), width.toFloat(), height.toFloat(), titles)
+            if (textures[slot] == 0) {
+                val made = IntArray(1)
+                GLES20.glGenTextures(1, made, 0)
+                textures[slot] = made[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, made[0])
+                for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
+                for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
+                android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+            } else {
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[slot])
+                android.opengl.GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
+            }
+            GlUtil.checkGlError()
+        }
+    }
+
+    fun release() {
+        textures.filter { it != 0 }.forEach { GLES20.glDeleteTextures(1, intArrayOf(it), 0) }
+        textures.fill(0)
+        bitmaps.forEach { it?.recycle() }
     }
 }
