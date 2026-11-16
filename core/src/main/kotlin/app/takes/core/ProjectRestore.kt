@@ -203,7 +203,14 @@ object ProjectRestore {
         // Nothing comes along that the project does not name.
         if (!hashes.keys.all { it in media || it == MANIFEST || it == ProjectArchive.INTEGRITY || it == timeline }) throw refused()
         if (!history.list().orEmpty().all { it in listed }) throw refused()
-        if (!media.all { it in hashes }) throw ProjectException(ProjectException.Reason.MissingMedia)
+        // A font copy may have been missing when the archive was made; its titles fall back (YouRec/ProjectArchive.swift:227-231, 356-357).
+        val fonts = project.fontFiles.toSet()
+        if (!media.all { it in hashes || it in fonts }) throw ProjectException(ProjectException.Reason.MissingMedia)
+        // A font copy is named by the SHA-256 of its bytes: one that is not is damaged, whatever the archive says.
+        for (font in fonts) {
+            val hash = hashes[font] ?: continue
+            if (font != "font-$hash.sfnt") throw ProjectRestoreException(ProjectRestoreException.Reason.DamagedMedia)
+        }
         // Every recording is vouched for, and nothing outside the project is.
         if (!project.sources.all { it.filename in integrity.sha256 } || !integrity.sha256.keys.all { it in media }) throw refused()
         for ((name, hash) in integrity.sha256) {

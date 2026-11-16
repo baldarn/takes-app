@@ -615,8 +615,15 @@ data class Project(
     val effectFiles: List<String>
         get() = snapshots.flatMap { it.state.clips }.plus(captureLedger).mapNotNull { it.color?.imported?.filename }.distinct().sorted()
 
+    /**
+     * The copies of imported fonts the titles and captions use, from any step
+     * of the history and from the takes (YouRec/Project.swift:292-301).
+     */
+    val fontFiles: List<String>
+        get() = (snapshots.flatMap { FontLibrary.files(it.state) } + FontLibrary.files(captureLedger, null)).distinct().sorted()
+
     /** Every file the project owns and needs: its recordings and sounds, then what its edits refer to. */
-    val mediaFiles: List<String> get() = sources.map { it.filename } + effectFiles
+    val mediaFiles: List<String> get() = sources.map { it.filename } + (effectFiles + fontFiles).distinct()
     /** The footage, without imported sound files. */
     val recordings: List<SourceMedia> get() = sources.filter { it.audioOnly != true }
     val capturedDuration: Double get() = recordings.sumOf { it.duration }

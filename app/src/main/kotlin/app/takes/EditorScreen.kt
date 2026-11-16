@@ -519,6 +519,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
+    // Imported fonts come from this project's copies first.
+    DisposableEffect(folder) { ImportedFonts.openFolder = folder; onDispose { if (ImportedFonts.openFolder == folder) ImportedFonts.openFolder = null } }
     // The recordings in Apple Log, whose picture is decoded to display before any grade, as in the export.
     val logProfiles by produceState(emptyMap<String, LUTInput>(), project.sources) {
         value = withContext(Dispatchers.IO) { project.recordings.mapNotNull { source -> LogFootage.profile(store.file(project, source))?.let { source.id to it } }.toMap() }

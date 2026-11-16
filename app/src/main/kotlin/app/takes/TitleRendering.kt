@@ -36,8 +36,9 @@ fun TitleInk.toColor(): Int = Color.argb((rgba and 0xff).toInt(), ((rgba shr 24)
 /**
  * The fonts of title designs. The seven bundled families are the original's
  * own files, in `assets/TitleFonts` under the names [TitleTypeface.resourceName]
- * gives; "system" is the phone's own sans-serif; any other face is a font
- * family name the phone may know.
+ * gives; "system" is the phone's own sans-serif; an "import:" face is a font
+ * file of the library or of a project ([ImportedFonts]); any other face is a
+ * font family name the phone may know.
  */
 object TitleFonts {
     /** Families whose one file holds every weight, on a weight axis. */
@@ -50,8 +51,23 @@ object TitleFonts {
 
     @Synchronized
     fun typeface(assets: AssetManager, design: TitleDesign): Typeface {
-        val key = "${design.face}|${design.weight}|${design.italic}"
-        return loaded.getOrPut(key) { load(assets, design) }
+        // An imported face is loaded again once its file is found, or found elsewhere.
+        val imported = if (design.face.startsWith("import:")) ImportedFonts.resolve(design.face) else null
+        val key = "${design.face}|${design.weight}|${design.italic}|${imported?.first?.path}"
+        return loaded.getOrPut(key) { if (imported != null) imported(imported.first, imported.second, design.weight) else load(assets, design) }
+    }
+
+    /**
+     * One face of an imported file, at [weight] on its weight axis when it has
+     * one, as the original varies it (YouRec/ImportedFonts.swift:165-172); the
+     * original offers no italic for such a face.
+     */
+    private fun imported(file: java.io.File, face: app.takes.core.ImportedFontFace, weight: Int): Typeface = try {
+        val builder = Typeface.Builder(file).setTtcIndex(face.reference.index)
+        if (face.weights.size > 1) builder.setFontVariationSettings("'wght' $weight")
+        builder.build() ?: Typeface.DEFAULT
+    } catch (_: Exception) {
+        Typeface.DEFAULT
     }
 
     private fun weighted(base: Typeface, weight: Int, italic: Boolean): Typeface =
@@ -79,7 +95,7 @@ object TitleFonts {
     /** True when the phone has no font for this face and the default one stands in. */
     fun missing(face: String): Boolean {
         if (face == "system" || TitleTypeface.family(face) != null) return false
-        if (face.startsWith("import:")) return true
+        if (face.startsWith("import:")) return ImportedFonts.resolve(face) == null
         return Typeface.create(face, Typeface.NORMAL) == Typeface.DEFAULT && face != "sans-serif"
     }
 }

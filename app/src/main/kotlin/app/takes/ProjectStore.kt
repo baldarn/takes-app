@@ -105,7 +105,7 @@ class ProjectStore(context: Context) {
     private val prefs = context.getSharedPreferences("projects", Context.MODE_PRIVATE)
     private val resolver = context.contentResolver
     private val scope = MainScope()
-    val disk = ProjectDisk(File(context.filesDir, "Projects"))
+    val disk = ProjectDisk(File(context.filesDir, "Projects"), ImportedFonts.library(context))
 
     var projects by mutableStateOf(emptyList<Project>()); private set
     var deleted by mutableStateOf(emptyList<DeletedProject>()); private set

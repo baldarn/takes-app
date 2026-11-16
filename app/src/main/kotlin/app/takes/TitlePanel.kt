@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.outlined.Colorize
 import androidx.compose.material.icons.outlined.Contrast
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Schedule
@@ -74,6 +75,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -81,6 +83,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.core.EditorDurationPresets
+import app.takes.core.ImportedFontFile
 import app.takes.core.OverlayTiming
 import app.takes.core.Size
 import app.takes.core.TextColor
@@ -473,32 +476,58 @@ private fun Looks(draft: TextOverlay, memory: TitleMemory, setDesign: (TitleDesi
 }
 
 @Composable
-private fun faceLabel(id: String): String = when {
+private fun faceLabel(id: String, imported: Map<String, String> = emptyMap()): String = when {
     id == "system" -> stringResource(R.string.title_font_system)
-    else -> TitleTypeface.family(id)?.name ?: id
+    else -> imported[id] ?: ImportedFonts.label(id) ?: TitleTypeface.family(id)?.name ?: id
+}
+
+/**
+ * The faces of the library and what each is called: its name, followed by its
+ * file's name where two files have a face of that name (YouRec/FontLibraryView.swift:11-24).
+ */
+private fun importedLabels(files: List<ImportedFontFile>): Map<String, String> {
+    val names = files.flatMap { it.faces }.groupingBy { it.name }.eachCount()
+    return files.flatMap { file -> file.faces.map { it.id to if ((names[it.name] ?: 0) > 1) it.name + " · " + file.filename else it.name } }.toMap()
+}
+
+/** The design with [id] as its face, as the original chooses one (YouRec/TitleInspector.swift:205-214). */
+private fun choosing(design: TitleDesign, id: String): TitleDesign {
+    val family = TitleTypeface.family(id)
+    val imported = if (id.startsWith("import:")) ImportedFonts.resolve(id)?.second else null
+    val weight = when {
+        imported != null -> if (id != design.face) imported.defaultWeight else design.weight
+        family != null && design.weight !in family.weights -> family.weights[0]
+        else -> design.weight
+    }
+    return design.copy(face = id, weight = weight, italic = design.italic && family?.slanted != null)
 }
 
 @Composable
 private fun Fonts(sample: String, design: TitleDesign, memory: TitleMemory, setDesign: (TitleDesign) -> Unit) {
-    val assets = LocalContext.current.assets
+    val context = LocalContext.current
+    val assets = context.assets
     val demo = sample.trim().ifEmpty { stringResource(R.string.editor_title) }.replace('\n', ' ').take(48)
     val favorites = TitleLibrary.favorites(memory.favorites)
     var more by remember { mutableStateOf(false) }
-    val listed = TitleTypeface.families.map { it.id }
-    val ordered = (favorites + (if (design.face in listed) emptyList() else listOf(design.face)) + listed).distinct()
-    val choose = { id: String ->
-        val family = TitleTypeface.family(id)
-        setDesign(design.copy(
-            face = id,
-            weight = if (family != null && design.weight !in family.weights) family.weights[0] else design.weight,
-            italic = design.italic && family?.slanted != null,
-        ))
+    var library by remember { mutableStateOf(false) }
+    // The library is read again when it closes, for what was imported or removed there.
+    val files = remember(library) { ImportedFonts.library(context).files() }
+    val labels = remember(files) { importedLabels(files) }
+    val added = files.flatMap { file -> file.faces.map { it.id } }
+    val listed = added + TitleTypeface.families.map { it.id }
+    // A starred face that left the library is not offered, unless the title uses it (YouRec/TitleInspector.swift:198-204).
+    val starred = favorites.filter { !it.startsWith("import:") || it in added || it == design.face }
+    val ordered = (starred + (if (design.face in listed) emptyList() else listOf(design.face)) + listed).distinct()
+    val choose = { id: String -> setDesign(choosing(design, id)) }
+    val hint = stringResource(R.string.title_font_import_hint)
+    TextButton(onClick = { library = true }, contentPadding = PaddingValues(horizontal = 4.dp), modifier = Modifier.semantics { onClick(label = hint) { library = true; true } }) {
+        Icon(Icons.Outlined.FileDownload, null, Modifier.size(18.dp))
+        Text(stringResource(R.string.title_font_import), modifier = Modifier.padding(start = 6.dp))
     }
-    if (TitleFonts.missing(design.face)) Text(stringResource(R.string.title_font_fallback, faceLabel(design.face)), color = Soft, fontSize = 13.sp)
+    if (TitleFonts.missing(design.face)) Text(stringResource(R.string.title_font_fallback, faceLabel(design.face, labels)), color = Soft, fontSize = 13.sp)
     for (id in ordered) {
-        val label = faceLabel(id)
-        val family = TitleTypeface.family(id)
-        val specimen = design.copy(face = id, weight = if (family != null && design.weight !in family.weights) family.weights[0] else design.weight, italic = design.italic && family?.slanted != null)
+        val label = faceLabel(id, labels)
+        val specimen = choosing(design, id)
         val starred = id in favorites
         Row(verticalAlignment = Alignment.CenterVertically) {
             Row(
@@ -519,7 +548,7 @@ private fun Fonts(sample: String, design: TitleDesign, memory: TitleMemory, setD
     }
     TextButton(onClick = { more = true }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text(stringResource(R.string.title_more_fonts)) }
     val family = TitleTypeface.family(design.face)
-    val weights = family?.weights.orEmpty()
+    val weights = family?.weights ?: (if (design.face.startsWith("import:")) ImportedFonts.resolve(design.face)?.second?.weights else null).orEmpty()
     if (weights.size > 1) {
         Text(stringResource(R.string.title_weight), color = Soft, fontSize = 13.sp)
         Segments(weights.map { (weightLabel(it)?.let { name -> stringResource(name) } ?: it.toString()) to it }, design.weight, columns = 3) { setDesign(design.copy(weight = it)) }
@@ -532,6 +561,7 @@ private fun Fonts(sample: String, design: TitleDesign, memory: TitleMemory, setD
     ) { setDesign(design.copy(alignment = it)) }
     Amount(stringResource(R.string.title_letter_spacing), design.tracking, -0.05..0.25) { setDesign(design.copy(tracking = it)) }
     Amount(stringResource(R.string.title_line_spacing), design.lineSpacing, 0.0..0.8) { setDesign(design.copy(lineSpacing = it)) }
+    if (library) FontLibraryDialog(use = { choose(it.id) }, draftFace = design.face) { library = false }
     if (more) {
         // The phone's own font families, in place of the original's system font picker.
         AlertDialog(

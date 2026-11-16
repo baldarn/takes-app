@@ -14,8 +14,12 @@ data class ProjectDeletion(val id: String, val date: Long)
 /**
  * App-owned project directories. Each holds `project.json`, an immutable
  * content-addressed `History/`, the recordings, and recent manifest revisions.
+ *
+ * With [fonts], a save first copies into the project the imported fonts its
+ * edit uses, so the manifest never names a font the folder lacks
+ * (YouRec/Project.swift:840).
  */
-class ProjectDisk(val root: File) {
+class ProjectDisk(val root: File, private val fonts: FontLibrary? = null) {
     data class Library(val projects: List<Project>, val unavailable: Map<String, String>)
 
     fun folder(id: String): File = File(root, id)
@@ -29,6 +33,7 @@ class ProjectDisk(val root: File) {
         val directory = folder(project.id)
         val history = File(directory, "History")
         if (!history.isDirectory && !history.mkdirs()) throw java.io.IOException("Cannot create ${history.path}")
+        fonts?.preserve(FontLibrary.files(project.edit), directory)
         val head = File(directory, "project.json")
         val previous = if (head.isFile) head.readBytes() else null
         val data = project.manifest { name, bytes -> ensureSnapshot(bytes, File(history, name)) }

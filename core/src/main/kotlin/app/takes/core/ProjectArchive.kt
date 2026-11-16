@@ -23,7 +23,9 @@ import java.util.zip.ZipOutputStream
  * Entries, in this order:
  *  - `project.json` and the `History/<sha256>.json` snapshots it lists
  *  - `Timeline.otio` (see [OpenTimeline.filename])
- *  - every file of [Project.sources], under its own name
+ *  - every file of [Project.sources], under its own name, then the files its
+ *    edits refer to: imported LUTs, and the copies of imported fonts
+ *    ([Project.fontFiles]) the project holds
  *  - `integrity.json`, the SHA-256 of each media file as it was archived
  *
  * Caches, exports and manifest revisions are not part of a project and stay behind.
@@ -48,7 +50,10 @@ object ProjectArchive {
     fun write(projectFolder: File, project: Project, output: OutputStream, progress: (written: Long, total: Long) -> Unit = { _, _ -> }) {
         project.validate()
         // validate() has made every name a plain file name, so each path stays inside the folder.
+        // A font copy already missing stays behind, as in the original (YouRec/ProjectArchive.swift:227-231): its titles fall back.
+        val fonts = project.fontFiles.toSet()
         val media = project.mediaFiles.map { it to File(projectFolder, it).toPath() }
+            .filter { (name, path) -> name !in fonts || Files.exists(path, LinkOption.NOFOLLOW_LINKS) }
         val total = media.sumOf { (_, path) -> size(path) }
         val timeline = OpenTimeline.text(project).toByteArray()
 

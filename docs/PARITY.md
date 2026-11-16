@@ -25,9 +25,9 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 126 |
+| DONE | 127 |
 | PARTIAL | 39 |
-| CORE ONLY | 7 |
+| CORE ONLY | 6 |
 | MISSING | 31 |
 | N/A | 6 |
 | Total | 209 |
@@ -42,7 +42,7 @@ Per area:
 | 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
 | 5. Editor: picture tools | 7 | 4 | 3 | 4 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
-| 7. Titles and fonts | 9 | 0 | 1 | 0 | 0 |
+| 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 5 | 5 | 0 | 11 | 0 |
 | 9. Subtitles | 10 | 1 | 0 | 2 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
@@ -221,7 +221,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Position by drag, size by pinch, sliders, centre snap | O/EditorTools.swift:1180-1203 | DONE | A/EditorScreen.kt (drag and pinch on the picture), A/TitlePanel.kt | — | | |
 | Looks (8 built in), saved channel styles | O/TitleInspector.swift:123-197, O/TitleDesign.swift:99-136 | DONE | A/TitlePanel.kt, A/TitleRendering.kt, C/TitleDesign.kt | — | | |
 | Fonts: 7 bundled families, weights, italic, system fonts, favourites | O/TitleInspector.swift:216-276 | DONE | A/TitlePanel.kt (`Fonts`), A/TitleRendering.kt (`TitleFonts`), `app/src/main/assets` | — | | |
-| Imported fonts library (TTF/OTF/TTC/OTC), kept in the project and ZIP | O/FontLibraryView.swift:27-174, O/ImportedFonts.swift:34-188 | CORE ONLY | C/TitleDesign.kt (`ImportedFontReference`) | Library, project copies, archive entries | M | Yes |
+| Imported fonts library (TTF/OTF/TTC/OTC), kept in the project and ZIP | O/FontLibraryView.swift:27-174, O/ImportedFonts.swift:34-188 | DONE | C/ImportedFonts.kt (`FontLibrary`, `FontFaces`), C/Project.kt (`fontFiles`), C/ProjectDisk.kt (copies on save), C/ProjectArchive.kt, C/ProjectRestore.kt; A/FontLibraryPanel.kt (the library, from "Import" in the Font tab), A/TitleRendering.kt (`TitleFonts`). Departures: the faces and the weight axis are read from the font's own `name` and `fvar` tables, as Android has nothing that lists the faces of a file; the picker is the Storage Access Framework's; the library is reached from the Font tab only, as the port has no editor settings (section 12) | — | | |
 | Alignment, letter spacing, line spacing | O/TitleInspector.swift:236-240 | DONE | A/TitlePanel.kt, A/TitleRendering.kt | — | | |
 | Fill: solid or gradient (12 presets), colour picker, hex, recents, eyedropper | O/TitleInspector.swift:280-342, 450-594 | DONE | A/TitlePanel.kt; the eyedropper samples the editor's picture | — | | |
 | Outline, shadow, background box (one box / each line) | O/TitleInspector.swift:80-103, O/StyledTextRenderer.swift:73-101 | DONE | A/TitlePanel.kt, A/TitleRendering.kt | — | | |
@@ -332,7 +332,7 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
 | Credits and licence notices | O/CreditsView.swift:6-58 | DONE | A/Credits.kt:38, res/raw | — | | |
-| Editor settings: Snap to cuts, Match listening levels, Fonts | O/EditorTools.swift:92-106 | MISSING | — | Follows the features they control | S | Yes |
+| Editor settings: Snap to cuts, Match listening levels, Fonts | O/EditorTools.swift:92-106 | MISSING | — (the font library opens from the Font tab of titles and captions, A/FontLibraryPanel.kt) | Follows the features they control | S | Yes |
 | Onboarding | not found in the original | N/A | — | The original has none | | |
 | Localisation | English only (project.pbxproj:644-647) | DONE | values/, values-it/ | — | | |
 | Accessibility labels on controls | identifiers throughout, e.g. O/RecorderView.swift | DONE | `contentDescription`/`semantics` in every screen read (e.g. A/RecorderScreen.kt:290-293, A/EditorScreen.kt:667-684) | No stable test tags comparable to the original's identifiers | | |
