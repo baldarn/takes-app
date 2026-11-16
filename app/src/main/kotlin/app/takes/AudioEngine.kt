@@ -1,0 +1,369 @@
+@file:OptIn(UnstableApi::class)
+
+package app.takes
+
+import android.media.AudioFormat
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import androidx.annotation.OptIn
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.common.util.UnstableApi
+import app.takes.core.LiveAudioGain
+import app.takes.core.TrackMixEngine
+import app.takes.core.TrackMixPiece
+import app.takes.core.TrackMixPlan
+import app.takes.core.TrackMixRetime
+import app.takes.core.TrackMixRetimed
+import app.takes.core.TrackMixRun
+import app.takes.core.TrackMixSource
+import app.takes.core.TrackMixer
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.roundToInt
+
+/**
+ * A file's sound read forwards as a [TrackMixSource]: decoded from a little
+ * before [from] seconds, converted to [rate] and [channels] (one channel
+ * given to both, or the first two of more; for one channel, the average of
+ * all), frame 0 at second 0 of the file as its decoder times it.
+ *
+ * A file with no sound, or one whose sound cannot be decoded, reads as
+ * silence; [failed] tells the second apart.
+ */
+class DecodedSource(file: File, private val rate: Int, private val channels: Int, from: Double) : TrackMixSource {
+    private val extractor = MediaExtractor()
+    private var codec: MediaCodec? = null
+    private val info = MediaCodec.BufferInfo()
+    private var inputDone = false
+    private var ended = false
+    private var idle = 0
+
+    private var sourceRate = 0
+    private var sourceChannels = 0
+    private var float = false
+
+    /** Decoded frames at the source's rate, already in the engine's channels, the first being source frame [base]. */
+    private var held = FloatArray(0)
+    private var size = 0
+    private var base = Long.MIN_VALUE
+
+    /** True when the file has sound that could not be decoded. */
+    var failed = false
+        private set
+
+    init {
+        try {
+            extractor.setDataSource(file.path)
+            val track = (0 until extractor.trackCount).firstOrNull {
+                extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            }
+            if (track == null) ended = true else {
+                val format = extractor.getTrackFormat(track)
+                extractor.selectTrack(track)
+                // A little early: the first frames a decoder gives after a jump are not yet at their level.
+                extractor.seekTo(maxOf(0L, ((from - LEAD) * 1e6).toLong()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                val decoder = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
+                decoder.configure(format, null, null, 0)
+                decoder.start()
+                codec = decoder
+            }
+        } catch (problem: Exception) {
+            failed = true
+            ended = true
+        }
+    }
+
+    override fun read(first: Long, count: Int, into: FloatArray, offset: Int) {
+        if (count <= 0) return
+        val direct = sourceRate == rate || sourceRate == 0
+        // The source frames these engine frames lie between.
+        fun place(frame: Long): Double = if (direct) frame.toDouble() else frame.toDouble() * sourceRate / rate
+        while (!ended && (sourceRate == 0 || base == Long.MIN_VALUE || base + size <= floor(place(first + count - 1)).toLong() + 1)) decode()
+        val exact = sourceRate == rate
+        for (frame in 0 until count) {
+            val at = first + frame
+            val target = (offset + frame) * channels
+            if (base == Long.MIN_VALUE || sourceRate == 0) { for (c in 0 until channels) into[target + c] = 0f; continue }
+            if (exact) {
+                val index = at - base
+                if (index in 0 until size) System.arraycopy(held, (index * channels).toInt(), into, target, channels)
+                else for (c in 0 until channels) into[target + c] = 0f
+            } else {
+                val position = place(at)
+                val lower = floor(position).toLong()
+                val share = (position - lower).toFloat()
+                val a = lower - base
+                for (c in 0 until channels) {
+                    val x = if (a in 0 until size) held[(a * channels).toInt() + c] else 0f
+                    val y = if (a + 1 in 0 until size) held[((a + 1) * channels).toInt() + c] else 0f
+                    into[target + c] = x + (y - x) * share
+                }
+            }
+        }
+        // What lies before the first frame read is never asked for again.
+        if (base != Long.MIN_VALUE && sourceRate > 0) {
+            val keep = floor(place(first)).toLong() - 1
+            val drop = (keep - base).coerceIn(0, size.toLong()).toInt()
+            if (drop > 0) {
+                System.arraycopy(held, drop * channels, held, 0, (size - drop) * channels)
+                size -= drop
+                base += drop
+            }
+        }
+    }
+
+    /** Decodes the next block into [held]; at the end of the track marks it [ended]. */
+    private fun decode() {
+        val decoder = codec ?: run { ended = true; return }
+        try {
+            while (true) {
+                if (!inputDone) {
+                    val input = decoder.dequeueInputBuffer(10_000)
+                    if (input >= 0) {
+                        val read = extractor.readSampleData(decoder.getInputBuffer(input)!!, 0)
+                        if (read < 0) {
+                            decoder.queueInputBuffer(input, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            decoder.queueInputBuffer(input, 0, read, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+                val output = decoder.dequeueOutputBuffer(info, 10_000)
+                if (output == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    val pcm = decoder.outputFormat
+                    val encoding = if (pcm.containsKey(MediaFormat.KEY_PCM_ENCODING)) pcm.getInteger(MediaFormat.KEY_PCM_ENCODING) else AudioFormat.ENCODING_PCM_16BIT
+                    if (encoding != AudioFormat.ENCODING_PCM_16BIT && encoding != AudioFormat.ENCODING_PCM_FLOAT) throw IOException("Sound is not decoded to 16 bits or floats")
+                    // A format change in the middle of a track is not handled; the first one stands.
+                    if (sourceRate == 0) {
+                        sourceRate = pcm.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        sourceChannels = pcm.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        float = encoding == AudioFormat.ENCODING_PCM_FLOAT
+                    }
+                } else if (output >= 0) {
+                    idle = 0
+                    val last = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                    var filled = false
+                    if (info.size > 0 && sourceRate > 0) {
+                        val buffer = decoder.getOutputBuffer(output)!!
+                        buffer.position(info.offset).limit(info.offset + info.size)
+                        take(buffer.order(ByteOrder.nativeOrder()), info.presentationTimeUs)
+                        filled = true
+                    }
+                    decoder.releaseOutputBuffer(output, false)
+                    if (last) { ended = true; return }
+                    if (filled) return
+                } else if (inputDone && ++idle > 500) {
+                    ended = true // the decoder never signalled the end
+                    return
+                }
+            }
+        } catch (problem: Exception) {
+            if (problem is IOException || problem is IllegalStateException) { failed = true; ended = true } else throw problem
+        }
+    }
+
+    private fun take(bytes: ByteBuffer, time: Long) {
+        val width = if (float) 4 else 2
+        val frames = bytes.remaining() / (width * sourceChannels)
+        // The first block says where the sound begins; the rest follow it frame by frame.
+        if (base == Long.MIN_VALUE) base = Math.round(time / 1e6 * sourceRate)
+        if (held.size < (size + frames) * channels) held = held.copyOf(maxOf(held.size * 2, (size + frames) * channels))
+        val shorts = if (float) null else bytes.asShortBuffer()
+        val floats = if (float) bytes.asFloatBuffer() else null
+        fun sample(frame: Int, channel: Int): Float {
+            val index = frame * sourceChannels + channel
+            return floats?.get(index) ?: (shorts!!.get(index) / 32768f)
+        }
+        var at = size * channels
+        for (frame in 0 until frames) {
+            when {
+                channels == 1 -> { var sum = 0f; for (c in 0 until sourceChannels) sum += sample(frame, c); held[at++] = sum / sourceChannels }
+                sourceChannels == 1 -> { val value = sample(frame, 0); for (c in 0 until channels) held[at++] = value }
+                else -> for (c in 0 until channels) held[at++] = sample(frame, minOf(c, sourceChannels - 1))
+            }
+        }
+        size += frames
+    }
+
+    override fun close() {
+        runCatching { codec?.stop() }
+        runCatching { codec?.release() }
+        runCatching { extractor.release() }
+        codec = null
+    }
+
+    private companion object {
+        const val LEAD = 0.2
+    }
+}
+
+/**
+ * A run at another speed with its pitch kept, as Media3 plays a clip at
+ * another speed (Sonic): the source from the run's place, through Sonic at the
+ * run's rate, taking exactly as many frames as the run covers on the clock.
+ */
+class SonicRetime : TrackMixRetime {
+    override fun open(source: TrackMixSource, run: TrackMixRun, skip: Long, sampleRate: Int, channels: Int): TrackMixRetimed = Retimed(source, run, skip, sampleRate, channels)
+
+    private class Retimed(private val source: TrackMixSource, run: TrackMixRun, skip: Long, sampleRate: Int, private val channels: Int) : TrackMixRetimed {
+        private val sonic = SonicAudioProcessor().apply {
+            setSpeed(run.rate.toFloat())
+            configure(AudioProcessor.AudioFormat(sampleRate, channels, androidx.media3.common.C.ENCODING_PCM_FLOAT))
+            flush(AudioProcessor.StreamMetadata.DEFAULT)
+        }
+        // The source frame the run is at after [skip] frames of it.
+        private var next = Math.round((run.sourceStart + skip.toDouble() / sampleRate * run.rate) * sampleRate)
+        private val end = Math.round(run.sourceEnd * sampleRate)
+        private val block = FloatArray(BLOCK * channels)
+        private val input = ByteBuffer.allocateDirect(BLOCK * channels * 4).order(ByteOrder.nativeOrder())
+        private var pending = FloatArray(0)
+        private var pendingSize = 0
+        private var drained = false
+
+        override fun read(count: Int, into: FloatArray, offset: Int) {
+            while (pendingSize < count && !drained) feed()
+            val taken = minOf(count, pendingSize)
+            System.arraycopy(pending, 0, into, offset * channels, taken * channels)
+            java.util.Arrays.fill(into, (offset + taken) * channels, (offset + count) * channels, 0f)
+            System.arraycopy(pending, taken * channels, pending, 0, (pendingSize - taken) * channels)
+            pendingSize -= taken
+        }
+
+        private fun feed() {
+            if (next < end) {
+                val frames = minOf(BLOCK.toLong(), end - next).toInt()
+                source.read(next, frames, block, 0)
+                next += frames
+                input.clear()
+                input.asFloatBuffer().put(block, 0, frames * channels)
+                input.limit(frames * channels * 4)
+                while (input.hasRemaining()) { sonic.queueInput(input); collect() }
+            } else if (!sonic.isEnded) {
+                sonic.queueEndOfStream()
+                collect()
+                if (sonic.isEnded) drained = true
+            } else drained = true
+            collect()
+        }
+
+        private fun collect() {
+            val output = sonic.output
+            if (!output.hasRemaining()) return
+            val floats = output.order(ByteOrder.nativeOrder()).asFloatBuffer()
+            val frames = floats.remaining() / channels
+            if (pending.size < (pendingSize + frames) * channels) pending = pending.copyOf(maxOf(pending.size * 2, (pendingSize + frames) * channels))
+            floats.get(pending, pendingSize * channels, frames * channels)
+            output.position(output.limit())
+            pendingSize += frames
+        }
+
+        override fun close() = sonic.reset()
+
+        companion object {
+            const val BLOCK = 2048
+        }
+    }
+}
+
+/**
+ * The app's audio engine on a project's files: the mix of [plan] at [rate]
+ * with [channels], each piece read from the processed sound of its chain
+ * ([processed]) when that has been made, else from its recording ([files]),
+ * runs at another speed with their pitch kept.
+ */
+fun audioEngine(
+    plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> File?, rate: Int = MIX_RATE, channels: Int = 2,
+    live: LiveAudioGain? = null, failures: MutableList<String>? = null,
+): TrackMixEngine = TrackMixEngine(
+    plan, rate, channels,
+    open = { piece ->
+        val file = (if (piece.chain.isEmpty()) null else processed(piece)) ?: files[piece.sourceID]
+        file?.let { DecodedSource(it, rate, channels, piece.runs.first().sourceStart).also { source -> if (source.failed) failures?.add(piece.sourceID) } }
+    },
+    stretch = SonicRetime(), live = live,
+)
+
+/** The rate the app mixes at: the rate of every chain's processed sound and of the export. */
+const val MIX_RATE = 48_000
+
+/** What [writeMix] gives: the loudest sample of the mix, 1 being full scale, and whether a recording could not be decoded. */
+class MixResult(val peak: Float, val complete: Boolean)
+
+/**
+ * Writes the whole mix of [engine] to [target] as a 16-bit WAV, samples past
+ * full scale stopped there, and tells [progress] how far it is, 0 to 1.
+ * [checkpoint] runs between blocks and may throw to stop. The peak is
+ * measured before the samples are stopped.
+ */
+fun writeMix(engine: TrackMixEngine, target: File, failures: List<String>, checkpoint: () -> Unit = {}, progress: (Double) -> Unit = {}): MixResult {
+    val channels = engine.channels
+    val block = 4096
+    val mix = FloatArray(block * channels)
+    val bytes = ByteBuffer.allocate(block * channels * 2).order(ByteOrder.LITTLE_ENDIAN)
+    var peak = 0f
+    engine.seek(0)
+    BufferedOutputStream(FileOutputStream(target), 1 shl 16).use { output ->
+        output.write(ByteArray(44))
+        while (true) {
+            checkpoint()
+            val done = engine.render(mix, block)
+            if (done == 0) break
+            bytes.clear()
+            for (index in 0 until done * channels) {
+                val value = mix[index]
+                peak = maxOf(peak, abs(value))
+                bytes.putShort((value * 32768f).roundToInt().coerceIn(-32768, 32767).toShort())
+            }
+            output.write(bytes.array(), 0, done * channels * 2)
+            progress(engine.position.toDouble() / maxOf(1L, engine.frames))
+        }
+    }
+    writeWavHeader(target, engine.sampleRate, channels, engine.frames)
+    return MixResult(peak, failures.isEmpty())
+}
+
+/** Fills in the header of a 16-bit WAV of [frames] frames written after 44 bytes left for it. */
+fun writeWavHeader(file: File, rate: Int, channels: Int, frames: Long) {
+    val data = frames * channels * 2
+    val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
+    header.put("RIFF".toByteArray()).putInt((36 + data).toInt()).put("WAVE".toByteArray())
+    header.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(channels.toShort())
+    header.putInt(rate).putInt(rate * channels * 2).putShort((channels * 2).toShort()).putShort(16)
+    header.put("data".toByteArray()).putInt(data.toInt())
+    RandomAccessFile(file, "rw").use { it.seek(0); it.write(header.array()) }
+}
+
+/** The frames of [engine]'s mix in the seconds [from] to [until], for the recognizer and the measurements. */
+fun TrackMixEngine.frames(from: Double, until: Double): LongRange =
+    TrackMixer.firstFrame(app.takes.core.EditTime.of(from), sampleRate).coerceIn(0, frames) until
+        TrackMixer.firstFrame(app.takes.core.EditTime.of(until), sampleRate).coerceIn(0, frames)
+
+/**
+ * The sound of a movie as the export mixes it: the mix [plan] of its timeline, read from the recordings in
+ * [files] or the processed sound of their chains ([Denoiser]).
+ */
+class MovieSound(val plan: TrackMixPlan, private val files: Map<String, File>) {
+    /**
+     * How long the movie is, its picture lasting [picture] seconds: as long as its longest item, as in the
+     * original. A mix within a millisecond of the picture is the picture's length, which its frames decide.
+     */
+    fun duration(picture: Double): Double = plan.duration.seconds.takeIf { it > picture + 0.001 } ?: picture
+
+    /** Writes the mix of the movie, [duration] seconds of it, to [target] ([writeMix]). */
+    fun write(duration: Double, target: File, checkpoint: () -> Unit, progress: (Double) -> Unit): MixResult {
+        val failures = ArrayList<String>()
+        val whole = plan.copy(duration = app.takes.core.EditTime.of(duration))
+        return audioEngine(whole, files, Denoiser.input(files), failures = failures).use { writeMix(it, target, failures, checkpoint, progress) }
+    }
+}

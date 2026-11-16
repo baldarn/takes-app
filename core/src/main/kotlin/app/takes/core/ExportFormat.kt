@@ -97,6 +97,9 @@ object ExportSpace {
     /** For the sound of a movie of [duration] seconds: 32 000 bytes a second. */
     fun audio(duration: Double): Long = (duration * 32_000).toLong() + MARGIN
 
+    /** For the mix of a movie of [duration] seconds before it is encoded: 16-bit stereo at 48 kHz. */
+    fun mix(duration: Double): Long = (duration * 192_000).toLong() + MARGIN
+
     /** For one picture section of [seconds]: one byte for every pixel of every second. */
     fun section(width: Int, height: Int, seconds: Double): Long = (width.toDouble() * height * seconds).toLong() + MARGIN
 

@@ -80,7 +80,9 @@ import app.takes.core.TimelineClip
 import app.takes.core.TrackRenderPlan
 import app.takes.core.EditRender
 import app.takes.core.LayerPlan
-import app.takes.core.LayerSound
+import app.takes.core.TrackAudioRegions
+import app.takes.core.TrackMix
+import app.takes.core.toTimeline
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -507,7 +509,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             layered(project, render.plan, folder, checkpoint, published)
             return@coroutineScope
         }
-        // What the movie is made of, before any cleaned sound is at hand: every clip that asks for noise reduction is marked.
+        // What the movie is made of.
         val asked = (render as EditRender.Sequence).plan
         val settings = project.exportSettings
         val files = project.sources.associate { it.id to store.file(project, it) }
@@ -532,37 +534,44 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             if (!scratch.mkdirs() && !scratch.isDirectory) throw ExportProblem(ExportProblem.Reason.NotPrepared)
         }
 
-        // Noise reduction: the cleaned sound of every clip that asks for it, made before rendering and kept.
-        report(ExportProgress.of(ExportProgress.Step.AudioEffects))
-        val wanted = asked.pictures.filter { it.soundRemoved }
-        val clean = mutableMapOf<Int, File>()
-        wanted.forEachIndexed { step, picture ->
-            Denoiser.process(files.getValue(picture.sourceID), asked.clips[picture.index].audio?.denoise ?: 0.0) {
-                report(ExportProgress.of(ExportProgress.Step.AudioEffects, (step + it.toDouble()) / wanted.size))
-            }?.let { clean[picture.index] = it }
-        }
-
+        val sound = prepareSound(project, files)
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
-        // The movie as it is rendered: a clip whose sound could not be cleaned plays its recorded sound.
-        val plan = TrackRenderPlan.of(project.edit, clean.keys)
-        val duration = plan.duration
+        // The movie lasts as long as its longest item, as in the original: past the last clip it goes on in black under the sound.
+        val duration = sound.duration(asked.duration)
+        val plan = if (duration > asked.duration) asked.copy(duration = duration) else asked
         val movie = withContext(Dispatchers.IO) {
             val used = plan.pictures.map { it.sourceID }.distinct()
             ExportMovie(
                 context, plan, settings.frameRate, files, canvas,
                 sizes = used.associateWith { files[it]?.let(::displaySize) }, // the upright size of each recording; a crop is measured in its pixels
                 rates = used.associateWith { files[it]?.let(::frameRate) },
-                voiced = used.associateWith { files[it]?.let(::hasSound) == true },
-                clean = clean, black = blackStill(context), luts = folder,
+                black = blackStill(context), luts = folder,
             )
         }
-        finish(project, movie, duration, canvas, folder, exports, scratch, checkpoint, published) { progress -> ExportCheck.peak(plan, files, clean, progress) }
+        finish(project, movie, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
     }
 
     /**
-     * The export of an edit drawn by picture layers ([LayerMovie]): as a sequence's, from its [plan] of layers
-     * and the sound of its pictures and tracks ([LayerSound]). The loudest sample is not measured for it yet,
-     * so its movie makes no claim about its sound.
+     * The movie's sound as the audio engine mixes it ([TrackMix.plan] of the edit's timeline), with every chain
+     * of Enhance audio it plays processed first ([TrackAudioRegions.requests]) and kept: a chain this device
+     * cannot play, or a recording it cannot process, plays as recorded.
+     */
+    private suspend fun prepareSound(project: Project, files: Map<String, File>): MovieSound {
+        val timeline = project.edit.toTimeline()
+        val voiced = withContext(Dispatchers.IO) { timeline.audio.map { it.sourceID }.distinct().associateWith { files[it]?.let(::hasSound) == true } }
+        report(ExportProgress.of(ExportProgress.Step.AudioEffects))
+        val requests = TrackAudioRegions.requests(timeline).values.filter { it.sourceID in files && voiced[it.sourceID] == true }
+        requests.forEachIndexed { step, request ->
+            Denoiser.process(files.getValue(request.sourceID), request.effects) {
+                report(ExportProgress.of(ExportProgress.Step.AudioEffects, (step + it.toDouble()) / requests.size))
+            }
+        }
+        return MovieSound(TrackMix.plan(timeline, voiced = { voiced[it] == true }), files)
+    }
+
+    /**
+     * The export of an edit drawn by picture layers ([LayerMovie]): as a sequence's, from its [plan] of layers,
+     * with the same sound: the audio engine's mix of its timeline.
      */
     private suspend fun layered(project: Project, plan: LayerPlan, folder: File, checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit) {
         val edit = project.edit
@@ -588,36 +597,28 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             ExportCheckpoint.reclaim(folder)
             if (!scratch.mkdirs() && !scratch.isDirectory) throw ExportProblem(ExportProblem.Reason.NotPrepared)
         }
-        val sounding = LayerSound(plan, edit.clips, sounds)
-        report(ExportProgress.of(ExportProgress.Step.AudioEffects))
-        val wanted = plan.pictures.filter { sounding.denoise(it.index) > 0 }
-        val clean = mutableMapOf<Int, File>()
-        wanted.forEachIndexed { step, picture ->
-            Denoiser.process(files.getValue(picture.sourceID), sounding.denoise(picture.index)) {
-                report(ExportProgress.of(ExportProgress.Step.AudioEffects, (step + it.toDouble()) / wanted.size))
-            }?.let { clean[picture.index] = it }
-        }
+        val sound = prepareSound(project, files)
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
+        val duration = sound.duration(plan.duration)
         val movie = withContext(Dispatchers.IO) {
             val used = plan.pictures.map { it.sourceID }.distinct()
             LayerMovie(
-                context, plan, sounding, settings.frameRate, files, canvas, columns,
+                context, plan, settings.frameRate, files, canvas, columns,
                 sizes = used.associateWith { files[it]?.let(::displaySize) },
                 rates = used.associateWith { files[it]?.let(::frameRate) },
-                voiced = used.associateWith { files[it]?.let(::hasSound) == true },
-                clean = clean, black = blackStill(context), luts = folder,
+                black = blackStill(context), luts = folder,
             )
         }
-        finish(project, movie, plan.duration, canvas, folder, exports, scratch, checkpoint, published) { null }
+        finish(project, movie, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
     }
 
     /**
      * The rest of an export once its [movie] is made: the sound beside the picture, the picture a section at a
-     * time, the join, the checks and the saving. [peak] measures the loudest sample of the mix, null when it cannot.
+     * time, the join, the checks and the saving. [sound] is what the audio engine mixes.
      */
     private suspend fun finish(
         project: Project, movie: MovieRender, duration: Double, canvas: Pair<Int, Int>, folder: File, exports: File, scratch: File,
-        checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit, peak: suspend ((Double) -> Unit) -> Float?,
+        checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit, sound: MovieSound,
     ): Unit = coroutineScope {
         val settings = project.exportSettings
         val files = project.sources.associate { it.id to store.file(project, it) }
@@ -625,25 +626,31 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
         val sections = ExportSections.sections(duration)
 
-        // Beside the picture, not before it: the sound of the whole movie in one pass, and how loud the mix gets,
-        // measured before anything is encoded and kept with the saved work. On a phone the sound takes about as
-        // long as the picture, and one after the other an export took twice the time of a single pass.
-        val measuring = async {
-            if (checkpoint.measuredPeak == null) {
-                report(ExportProgress.of(ExportProgress.Step.AudioPeak))
-                peak { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
-                    ?.let { loudest -> withContext(Dispatchers.IO) { checkpoint.savePeak(loudest) } }
-            }
-        }
+        // Beside the picture, not before it: the sound of the whole movie in one pass. The audio engine mixes it into
+        // one file, measuring how loud the mix gets before anything is encoded, and that file is encoded. On a phone
+        // the sound takes about as long as the picture, and one after the other an export took twice the time of a
+        // single pass.
         val sounding = async {
             if (!checkpoint.audioFile.isFile) {
-                report(ExportProgress.of(ExportProgress.Step.Audio))
-                val file = partial()
-                withContext(Dispatchers.IO) { ExportSpace.require(ExportSpace.audio(duration), scratch) }
-                render(movie.sound(), file, codec, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Audio, it)) }
-                withContext(Dispatchers.IO) {
-                    if (ExportTrack.read(file, "audio/") == null) throw ExportProblem(ExportProblem.Reason.SoundNotRendered)
-                    checkpoint.publish(file, checkpoint.audioFile)
+                report(ExportProgress.of(ExportProgress.Step.AudioPeak))
+                val mix = File(scratch, UUID.randomUUID().toString().uppercase() + ".wav")
+                try {
+                    withContext(Dispatchers.IO) {
+                        ExportSpace.require(ExportSpace.audio(duration) + ExportSpace.mix(duration), scratch)
+                        val active = coroutineContext
+                        val result = sound.write(duration, mix, { active.ensureActive() }) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
+                        // A recording that could not be decoded leaves the mix without it: the movie then makes no claim about its sound.
+                        if (checkpoint.measuredPeak == null && result.complete) checkpoint.savePeak(result.peak)
+                    }
+                    report(ExportProgress.of(ExportProgress.Step.Audio))
+                    val file = partial()
+                    render(mixedSound(mix), file, codec, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Audio, it)) }
+                    withContext(Dispatchers.IO) {
+                        if (ExportTrack.read(file, "audio/") == null) throw ExportProblem(ExportProblem.Reason.SoundNotRendered)
+                        checkpoint.publish(file, checkpoint.audioFile)
+                    }
+                } finally {
+                    withContext(NonCancellable + Dispatchers.IO) { mix.delete() }
                 }
             }
         }
@@ -690,7 +697,6 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
 
         sounding.await()
-        measuring.await()
 
         // The join: the sections end to end and the sound beside them, nothing encoded again.
         val joined = partial()

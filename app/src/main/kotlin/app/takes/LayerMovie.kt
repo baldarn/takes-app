@@ -48,14 +48,12 @@ fun clippedItem(picture: LayerPlan.Picture, file: File): MediaItem = MediaItem.B
  * it as in the original (YouRec/TrackRenderer.swift:409-411); the captions go
  * over the whole frame.
  *
- * The sound is [sound]'s: each picture's own on its lane, and the sound
- * tracks ([LayerSound]). [clean] is the cleaned sound of the pictures whose
- * noise reduction is at hand, by index.
+ * The sound is the audio engine's mix of the timeline ([mixedSound]).
  */
 class LayerMovie(
-    private val context: Context, private val plan: LayerPlan, private val sounding: LayerSound, ceiling: Int, private val files: Map<String, File>,
+    private val context: Context, private val plan: LayerPlan, ceiling: Int, private val files: Map<String, File>,
     val canvas: Pair<Int, Int>, private val columns: Int, private val sizes: Map<String, Pair<Int, Int>?>, rates: Map<String, Double?>,
-    private val voiced: Map<String, Boolean>, private val clean: Map<Int, File>, private val black: File, private val luts: File,
+    private val black: File, private val luts: File,
 ) : MovieRender {
     private val lanes = plan.lanes
 
@@ -113,35 +111,6 @@ class LayerMovie(
             .setEffects(Effects(emptyList(), drawn))
             .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
             .build()
-    }
-
-    /**
-     * The sound of the whole movie, in one pass: the sound tracks, and each
-     * picture's own sound on a sequence for its lane, at its own level and
-     * fades, its cleaned sound in place of the recorded one when it has it.
-     */
-    override fun sound(): Composition {
-        fun sequence(entries: List<RenderPlan.Entry>): EditedMediaItemSequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).apply {
-            for (entry in entries) when (entry) {
-                is RenderPlan.Entry.Gap -> addGap(entry.micros)
-                is RenderPlan.Entry.Sound -> addItem(
-                    EditedMediaItem.Builder(clippedItem(entry, files.getValue(entry.item.sourceID))).setRemoveVideo(true)
-                        .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor(sounding.soundEnvelope(entry.item), entry.start)), emptyList()))
-                        .build(),
-                )
-                is RenderPlan.Entry.Clip -> plan.pictures[entry.index].let { heard ->
-                    addItem(
-                        EditedMediaItem.Builder(clippedItem(heard, clean[heard.index] ?: files.getValue(heard.sourceID))).setRemoveVideo(true)
-                            .setEffects(Effects(listOf<AudioProcessor>(SoundProcessor(sounding.clipEnvelope(heard.index), heard.start)), emptyList()))
-                            .apply { steadySpeed(heard.rate)?.let(::setSpeed) }
-                            .build(),
-                    )
-                }
-            }
-        }.build()
-        val heard = sounding.soundtracks + sounding.voices { voiced[it] == true }
-        val silence = listOfNotNull((plan.duration * 1e6).roundToLong().takeIf { it > 0 }?.let { RenderPlan.Entry.Gap(0.0, it) })
-        return Composition.Builder(heard.map { sequence(it.entries) }.ifEmpty { listOf(sequence(silence)) }).build()
     }
 
     private companion object {
