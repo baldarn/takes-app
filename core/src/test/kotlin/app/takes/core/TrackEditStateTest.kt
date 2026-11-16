@@ -383,7 +383,6 @@ class TrackEditStateTest {
         assertTrue(SubtitleEditing.transcript(corrected).startsWith("fixed"))
         assertTrue(SubtitleEditing.cues(SubtitleEditing.delete(captioned, cues.first())!!).size < cues.size)
         assertNull(SubtitleEditing.remove(captioned).subtitles)
-        assertTrue(SubtitleEditing.stretches(captioned.clips).isNotEmpty())
     }
 
     @Test

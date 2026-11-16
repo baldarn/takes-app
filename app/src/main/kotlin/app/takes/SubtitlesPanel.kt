@@ -74,7 +74,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.core.EditState
+import app.takes.core.EditInterval
+import app.takes.core.EditTime
 import app.takes.core.SubtitleCheckpoint
+import app.takes.core.toTimeline
 import app.takes.core.SubtitleCue
 import app.takes.core.SubtitleEditing
 import app.takes.core.SubtitleFont
@@ -128,11 +131,13 @@ private fun cueTime(seconds: Double): String {
  * and [close] drops it.
  *
  * @param saved the edit as it is in the project, to tell whether anything changed.
+ * @param listened what a transcription listens to: the marked range, the span of the selection, or the whole
+ *   timeline ([TrackCaptions.scope]). Only the captions in it are listed, and only those are replaced.
  * @param working told while a download or a transcription runs, to keep the screen on.
  */
 @Composable
 fun SubtitlesPanel(
-    saved: EditState, draft: EditState, change: (EditState) -> Unit,
+    saved: EditState, draft: EditState, change: (EditState) -> Unit, listened: EditInterval,
     files: Map<String, File>, layout: SubtitleLayout?, playhead: Double, playing: Boolean,
     seek: (Double) -> Unit, working: (Boolean) -> Unit, apply: () -> Unit, close: () -> Unit,
     modifier: Modifier = Modifier,
@@ -140,7 +145,12 @@ fun SubtitlesPanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings = draft.subtitles
-    val cues = remember(draft.clips, settings == null) { SubtitleEditing.cues(draft) }
+    val timeline = remember(draft) { draft.toTimeline() }
+    // The whole timeline, or a part of it whose captions alone are listed and replaced.
+    val whole = listened.start <= EditTime.ZERO && listened.end >= timeline.duration
+    val cues = remember(draft, listened) {
+        SubtitleEditing.cues(draft).filter { whole || (it.start < listened.end.seconds && it.end > listened.start.seconds) }
+    }
 
     var language by remember { mutableStateOf(Languages.firstOrNull { it.first == saved.subtitles?.language }?.first ?: "Auto") }
     // The model in use and how much of it is on the phone; read again after anything that changes either.
@@ -206,7 +216,7 @@ fun SubtitlesPanel(
     val noRoom = stringResource(R.string.subtitles_no_room, SubtitleModel.megabytes(model.bytes - present + SubtitleModel.RESERVE))
     val unknown = stringResource(R.string.common_unknown_error)
     val reasons = mapOf(
-        SubtitleTranscriber.Failure.Reason.NoSound to stringResource(R.string.subtitles_no_sound),
+        SubtitleTranscriber.Failure.Reason.NoSound to stringResource(if (whole) R.string.subtitles_no_sound else R.string.subtitles_no_sound_range),
         SubtitleTranscriber.Failure.Reason.NoSpeech to stringResource(R.string.subtitles_no_speech),
         SubtitleTranscriber.Failure.Reason.NoWords to stringResource(R.string.subtitles_no_words),
         SubtitleTranscriber.Failure.Reason.Model to stringResource(R.string.subtitles_model_failed),
@@ -258,18 +268,19 @@ fun SubtitlesPanel(
         val spoken = language
         val with = model
         val from = checkpoint.takeIf { resuming }
+        val range = listened
         selected = null
         paused = false
         checkpoint = null
         run(SubtitleTranscriber.Step.Reading) {
             try {
-                val result = SubtitleTranscriber.transcribe(context, with, latest.clips, files, Languages.first { it.first == spoken }.second, from, { checkpoint = it }) { fraction, at ->
+                val result = SubtitleTranscriber.transcribe(context, with, latest.toTimeline(), range, files, Languages.first { it.first == spoken }.second, from, { checkpoint = it }) { fraction, at ->
                     progress = fraction
                     step = at
                 }
                 Log.i("Subtitles", "%s loaded in %.1f s; %.1f s of speech recognized in %.1f s".format(with.name, result.loadingSeconds, result.speechSeconds, result.recognizingSeconds))
                 checkpoint = null
-                onChange(SubtitleEditing.install(latest, result.words, spoken))
+                onChange(SubtitleEditing.installHeard(latest, result.words, range, spoken))
             } catch (stopped: CancellationException) {
                 if (!paused) checkpoint = null // a stop asked for keeps nothing
                 throw stopped
@@ -389,7 +400,8 @@ fun SubtitlesPanel(
                                 }
                             }
                             if (installed) {
-                                Button(onClick = { if (paused) transcribe(true) else if (cues.isEmpty()) transcribe(false) else askReplace = true }, enabled = draft.clips.isNotEmpty() && editing == null) {
+                                if (!whole) Text(stringResource(R.string.subtitles_range, timeLabel(listened.start.seconds), timeLabel(listened.end.seconds)), color = Soft, fontSize = 14.sp, modifier = Modifier.padding(end = 8.dp))
+                                Button(onClick = { if (paused) transcribe(true) else if (cues.isEmpty()) transcribe(false) else askReplace = true }, enabled = timeline.audio.isNotEmpty() && editing == null) {
                                     Icon(Icons.Outlined.Subtitles, null, Modifier.size(18.dp))
                                     Text(stringResource(if (paused) R.string.subtitles_resume else if (cues.isEmpty()) R.string.subtitles_transcribe else R.string.subtitles_retranscribe), modifier = Modifier.padding(start = 6.dp))
                                 }
@@ -529,7 +541,7 @@ fun SubtitlesPanel(
         confirm = { askMetered = false; download() }, dismiss = { askMetered = false },
     )
     if (askReplace) Confirm(
-        stringResource(R.string.subtitles_replace_title), null, stringResource(R.string.subtitles_retranscribe), stringResource(R.string.common_cancel),
+        stringResource(if (whole) R.string.subtitles_replace_title else R.string.subtitles_replace_range_title), null, stringResource(R.string.subtitles_retranscribe), stringResource(R.string.common_cancel),
         confirm = { askReplace = false; transcribe(false) }, dismiss = { askReplace = false },
     )
     if (askRemoveAll) Confirm(

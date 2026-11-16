@@ -807,4 +807,7 @@
     <string name="sound_past_picture_message">%1$s of sound play after the last clip. The movie now goes on until the sound ends, black after the picture, as it is exported. Keep that sound, or end the movie with the picture?</string>
     <string name="sound_past_picture_keep">Keep the sound</string>
     <string name="sound_past_picture_trim">End with the picture</string>
+    <string name="subtitles_replace_range_title">Replace subtitles in this range?</string>
+    <string name="subtitles_no_sound_range">This range has no audio.</string>
+    <string name="subtitles_range">%1$s–%2$s</string>
 </resources>

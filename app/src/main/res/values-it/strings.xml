@@ -818,4 +818,7 @@
     <string name="sound_past_picture_message">%1$s di audio continuano dopo l\'ultima clip. Ora il filmato va avanti fino alla fine dell\'audio, nero dopo l\'immagine, anche quando è esportato. Tenere quell\'audio o far finire il filmato con l\'immagine?</string>
     <string name="sound_past_picture_keep">Tieni l\'audio</string>
     <string name="sound_past_picture_trim">Finisci con l\'immagine</string>
+    <string name="subtitles_replace_range_title">Sostituire i sottotitoli in questo intervallo?</string>
+    <string name="subtitles_no_sound_range">Questo intervallo non ha audio.</string>
+    <string name="subtitles_range">%1$s–%2$s</string>
 </resources>

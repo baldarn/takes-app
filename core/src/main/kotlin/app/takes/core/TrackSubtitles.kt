@@ -158,36 +158,6 @@ object TrackSubtitles {
     }
 
     /**
-     * What a transcription that listens to the recordings, not to the mix,
-     * has to hear: for each source, the stretches that sounds which are not
-     * muted play of it, merged where they touch or overlap, so footage used
-     * twice or cut in two is listened to once. [sounds] limits it to those
-     * sounds; null is every sound. This is the track form of
-     * [SubtitleEditing.stretches], for as long as the app transcribes
-     * recordings (docs/TRACKS-PLAN.md, S8).
-     */
-    fun stretches(timeline: TrackTimeline, sounds: Set<String>? = null): List<SubtitleStretch> {
-        val order = ArrayList<String>()
-        val ranges = HashMap<String, MutableList<SourceInterval>>()
-        for (item in timeline.audio) {
-            if (item.muted || (sounds != null && item.id !in sounds)) continue
-            for (run in item.mapping.runs) {
-                if (run.silent || run.isHold) continue
-                if (item.sourceID !in ranges) order += item.sourceID
-                ranges.getOrPut(item.sourceID) { mutableListOf() } += SourceInterval(run.sourceStart, run.sourceEnd)
-            }
-        }
-        return order.flatMap { source ->
-            val merged = ArrayList<SourceInterval>()
-            for (range in ranges.getValue(source).sortedBy { it.start }) {
-                val last = merged.lastOrNull()
-                if (last != null && range.start <= last.end + 0.001) merged[merged.lastIndex] = SourceInterval(last.start, maxOf(last.end, range.end)) else merged += range
-            }
-            merged.map { SubtitleStretch(source, it.start, it.end) }
-        }
-    }
-
-    /**
      * Replaces every caption with a transcription of the recordings: [words]
      * are the words heard in each source, by source id and in source seconds.
      * Every sound that is not muted (among [sounds], when given) takes its

@@ -710,8 +710,6 @@ object TrackSequenceView {
 
     fun groupingAvailable(state: EditState): Boolean = TrackSubtitles.groupingAvailable(state.toTimeline())
 
-    fun stretches(state: EditState): List<SubtitleStretch> = TrackSubtitles.stretches(state.toTimeline())
-
     /** [SubtitleEditing.install]: the words heard in each recording, on every sound that plays them ([TrackSubtitles.installingSourceWords]). */
     fun install(state: EditState, words: Map<String, List<SubtitleWord>>, language: String): SequenceResult =
         always(state) { TrackSubtitles.installingSourceWords(it, words, language) }

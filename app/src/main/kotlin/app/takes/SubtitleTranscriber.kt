@@ -4,17 +4,19 @@ import android.content.Context
 import android.os.SystemClock
 import app.takes.core.SourceInterval
 import app.takes.core.SubtitleCheckpoint
-import app.takes.core.SubtitleEditing
 import app.takes.core.SubtitleScratch
 import app.takes.core.SubtitleSpeechAudio
 import app.takes.core.SubtitleSpeechPlan
 import app.takes.core.SubtitleStretch
 import app.takes.core.SubtitleTiming
 import app.takes.core.SubtitleWord
-import app.takes.core.TimelineClip
+import app.takes.core.EditInterval
+import app.takes.core.TrackCaptions
+import app.takes.core.TrackMix
+import app.takes.core.TrackSubtitles
+import app.takes.core.TrackTimeline
 import app.takes.speech.SpeechModel
 import app.takes.speech.SpeechRecognizer
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -30,16 +32,16 @@ import kotlin.math.sqrt
 /**
  * Turns the speech of an edit into words with times, on the device.
  *
- * Each recording the edit plays is decoded once to 16 kHz mono in a temporary
- * file ([SubtitleScratch]), never held whole in memory. An energy gate finds where someone speaks;
- * the recognizer gets those stretches in pieces of at most twelve seconds and
- * returns their text, and the words are placed inside the voiced parts of each
- * piece. Times are in the recording's own seconds, so the words stay with the
- * footage however it is cut afterwards.
- *
- * The original listens to the finished mix of its timeline. This port listens
- * to each clip's recording as it was made: at its natural speed, without the
- * clip's level, fades or noise reduction, and without the audio tracks.
+ * As in the original (YouRec/SubtitleTranscriber.swift:85-96), it listens to
+ * the edited mix of a range of the timeline as it plays, made by the audio
+ * engine: speed, levels, fades, chains and censors in it, voice-overs and
+ * music included ([TrackCaptions.heard]). The mix is written once to 16 kHz
+ * mono in a temporary file ([SubtitleScratch]), never held whole in memory.
+ * An energy gate finds where someone speaks; the recognizer gets those
+ * stretches in pieces of at most twelve seconds and returns their text, and
+ * the words are placed inside the voiced parts of each piece. Times are in
+ * seconds from the range's start; [TrackCaptions.installing] puts each word on
+ * the loudest sound playing under it, so the words then follow that sound.
  */
 object SubtitleTranscriber {
     /** What the job is doing, for the progress line. */
@@ -57,8 +59,8 @@ object SubtitleTranscriber {
         enum class Reason { NoSound, NoSpeech, NoWords, Model, Memory }
     }
 
-    /** The words by recording id, the language of the first piece when the model tells it, and what the job took. */
-    class Result(val words: Map<String, List<SubtitleWord>>, val language: String, val speechSeconds: Double, val loadingSeconds: Double, val recognizingSeconds: Double)
+    /** The words heard, in seconds from the range's start, the language of the first piece when the model tells it, and what the job took. */
+    class Result(val words: List<SubtitleWord>, val language: String, val speechSeconds: Double, val loadingSeconds: Double, val recognizingSeconds: Double)
 
     const val RATE = SubtitleSpeechAudio.RATE
     private const val SLICE = 320 // 20 ms: one loudness measure
@@ -67,10 +69,14 @@ object SubtitleTranscriber {
     /** Wall seconds per second of speech on this device, from the last job, for the first estimate of the next. */
     private var pace: Double? = null
 
-    /** One recording as 16 kHz mono floats on disk, with its loudness every 20 ms. */
+    /** The mix as 16 kHz mono floats on disk, with its loudness every 20 ms. */
     private class Sound(val file: File, val samples: Long, val levels: FloatArray)
 
-    private class Piece(val source: String, val range: SourceInterval, val speech: List<SourceInterval>)
+    private class Piece(val range: SourceInterval, val speech: List<SourceInterval>)
+
+    /** The name the words of the mix have in a checkpoint. */
+    private const val MIX = "mix"
+
 
     /**
      * [language] is a two-letter code, or null to detect it: then every piece is
@@ -82,36 +88,21 @@ object SubtitleTranscriber {
      * language and the pieces are still the same ([SubtitleCheckpoint.reusable]).
      */
     suspend fun transcribe(
-        context: Context, model: SpeechModel, clips: List<TimelineClip>, files: Map<String, File>, language: String?,
+        context: Context, model: SpeechModel, timeline: TrackTimeline, range: EditInterval, files: Map<String, File>, language: String?,
         resume: SubtitleCheckpoint? = null, save: (SubtitleCheckpoint) -> Unit = {}, progress: (Float, Step) -> Unit,
     ): Result = withContext(working) {
         val job = coroutineContext
-        val stretches = SubtitleEditing.stretches(clips)
+        // What is listened to, named by what the captions are timed for, so a checkpoint is taken up only for the same mix.
+        val stretches = listOf(SubtitleStretch(TrackSubtitles.fingerprint(timeline), range.start.seconds, range.end.seconds))
+        if (TrackCaptions.heard(timeline, range).isEmpty()) throw Failure(Failure.Reason.NoSound)
         // What a job that died with the app left behind goes first; a job that is running keeps its own.
         SubtitleScratch.clear(context.cacheDir)
         val scratch = SubtitleScratch.open(context.cacheDir)
         try {
             progress(0f, Step.Reading)
-            val sources = stretches.map { it.sourceID }.distinct()
-            val sounds = mutableMapOf<String, Sound>()
-            sources.forEachIndexed { index, id ->
-                val file = files[id] ?: return@forEachIndexed
-                read(file, File(scratch, "$index.pcm"), { job.ensureActive() }) { progress(READING * (index + it) / sources.size, Step.Reading) }?.let { sounds[id] = it }
-            }
-            if (sounds.isEmpty()) throw Failure(Failure.Reason.NoSound)
-
-            val pieces = stretches.flatMap { stretch ->
-                val sound = sounds[stretch.sourceID] ?: return@flatMap emptyList()
-                // Whole slices, so a piece's times are exact multiples of the measure.
-                val first = (stretch.start * RATE / SLICE).toInt().coerceIn(0, sound.levels.size)
-                val last = Math.ceil(stretch.end * RATE / SLICE).toInt().coerceIn(first, sound.levels.size)
-                val begins = first.toDouble() * SLICE / RATE
-                val length = minOf((last - first).toDouble() * SLICE / RATE, sound.samples.toDouble() / RATE - begins)
-                SubtitleSpeechPlan.chunks(sound.levels.copyOfRange(first, last), length).map { chunk ->
-                    fun moved(part: SourceInterval) = SourceInterval(part.start + begins, part.end + begins)
-                    Piece(stretch.sourceID, moved(chunk.range), chunk.speech.map(::moved))
-                }
-            }
+            val sound = read(timeline, range, files, File(scratch, "mix.pcm"), { job.ensureActive() }) { progress(READING * it, Step.Reading) }
+                ?: throw Failure(Failure.Reason.NoSound)
+            val pieces = SubtitleSpeechPlan.chunks(sound.levels, sound.samples.toDouble() / RATE).map { Piece(it.range, it.speech) }
             if (pieces.isEmpty()) throw Failure(Failure.Reason.NoSpeech)
 
             progress(READING, Step.Loading)
@@ -134,7 +125,7 @@ object SubtitleTranscriber {
                 throw Failure(Failure.Reason.Memory)
             }
             val loaded = (SystemClock.elapsedRealtime() - loading) / 1000.0
-            val plan = pieces.map { SubtitleStretch(it.source, it.range.start, it.range.end) }
+            val plan = pieces.map { SubtitleStretch(MIX, it.range.start, it.range.end) }
             val skipped = SubtitleCheckpoint.reusable(resume, stretches, language, plan)
             val kept = resume?.takeIf { skipped > 0 }
             val words = mutableMapOf<String, MutableList<SubtitleWord>>()
@@ -151,11 +142,10 @@ object SubtitleTranscriber {
                     job.ensureActive()
                     val rate = if (done > 0) elapsed() / done else pace
                     progress(READING + (1 - READING) * ((before + done) / (before + total)).toFloat(), Step.Section(index + 1, pieces.size, rate?.let { it * (total - done) }))
-                    val sound = sounds.getValue(piece.source)
                     val transcript = recognizer.transcribe(samples(sound, piece.range), RATE, language)
                     if (written.isEmpty()) written = transcript.language
                     val timed = transcript.words
-                    words.getOrPut(piece.source) { mutableListOf() } += if (timed != null) {
+                    words.getOrPut(MIX) { mutableListOf() } += if (timed != null) {
                         timed.map { SubtitleWord(text = it.text, start = piece.range.start + it.start, end = piece.range.start + it.end) }
                     } else {
                         SubtitleTiming.estimate(SubtitleSpeechAudio.spoken(transcript.text), piece.speech)
@@ -171,81 +161,70 @@ object SubtitleTranscriber {
                 SubtitleModel.running(context, null)
             }
             job.ensureActive()
-            if (words.values.all { it.isEmpty() }) throw Failure(Failure.Reason.NoWords)
+            val heard = words[MIX].orEmpty()
+            if (heard.isEmpty()) throw Failure(Failure.Reason.NoWords)
             progress(1f, Step.Section(pieces.size, pieces.size, 0.0))
-            Result(words, written, total, loaded, elapsed())
+            Result(heard, written, total, loaded, elapsed())
         } finally {
             SubtitleScratch.close(scratch)
         }
     }
 
-    /** Decodes [file] into [target]. Null when it has no sound that can be read. */
-    private fun read(file: File, target: File, checkpoint: () -> Unit, progress: (Float) -> Unit): Sound? {
-        val output = BufferedOutputStream(FileOutputStream(target), 1 shl 16)
-        try {
-            var mono: SubtitleSpeechAudio? = null
-            var length = 0L
-            var written = 0L
-            var levels = FloatArray(4096)
-            var measured = 0
-            var energy = 0.0
-            var counted = 0
-            var bytes = ByteBuffer.allocate(0)
-
-            fun write(samples: FloatArray, count: Int) {
-                if (bytes.capacity() < count * 4) bytes = ByteBuffer.allocate(count * 4).order(ByteOrder.LITTLE_ENDIAN)
-                bytes.clear()
-                for (index in 0 until count) {
-                    val sample = samples[index].takeIf { it.isFinite() } ?: 0f
-                    bytes.putFloat(sample)
-                    energy += sample * sample
-                    if (++counted == SLICE) {
-                        if (measured == levels.size) levels = levels.copyOf(measured * 2)
-                        levels[measured++] = sqrt(energy / SLICE).toFloat()
-                        energy = 0.0
-                        counted = 0
-                    }
-                }
-                output.write(bytes.array(), 0, count * 4)
-                written += count
-            }
-
-            val decoded = try {
-                decodeAudio(
-                    file, checkpoint,
-                    begin = { format ->
-                        length = format.durationUs
-                        mono = SubtitleSpeechAudio(format.channels, format.sampleRate)
-                    },
-                    samples = { block, time ->
-                        // Sound that begins after the picture keeps its place: silence comes first.
-                        if (written == 0L && time > 0) {
-                            val silence = FloatArray(RATE)
-                            var missing = minOf(time, 3_600_000_000L) * RATE / 1_000_000
-                            while (missing > 0) { val count = minOf(missing, silence.size.toLong()).toInt(); write(silence, count); missing -= count }
+    /**
+     * Writes the mix of [range] of [timeline] into [target] at 16 kHz mono, as the audio engine makes it at
+     * 48 kHz in one channel, each sample the average of the three it covers. Null when no recording could be read.
+     */
+    private fun read(timeline: TrackTimeline, range: EditInterval, files: Map<String, File>, target: File, checkpoint: () -> Unit, progress: (Float) -> Unit): Sound? {
+        val voiced = HashMap<String, Boolean>()
+        val plan = TrackMix.plan(timeline, voiced = { source -> voiced.getOrPut(source) { files[source]?.let(::hasSound) == true } })
+        val failures = ArrayList<String>()
+        val step = MIX_RATE / RATE
+        BufferedOutputStream(FileOutputStream(target), 1 shl 16).use { output ->
+            audioEngine(plan, files, Denoiser.input(files), MIX_RATE, 1, failures = failures).use { engine ->
+                val frames = engine.frames(range.start.seconds, range.end.seconds)
+                if (frames.isEmpty()) return null
+                engine.seek(frames.first)
+                val block = 4800 // 100 ms, a whole number of 16 kHz samples
+                val mixed = FloatArray(block)
+                val bytes = ByteBuffer.allocate(block / step * 4).order(ByteOrder.LITTLE_ENDIAN)
+                var levels = FloatArray(4096)
+                var measured = 0
+                var energy = 0.0
+                var counted = 0
+                var written = 0L
+                var frame = frames.first
+                while (frame <= frames.last) {
+                    checkpoint()
+                    val count = minOf(block.toLong(), frames.last - frame + 1).toInt() / step * step
+                    if (count == 0) break
+                    engine.render(mixed, count)
+                    bytes.clear()
+                    for (index in 0 until count / step) {
+                        var sum = 0f
+                        for (part in 0 until step) sum += mixed[index * step + part]
+                        val sample = (sum / step).takeIf { it.isFinite() } ?: 0f
+                        bytes.putFloat(sample)
+                        energy += sample * sample
+                        if (++counted == SLICE) {
+                            if (measured == levels.size) levels = levels.copyOf(measured * 2)
+                            levels[measured++] = sqrt(energy / SLICE).toFloat()
+                            energy = 0.0
+                            counted = 0
                         }
-                        val channel = mono!!
-                        val count = channel.read(block) // first: reading may replace the array
-                        write(channel.samples, count)
-                        if (length > 0) progress((time.toFloat() / length).coerceIn(0f, 1f))
-                    },
-                )
-            } catch (stopped: CancellationException) {
-                throw stopped // it is an IllegalStateException too, and must not pass for a broken file
-            } catch (problem: IllegalStateException) {
-                null // a decoder that gave up in the middle
-            } catch (problem: java.io.IOException) {
-                null
+                    }
+                    output.write(bytes.array(), 0, count / step * 4)
+                    written += count / step
+                    frame += count
+                    progress(((frame - frames.first).toFloat() / (frames.last - frames.first + 1)).coerceIn(0f, 1f))
+                }
+                // Every recording that plays here unreadable: nothing was heard.
+                if (failures.isNotEmpty() && failures.toSet() == plan.pieces.map { it.sourceID }.toSet()) return null
+                if (counted > 0) {
+                    if (measured == levels.size) levels = levels.copyOf(measured + 1)
+                    levels[measured++] = sqrt(energy / counted).toFloat()
+                }
+                return Sound(target, written, levels.copyOf(measured))
             }
-            output.close()
-            if (decoded != true || written == 0L) return null
-            if (counted > 0) {
-                if (measured == levels.size) levels = levels.copyOf(measured + 1)
-                levels[measured++] = sqrt(energy / counted).toFloat()
-            }
-            return Sound(target, written, levels.copyOf(measured))
-        } finally {
-            runCatching { output.close() }
         }
     }
 
