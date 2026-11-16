@@ -123,6 +123,7 @@ class ExportMovie(
     private fun piece(part: RenderPlan.Part.Footage, origin: Double): EditedMediaItem {
         val shown = plan.pictures[part.index]
         val picture = buildList<Effect> {
+            if (plan.clips[part.index].videoEffects.orEmpty().any { it.kind == app.takes.core.VideoEffectID.NightFix }) add(NightFixEffect(plan.clips[part.index], shown.start - origin)) // on the raw frame
             // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
             shown.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, luts))) }
             // A crop fills the frame with part of the footage, frame by frame; fitting then has nothing left to do.
@@ -130,7 +131,7 @@ class ExportMovie(
             if (shown.crop != null && source != null) add(FramingEffect(plan.clips[part.index], shown.start - origin, source, frame))
             add(fit())
             // The clip's video effects on the picture as it lies in the frame, bars included; titles come after.
-            if (!plan.clips[part.index].videoEffects.isNullOrEmpty()) add(VideoEffectChain(plan.clips[part.index], shown.start - origin, rate.toDouble()))
+            if (!plan.clips[part.index].videoEffects.isNullOrEmpty()) add(VideoEffectChain(plan.clips[part.index], shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, plan.clips[part.index])))
         }
         val item = MediaItem.Builder().setUri(android.net.Uri.fromFile(files.getValue(shown.sourceID))).setMediaId(shown.id)
             .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(part.sourceStartUs).setEndPositionUs(part.sourceEndUs).build()).build()
