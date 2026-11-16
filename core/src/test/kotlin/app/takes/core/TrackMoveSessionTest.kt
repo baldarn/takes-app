@@ -8,8 +8,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The reduced Move: a session on the "selected" scope, as the editor of the
- * original runs it (YouRec/EditorView.swift:1162-1239). The checks of
+ * Move on the "selected" scope, as the editor of the original runs it
+ * (YouRec/EditorView.swift:1162-1239); the other scopes, the stops and the
+ * nudges are in [TrackMoveScopesTest]. The checks of
  * `Tests/TrackTimelineTests.swift:590-599` and of the selected scope in
  * `Tests/MoveBoundaryChecks.swift` are made through the session, with what
  * the editor needs on top: the moved picture in front, Cancel giving back
