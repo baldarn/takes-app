@@ -296,12 +296,43 @@ class TrackSequenceFormTest {
         refused(timeline.copy(audio = timeline.audio + extra.copy(subtitleWords = listOf(SubtitleWord("W", "P", "word", 1.0, 2.0)))))
         refused(timeline.copy(audio = timeline.audio + extra.copy(mapping = SourcePlaybackMap.single(ticks(2.5), 0.0, 5.0))))
         refused(timeline.copy(audio = timeline.audio + extra + extra.copy(id = uuid(31), occurrenceID = uuid(31)) + extra.copy(id = uuid(32), occurrenceID = uuid(32))))
-        // A layer, an occurrence or an offset that a sequence does not have.
-        refused(timeline.copy(video = listOf(first.copy(layer = 5)) + timeline.video.drop(1)))
+        // An occurrence or an offset that a sequence does not have.
         refused(timeline.copy(video = listOf(first.copy(localOrigin = ticks(1.0))) + timeline.video.drop(1)))
         refused(timeline.copy(video = listOf(first.copy(occurrenceID = "other")) + timeline.video.drop(1)))
         // A stretch that is not its transition's, and a transition between pictures that are not neighbours.
         refused(timeline.copy(generated = listOf(TimelineGeneratedRegion("G", "T", EditInterval.of(1.0, 2.0)))))
         refused(timeline.copy(transitions = listOf(TimelineTransition(a.id, c.id, TransitionSettings(nextClipID = c.id), ticks(11.5)))))
+    }
+
+    /**
+     * A layer decides only which of two pictures that play together is in
+     * front. The original leaves a picture on the layer a Move gave it once
+     * the overlap is gone (YouRec/TrackTimeline.swift:726-739, :847-897), and
+     * keeps its lists in the order things were added: neither stops a
+     * timeline from being a sequence. Two pictures of a transition the other
+     * way round do.
+     */
+    @Test
+    fun layersThatDecideNothingAndTheOrderOfListsAreNotRead() {
+        val expected = timeline.toSequence()!!
+        assertEquals(expected, timeline.copy(video = listOf(timeline.video[0].copy(layer = 5)) + timeline.video.drop(1)).toSequence())
+        assertEquals(expected, timeline.copy(video = timeline.video.map { it.copy(layer = 7) }).toSequence())
+        assertEquals(expected, timeline.copy(video = timeline.video.reversed(), audio = timeline.audio.reversed(), links = timeline.links.reversed()).toSequence())
+        // A sequence is read as before: the layers of its conversion are still the ones it has.
+        for ((name, state) in TrackFixtures.all) assertEquals(name, state.toTimeline().video.indices.toList(), state.toTimeline().video.map { it.layer })
+
+        val dissolve = TrackFixtures.transitions(TransitionStyle.Dissolve).toTimeline()
+        val read = dissolve.toSequence()!!
+        val relation = dissolve.transitions.first { it.outgoing != null && it.incoming != null }
+        val layers = dissolve.video.associate { it.id to it.layer }
+        // The two of the dissolve play together: the one it leads into stays in front.
+        fun swapped(outgoing: Int, incoming: Int) = dissolve.copy(video = dissolve.video.map {
+            when (it.id) { relation.outgoing -> it.copy(layer = outgoing); relation.incoming -> it.copy(layer = incoming); else -> it }
+        })
+        val low = layers.getValue(relation.outgoing!!)
+        val high = layers.getValue(relation.incoming!!)
+        assertTrue(low < high)
+        assertEquals(read, swapped(low, high + 10).toSequence())
+        assertNull(swapped(high, low).toSequence())
     }
 }
