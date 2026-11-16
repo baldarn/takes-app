@@ -19,14 +19,12 @@ import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
-import app.takes.core.EditState
 import app.takes.core.ExportSections
 import app.takes.core.LayerPlan
 import app.takes.core.LayerSound
 import app.takes.core.RenderPlan
 import app.takes.core.Size as FrameSize
 import app.takes.core.TimelineTransition
-import app.takes.core.TransitionLayout
 import app.takes.core.TransitionScene
 import java.io.File
 import kotlin.math.roundToLong
@@ -45,9 +43,10 @@ fun clippedItem(picture: LayerPlan.Picture, file: File): MediaItem = MediaItem.B
  * plays nothing, laid in a column or, past the GPU's largest texture
  * ([columns] 2), in a grid by [DecksCompositor]; [LayersEffect] makes each
  * frame from them, back to front over black. A picture's color, crop, video
- * effects and titles are drawn on its own lane, before it is moved into its
- * window, so its titles shrink with it as in the original
- * (YouRec/TrackRenderer.swift:409-411); the captions go over the whole frame.
+ * effects are drawn on its own lane and its titles by [LayersEffect] over its
+ * picture, both before it is moved into its window, so its titles shrink with
+ * it as in the original (YouRec/TrackRenderer.swift:409-411); the captions go
+ * over the whole frame.
  *
  * The sound is [sound]'s: each picture's own on its lane, and the sound
  * tracks ([LayerSound]). [clean] is the cleaned sound of the pictures whose
@@ -62,7 +61,6 @@ class LayerMovie(
 
     override val rate = TransitionScene.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling)
 
-    private val perSecond = { _: TransitionLayout.Join -> rate.toDouble() }
     private val perTransition = { _: TimelineTransition -> rate.toDouble() }
     private val picture = Size(canvas.first, canvas.second)
     private val frame = FrameSize(canvas.first.toDouble(), canvas.second.toDouble())
@@ -70,9 +68,6 @@ class LayerMovie(
     private fun fit() = Presentation.createForWidthAndHeight(canvas.first, canvas.second, Presentation.LAYOUT_SCALE_TO_FIT)
 
     private fun size(sourceID: String): FrameSize? = sizes[sourceID]?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) }
-
-    // The titles of one picture, planned as a clip by itself: its titles are timed from its own start.
-    private val titled = HashMap<Int, RenderPlan>()
 
     /** A part of a picture as the plan cuts it, on a lane that begins at second [origin] of the movie. */
     private fun piece(part: RenderPlan.Part.Footage, origin: Double): EditedMediaItem {
@@ -85,10 +80,6 @@ class LayerMovie(
             if (shown.crop != null && source != null) add(FramingEffect(clip, begins, source, frame))
             add(fit())
             if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, begins, rate.toDouble()))
-            if (!clip.texts.isNullOrEmpty()) {
-                val alone = titled.getOrPut(part.index) { RenderPlan.of(EditState(listOf(clip))) }
-                add(OverlayEffect(listOf(TitleOverlay(alone, canvas.first, canvas.second, context.assets, perSecond, begins))))
-            }
         }
         val item = MediaItem.Builder().setUri(Uri.fromFile(files.getValue(shown.sourceID))).setMediaId(shown.id)
             .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(part.sourceStartUs).setEndPositionUs(part.sourceEndUs).build()).build()
@@ -113,7 +104,7 @@ class LayerMovie(
         val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }
         val drawn = buildList<Effect> {
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
-            add(LayersEffect(plan, picture, lanes, columns, perTransition, content))
+            add(LayersEffect(plan, picture, lanes, columns, perTransition, content, titled = true))
             plan.subtitles?.let { add(OverlayEffect(listOf(SubtitleOverlay(plan.captions, it, canvas.first, canvas.second)))) }
             add(SectionFramesEffect(drawing.first, drawing.count, rate))
         }
