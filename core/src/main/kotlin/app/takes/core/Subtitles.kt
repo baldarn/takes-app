@@ -2,7 +2,6 @@ package app.takes.core
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
 import java.text.BreakIterator
 import java.util.Locale
 import kotlin.math.pow
@@ -34,9 +33,11 @@ data class SubtitleWord(
  * [x] and [font] are optional so projects written before direct caption
  * placement still load, centered in the system font.
  *
- * [appearance] and [motion] are the original app's title design and motion.
- * They are not modeled here yet; keeping them as raw JSON means a project
- * opened and saved by this port does not lose them. [valid] cannot check them.
+ * [appearance] and [motion] are the title designer's design and motion, set
+ * from the tool's Appearance section (YouRec/Subtitles.swift:41-46): a series
+ * with a design is drawn as styled titles are, each caption arriving and
+ * leaving with the motion. Both are null in a series nobody has styled, which
+ * is drawn in its [style], [color] and [font] and written as it always was.
  */
 @Serializable
 data class SubtitleSettings(
@@ -52,8 +53,8 @@ data class SubtitleSettings(
     val timingFingerprint: String = "",
     val x: Double? = null,
     val font: SubtitleFont? = null,
-    val appearance: JsonElement? = null,
-    val motion: JsonElement? = null,
+    val appearance: TitleDesign? = null,
+    val motion: TitleMotion? = null,
 ) {
     /** The original app's TextStyle. Nested until titles are ported and can share it. */
     @Serializable
@@ -78,8 +79,13 @@ data class SubtitleSettings(
     val centerX: Double get() = x ?: 0.5
     val resolvedFont: SubtitleFont get() = font ?: SubtitleFont.System
 
+    /** What the title designer starts from: the series' design, or its style, color and font as one (YouRec/Subtitles.swift:43). */
+    val design: TitleDesign
+        get() = appearance ?: TitleDesign.legacy(TextStyle.valueOf(style.name), TextColor.valueOf(color.name), resolvedFont)
+
     val valid: Boolean
-        get() = maxWords in MAX_WORDS && size.isFinite() && size in 0.0001..0.30 &&
+        get() = appearance?.valid != false && motion?.valid != false &&
+            maxWords in MAX_WORDS && size.isFinite() && size in 0.0001..0.30 &&
             y.isFinite() && y in 0.0..1.0 && centerX.isFinite() && centerX in 0.0..1.0
 
     companion object {

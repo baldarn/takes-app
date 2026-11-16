@@ -25,10 +25,10 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 127 |
+| DONE | 128 |
 | PARTIAL | 39 |
 | CORE ONLY | 6 |
-| MISSING | 31 |
+| MISSING | 30 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -44,7 +44,7 @@ Per area:
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 5 | 5 | 0 | 11 | 0 |
-| 9. Subtitles | 10 | 1 | 0 | 2 | 0 |
+| 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
 | 11. Export | 10 | 0 | 0 | 2 | 0 |
 | 12. Settings, credits, localisation, accessibility | 3 | 1 | 0 | 1 | 2 |
@@ -267,8 +267,8 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Copy full transcript | O/SubtitleEditor.swift:256-274 | DONE | A/SubtitlesPanel.kt (`subtitles_copy`) | — | | |
 | Remove all subtitles | O/SubtitleEditor.swift:178-181 | DONE | A/SubtitlesPanel.kt (`subtitles_remove_all`) | — | | |
 | Placement by dragging and pinching on the preview, outline of the largest caption, screen reader actions | O/SubtitleEditor.swift:84-89, 183-200, O/EditorView.swift:1413-1422, 1540-1550 | DONE | A/SubtitlePlacing.kt, C/SubtitleEditing.kt (`SubtitlePlacement.envelope`, `moved`, `pinched`); sliders and reset as well (A/SubtitlesPanel.kt). Departure: no switch to inspect the picture with a pinch, as the port's preview has no inspection zoom | — | | |
-| Styles plain/bold/box/highlight, six colours, five fonts | O/Subtitles.swift:15-47 | DONE | A/SubtitlesPanel.kt:475, A/SubtitleRendering.kt:96 | — | | |
-| Full title inspector for captions (looks, fonts, fill, outline, shadow, background) and per-caption motion | O/SubtitleEditor.swift:279-294 | MISSING | Kept as raw JSON so it is not lost (C/Subtitles.kt:36-59) | Depends on area 7 | M | Yes |
+| Styles plain/bold/box/highlight, six colours, five fonts | O/Subtitles.swift:15-47 | DONE | A/SubtitleRendering.kt (`SubtitleLayout`, a series without a design); as in the original, they are no longer chosen in the tool but are where the title designer starts from (C/Subtitles.kt `design`) | — | | |
+| Full title inspector for captions (looks, fonts, fill, outline, shadow, background) and per-caption motion | O/SubtitleEditor.swift:279-294, O/SubtitleRenderer.swift:42-49, 75-83, 134-138 | DONE | C/Subtitles.kt (`appearance` a `TitleDesign`, `motion` a `TitleMotion`, both checked by `valid`), C/SubtitleEditing.kt (`SubtitlePlacement.moving`, `pose`); A/SubtitlesPanel.kt (Appearance holds `TitleInspector` from A/TitlePanel.kt, with the replay of the caption in focus), A/SubtitleRendering.kt (`StyledText` from A/TitleRendering.kt, the same in preview and export). A series nobody has styled is drawn and saved as before (C/SubtitleDesignTest.kt). Older versions of the port keep the two fields and draw the old style, as before | — | | |
 | Same drawing in preview and export, two stacked captions | O/SubtitleRenderer.swift:93-203 | DONE | A/SubtitleRendering.kt:33-131, A/Exporter.kt:249-254 | — | | |
 
 ### Departures in the recognizer

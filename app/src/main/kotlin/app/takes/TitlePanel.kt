@@ -196,12 +196,7 @@ fun TitlePanel(
     replay: (exit: Boolean, title: TextOverlay) -> Unit, sample: suspend () -> Bitmap?,
     done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val memory = remember { TitleMemory(context) }
-    var tab by remember { mutableStateOf(TitleTab.Looks) }
     var showPosition by remember { mutableStateOf(false) }
-    val design = draft.design
-    val setDesign = { next: TitleDesign -> change(draft.copy(appearance = next)) }
 
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -218,53 +213,11 @@ fun TitlePanel(
                 placeholder = { Text(write) }, maxLines = 4,
             )
             DurationPicker(range, bounds, setRange)
-            for (row in TitleTab.entries.chunked(4)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (value in row) {
-                        Cell(tab == value, { tab = value }, Modifier.weight(1f), minHeight = 46) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(value.icon, null, Modifier.size(20.dp))
-                                Text(stringResource(value.label), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
-            HorizontalDivider(color = Plain)
-            when (tab) {
-                TitleTab.Looks -> Looks(draft, memory, setDesign)
-                TitleTab.Font -> Fonts(draft.text, design, memory, setDesign)
-                TitleTab.Fill -> Fill(design, memory, sample, setDesign)
-                TitleTab.Outline -> {
-                    Toggle(stringResource(R.string.title_outline_toggle), design.outlined) { setDesign(design.copy(outlined = it)) }
-                    if (design.outlined) {
-                        ColorControl(stringResource(R.string.title_outline_color), design.border, memory, sample) { setDesign(design.copy(border = it)) }
-                        Amount(stringResource(R.string.title_width), design.borderWidth, 0.01..0.20, 0.005) { setDesign(design.copy(borderWidth = it)) }
-                    }
-                }
-                TitleTab.Shadow -> {
-                    Toggle(stringResource(R.string.title_shadow_toggle), design.shadow) { setDesign(design.copy(shadow = it)) }
-                    if (design.shadow) {
-                        ColorControl(stringResource(R.string.title_shadow_color), design.shade, memory, sample) { setDesign(design.copy(shade = it)) }
-                        Amount(stringResource(R.string.title_blur), design.shadowBlur, 0.0..0.6) { setDesign(design.copy(shadowBlur = it)) }
-                        Amount(stringResource(R.string.title_offset), design.shadowOffset, -0.5..0.5) { setDesign(design.copy(shadowOffset = it)) }
-                    }
-                }
-                TitleTab.Background -> {
-                    Segments(
-                        listOf(stringResource(R.string.title_plate_none) to TitlePlate.Off, stringResource(R.string.title_plate_block) to TitlePlate.Block, stringResource(R.string.title_plate_lines) to TitlePlate.Lines),
-                        design.plate,
-                    ) { setDesign(design.copy(plate = it)) }
-                    if (design.plate != TitlePlate.Off) {
-                        ColorControl(stringResource(R.string.title_box_color), design.backing, memory, sample) { setDesign(design.copy(backing = it)) }
-                        Amount(stringResource(R.string.title_padding), design.padding, 0.0..0.8) { setDesign(design.copy(padding = it)) }
-                        Amount(stringResource(R.string.title_radius), design.radius, 0.0..0.8) { setDesign(design.copy(radius = it)) }
-                    }
-                }
-                TitleTab.Motion -> Motion(draft, change, replay)
-            }
-            HorizontalDivider(color = Plain)
+            TitleInspector(
+                appearance = draft.appearance, setDesign = { change(draft.copy(appearance = it)) },
+                motion = draft.motion, setMotion = { change(draft.copy(motion = it)) },
+                words = draft.text, replay = { exit, motion -> replay(exit, draft.copy(motion = motion)) }, sample = sample,
+            )
             Text(stringResource(R.string.title_drag_hint), color = Soft, fontSize = 12.sp)
             Amount(stringResource(R.string.title_size), draft.size, 0.02..0.3, 0.001, label = "") { change(draft.copy(size = it)) }
             Disclosure(stringResource(R.string.title_position), showPosition) { showPosition = !showPosition }
@@ -276,6 +229,75 @@ fun TitlePanel(
             Spacer(Modifier.height(8.dp))
         }
     }
+}
+
+/**
+ * The original's title inspector (YouRec/TitleInspector.swift:4-121): looks,
+ * font, fill, outline, shadow, background and motion, on a design and a
+ * motion. The Title tool works with it on a title, the Subtitles tool on the
+ * caption series (YouRec/SubtitleEditor.swift:279-294).
+ *
+ * @param appearance the design as saved: null for one nobody has styled yet, which the tools start from as [plain].
+ * @param words the text the looks and fonts are shown with.
+ * @param replay plays one end of the motion, as it is at that moment.
+ */
+@Composable
+fun TitleInspector(
+    appearance: TitleDesign?, setDesign: (TitleDesign) -> Unit, motion: TitleMotion?, setMotion: (TitleMotion) -> Unit,
+    words: String, replay: (exit: Boolean, motion: TitleMotion) -> Unit, sample: suspend () -> Bitmap?,
+    plain: TitleDesign = TitleDesign.plain,
+) {
+    val context = LocalContext.current
+    val memory = remember { TitleMemory(context) }
+    var tab by remember { mutableStateOf(TitleTab.Looks) }
+    val design = appearance ?: plain
+    for (row in TitleTab.entries.chunked(4)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (value in row) {
+                Cell(tab == value, { tab = value }, Modifier.weight(1f), minHeight = 46) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(value.icon, null, Modifier.size(20.dp))
+                        Text(stringResource(value.label), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+    HorizontalDivider(color = Plain)
+    when (tab) {
+        TitleTab.Looks -> Looks(appearance, design, words, memory, setDesign)
+        TitleTab.Font -> Fonts(words, design, memory, setDesign)
+        TitleTab.Fill -> Fill(design, memory, sample, setDesign)
+        TitleTab.Outline -> {
+            Toggle(stringResource(R.string.title_outline_toggle), design.outlined) { setDesign(design.copy(outlined = it)) }
+            if (design.outlined) {
+                ColorControl(stringResource(R.string.title_outline_color), design.border, memory, sample) { setDesign(design.copy(border = it)) }
+                Amount(stringResource(R.string.title_width), design.borderWidth, 0.01..0.20, 0.005) { setDesign(design.copy(borderWidth = it)) }
+            }
+        }
+        TitleTab.Shadow -> {
+            Toggle(stringResource(R.string.title_shadow_toggle), design.shadow) { setDesign(design.copy(shadow = it)) }
+            if (design.shadow) {
+                ColorControl(stringResource(R.string.title_shadow_color), design.shade, memory, sample) { setDesign(design.copy(shade = it)) }
+                Amount(stringResource(R.string.title_blur), design.shadowBlur, 0.0..0.6) { setDesign(design.copy(shadowBlur = it)) }
+                Amount(stringResource(R.string.title_offset), design.shadowOffset, -0.5..0.5) { setDesign(design.copy(shadowOffset = it)) }
+            }
+        }
+        TitleTab.Background -> {
+            Segments(
+                listOf(stringResource(R.string.title_plate_none) to TitlePlate.Off, stringResource(R.string.title_plate_block) to TitlePlate.Block, stringResource(R.string.title_plate_lines) to TitlePlate.Lines),
+                design.plate,
+            ) { setDesign(design.copy(plate = it)) }
+            if (design.plate != TitlePlate.Off) {
+                ColorControl(stringResource(R.string.title_box_color), design.backing, memory, sample) { setDesign(design.copy(backing = it)) }
+                Amount(stringResource(R.string.title_padding), design.padding, 0.0..0.8) { setDesign(design.copy(padding = it)) }
+                Amount(stringResource(R.string.title_radius), design.radius, 0.0..0.8) { setDesign(design.copy(radius = it)) }
+            }
+        }
+        TitleTab.Motion -> Motion(motion, setMotion, replay)
+    }
+    HorizontalDivider(color = Plain)
 }
 
 /** A tappable tile, lit when chosen. */
@@ -406,20 +428,19 @@ private fun Specimen(words: String, design: TitleDesign, modifier: Modifier = Mo
 }
 
 @Composable
-private fun Looks(draft: TextOverlay, memory: TitleMemory, setDesign: (TitleDesign) -> Unit) {
-    val design = draft.design
-    val demo = draft.text.trim().ifEmpty { stringResource(R.string.editor_title) }.replace('\n', ' ').take(48)
+private fun Looks(appearance: TitleDesign?, design: TitleDesign, words: String, memory: TitleMemory, setDesign: (TitleDesign) -> Unit) {
+    val demo = words.trim().ifEmpty { stringResource(R.string.editor_title) }.replace('\n', ' ').take(48)
     val library = TitleLibrary.looks(memory.looks)
     var saving by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
     // Outline is a tool of its own: a look never changes it. A title that has no design yet shows a
     // look as it was made, without the dark outline such a title is drawn with.
-    val applied = { look: TitleDesign -> (if (draft.appearance == null) TitleDesign() else design).applyingLook(look) }
+    val applied = { look: TitleDesign -> (if (appearance == null) TitleDesign() else design).applyingLook(look) }
 
     @Composable
     fun look(label: String, value: TitleDesign, modifier: Modifier) {
         Column(
-            modifier.heightIn(min = 58.dp).clip(Rounded).background(if (draft.appearance == applied(value)) Chosen else Plain).clickable { setDesign(applied(value)) }
+            modifier.heightIn(min = 58.dp).clip(Rounded).background(if (appearance == applied(value)) Chosen else Plain).clickable { setDesign(applied(value)) }
                 .semantics { contentDescription = label; role = Role.Button }.padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -720,13 +741,12 @@ private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, samp
 }
 
 @Composable
-private fun Motion(draft: TextOverlay, change: (TextOverlay) -> Unit, replay: (Boolean, TextOverlay) -> Unit) {
+private fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boolean, TitleMotion) -> Unit) {
     val context = LocalContext.current
     var exit by remember { mutableStateOf(false) }
-    val motion = draft.motion ?: TitleMotion()
+    val motion = saved ?: TitleMotion()
     val move = if (exit) motion.exit else motion.entrance
     val length = if (exit) motion.outSeconds else motion.inSeconds
-    val set = { next: TitleMotion -> change(draft.copy(motion = next)) }
     Segments(listOf(stringResource(R.string.title_entrance) to false, stringResource(R.string.title_exit) to true), exit) { exit = it }
     val names = mapOf(
         TitleMove.None to R.string.title_move_none, TitleMove.Fade to R.string.title_move_fade, TitleMove.Drift to R.string.title_move_drift,
@@ -740,7 +760,7 @@ private fun Motion(draft: TextOverlay, change: (TextOverlay) -> Unit, replay: (B
                     set(next)
                     // As the original: choosing a move plays it once, unless the phone has animations turned off.
                     val still = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-                    if (mode != TitleMove.None && !still) replay(exit, draft.copy(motion = next))
+                    if (mode != TitleMove.None && !still) replay(exit, next)
                 }, Modifier.weight(1f)) { Text(stringResource(names.getValue(mode)), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
             repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
@@ -761,7 +781,7 @@ private fun Motion(draft: TextOverlay, change: (TextOverlay) -> Unit, replay: (B
         Amount(stringResource(R.string.title_motion_duration), length, 0.05..5.0, 0.05, label = String.format(Locale.getDefault(), "%.2f s", length)) {
             set(if (exit) motion.copy(outSeconds = it) else motion.copy(inSeconds = it))
         }
-        TextButton(onClick = { replay(exit, draft) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+        TextButton(onClick = { replay(exit, motion) }, contentPadding = PaddingValues(horizontal = 4.dp)) {
             Icon(Icons.Filled.PlayArrow, null, Modifier.size(18.dp))
             Text(stringResource(if (exit) R.string.title_preview_exit else R.string.title_preview_entrance), modifier = Modifier.padding(start = 6.dp))
         }

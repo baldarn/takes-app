@@ -589,10 +589,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val captionLayers = remember(subtitling, layers) { subtitling?.takeIf { !it.isSequence }?.let { (EditRender.of(it, EditRendering.LANES) as? EditRender.Layers)?.plan } ?: layers }
     val captions = captionLayers?.captions ?: captionPlan.captions
     val captionLook = if (captionLayers != null) captionLayers.subtitles else captionPlan.subtitles
-    val captionLayout = remember(captions, captionLook?.style, captionLook?.resolvedFont, canvas) {
+    val captionLayout = remember(captions, captionLook?.style, captionLook?.resolvedFont, captionLook?.appearance?.layoutKey, captionLook?.motion, canvas) {
         val look = captionLook
         val shape = canvas
-        if (look == null || shape == null) null else SubtitleLayout(captions, look, shape.first, shape.second)
+        if (look == null || shape == null) null else SubtitleLayout(captions, look, shape.first, shape.second, context.assets)
     }
     val scope = rememberCoroutineScope()
     val jump = { time: Double ->
@@ -1388,7 +1388,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 seek = jump, working = { subtitleWork = it },
                 // One undo step for everything done in the tool.
                 apply = { val next = subtitling; subtitling = null; if (next != null && next != edit) commit(next, playhead) },
-                close = { subtitling = null },
+                close = { subtitling = null }, sample = samplePicture,
+                audition = { from, to -> auditionEnd = to; auditionReturn = null; playhead = from; editor.play(from) },
                 modifier = Modifier.weight(1.5f),
             )
         } else {

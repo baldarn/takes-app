@@ -244,5 +244,26 @@ class SubtitlePlacement(val canvas: Size, val largest: Size) {
             }
             return Size(width, height)
         }
+
+        /**
+         * [largest] with room for the series' [motion] (YouRec/SubtitleRenderer.swift:42-49): a
+         * scaled exit grows a caption by 8 %, and a drift adds 0.64 of the height along its way.
+         */
+        fun moving(largest: Size, motion: TitleMotion?): Size {
+            if (motion == null) return largest
+            var width = largest.width
+            var height = largest.height
+            if (motion.exit == TitleMove.Scale) { width *= 1.08; height *= 1.08 }
+            val drift = listOf(motion.entrance to motion.inDirection, motion.exit to motion.outDirection)
+                .filter { it.first == TitleMove.Drift }.map { it.second ?: TitleDirection.Up }
+            val margin = height * 0.64
+            if (TitleDirection.Left in drift || TitleDirection.Right in drift) width += margin
+            if (TitleDirection.Up in drift || TitleDirection.Down in drift) height += margin
+            return Size(width, height)
+        }
+
+        /** How a caption is posed [elapsed] seconds into its [duration] on screen; null when the series stays still (YouRec/SubtitleRenderer.swift:75-83). */
+        fun pose(motion: TitleMotion?, elapsed: Double, duration: Double): TitleMotion.Pose? =
+            motion?.takeIf { it.active }?.pose(elapsed, duration)
     }
 }

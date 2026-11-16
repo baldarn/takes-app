@@ -2,11 +2,11 @@ package app.takes
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -33,7 +32,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -57,7 +55,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -80,7 +81,6 @@ import app.takes.core.SubtitleCheckpoint
 import app.takes.core.toTimeline
 import app.takes.core.SubtitleCue
 import app.takes.core.SubtitleEditing
-import app.takes.core.SubtitleFont
 import app.takes.core.SubtitleSettings
 import app.takes.core.SubtitleWord
 import app.takes.speech.SpeechModel
@@ -134,13 +134,15 @@ private fun cueTime(seconds: Double): String {
  * @param listened what a transcription listens to: the marked range, the span of the selection, or the whole
  *   timeline ([TrackCaptions.scope]). Only the captions in it are listed, and only those are replaced.
  * @param working told while a download or a transcription runs, to keep the screen on.
+ * @param audition plays the movie between two of its seconds, to see a caption arrive or leave.
+ * @param sample a picture of the frame under the playhead to take a color from, or null when it cannot be read.
  */
 @Composable
 fun SubtitlesPanel(
     saved: EditState, draft: EditState, change: (EditState) -> Unit, listened: EditInterval,
     files: Map<String, File>, layout: SubtitleLayout?, playhead: Double, playing: Boolean,
     seek: (Double) -> Unit, working: (Boolean) -> Unit, apply: () -> Unit, close: () -> Unit,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier, audition: (from: Double, to: Double) -> Unit = { _, _ -> }, sample: suspend () -> Bitmap? = { null },
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -453,20 +455,29 @@ fun SubtitlesPanel(
 
                         Disclosure(stringResource(R.string.subtitles_appearance), showAppearance) { showAppearance = !showAppearance }
                         if (showAppearance) {
-                            Chips(stringResource(R.string.subtitles_style), listOf(
-                                R.string.subtitles_style_plain to SubtitleSettings.Style.Clean, R.string.subtitles_style_bold to SubtitleSettings.Style.Bold,
-                                R.string.subtitles_style_box to SubtitleSettings.Style.Box, R.string.subtitles_style_highlight to SubtitleSettings.Style.Highlight,
-                            ), settings.style, idle) { restyle(settings.copy(style = it)) }
-                            Chips(stringResource(R.string.subtitles_color), listOf(
-                                R.string.subtitles_color_white to SubtitleSettings.Color.White, R.string.subtitles_color_yellow to SubtitleSettings.Color.Yellow,
-                                R.string.subtitles_color_coral to SubtitleSettings.Color.Coral, R.string.subtitles_color_mint to SubtitleSettings.Color.Mint,
-                                R.string.subtitles_color_blue to SubtitleSettings.Color.Blue, R.string.subtitles_color_black to SubtitleSettings.Color.Black,
-                            ), settings.color, idle) { restyle(settings.copy(color = it)) }
-                            Chips(stringResource(R.string.subtitles_font), listOf(
-                                R.string.subtitles_font_system to SubtitleFont.System, R.string.subtitles_font_modern to SubtitleFont.Modern,
-                                R.string.subtitles_font_classic to SubtitleFont.Classic, R.string.subtitles_font_mono to SubtitleFont.Mono,
-                                R.string.subtitles_font_narrow to SubtitleFont.Condensed,
-                            ), settings.resolvedFont, idle) { restyle(settings.copy(font = it)) }
+                            // The title inspector, on the series' design and motion (YouRec/SubtitleEditor.swift:279-294); it starts
+                            // from the series' style, color and font, which stay as they are until something is changed here.
+                            Column(
+                                Modifier.fillMaxWidth().padding(top = 4.dp).alpha(if (idle) 1f else 0.4f)
+                                    .then(if (idle) Modifier else Modifier.pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() } } }),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                val words = cues.getOrNull(current)?.text ?: cues.firstOrNull()?.text ?: stringResource(R.string.subtitles_title)
+                                TitleInspector(
+                                    appearance = settings.appearance, plain = settings.design,
+                                    setDesign = { restyle(settings.copy(appearance = it)) },
+                                    motion = settings.motion, setMotion = { restyle(settings.copy(motion = it)) },
+                                    words = words, sample = sample,
+                                    replay = replay@{ exit, motion ->
+                                        // The caption in focus, as far as the listened part of the movie goes.
+                                        val cue = cues.getOrNull(focus) ?: return@replay
+                                        val window = motion.previewWindow(exit, cue.end - cue.start)
+                                        val from = maxOf(listened.start.seconds, cue.start + window.start)
+                                        val to = minOf(listened.end.seconds, cue.start + window.endInclusive)
+                                        if (to > from) audition(from, to)
+                                    },
+                                )
+                            }
                             val smallest = (layout?.placement?.minimumSize ?: 0.012).toFloat()
                             val largest = (layout?.placement?.maximumSize ?: 0.10).toFloat().coerceAtLeast(smallest + 0.0001f)
                             Level(stringResource(R.string.subtitles_size), settings.size, smallest..largest, idle) { restyle(settings.copy(size = it)) }
@@ -667,14 +678,6 @@ private fun Confirm(title: String, message: String?, action: String, keep: Strin
 private fun Disclosure(label: String, open: Boolean, toggle: () -> Unit) {
     TextButton(onClick = toggle, contentPadding = PaddingValues(horizontal = 4.dp)) {
         Text((if (open) "▾ " else "▸ ") + label)
-    }
-}
-
-@Composable
-private fun <T> Chips(label: String, options: List<Pair<Int, T>>, selected: T, enabled: Boolean, choose: (T) -> Unit) {
-    Text(label, color = Soft, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-    Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
-        options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, enabled = enabled, label = { Text(stringResource(name)) }) }
     }
 }
 

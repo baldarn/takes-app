@@ -182,7 +182,7 @@ class ExportMovie(
         // Titles and subtitles are drawn once, over the finished picture; subtitles on top.
         val written = listOfNotNull(
             if (plan.titled) TitleOverlay(plan, canvas.first, canvas.second, context.assets, perSecond) else null,
-            plan.subtitles?.let { SubtitleOverlay(plan.captions, it, canvas.first, canvas.second) },
+            plan.subtitles?.let { SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets) },
         )
         // Where each clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
         val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }

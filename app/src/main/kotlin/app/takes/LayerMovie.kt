@@ -105,7 +105,7 @@ class LayerMovie(
         val drawn = buildList<Effect> {
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
             add(LayersEffect(plan, picture, lanes, columns, perTransition, content, titled = true))
-            plan.subtitles?.let { add(OverlayEffect(listOf(SubtitleOverlay(plan.captions, it, canvas.first, canvas.second)))) }
+            plan.subtitles?.let { add(OverlayEffect(listOf(SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets)))) }
             add(SectionFramesEffect(drawing.first, drawing.count, rate))
         }
         return Composition.Builder(listOf(clock) + sequences)

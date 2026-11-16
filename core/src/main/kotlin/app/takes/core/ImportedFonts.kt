@@ -1,7 +1,5 @@
 package app.takes.core
 
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.file.Files
@@ -291,11 +289,8 @@ class FontLibrary(val root: File) {
         }
 
         internal fun files(clips: List<TimelineClip>, subtitles: SubtitleSettings?): Set<String> {
-            val faces = clips.flatMap { clip -> clip.texts.orEmpty().mapNotNull { it.appearance?.face } } + listOfNotNull(subtitleFace(subtitles))
+            val faces = clips.flatMap { clip -> clip.texts.orEmpty().mapNotNull { it.appearance?.face } } + listOfNotNull(subtitles?.appearance?.face)
             return faces.mapNotNullTo(LinkedHashSet()) { ImportedFontReference.parse(it)?.filename }
         }
-
-        private fun subtitleFace(settings: SubtitleSettings?): String? =
-            ((settings?.appearance as? JsonObject)?.get("face") as? JsonPrimitive)?.takeIf { it.isString }?.content
     }
 }

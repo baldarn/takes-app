@@ -146,6 +146,12 @@ Severity: **every use** (seen each time the tool is used), **specific cases**,
 - Fix: the port already draws styled titles (`A/TitleRendering.kt`, `C/TitleDesign.kt`).
   Type `appearance` as `TitleDesign` and `motion` as `TitleMotion`, draw through the
   title painter when set, and reuse `TitlePanel`'s controls.
+- Closed (issue 46): `appearance` and `motion` are typed and checked (`C/Subtitles.kt`);
+  Appearance holds the title inspector (`TitleInspector` in `A/TitlePanel.kt`) with
+  imported fonts; a designed series is laid out at 0.84 of the canvas and painted by
+  `StyledText` (`A/TitleRendering.kt`), each caption posed by the motion over its own
+  time, with the original's room for the motion (`SubtitlePlacement.moving`). A series
+  without them is drawn and written as before.
 
 ### 5. Captions cannot be dragged or pinched on the picture — every use of placement — [read]
 

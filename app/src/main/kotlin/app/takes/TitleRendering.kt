@@ -186,19 +186,43 @@ object TitleRaster {
     /** [padding], in em, replaces the room a design leaves around its letters; [share] is how much of the picture's width the title may take. */
     private fun drawn(assets: AssetManager, text: String, design: TitleDesign, size: Double, picture: Size, padding: Double?, share: Double): Bitmap? {
         if (text.isEmpty() || picture.width < 1 || picture.height < 1) return null
-        // Everything below is in reference units until the last step.
+        // Everything is laid out in reference units; only the last step is in pixels.
         val unit = minOf(picture.width, picture.height) / REFERENCE
         val canvasWidth = (picture.width / unit).toFloat()
         val canvasHeight = (picture.height / unit).toFloat()
-        val fontSize = maxOf(8f, (REFERENCE * size).toFloat())
-        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG).apply {
-            textSize = fontSize
-            typeface = TitleFonts.typeface(assets, design)
-            letterSpacing = design.tracking.toFloat() // in em, as the design stores it
-            color = Color.WHITE
-        }
+        val styled = StyledText(assets, text, design, maxOf(8f, (REFERENCE * size).toFloat()), canvasWidth * share.toFloat(), padding)
+        // A title too large for the picture is scaled down to fit it whole.
+        return styled.image((unit * minOf(1f, canvasWidth / styled.width, canvasHeight / styled.height)).toFloat())
+    }
+}
+
+/**
+ * [text] in [design], laid out once and painted at any scale, as the
+ * original's styled text layout (YouRec/StyledTextRenderer.swift:6-101): the
+ * lines are broken for a box at most [maxWidth] wide, both in the units of
+ * [fontSize], and [width] by [height] is the box with the room the outline,
+ * shadow and plate need around the letters. Titles and designed captions are
+ * drawn by it. Not for two threads at once.
+ *
+ * @param padding the room around the letters in em, in place of the design's.
+ */
+class StyledText(assets: AssetManager, text: String, val design: TitleDesign, private val fontSize: Float, maxWidth: Float, padding: Double? = null) {
+    private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG).apply {
+        textSize = fontSize
+        typeface = TitleFonts.typeface(assets, design)
+        letterSpacing = design.tracking.toFloat() // in em, as the design stores it
+        color = Color.WHITE
+    }
+    private val inset: Float
+    private val textWidth: Int
+    private val textHeight: Float
+    private val layout: StaticLayout
+    val width: Float
+    val height: Float
+
+    init {
         val effectPad = (if (design.outlined) design.borderWidth else 0.0) + (if (design.shadow) 2 * design.shadowBlur + abs(design.shadowOffset) else 0.0)
-        val inset = if (padding != null) fontSize * padding.toFloat()
+        inset = if (padding != null) fontSize * padding.toFloat()
         else ceil(fontSize * (maxOf(effectPad, if (design.plate == TitlePlate.Off) 0.0 else design.padding) + 0.14).toFloat()) + 2
         val alignment = when (design.alignment) {
             TitleAlignment.Left -> Layout.Alignment.ALIGN_NORMAL
@@ -207,20 +231,29 @@ object TitleRaster {
         }
         fun lines(room: Int) = StaticLayout.Builder.obtain(text, 0, text.length, paint, room.coerceAtLeast(1))
             .setAlignment(alignment).setIncludePad(false).setLineSpacing((design.lineSpacing * fontSize).toFloat(), 1f).build()
-        val room = floor(maxOf(fontSize, canvasWidth * share.toFloat() - 2 * inset)).toInt()
+        val room = floor(maxOf(fontSize, maxWidth - 2 * inset)).toInt()
         val measured = lines(room)
         val widest = (0 until measured.lineCount).maxOfOrNull { measured.getLineMax(it) } ?: 0f
         // The box hugs the widest line, so left and right alignment are about the lines, not the picture.
-        val textWidth = minOf(room, ceil(maxOf(fontSize, widest)).toInt() + 2)
-        val layout = lines(textWidth)
-        val textHeight = ceil(maxOf(fontSize, layout.height.toFloat())) + 2
-        val boundsWidth = textWidth + 2 * inset
-        val boundsHeight = textHeight + 2 * inset
-        // A title too large for the picture is scaled down to fit it whole.
-        val scale = (unit * minOf(1f, canvasWidth / boundsWidth, canvasHeight / boundsHeight)).toFloat()
-        val pixelWidth = ceil(boundsWidth * scale).toInt()
-        val pixelHeight = ceil(boundsHeight * scale).toInt()
+        textWidth = minOf(room, ceil(maxOf(fontSize, widest)).toInt() + 2)
+        layout = lines(textWidth)
+        textHeight = ceil(maxOf(fontSize, layout.height.toFloat())) + 2
+        width = textWidth + 2 * inset
+        height = textHeight + 2 * inset
+    }
+
+    /**
+     * The text [scale] pixels to a unit, in the colors of [paint]: a design
+     * that differs from the one laid out only in its colors
+     * ([TitleDesign.layoutKey]). Null when the picture would be too large.
+     */
+    fun image(scale: Float, paint: TitleDesign = design): Bitmap? {
+        val design = paint
+        val pixelWidth = ceil(width * scale).toInt()
+        val pixelHeight = ceil(height * scale).toInt()
+        if (!scale.isFinite() || scale <= 0f) return null
         if (pixelWidth < 1 || pixelHeight < 1 || pixelWidth > 16384 || pixelHeight > 16384 || pixelWidth.toLong() * pixelHeight > 32_000_000) return null
+        val letters = this.paint
 
         fun sheet() = Bitmap.createBitmap(pixelWidth, pixelHeight, Bitmap.Config.ARGB_8888)
         fun Bitmap.pen() = Canvas(this).apply { scale(scale, scale); translate(inset, inset) }
@@ -230,11 +263,11 @@ object TitleRaster {
         layout.draw(fill.pen())
         val lettering = sheet()
         if (design.outlined && design.borderWidth > 0) {
-            paint.style = Paint.Style.STROKE
-            paint.strokeJoin = Paint.Join.ROUND
-            paint.strokeWidth = (2 * design.borderWidth * fontSize).toFloat() // half of it lies outside the glyph
+            letters.style = Paint.Style.STROKE
+            letters.strokeJoin = Paint.Join.ROUND
+            letters.strokeWidth = (2 * design.borderWidth * fontSize).toFloat() // half of it lies outside the glyph
             layout.draw(lettering.pen())
-            paint.style = Paint.Style.FILL
+            letters.style = Paint.Style.FILL
             Canvas(lettering).apply {
                 drawBitmap(fill, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT) })
                 drawColor(design.border.toColor(), PorterDuff.Mode.SRC_IN)

@@ -1,7 +1,5 @@
 package app.takes.core
 
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -129,7 +127,7 @@ class ImportedFontsTest {
         var project = Project("Imported lettering").addRecording(take)
         val edit = project.edit
         val text = TextOverlay(text = "ABC", start = 0.0, end = 3.0, x = 0.5, y = 0.22, size = 0.16, appearance = TitleDesign(face = title, shadow = false))
-        val subtitles = SubtitleSettings(appearance = buildJsonObject { put("face", caption) })
+        val subtitles = SubtitleSettings(appearance = TitleDesign(face = caption))
         project = project.commit(edit.copy(clips = edit.clips.map { it.copy(texts = listOf(text)) }, subtitles = subtitles))
         return Triple(project, title, caption)
     }

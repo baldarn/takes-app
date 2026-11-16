@@ -200,8 +200,10 @@ class SubtitlesTest {
         assertEquals(SubtitleFont.Condensed, settings.font)
         assertEquals(4, settings.maxWords)
         assertTrue(settings.valid)
-        // A design this port does not model survives being saved again.
-        assertEquals(documentJson.parseToJsonElement(json), documentJson.parseToJsonElement(documentJson.encodeToString(SubtitleSettings.serializer(), settings)))
+        // The design and motion are the title designer's, read with the defaults of what they leave out (YouRec/Subtitles.swift:41-42).
+        assertEquals(TitleDesign(face = "system", weight = 700), settings.appearance)
+        assertEquals(TitleMotion(), settings.motion)
+        assertEquals(settings, documentJson.decodeFromString(SubtitleSettings.serializer(), documentJson.encodeToString(SubtitleSettings.serializer(), settings)))
     }
 
     @Test fun wordsUseTheOriginalFieldNames() {
