@@ -26,13 +26,63 @@ internal object AndroidVideoEffects {
         VideoEffectID.RgbOffset, VideoEffectID.NegativeStrobe, VideoEffectID.Kaleidoscope,
     )
 
-    val offered: Set<VideoEffectID> = BATCH_A.toSet()
+    /**
+     * The second batch, drawn in several passes: Super 8 without its
+     * cadence, Widescreen without its oval bokeh (which needs depth), Crash
+     * Zoom with its target set by hand.
+     */
+    val BATCH_B: List<VideoEffectID> = listOf(
+        VideoEffectID.Halation, VideoEffectID.SixteenMM, VideoEffectID.SuperEight, VideoEffectID.Widescreen, VideoEffectID.CrashZoom,
+    )
+
+    /**
+     * The third batch, the effects of it that change no timing: Quantization
+     * with its palette from the scene (without face detail, which needs a
+     * person mask), Chroma Key's spatial keyer on a solid colour, a picture
+     * from the phone or the picture blurred, and Night fix Fast. Freeze
+     * Frame, Undercranking, Step Printing and Super 8's cadence change what
+     * plays when, which is the playback map's.
+     */
+    val BATCH_C: List<VideoEffectID> = listOf(VideoEffectID.Quantization, VideoEffectID.ChromaKey, VideoEffectID.NightFix)
+
+    val offered: Set<VideoEffectID> = (BATCH_A + BATCH_B + BATCH_C).toSet()
 
     /** The library's effects of [section] that are offered, in the order the original lists them. */
     fun effects(section: VideoEffectLibrarySection): List<VideoEffectID> = section.kinds.filter { it in offered }
 
-    /** Controls of an offered effect that this release does not offer yet: Color Isolation keeps "A color" only. */
-    fun hides(kind: VideoEffectID, parameter: String): Boolean = kind == VideoEffectID.ColorIsolation && parameter == "mode"
+    /** Controls of an offered effect that this release does not draw, by effect. */
+    private val HIDDEN: Map<VideoEffectID, Set<String>> = mapOf(
+        // "A color" only: "The subject" needs a person mask.
+        VideoEffectID.ColorIsolation to setOf("mode"),
+        // Following a face needs face detection; the target is set by hand.
+        VideoEffectID.CrashZoom to setOf("trackFace"),
+        // The cadence holds frames, which is the playback map's.
+        VideoEffectID.SuperEight to setOf("fps"),
+        VideoEffectID.Quantization to setOf("faceDetail"),
+        VideoEffectID.ChromaKey to setOf("personHint", "cleanPlate", "matchColor", "matchStrength", "backgroundAudio"),
+        // Medium and Precise need optical flow.
+        VideoEffectID.NightFix to setOf("mode"),
+    )
+
+    /** Controls of an offered effect that this release does not offer yet. */
+    fun hides(kind: VideoEffectID, parameter: String): Boolean = HIDDEN[kind]?.contains(parameter) == true
+
+    /** Whether the preview draws a simplified version of [effect] at source second [at]: its blurs, smoothing or matte are stand-ins. */
+    fun previewSimplified(effect: VideoEffectSettings, at: Double): Boolean = when (effect.kind) {
+        VideoEffectID.Halation, VideoEffectID.SuperEight, VideoEffectID.ChromaKey, VideoEffectID.NightFix -> true
+        VideoEffectID.SixteenMM -> effect.number("softness", at) > 0
+        VideoEffectID.Widescreen -> effect.number("flares", at) > 0 || effect.choice("bars", at) == "Blur fill"
+        VideoEffectID.Quantization -> effect.number("smoothing", at) > 0
+        else -> false
+    }
+
+    /** [effect] as this release draws it, for what its controls show: a Crash Zoom moves to its target set by hand, even one made to follow a face. */
+    fun asDrawn(effect: VideoEffectSettings): VideoEffectSettings =
+        if (effect.kind == VideoEffectID.CrashZoom) effect.with("trackFace", EffectValue.Toggle(false)) else effect
+
+    /** The choices of a picker this release offers: a Chroma Key's backgrounds without video, Studio and Window. */
+    fun choices(kind: VideoEffectID, parameter: String, choices: List<String>): List<String> =
+        if (kind == VideoEffectID.ChromaKey && parameter == "background") choices.filter { it in listOf("Solid", "Image", "Blur original") } else choices
 }
 
 /** Where the Video effects tool is: the applied list, the library, one of its sections, or an effect's controls. */
@@ -58,6 +108,8 @@ internal data class EffectsWork(
     val page: EffectsPage = EffectsPage.Applied,
     /** Showing the picture without the effects, to compare. */
     val bypass: Boolean = false,
+    /** Animate: a control changed adds a keyframe at the playhead. VideoEffectsEditor.swift:1209-1213. */
+    val animate: Boolean = false,
 ) {
     /** The clip of the tool at timeline second [time], or the nearest one. */
     fun piece(time: Double): CropScope.Piece? = on.active(time)
@@ -95,8 +147,10 @@ internal data class EffectsWork(
         for (piece in on.pieces) {
             val clip = piece.clip
             var effect = VideoEffectSettings(kind, clip.start, clip.end).copy(id = id)
-            // Color Isolation of one hue is the single-frame rendering.
-            if (kind == VideoEffectID.ColorIsolation) effect = effect.copy(algorithm = 1)
+            // Color Isolation of one hue and Chroma Key's keyer are the single-frame renderings.
+            if (kind == VideoEffectID.ColorIsolation || kind == VideoEffectID.ChromaKey) effect = effect.copy(algorithm = 1)
+            // A Crash Zoom moves towards the target set by hand.
+            if (kind == VideoEffectID.CrashZoom) effect = effect.with("trackFace", EffectValue.Toggle(false))
             if (kind == VideoEffectID.NegativeStrobe) effect = effect.copy(phaseOffset = maxOf(0.0, piece.start - on.start), strobeTimeMap = strobeClock(clip))
             next[clip.id] = next[clip.id].orEmpty() + effect
         }
@@ -131,11 +185,41 @@ internal data class EffectsWork(
      */
     fun setting(parameter: String, value: EffectValue, time: Double): EffectsWork {
         val at = sourceTime(time)
+        val clipStart = piece(time)?.clip?.start
         return changing { effect ->
             val control = effect.parameters.firstOrNull { it.id == parameter }
-            if (control == null || !control.kind.accepts(value)) effect
-            else effect.with(parameter, value).let { if (control.keyframes.isEmpty()) it else it.withKeyframe(parameter, at, value) }
+            when {
+                control == null || !control.kind.accepts(value) -> effect
+                // Animating, the first key also holds the value it had at the clip's start. VideoEffectsEditor.swift:535-547.
+                animate && control.animatable -> {
+                    val start = clipStart ?: at
+                    val first = if (control.keyframes.isEmpty() && at > start + 0.001) effect.withKeyframe(parameter, start, effect.value(parameter, start) ?: control.value) else effect
+                    first.withKeyframe(parameter, at, value)
+                }
+                else -> effect.with(parameter, value).let { if (control.keyframes.isEmpty()) it else it.withKeyframe(parameter, at, value) }
+            }
         }
+    }
+
+    /**
+     * A key of control [parameter] of the selected effect at the playhead
+     * added, holding the value there, or the one within a sixtieth of a
+     * second taken away. VideoEffectsEditor.swift:559-572.
+     */
+    fun keyframing(parameter: String, time: Double): EffectsWork {
+        val at = sourceTime(time)
+        return changing { effect ->
+            val control = effect.parameters.firstOrNull { it.id == parameter } ?: return@changing effect
+            val near = control.keyframes.firstOrNull { abs(it.time - at) < 1.0 / 60 }
+            if (near != null) effect.copy(parameters = effect.parameters.map { if (it.id == parameter) it.copy(keyframes = it.keyframes - near) else it })
+            else effect.withKeyframe(parameter, at, effect.value(parameter, at) ?: control.value)
+        }
+    }
+
+    /** The timeline second at which the piece at [time] shows source second [sourceTime]: where a keyframe is. */
+    fun timelineTime(time: Double, sourceTime: Double): Double? {
+        val piece = piece(time) ?: return null
+        return piece.start + piece.clip.offset(sourceTime.coerceIn(piece.clip.start, piece.clip.end))
     }
 
     /** Several controls set at once, as the Kaleidoscope's resets do. */
