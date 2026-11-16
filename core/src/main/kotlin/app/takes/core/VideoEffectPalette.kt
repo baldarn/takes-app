@@ -13,7 +13,7 @@ import kotlin.math.sqrt
  * palette a frame receives YouRec/VideoEffects/VideoEffectAssets.swift
  * (`Assets`), the passes YouRec/VideoEffects/MetalVideoEffects.swift
  * (`Renderer`) and the branch YouRec/VideoEffects/VideoEffects.metal (`Metal`).
- * Face detail is not here: it needs a person mask.
+ * Face detail reads the frame's raw person mask ([EffectMask]).
  */
 
 /**
@@ -346,7 +346,9 @@ object VideoEffectQuantization {
     /**
      * Quantization of one colour, `ve_effect` case 7: [c] is the pixel, or
      * the smoothed picture under it; it gets the analysis's contrast, goes to
-     * Oklab, is dithered in lightness by the Bayer threshold of pixel ([x],
+     * Oklab (with face detail, after it is sharpened against [blurred] by
+     * 0.4 × [mask], the person mask under the pixel), is dithered in
+     * lightness by the Bayer threshold of pixel ([x],
      * [y]) times the mean step between neighbouring palette colours, and
      * then becomes the palette colour of its luma band (B&W, as that band's
      * grey; a Pop palette) or its nearest palette colour in Oklab (From
@@ -363,11 +365,16 @@ object VideoEffectQuantization {
         monochrome: Boolean = false,
         paletteChoice: Int = 0,
         dithering: Int = 0,
+        blurred: EffectVector? = null,
+        mask: Double = 0.0,
     ): EffectVector {
         val count = palette.size
         if (count < 2) return c
         val luma = math.luma(c)
-        var v = math.lab((c + .2 * (luma * luma * (3 - 2 * luma) - luma)).clamped())
+        var contrasted = c + .2 * (luma * luma * (3 - 2 * luma) - luma)
+        // Face detail. Metal:359.
+        if (blurred != null) contrasted += (contrasted - blurred) * (.4 * mask)
+        var v = math.lab(contrasted.clamped())
         if (dithering > 0) {
             var spread = 0.0
             for (i in 1 until count) spread += palette[i - 1].distance(palette[i])
@@ -394,27 +401,46 @@ object VideoEffectQuantization {
     }
 
     /**
+     * The picture face detail sharpens against, `background`: the frame
+     * blurred by 8 pixels at 1080 at half its size, drawn only with face
+     * detail on, a person mask and at most four colours. Renderer:459-461.
+     */
+    fun faceDetailBlur(input: EffectImage): EffectImage =
+        VideoEffectPasses.blur(input, 8 * VideoEffectPasses.pixelScale(input.width, input.height), VideoEffectPasses.half(input.width), VideoEffectPasses.half(input.height))
+
+    /** Whether the renderer draws [faceDetailBlur] for the block: face detail on, at most four colours, and a person mask. Renderer:459. */
+    fun drawsFaceDetail(u: EffectUniforms): Boolean =
+        u.number("faceDetail") > .5 && u.number("colors") <= 4 && u.flags and EffectUniforms.FLAG_PERSON_MASK != 0
+
+    /**
      * One pixel of Quantization's pass from its block [u], which carries the
      * frame's palette ([EffectFrameInputs.palette]), and the [smoothed] picture,
-     * mixed with the input by the intensity. Face detail needs a person mask
-     * and is left out, as the original does without one (`u.flags&1`).
+     * mixed with the input by the intensity. Face detail sharpens the colour
+     * where the raw [person] mask is, against the [blurred] picture
+     * ([faceDetailBlur]), when it is on, the palette has at most four
+     * colours and the frame has a person mask (`u.flags&1`); without the
+     * blurred picture the shader reads the input there. Metal:358-359.
      */
-    fun pixel(u: EffectUniforms, input: EffectImage, smoothed: EffectImage?, x: Int, y: Int): EffectVector {
+    fun pixel(u: EffectUniforms, input: EffectImage, smoothed: EffectImage?, x: Int, y: Int, person: EffectMask? = null, blurred: EffectImage? = null): EffectVector {
         require(u.effect == VideoEffectID.Quantization)
         val uv = input.uv(x, y)
         val original = input.sample(uv)
         if (u.count < 2) return original
         val c = if (u.number("smoothing") > 0 && smoothed != null) smoothed.sample(uv) else original
+        val detail = u.number("faceDetail") > .5 && u.count <= 4 && u.flags and EffectUniforms.FLAG_PERSON_MASK != 0
         val out = quantize(
             c, x, y, u.palette.take(u.count), u.thresholds,
             u.number("monochrome") > .5, u.number("palette").toInt(), u.number("dithering").toInt(),
+            if (detail) (blurred ?: input).sample(uv) else null,
+            if (detail) requireNotNull(person) { "The frame was given a person mask" }.sample(uv) else 0.0,
         )
         return VideoEffectFormulas.mixed(original, out, u.intensity)
     }
 
-    /** A whole pass: the smoothing, then [pixel] everywhere. */
-    fun pass(u: EffectUniforms, input: EffectImage, lite: Boolean = false): EffectImage {
+    /** A whole pass: the smoothing and, with face detail, the blurred picture; then [pixel] everywhere with the frame's raw [person] mask. */
+    fun pass(u: EffectUniforms, input: EffectImage, lite: Boolean = false, person: EffectMask? = null): EffectImage {
         val smoothed = smoothed(input, u.number("smoothing"), lite)
-        return EffectImage.of(input.width, input.height) { x, y -> pixel(u, input, smoothed, x, y) }
+        val blurred = if (drawsFaceDetail(u) && person != null) faceDetailBlur(input) else null
+        return EffectImage.of(input.width, input.height) { x, y -> pixel(u, input, smoothed, x, y, person, blurred) }
     }
 }

@@ -13,9 +13,10 @@ import kotlin.math.sqrt
  * (cited as `Metal`) with the same constants and order of operations,
  * prepared as YouRec/VideoEffects/MetalVideoEffects.swift (`Renderer`) and
  * YouRec/VideoEffects/VideoEffectAssets.swift (`Assets`) prepare them.
- * Conventions are those of [VideoEffectFormulas]. The temporal matte, the
- * person hint, match colour and the video, Studio and Window backgrounds
- * are not here.
+ * Conventions are those of [VideoEffectFormulas]. The person hint refines
+ * the key with a person mask ([EffectMask]); match colour and the Studio and
+ * Window backgrounds are shared with Auto Background, [AutoBackgroundFormulas].
+ * The temporal matte is not here.
  */
 
 /** What a keyed pixel is drawn against, all read at the pixel: the new [background], the [screen] colour, and the blurred background the light wrap adds. */
@@ -53,6 +54,43 @@ object VideoEffectFormulasC {
     fun undercranking(c: EffectVector, frame: Int, flicker: Double = 0.5): EffectVector = c * VideoEffectTiming.undercrankingFlicker(frame, flicker)
 
     // Chroma Key. Metal:400-416, :468-490, :526-547; Renderer:506-530.
+
+    /** A number as the half float the shader stores it in: rounded to the nearest of eleven significant bits, ties to even. */
+    fun halfFloat(x: Double): Double {
+        if (x == 0.0 || !x.isFinite()) return x
+        val m = abs(x)
+        if (m >= 65520.0) return if (x > 0) Double.POSITIVE_INFINITY else Double.NEGATIVE_INFINITY
+        val step = Math.scalb(1.0, maxOf(Math.getExponent(m), -14) - 10)
+        return Math.copySign(Math.rint(m / step) * step, x)
+    }
+
+    /**
+     * The person mask's bounds on the key, at a quarter of the frame's size
+     * (an eighth at the lite quality, at least 2 × 2): [dilated] the mask
+     * grown by 4 % of that height, [eroded] shrunk by 3 %. Renderer:513-519.
+     */
+    data class PersonHint(val dilated: EffectMask, val eroded: EffectMask)
+
+    fun personHint(person: EffectMask, width: Int, height: Int, lite: Boolean = false): PersonHint {
+        val reduction = if (lite) 8 else 4
+        val w = maxOf(2, width / reduction)
+        val h = maxOf(2, height / reduction)
+        return PersonHint(MaskRefinement.morph(person, h * 0.04, w, h), MaskRefinement.morph(person, -h * 0.03, w, h))
+    }
+
+    /**
+     * The key's alpha [a] bounded by the person: held as a half float ("the
+     * half-float rounding of the former intermediate matte"), cleared where
+     * the grown mask under the pixel is under 0.005, made whole where the
+     * shrunk mask passes 0.995 and the key already keeps more than 0.2.
+     * Metal:474-479.
+     */
+    fun hinted(a: Double, dilated: Double, eroded: Double): Double {
+        var alpha = halfFloat(a)
+        if (dilated < .005) alpha = 0.0
+        if (eroded > .995 && alpha > .2) alpha = 1.0
+        return alpha
+    }
 
     /** Whether the key is a blue screen: by Screen type ([screenType] 0 Auto, 1 Green, 2 Blue), or on Auto when the screen is bluer than green. Metal:470. */
     fun blueScreen(screen: EffectVector, screenType: Int): Boolean = screenType > 1.5 || (screenType < .5 && screen.z > screen.y)
@@ -114,16 +152,17 @@ object VideoEffectFormulasC {
      * One pass of the matte's grow or shrink, `ve_morphology`: the largest
      * (growing, [radius] ≥ 0) or smallest value along a line of whole pixels
      * up to the radius's floor and at the radius itself, read between pixels;
-     * at most 64. Metal:481-490.
+     * at most 64. The pass draws a picture of [width] × [height], and its
+     * steps are pixels of that picture. Metal:481-490.
      */
-    fun morphology(input: EffectImage, radius: Double, horizontal: Boolean): EffectImage {
+    fun morphology(input: EffectImage, radius: Double, horizontal: Boolean, width: Int = input.width, height: Int = input.height): EffectImage {
         val reach = minOf(64.0, abs(radius))
         val r = floor(reach).toInt()
         val grow = radius >= 0
-        val dx = if (horizontal) 1.0 / input.width else 0.0
-        val dy = if (horizontal) 0.0 else 1.0 / input.height
-        return EffectImage.of(input.width, input.height) { x, y ->
-            val uv = input.uv(x, y)
+        val dx = if (horizontal) 1.0 / width else 0.0
+        val dy = if (horizontal) 0.0 else 1.0 / height
+        return EffectImage.of(width, height) { x, y ->
+            val uv = Point((x + .5) / width, (y + .5) / height)
             var a = input.sample(uv).x
             for (i in -r..r) {
                 val b = input.sample(Point(uv.x + dx * i, uv.y + dy * i)).x
@@ -137,25 +176,26 @@ object VideoEffectFormulasC {
         }
     }
 
-    /** The grow or shrink of a matte by [radius] pixels: a pass across, then one down. Renderer:328-333. */
-    fun morph(input: EffectImage, radius: Double): EffectImage = morphology(morphology(input, radius, true), radius, false)
+    /** The grow or shrink of a matte by [radius] pixels, to a picture of [width] × [height]: a pass across, then one down. Renderer:328-333. */
+    fun morph(input: EffectImage, radius: Double, width: Int = input.width, height: Int = input.height): EffectImage =
+        morphology(morphology(input, radius, true, width, height), radius, false, width, height)
 
     /**
      * The spatial matte, a picture with the alpha in every channel: the key
-     * of each pixel against the screen ([screen] under it), grown by
-     * "grow" pixels at 1080, then softened by a Gaussian of `1.5 · softness`
-     * pixels at 1080. Renderer:506-530.
+     * of each pixel against the screen ([screen] under it), bounded by the
+     * person [hint] when there is one ([hinted], read between the hint's
+     * pixels), grown by "grow" pixels at 1080, then softened by a Gaussian
+     * of `1.5 · softness` pixels at 1080. Renderer:506-530, Metal:468-480.
      */
-    fun matte(input: EffectImage, screen: (Point) -> EffectVector, u: EffectUniforms): EffectImage {
+    fun matte(input: EffectImage, screen: (Point) -> EffectVector, u: EffectUniforms, hint: PersonHint? = null): EffectImage {
         val scale = VideoEffectPasses.pixelScale(input.width, input.height)
         var matte = EffectImage.of(input.width, input.height) { x, y ->
             val uv = input.uv(x, y)
-            EffectVector(
-                keyAlpha(
-                    input.sample(uv), screen(uv), u.number("screenType").toInt(), u.number("strength"), u.number("balance"),
-                    u.number("blackClip"), u.number("whiteClip"),
-                ),
+            val a = keyAlpha(
+                input.sample(uv), screen(uv), u.number("screenType").toInt(), u.number("strength"), u.number("balance"),
+                u.number("blackClip"), u.number("whiteClip"),
             )
+            EffectVector(if (hint != null) hinted(a, hint.dilated.sample(uv), hint.eroded.sample(uv)) else a)
         }
         val grow = u.number("grow") * scale
         if (grow != 0.0) matte = morph(matte, grow)
@@ -169,7 +209,9 @@ object VideoEffectFormulasC {
      * channel brought towards 0.525 × the other two by [despill], what it
      * loses spread back as (0.3, 0.6, 0.1)/2), laid over the background, and
      * the light wrap added on the matte's edge, `a(1 − a) · 4`. [view] 1
-     * shows the matte, 2 the original. Metal:400-416.
+     * shows the matte, 2 the original. With a [match] reference the
+     * despilled colour is brought towards the background's light first,
+     * [AutoBackgroundFormulas.matchColor]. Metal:400-416.
      */
     fun chromaKey(
         c: EffectVector,
@@ -179,6 +221,8 @@ object VideoEffectFormulasC {
         despill: Double = 0.8,
         wrap: Double = 0.25,
         view: Int = 0,
+        match: MatchColorReference? = null,
+        matchStrength: Double = 0.3,
     ): EffectVector {
         val screen = inputs.screen
         var straight = ((c - screen * (1 - a)) / maxOf(a, .0001)).clamped()
@@ -189,6 +233,7 @@ object VideoEffectFormulasC {
         val after = minOf(before, math.mix(before, limit, despill))
         straight = if (blue) straight.copy(z = after) else straight.copy(y = after)
         straight += EffectVector(.3, .6, .1) * ((before - after) * .5)
+        if (match != null) straight = AutoBackgroundFormulas.matchColor(straight, match, matchStrength)
         var out = straight * a + inputs.background * (1 - a)
         out += inputs.wrap * (a * (1 - a) * 4 * wrap * .25)
         return when (view) {
@@ -198,7 +243,7 @@ object VideoEffectFormulasC {
         }
     }
 
-    // Backgrounds. Assets:586-627.
+    // Backgrounds. Assets:587-627; Studio, Window and the choice among them in [AutoBackgroundFormulas.background].
 
     /** A solid background: the colour (sRGB) in linear light, times 2^brightness. */
     fun solidBackground(color: EffectRGB, brightness: Double = 0.0): EffectVector = EffectColorMath.linear(color) * 2.0.pow(brightness)
@@ -225,10 +270,15 @@ object VideoEffectFormulasC {
         return EffectImage.of(width, height) { px, py -> placed[px, py] * gain }
     }
 
-    /** "Blur original": the picture blurred by 20 pixels at 1080 (Core Image's radius taken as σ), then the background blur and brightness. */
-    fun blurOriginalBackground(input: EffectImage, blur: Double = 0.0, brightness: Double = 0.0): EffectImage {
+    /**
+     * "Blur original": the picture blurred by [radius] pixels at 1080 (20 for
+     * Chroma Key, the portrait blur for Auto Background; Core Image's radius
+     * taken as σ, and none at 0), then the background blur and brightness.
+     * Assets:603.
+     */
+    fun blurOriginalBackground(input: EffectImage, blur: Double = 0.0, brightness: Double = 0.0, radius: Double = 20.0): EffectImage {
         val scale = VideoEffectPasses.pixelScale(input.width, input.height)
-        var image = VideoEffectPasses.blur(input, 20 * scale)
+        var image = if (radius > 0) VideoEffectPasses.blur(input, radius * scale) else input
         if (blur > 0) image = VideoEffectPasses.blur(image, blur * scale)
         val gain = 2.0.pow(brightness)
         return EffectImage.of(input.width, input.height) { x, y -> image[x, y] * gain }
@@ -249,8 +299,14 @@ object VideoEffectFormulasC {
         return VideoEffectPasses.blur(scaled, 8 * VideoEffectPasses.pixelScale(width, height))
     }
 
-    /** What a Chroma Key pass reads besides its input, as the renderer draws it. */
-    data class ChromaKeyPictures(val matte: EffectImage, val screen: (Point) -> EffectVector, val background: EffectImage, val wrap: EffectImage)
+    /** What a Chroma Key pass reads besides its input, as the renderer draws it; [match] is match colour's reference when "matchColor" is on. */
+    data class ChromaKeyPictures(
+        val matte: EffectImage,
+        val screen: (Point) -> EffectVector,
+        val background: EffectImage,
+        val wrap: EffectImage,
+        val match: MatchColorReference? = null,
+    )
 
     /**
      * Chroma Key's pictures for one frame with the new [background] (a
@@ -258,9 +314,20 @@ object VideoEffectFormulasC {
      * optional [cleanPlate]: the screen is the plate, else the border's
      * reference when "autoScreen" is on, else the manual colour; the light
      * wrap reads the background blurred by 2 % of the width at a quarter of
-     * the size, or for a solid one the background itself. Renderer:506-530.
+     * the size, or for a solid one the background itself. With "personHint"
+     * on and a [person] mask given to the frame ([EffectUniforms.FLAG_PERSON_MASK])
+     * the key is bounded by [personHint]; [lite] is the recorder's lite
+     * quality. With "matchColor" on, match colour's reference is taken from
+     * the matte. Renderer:506-541.
      */
-    fun chromaKeyPictures(u: EffectUniforms, input: EffectImage, background: EffectImage, cleanPlate: EffectImage? = null): ChromaKeyPictures {
+    fun chromaKeyPictures(
+        u: EffectUniforms,
+        input: EffectImage,
+        background: EffectImage,
+        cleanPlate: EffectImage? = null,
+        person: EffectMask? = null,
+        lite: Boolean = false,
+    ): ChromaKeyPictures {
         require(u.effect == VideoEffectID.ChromaKey)
         val manual = u.vector("screenColor").xyz
         val screen: (Point) -> EffectVector = when {
@@ -268,13 +335,15 @@ object VideoEffectFormulasC {
             u.number("autoScreen") > .5 -> screenReference(input, manual, u.number("screenType").toInt()).let { reference -> { _ -> reference } }
             else -> { _ -> manual }
         }
-        val solid = u.number("background").toInt() == 0
-        val wrap = if (u.number("wrap") > 0 && !solid) {
-            VideoEffectPasses.blur(background, input.width * 0.02, VideoEffectPasses.quarter(input.width), VideoEffectPasses.quarter(input.height))
+        val hint = if (u.number("personHint") > .5 && u.flags and EffectUniforms.FLAG_PERSON_MASK != 0) {
+            personHint(requireNotNull(person) { "The frame was given a person mask" }, input.width, input.height, lite)
         } else {
-            background
+            null
         }
-        return ChromaKeyPictures(matte(input, screen, u), screen, background, wrap)
+        val wrap = AutoBackgroundFormulas.wrapImage(u, input, background)
+        val matte = matte(input, screen, u, hint)
+        val match = if (u.number("matchColor") > .5) AutoBackgroundFormulas.matchReference(input, EffectMask.of(matte), background) else null
+        return ChromaKeyPictures(matte, screen, background, wrap, match)
     }
 
     /** One keyed pixel of the pass from its pictures, mixed with the input by the intensity. */
@@ -284,19 +353,26 @@ object VideoEffectFormulasC {
         val out = chromaKey(
             c, pictures.matte.sample(uv).x, ChromaKeyInputs(pictures.background.sample(uv), pictures.screen(uv), pictures.wrap.sample(uv)),
             u.number("screenType").toInt(), u.number("despill"), u.number("wrap"), u.number("view").toInt(),
+            pictures.match, u.number("matchStrength"),
         )
         return VideoEffectFormulas.mixed(c, out, u.intensity)
     }
 
     /**
-     * A whole spatial Chroma Key pass. A recipe with the temporal matte
-     * ([EffectUniforms.FLAG_TEMPORAL_MATTE]) or the person hint needs what is
-     * not here.
+     * A whole spatial Chroma Key pass, with the person hint when the frame
+     * has a [person] mask. A recipe with the temporal matte
+     * ([EffectUniforms.FLAG_TEMPORAL_MATTE]) needs what is not here.
      */
-    fun chromaKeyPass(u: EffectUniforms, input: EffectImage, background: EffectImage, cleanPlate: EffectImage? = null): EffectImage {
+    fun chromaKeyPass(
+        u: EffectUniforms,
+        input: EffectImage,
+        background: EffectImage,
+        cleanPlate: EffectImage? = null,
+        person: EffectMask? = null,
+        lite: Boolean = false,
+    ): EffectImage {
         require(u.flags and EffectUniforms.FLAG_TEMPORAL_MATTE == 0) { "The temporal matte is not referenced" }
-        require(u.number("personHint") < .5) { "The person hint needs a person mask" }
-        val pictures = chromaKeyPictures(u, input, background, cleanPlate)
+        val pictures = chromaKeyPictures(u, input, background, cleanPlate, person, lite)
         return EffectImage.of(input.width, input.height) { x, y -> chromaKeyPixel(u, input, pictures, x, y) }
     }
 

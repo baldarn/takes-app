@@ -573,7 +573,9 @@ object VideoEffectFormulas {
      *
      * Noir's grain is the frame's lattice under the pixel. A Color Isolation
      * that keeps the subject, or one made with the temporal matte, reads how
-     * much to keep from [mask]; without one it cannot be drawn.
+     * much to keep from [mask]; without one it cannot be drawn. For "The
+     * subject" that is the person mask refined by [subjectMask], which
+     * [pass] makes from the raw mask it is given.
      */
     fun pixel(u: EffectUniforms, input: EffectPicture, x: Int, y: Int, mask: ((Point) -> Double)? = null): EffectVector {
         require(u.effect in referenced) { "No reference formula for ${u.effect}" }
@@ -618,7 +620,26 @@ object VideoEffectFormulas {
         return mixed(original, out, u.intensity)
     }
 
-    /** A whole pass: [pixel] for every pixel of [input]. */
-    fun pass(u: EffectUniforms, input: EffectPicture, mask: ((Point) -> Double)? = null): EffectPicture =
-        EffectPicture(input.width, input.height) { x, y -> pixel(u, input, x, y, mask) }
+    /**
+     * What Color Isolation "The subject" keeps: the raw [person] mask refined
+     * on the picture with the effect's softness as a person's,
+     * [MaskRefinement.refinedMask]. [lite] is the recorder's lite quality.
+     * Renderer:483-484, Metal:351.
+     */
+    fun subjectMask(u: EffectUniforms, input: EffectPicture, person: EffectMask, lite: Boolean = false): EffectMask {
+        require(u.effect == VideoEffectID.ColorIsolation)
+        return MaskRefinement.refinedMask(person, EffectMask.luma(input), u.number("softness"), lite = lite, person = true)
+    }
+
+    /**
+     * A whole pass: [pixel] for every pixel of [input]. A Color Isolation
+     * keeping the subject, drawn without the temporal matte and given no
+     * [mask], reads the [person] mask through [subjectMask]. With the temporal
+     * matte the [mask] is the matte, which is not referenced here.
+     */
+    fun pass(u: EffectUniforms, input: EffectPicture, mask: ((Point) -> Double)? = null, person: EffectMask? = null, lite: Boolean = false): EffectPicture {
+        val subject = u.effect == VideoEffectID.ColorIsolation && u.p[0].x > .5 && u.flags and EffectUniforms.FLAG_TEMPORAL_MATTE == 0
+        val matte = mask ?: if (subject && person != null) subjectMask(u, input, person, lite).let { refined -> { uv: Point -> refined.sample(uv) } } else null
+        return EffectPicture(input.width, input.height) { x, y -> pixel(u, input, x, y, matte) }
+    }
 }
