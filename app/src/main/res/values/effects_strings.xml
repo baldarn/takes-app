@@ -328,4 +328,33 @@
     <string name="effect_channel_red">Red</string>
     <string name="effect_channel_green">Green</string>
     <string name="effect_channel_blue">Blue</string>
+    <!-- The time effects. -->
+    <string name="effect_freeze_frame">Freeze Frame</string>
+    <string name="effect_freeze_frame_summary">Insert a held frame, with optional slow push-in.</string>
+    <string name="effect_freeze_frame_help">Insert a hold at the playhead. Hold duration adds time to the project; Push-in moves slowly into the still. Cut silences the sound until the footage resumes; Continue plays it on, so words can repeat when the footage resumes; Fade out over hold plays it on and fades it away.</string>
+    <string name="effect_freeze_frame_history">A held frame can suspend a film at a decisive moment, as at the end of The 400 Blows (1959).</string>
+    <string name="effect_step_printing">Step Printing</string>
+    <string name="effect_step_printing_summary">Repeat and blend frames for stuttering, smeared motion.</string>
+    <string name="effect_step_printing_help">Repeat groups of frames for stuttering motion. Step frames sets how many frames make a group and Smear blends the motion within each group. A speed of 0.5 also slows the clip down.</string>
+    <string name="effect_step_printing_history">Repeating printed frames produces stuttering motion, combined with blur in Chungking Express (1994).</string>
+    <string name="effect_undercranking">Undercranking</string>
+    <string name="effect_undercranking_summary">Quick, uneven motion with a silent-film cadence.</string>
+    <string name="effect_undercranking_help">Choose a low frame cadence for uneven motion, then adjust Speed-up, Flicker and Gate weave. Speed-up shortens the clip; Mute audio silences its sound.</string>
+    <string name="effect_undercranking_history">Shooting fewer frames than the projection rate gives the quick, uneven movement associated with silent comedy.</string>
+    <string name="effect_control_hold_duration">Hold duration</string>
+    <string name="effect_control_push_in">Push-in</string>
+    <string name="effect_control_style">Style</string>
+    <string name="effect_control_audio">Audio</string>
+    <string name="effect_control_step_frames">Step frames</string>
+    <string name="effect_control_smear">Smear</string>
+    <string name="effect_control_speed">Speed</string>
+    <string name="effect_control_speed_up">Speed-up</string>
+    <string name="effect_control_flicker">Flicker</string>
+    <string name="effect_control_mute_audio">Mute audio</string>
+    <string name="effect_choice_clean">Clean</string>
+    <string name="effect_choice_print">Print</string>
+    <string name="effect_choice_cut">Cut</string>
+    <string name="effect_choice_continue">Continue</string>
+    <string name="effect_choice_fade_out_over_hold">Fade out over hold</string>
+    <string name="effects_freeze_refused">No single frame to hold at the playhead</string>
 </resources>

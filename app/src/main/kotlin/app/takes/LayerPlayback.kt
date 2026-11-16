@@ -8,6 +8,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import app.takes.core.LayerPlan
+import app.takes.core.PicturePlayback
 import java.io.File
 import kotlin.math.abs
 
@@ -57,8 +58,10 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
     /** Whether the run of pictures on [lane] ends with [picture]: the next on the lane does not follow straight on. */
     private fun endsRun(lane: Int, picture: Int): Boolean = plan.endings.any { it.deck == lane && abs(it.at - pictures[picture].end) < 1e-6 }
 
+    /** Plays the lane at its picture's speed where the player is in it: a retimed picture changes speed as it goes. */
     private fun pace(player: ExoPlayer, picture: Int?) {
-        val rate = ((picture?.let { pictures[it].rate } ?: 1.0) * speed()).toFloat()
+        val at = player.currentPosition.coerceAtLeast(0) / 1000.0
+        val rate = ((picture?.let { PicturePlayback.rate(pictures[it].spans, at) } ?: 1.0) * speed()).toFloat()
         if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
     }
 
@@ -68,7 +71,7 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
         if (player.pauseAtEndOfMediaItems != last) player.pauseAtEndOfMediaItems = last
     }
 
-    private fun position(picture: LayerPlan.Picture, offset: Double): Long = (offset.coerceIn(0.0, picture.duration) * picture.rate * 1000).toLong()
+    private fun position(picture: LayerPlan.Picture, offset: Double): Long = (picture.position(offset.coerceIn(0.0, picture.duration)) * 1000).toLong()
 
     /** Puts every lane where [time] needs it, and returns the time, inside the movie. */
     fun seek(time: Double, starting: Boolean = false): Double {
@@ -106,10 +109,10 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
             when {
                 on == null -> time + passed * speed()
                 // A player that has gone on to the next picture of its run: the time is that picture's.
-                on != picture.index -> if (pictures[on].start >= picture.start) pictures[on].start + player.currentPosition.coerceAtLeast(0) / 1000.0 / pictures[on].rate else time + passed * speed()
+                on != picture.index -> if (pictures[on].start >= picture.start) pictures[on].start + pictures[on].offset(player.currentPosition.coerceAtLeast(0) / 1000.0) else time + passed * speed()
                 player.playbackState == Player.STATE_ENDED -> picture.end
                 !player.playWhenReady && player.playbackState == Player.STATE_READY && player.currentPosition >= player.duration - 30 -> picture.end
-                else -> (picture.start + player.currentPosition.coerceAtLeast(0) / 1000.0 / picture.rate).coerceAtMost(picture.end)
+                else -> (picture.start + picture.offset(player.currentPosition.coerceAtLeast(0) / 1000.0)).coerceAtMost(picture.end)
             }
         }.coerceAtMost(plan.duration)
         for (lane in lanes.indices) {

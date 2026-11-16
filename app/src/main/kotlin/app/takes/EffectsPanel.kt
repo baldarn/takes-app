@@ -99,6 +99,8 @@ private val Card = Color.White.copy(alpha = 0.045f)
 internal fun EffectsPanel(
     work: EffectsWork, time: Double, change: (EffectsWork) -> Unit, apply: () -> Unit, cancel: () -> Unit,
     modifier: Modifier = Modifier, appliesTo: String? = null, tools: EffectTools = EffectTools(),
+    /** Freeze Frame from the library: a held frame put in at the playhead, as the original makes one. */
+    freeze: () -> Unit = {},
 ) {
     val active = work.active(time)
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
@@ -118,7 +120,7 @@ internal fun EffectsPanel(
                 EffectsPage.Library -> Library(null) { change(work.copy(page = EffectsPage.Section(it))) }
                 is EffectsPage.Section -> {
                     Library(page.section) {}
-                    SectionEffects(page.section) { kind -> change(work.adding(kind)) }
+                    SectionEffects(page.section) { kind -> if (kind == VideoEffectID.FreezeFrame) freeze() else change(work.adding(kind)) }
                 }
                 EffectsPage.Inspector -> {
                     val effect = work.current(time)

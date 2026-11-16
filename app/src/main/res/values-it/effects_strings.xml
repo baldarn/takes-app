@@ -324,4 +324,33 @@
     <string name="effect_channel_red">Rosso</string>
     <string name="effect_channel_green">Verde</string>
     <string name="effect_channel_blue">Blu</string>
+    <!-- The time effects. -->
+    <string name="effect_freeze_frame">Fermo immagine</string>
+    <string name="effect_freeze_frame_summary">Inserisci un fotogramma fermo, con un lento avvicinamento a scelta.</string>
+    <string name="effect_freeze_frame_help">Inserisci una pausa all’indicatore di riproduzione. Durata della pausa aggiunge tempo al progetto; Avvicinamento si muove lentamente dentro l’immagine ferma. Taglia ammutolisce il suono finché la ripresa riprende; Continua lo fa proseguire, così le parole possono ripetersi quando la ripresa riprende; Dissolvi durante la pausa lo fa proseguire e lo sfuma.</string>
+    <string name="effect_freeze_frame_history">Un fotogramma fermo può sospendere un film in un momento decisivo, come alla fine de I quattrocento colpi (1959).</string>
+    <string name="effect_step_printing">Step printing</string>
+    <string name="effect_step_printing_summary">Ripeti e fondi fotogrammi per un movimento a scatti e sbavato.</string>
+    <string name="effect_step_printing_help">Ripeti gruppi di fotogrammi per un movimento a scatti. Fotogrammi per passo decide quanti fotogrammi formano un gruppo e Sbavatura fonde il movimento dentro ogni gruppo. Una velocità di 0,5 rallenta anche la clip.</string>
+    <string name="effect_step_printing_history">Ripetere i fotogrammi stampati produce un movimento a scatti, unito alla sfocatura in Hong Kong Express (1994).</string>
+    <string name="effect_undercranking">Undercranking</string>
+    <string name="effect_undercranking_summary">Movimento rapido e irregolare con la cadenza del cinema muto.</string>
+    <string name="effect_undercranking_help">Scegli una cadenza bassa per un movimento irregolare, poi regola Accelerazione, Sfarfallio e Ondeggiamento del quadro. Accelerazione accorcia la clip; Silenzia audio ne toglie il suono.</string>
+    <string name="effect_undercranking_history">Riprendere meno fotogrammi della velocità di proiezione dà il movimento rapido e irregolare tipico delle comiche del muto.</string>
+    <string name="effect_control_hold_duration">Durata della pausa</string>
+    <string name="effect_control_push_in">Avvicinamento</string>
+    <string name="effect_control_style">Stile</string>
+    <string name="effect_control_audio">Audio</string>
+    <string name="effect_control_step_frames">Fotogrammi per passo</string>
+    <string name="effect_control_smear">Sbavatura</string>
+    <string name="effect_control_speed">Velocità</string>
+    <string name="effect_control_speed_up">Accelerazione</string>
+    <string name="effect_control_flicker">Sfarfallio</string>
+    <string name="effect_control_mute_audio">Silenzia audio</string>
+    <string name="effect_choice_clean">Pulito</string>
+    <string name="effect_choice_print">Stampa</string>
+    <string name="effect_choice_cut">Taglia</string>
+    <string name="effect_choice_continue">Continua</string>
+    <string name="effect_choice_fade_out_over_hold">Dissolvi durante la pausa</string>
+    <string name="effects_freeze_refused">Nessun singolo fotogramma da fermare all’indicatore</string>
 </resources>
