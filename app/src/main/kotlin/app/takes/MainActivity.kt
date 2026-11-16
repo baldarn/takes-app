@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,7 +49,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color.White, onPrimary = Color.Black, error = RecordRed)) {
                 Surface(Modifier.fillMaxSize(), color = Color.Black) {
-                    var tab by rememberSaveable { mutableIntStateOf(0) }
+                    var tab by rememberSaveable { mutableIntStateOf(app.tab) }
+                    SideEffect { app.tab = tab }
                     Column(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (tab) {

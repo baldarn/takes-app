@@ -54,6 +54,13 @@ class TakesApp : Application() {
     val capture by lazy { CaptureController(this, store) }
     val exporter by lazy { Exporter(this, store) }
 
+    /**
+     * The tab on show, kept for as long as the process lives: the activity started again over a running process
+     * (from the launcher, after Home during an export) comes back where the person was, as the original's single
+     * window does. A new process opens on the recorder.
+     */
+    var tab = 0
+
     override fun onCreate() {
         super.onCreate()
         // The decoded sound of a transcription that was running when the app was last closed.
