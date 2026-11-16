@@ -154,6 +154,36 @@ class SubtitlePlacement(val canvas: Size, val largest: Size) {
     }
 
     /**
+     * The box of the largest caption at the series' place, as shares of the
+     * frame from its top left: where a drag or a pinch takes hold of the
+     * captions, and the outline shown while placing them
+     * (YouRec/SubtitleRenderer.swift:64-70).
+     */
+    fun envelope(value: SubtitleSettings): Rect {
+        val settings = constrained(value)
+        val scale = settings.size / REFERENCE_SIZE
+        val width = largest.width * scale / canvas.width
+        val height = largest.height * scale / canvas.height
+        return Rect(settings.centerX - width / 2, settings.y - height / 2, width, height)
+    }
+
+    /** The series moved by [dx] and [dy], shares of the frame, within the limits (YouRec/SubtitleEditor.swift:190). */
+    fun moved(value: SubtitleSettings, dx: Double, dy: Double): SubtitleSettings =
+        constrained(value.copy(x = value.centerX + dx, y = value.y + dy))
+
+    /**
+     * The series resized by [factor] around the fingers, which went from
+     * ([fromX], [fromY]) to ([toX], [toY]), shares of the frame: the point
+     * under them stays under them (YouRec/SubtitleEditor.swift:191-195).
+     */
+    fun pinched(value: SubtitleSettings, factor: Double, fromX: Double, fromY: Double, toX: Double, toY: Double): SubtitleSettings {
+        if (!factor.isFinite() || factor <= 0) return constrained(value)
+        val target = (value.size * factor).coerceIn(minimumSize, maximumSize)
+        val ratio = target / value.size
+        return constrained(value.copy(x = toX + (value.centerX - fromX) * ratio, y = toY + (value.y - fromY) * ratio, size = target))
+    }
+
+    /**
      * The top edge of each caption showing together, as a share of the frame
      * height: the stack is centered on the series' position. [heights] are
      * canvas units at the reference size.

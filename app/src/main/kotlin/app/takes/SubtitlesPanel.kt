@@ -437,6 +437,7 @@ fun SubtitlesPanel(
                                 enabled = regroup && idle && settings.maxWords < SubtitleSettings.MAX_WORDS.last) { Text("+", fontSize = 20.sp) }
                         }
                         if (!regroup) Text(stringResource(R.string.subtitles_stale), color = Warning, fontSize = 12.sp)
+                        Text(stringResource(R.string.subtitles_drag_hint), color = Soft, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
 
                         Disclosure(stringResource(R.string.subtitles_appearance), showAppearance) { showAppearance = !showAppearance }
                         if (showAppearance) {

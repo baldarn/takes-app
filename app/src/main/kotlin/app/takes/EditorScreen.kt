@@ -137,6 +137,7 @@ import app.takes.core.RangeEditing
 import app.takes.core.RangeMarks
 import app.takes.core.RenderPlan
 import app.takes.core.ReviewWindows
+import app.takes.core.SubtitleEditing
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TimelineNavigation
@@ -639,9 +640,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         change = { next -> framed?.let { cropping = it.copy(draft = it.draft.adjusted(next)) } },
                     )
                 }
-                Canvas(Modifier.fillMaxSize().then(moving).then(framing).then(reframing)) {
+                // With the Subtitles tool open, a drag or a pinch on the captions places them (SubtitlePlacing.kt).
+                val placing by rememberUpdatedState(subtitling?.subtitles?.let { look -> captionLayout?.takeIf { SubtitleEditing.active(it.cues, playhead).isNotEmpty() }?.let { SubtitlePlacing(it.placement, look) } })
+                var guiding by remember { mutableStateOf(false) }
+                val placeCaptions = if (subtitling == null) Modifier else Modifier.subtitlePlacing({ placing }, { next -> editor.pause(); subtitling?.let { SubtitleEditing.restyle(it, next) }?.let { subtitling = it } }, { guiding = it }, subtitlePlacingActions())
+                Canvas(Modifier.fillMaxSize().then(moving).then(framing).then(reframing).then(placeCaptions)) {
                     if (sampling) return@Canvas
                     if (cropping != null) cropGuides()
+                    if (guiding) placing?.let { subtitleGuide(it) }
                     drawIntoCanvas { target ->
                         titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles)
                         captionPlan.subtitles?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
