@@ -547,6 +547,13 @@
     <string name="subtitles_horizontal">Horizontal</string>
     <string name="subtitles_vertical">Vertical</string>
     <string name="subtitles_reset_position">Reset position and size</string>
+    <string name="subtitles_move_left">Move subtitles left</string>
+    <string name="subtitles_move_right">Move subtitles right</string>
+    <string name="subtitles_move_up">Move subtitles up</string>
+    <string name="subtitles_move_down">Move subtitles down</string>
+    <string name="subtitles_enlarge">Enlarge subtitles</string>
+    <string name="subtitles_shrink">Shrink subtitles</string>
+    <string name="subtitles_drag_hint">Drag subtitles to move · pinch to resize</string>
     <string name="subtitles_all">All subtitles · %1$d</string>
     <string name="subtitles_none">No subtitles in this movie.</string>
     <string name="subtitles_row_hint">Tap a subtitle to go to it, tap it again to edit it.</string>

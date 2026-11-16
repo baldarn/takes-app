@@ -552,6 +552,13 @@
     <string name="subtitles_horizontal">Orizzontale</string>
     <string name="subtitles_vertical">Verticale</string>
     <string name="subtitles_reset_position">Ripristina posizione e dimensione</string>
+    <string name="subtitles_move_left">Sposta i sottotitoli a sinistra</string>
+    <string name="subtitles_move_right">Sposta i sottotitoli a destra</string>
+    <string name="subtitles_move_up">Sposta i sottotitoli in alto</string>
+    <string name="subtitles_move_down">Sposta i sottotitoli in basso</string>
+    <string name="subtitles_enlarge">Ingrandisci i sottotitoli</string>
+    <string name="subtitles_shrink">Rimpicciolisci i sottotitoli</string>
+    <string name="subtitles_drag_hint">Trascina i sottotitoli per spostarli · pizzica per ridimensionarli</string>
     <string name="subtitles_all">Tutti i sottotitoli · %1$d</string>
     <string name="subtitles_none">Nessun sottotitolo in questo filmato.</string>
     <string name="subtitles_row_hint">Tocca un sottotitolo per andarci, toccalo di nuovo per modificarlo.</string>

@@ -356,4 +356,37 @@ class SubtitleEditingTest {
         assertEquals(Size(800.0, 302.0), SubtitlePlacement.largest(together) { sizes.getValue(it) })
         assertEquals(Size(1.0, 1.0), SubtitlePlacement.largest(emptyList()) { Size(5.0, 5.0) })
     }
+
+    // Dragging and pinching on the picture keeps the sliders' limits (YouRec/SubtitleEditor.swift:183-200).
+    @Test fun theOutlineIsTheLargestCaptionAtTheSeriesPlace() {
+        val placement = SubtitlePlacement(portrait, Size(540.0, 192.0))
+        val box = placement.envelope(SubtitleSettings(size = 0.052, x = 0.5, y = 0.8))
+        assertEquals(0.5, box.width, 1e-12)
+        assertEquals(0.1, box.height, 1e-12)
+        assertEquals(0.25, box.x, 1e-12)
+        assertEquals(0.75, box.y, 1e-12)
+    }
+
+    @Test fun aDragMovesTheSeriesWithinThePicture() {
+        val placement = SubtitlePlacement(portrait, Size(540.0, 192.0))
+        val start = SubtitleSettings(size = 0.052, x = 0.5, y = 0.5)
+        val moved = placement.moved(start, 0.1, -0.2)
+        assertEquals(0.6, moved.centerX, 1e-12)
+        assertEquals(0.3, moved.y, 1e-12)
+        // Far off the edge it stops where the sliders stop.
+        assertEquals(placement.constrained(start.copy(x = 5.0, y = -5.0)), placement.moved(start, 4.5, -5.5))
+    }
+
+    @Test fun aPinchResizesAroundTheFingersWithinTheLimits() {
+        val placement = SubtitlePlacement(portrait, Size(540.0, 192.0))
+        val start = SubtitleSettings(size = 0.04, x = 0.5, y = 0.5)
+        // Fingers still at (0.5, 0.6): the point under them stays, the center moves away from it.
+        val larger = placement.pinched(start, 1.25, 0.5, 0.6, 0.5, 0.6)
+        assertEquals(0.05, larger.size, 1e-12)
+        assertEquals(0.6 - 0.1 * 1.25, larger.y, 1e-12)
+        assertEquals(0.5, larger.centerX, 1e-12)
+        assertEquals(placement.maximumSize, placement.pinched(start, 100.0, 0.5, 0.5, 0.5, 0.5).size, 0.0)
+        assertEquals(placement.minimumSize, placement.pinched(start, 0.001, 0.5, 0.5, 0.5, 0.5).size, 0.0)
+        assertEquals(placement.constrained(start), placement.pinched(start, Double.NaN, 0.5, 0.5, 0.5, 0.5))
+    }
 }
