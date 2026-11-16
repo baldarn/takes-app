@@ -118,6 +118,8 @@ data class RangeMarks(
     fun retained(state: EditState): RangeMarks {
         val clips = state.clips.mapTo(HashSet()) { it.id }
         val audio = state.audio.orEmpty().mapTo(HashSet()) { it.id }
+        // Off a row of clips a sound of its own is drawn and selected whatever its runs ([TrackComponents.soundRows]).
+        state.layered?.audio?.forEach { if (it.followsVideo == null) audio += it.id }
         fun kept(targets: EditTargets) = EditTargets(targets.clips intersect clips, targets.audio intersect audio)
         val duration = state.duration
         val clipped = range?.let { TimeRange(it.start, minOf(it.end, duration)) }?.takeIf { it.valid }
