@@ -22,4 +22,9 @@
         android:name="app.takes.pixels.TimeExportRunner"
         android:label="Exports of the time effects"
         android:targetPackage="app.takes.dev" />
+    <!-- The person-mask analysis on a recording, timed: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.effects.PersonMaskRunner -->
+    <instrumentation
+        android:name="app.takes.effects.PersonMaskRunner"
+        android:label="Person-mask analysis"
+        android:targetPackage="app.takes.dev" />
 </manifest>

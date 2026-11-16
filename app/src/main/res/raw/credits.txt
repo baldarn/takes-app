@@ -26,6 +26,10 @@ sherpa-onnx, which runs the speech recognition for subtitles. Copyright Xiaomi C
 
 Qwen3-ASR, a speech model for subtitles. Copyright Alibaba Cloud. The model is not part of the app. It is downloaded when you ask for subtitles, as converted for sherpa-onnx (export by Wasser1462, published by the sherpa-onnx project), and can be removed again.
 
+LiteRT (formerly TensorFlow Lite) 1.4.2, which runs the person mask of the video effects. Copyright The TensorFlow Authors and Google LLC. Some of its code is derived from Caffe, whose notice follows below.
+
+MediaPipe selfie segmenter, the model of the person mask of the video effects, bundled in the app. Copyright Google LLC. The file is selfie_segmenter.tflite (float16, version 1) from https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite, SHA-256 191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b. It is modified: its last layer, MediaPipe's custom transposed convolution, is rewritten as LiteRT's builtin one with the same weights and bias (probes/segmentation/tools/standard-selfie.py in the Takes repository). The bundled file is selfie_standard.tflite, SHA-256 23b8125ac976473d277f053787bb139c6c8de834d8e64cafa9634fb8580b8f1b.
+
 JSpecify annotations. Copyright The JSpecify Authors. JetBrains annotations. Copyright JetBrains s.r.o. javax.inject and jakarta.inject. Copyright The JSR-330 Expert Group and Eclipse Foundation contributors.
 
 CHECKER FRAMEWORK QUALIFIERS
@@ -88,6 +92,18 @@ Redistribution and use in source and binary forms, with or without modification,
 * Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
 * Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
 * Neither the name of Google Inc. nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+CAFFE (INSIDE LITERT)
+
+Copyright (c) 2014, The Regents of the University of California (Regents). All rights reserved.
+Copyright (c) 2014, the respective contributors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 

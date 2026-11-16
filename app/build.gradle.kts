@@ -62,7 +62,11 @@ android {
     }
     buildFeatures { compose = true }
     // The app speaks English and Italian; without this the libraries bring ninety more languages along.
-    androidResources { localeFilters += listOf("en", "it") }
+    androidResources {
+        localeFilters += listOf("en", "it")
+        // The person-mask model is mapped from the APK as it lies there (PersonMasks.kt): stored, not deflated.
+        noCompress += "tflite"
+    }
 }
 
 kotlin { jvmToolchain(17) }
@@ -87,4 +91,6 @@ dependencies {
     implementation(libs.androidx.media3.transformer)
     implementation(libs.androidx.media3.effect)
     implementation(libs.kotlinx.coroutines.android)
+    // The person mask of four video effects, on the CPU (docs/SEGMENTATION-PROBE.md). No litert-gpu: the CPU is as fast.
+    implementation(libs.litert)
 }
