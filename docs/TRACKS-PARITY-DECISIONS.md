@@ -146,6 +146,41 @@ The kinds kept until S4 stay kept until the visible S4: `handle-trim-outwards-ov
 `range-end-within-a-frame-of-a-cut`, `removed-transition-leaves-its-time` and
 `close-that-holds-pushes-nothing` (the last two need gaps drawn), and the fit's last digits.
 
+## At S4
+
+The visible part of S4 adopts the original's result for the kinds left to it. Each was
+read again against the original (`TrackTimeline.swift`, `TimelineEditing.swift`,
+`Transitions.swift`, `EditorView.swift`), the wrapper rule that kept today's result was
+dropped, and the kind moved to the adopted list of `TrackParityAccepted.kt`. An edit whose
+pictures the result leaves over one another or apart is now that timeline
+(`EditState.layered`), which the editor draws on rows and edits since the picture-in-picture
+work: `TrackWrapping.edit` with `layers` gives the timeline itself when reading it as a
+sequence would move a picture.
+
+| Kind | Decision | Why |
+|---|---|---|
+| handle-trim-outwards-overlaps | Adopted | `TimelineEditing.trim` is the original's handle trim (`EditorView.swift:1241-1258`, `TrackEditing.trimming`): outwards a reveal that moves nothing else, so the clip grows over its neighbour and in front of it, and the edit becomes one of rows. As in the original, the head of a clip can only reveal into the time before it: none for a clip at the start of the timeline (`TrackTimeline.swift:1636`). |
+| handle-trim-inwards-is-a-deletion | Adopted | Inwards the trimmed part of the picture and its sound is cut off and deleted, so the time closes as a deletion of linked picture and sound closes it, and the transition on the trimmed side goes with it. What is left after a head trim keeps the clip's id (`later-piece-new-identity` stays Invisible and not taken up): the editor, the selection and the capture ledger know the clip by it. |
+| fades-through-retimes-and-cuts (on trim) | Adopted | The wrapper no longer puts back the fades `trimmed` computes: the track model's cut and reveal give the fade (`TrackTimeline.swift:133-151`, `:1650-1655`). |
+| fade-no-longer-than-its-item | Adopted | `setAudio`, `setSound` and `setAudioItemSound` set a changed fade as the original does, no longer than the item and from silence (`TrackTimeline.swift:191-195`). A ten-second fade on a shorter clip is saved as the clip's length; what is heard is the same slope over the clip. |
+| range-inside-a-transition | Adopted for Delete and a tool on a range | A range with an end inside a transition, its join included, is cut exactly there on the timeline, as the original's editor cuts a range for Delete and for a tool (`EditorView.swift:1125-1130`, `TrackTimeline.swift:1080-1094`): both pictures playing there are cut, the transition goes when one of them loses its edge, and what is left of the overlap stays, covered. The editor still puts a mark made inside a transition on its join (`EditorView.swift:1115`). Copy and Cut keep today's rule: a clipboard of the sequence form holds a row of clips, and the original's own clipboard cut aligns to the cuts (`TimelineEditing.swift:66-80`); they move with the paste targets of S12. |
+| range-end-within-a-frame-of-a-cut | Adopted for Delete and a tool on a range | The same path: an end closer than a frame to an edge is cut there, a sliver left. The editor's mark is put on a cut when one is near at the zoom shown, as the original's (`EditorView.swift:1111-1113`), so a sliver is made only when asked for. Copy and Cut keep the clipboard's rule, as above. |
+| split-refused-near-an-edge | Adopted | A split, a trim of a sound item and an insertion leave a piece of any length; the track model refuses one shorter than a tick (`TrackTimeline.swift:1011-1014`). One-frame pieces play since 0.7 and are drawn and grabbed on the timeline. Removing pauses still drops a sliver between two pauses: the original makes no pieces there at all, its pauses are a setting of the clip (N3, D6). |
+| removed-transition-leaves-its-time | Adopted | Delete, Move and setting or removing a transition keep the places the track model gives the pictures: the time a still or a hold held stays black, a gap the timeline now draws, and Close gap removes it. An insertion still makes room by the sequence rule (`insert-inside-a-transition`, not adopted). |
+| close-that-holds-pushes-nothing | Adopted | With the one above: a close that holds, set on a clip that is not the last, lies over the start of the next clip. |
+| The fit's last digits | Not adopted | The track model fits by halving with the original's slack of a hundred-millionth of a second (`Transitions.swift:359-366`), which the original's ticks absorb. A sequence is laid out in seconds: the model's factor would start the clip after a transition that takes all of a short clip a hundred-millionth before zero (`TransitionFitTest.settingTheSameSettingsAgainFitsThemAgain`), and it would move every golden plan in its last digits. A sequence keeps the layout's fit; an edit of rows keeps the model's. |
+
+Two limits on what is adopted, both deliberate:
+
+- **Unlinked pictures.** Where a clip's sound is unlinked in the sequence form (a sound item
+  with the clip's id), an edit of the pictures still closes up as before:
+  `unlinked-picture-does-not-ripple` stays as decided above, and the 0.8 workflows built on
+  it (J and L cuts by trimming an unlinked picture) keep working.
+- **Golden projects.** They are built with the editing functions, so the one golden step that
+  trims (`cuts`, step 4 and the one after it) saves other bytes: an inward trim is now a cut
+  and a deletion. The edit it ends in, its layout and its plan are unchanged; no other golden
+  project moved.
+
 ## At S12
 
 S12 gives the editor the original's own paste targets, add buttons in gaps and bookmarks
