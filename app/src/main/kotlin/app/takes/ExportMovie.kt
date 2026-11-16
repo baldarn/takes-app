@@ -22,6 +22,7 @@ import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
+import app.takes.core.ColorSettings
 import app.takes.core.ExportSections
 import app.takes.core.RenderPlan
 import app.takes.core.Size as FrameSize
@@ -127,7 +128,7 @@ class ExportMovie(
         val picture = buildList<Effect> {
             if (plan.clips[part.index].videoEffects.orEmpty().any { it.kind == app.takes.core.VideoEffectID.NightFix }) add(NightFixEffect(plan.clips[part.index], shown.start - origin)) // on the raw frame
             // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
-            shown.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, luts))) }
+            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) add(SingleColorLut.createFromCube(ColorLuts.cube(shown.color ?: ColorSettings(), luts, log))) }
             // A crop fills the frame with part of the footage, frame by frame; fitting then has nothing left to do.
             val source = size(shown.sourceID)
             if (shown.crop != null && source != null) add(FramingEffect(plan.clips[part.index], shown.start - origin, source, frame))

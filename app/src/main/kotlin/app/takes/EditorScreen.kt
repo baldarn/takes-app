@@ -51,6 +51,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
+import app.takes.core.LUTInput
 import app.takes.core.ImportedLUT
 import app.takes.core.CropSettings
 import app.takes.core.CropViewport
@@ -522,7 +523,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
-    val deckColors = shownClips.map { it?.first?.color }
+    // The recordings in Apple Log, whose picture is decoded to display before any grade, as in the export.
+    val logProfiles by produceState(emptyMap<String, LUTInput>(), project.sources) {
+        value = withContext(Dispatchers.IO) { project.recordings.mapNotNull { source -> LogFootage.profile(store.file(project, source))?.let { source.id to it } }.toMap() }
+    }
+    val deckColors = shownClips.map { shown -> shown?.let { (clip, _) -> logProfiles[clip.sourceID].let { log -> if (clip.color == null && log == null) null else (clip.color ?: ColorSettings()) to log } } }
     // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
     // is open what the tool would leave on it.
     val cropFor = { clip: TimelineClip, start: Double ->
@@ -761,7 +766,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).clipToBounds().onGloballyPositioned { previewBounds = it.boundsInWindow() }) {
                 val grades = deckColors.map { color ->
                     remember(color, folder) {
-                        if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color, folder) else null
+                        if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color.first, folder, color.second) else null
                     }
                 }
                 // The video effects after the color, as the export draws them: at the source second the deck shows.
