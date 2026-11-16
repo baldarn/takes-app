@@ -118,13 +118,36 @@ app.
 
 ## Build
 
-Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1
-for the `rnnoise` module.
+Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1 for the `rnnoise` module.
 
-    ./gradlew :core:test            # project model, storage and zoom curve
-    ./gradlew :speech:testDebugUnitTest   # speech model download and recognizer; see speech/README.md
-    ./gradlew :app:assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
+Run the following commands to build and test the project:
 
+```bash
+./gradlew :core:test                     # Tests the editing model on the JVM, without Android
+./gradlew :rnnoise:testDebugUnitTest     # Tests the C library, built for your computer
+./gradlew :speech:testDebugUnitTest     # Tests model download and recognizer
+./gradlew :app:lintDebug                 # Runs Android lint
+./gradlew :app:assembleDebug             # Builds the debug APK at app/build/outputs/apk/debug/app-debug.apk
+```
+
+Before submitting a pull request, run all the commands used by the maintainer and CI:
+
+```bash
+./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :app:lintDebug :app:assembleDebug
+```
+
+The `core` module contains nearly all the tests. They use numbers from the original project, with comments identifying the source files and line numbers.
+
+The `rnnoise` and `speech` tests run native code on your computer and require a C compiler. They are set up for Linux and macOS. Tests that recognize real speech recordings are skipped unless you provide a folder for their models. See [`speech/README.md`](speech/README.md).
+
+The `app` module has no host tests. Logic that can be tested is placed in `core` as pure functions, while the screen calls those functions.
+
+The transition shader's pixels are checked by instrumented tests in `app/src/androidTest`, running on an emulator or phone. These tests are not part of CI. Run them when changing `TransitionRendering.kt`:
+
+```bash
+./gradlew :app:installDebug :app:installDebugAndroidTest
+adb shell am instrument -w app.takes.dev.test/app.takes.pixels.TransitionPixelRunner
+```
 ## Layout
 
 - `core/` — pure Kotlin, no Android. `Project` (sources, capture ledger, undo/redo
