@@ -497,7 +497,7 @@ private fun Capsule(label: String, spoken: String, icon: ImageVector? = null, tr
  * @param duration the length of what the tool works on, which the motion runs over.
  */
 @Composable
-private fun AnimationControls(
+internal fun AnimationControls(
     motion: EffectAnimation?, endpoint: EffectEndpoint?, duration: Double,
     select: (EffectEndpoint) -> Unit, remove: () -> Unit, done: () -> Unit, update: (EffectTiming) -> Unit,
 ) {

@@ -56,13 +56,14 @@
     <string name="placement_open">Modifica la posizione delle immagini che si vedono qui</string>
     <string name="placement_apply">Applica</string>
     <string name="placement_reset">Ripristina posizione</string>
-    <string name="placement_hint">Trascina per spostare · pizzica per ridimensionare</string>
+    <string name="placement_hint">Trascina per spostare · pizzica per ridimensionare\nTrascina i cerchi sui bordi per ritagliare</string>
+    <string name="placement_hint_reframe">Trascina per reinquadrare · pizzica per ingrandire\nTrascina i cerchi sui bordi per ritagliare</string>
     <string name="placement_video">Video</string>
     <string name="placement_front">davanti</string>
     <string name="placement_back">dietro</string>
     <string name="placement_middle">in mezzo, %1$d di %2$d</string>
     <string name="placement_layout">Disposizione</string>
-    <string name="placement_layout_note">Le disposizioni azzerano inquadratura e Adatta</string>
+    <string name="placement_layout_note">Le disposizioni azzerano ritaglio, inquadratura e Adatta</string>
     <string name="placement_cover">Copertura</string>
     <string name="placement_side_by_side">Affiancate</string>
     <string name="placement_top_bottom">Sopra e sotto</string>
@@ -75,6 +76,15 @@
     <string name="placement_audio_note">L\'audio delle clip sovrapposte si mescola. Seleziona un elemento audio nella timeline per cambiarne il volume.</string>
     <string name="placement_applied">Posizione salvata · Annulla disponibile</string>
     <string name="placement_removed">Posizione ripristinata · Annulla disponibile</string>
+    <string name="placement_reframe">Reinquadra nella finestra</string>
+    <string name="placement_reset_crop">Ripristina ritaglio</string>
+    <string name="placement_play">Riproduci anteprima</string>
+    <string name="placement_position">Posizione dell\'anteprima nella sovrapposizione</string>
+    <string name="placement_crop_left">Ritaglia il bordo sinistro</string>
+    <string name="placement_crop_right">Ritaglia il bordo destro</string>
+    <string name="placement_crop_top">Ritaglia il bordo superiore</string>
+    <string name="placement_crop_bottom">Ritaglia il bordo inferiore</string>
+    <string name="placement_crop_value">ritagliato al %1$d%%</string>
 
     <!-- Punti in cui incollare -->
     <string name="paste_target_start">Inizio</string>

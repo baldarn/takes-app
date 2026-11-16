@@ -928,7 +928,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // With Placement open, the pictures as they will be placed, and the gestures that place them.
                 placementWork?.let { work ->
                     PlacementOverlay(
-                        work, edit, files, playhead,
+                        work, edit, files, playhead, editor.playing,
                         change = { next -> placementWork = placementWork?.copy(draft = next) },
                         settle = { placementWork?.let { now -> placementShown = now.draft.applied(now.timeline).toEdit(saved.captureBase) } },
                     )
@@ -1174,7 +1174,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val removedNote = stringResource(R.string.placement_removed)
             LaunchedEffect(saved) { if (placementWork?.timeline != saved.layered) { placementWork = null; placementShown = null } }
             PlacementPanel(
-                placed, edit, change = { placementWork = placed.copy(draft = it); placementShown = it.applied(placed.timeline).toEdit(saved.captureBase) },
+                placed, edit, playhead, editor.playing, change = { placementWork = placed.copy(draft = it); placementShown = it.applied(placed.timeline).toEdit(saved.captureBase) },
+                seek = jump, play = { from, until -> auditionEnd = until.takeIf { it < duration - 0.0005 }; playhead = from; editor.play(from, reviewSpeed) }, pause = { auditionEnd = null; editor.pause() },
                 apply = {
                     val next = placed.draft.applied(placed.timeline)
                     placementWork = null
