@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
                         Box {
                             when (tab) {
                                 0 -> RecorderScreen(app.capture, app.store) { tab = 2 }
-                                1 -> ProjectsScreen(app.store, screen) { project, destination ->
+                                1 -> ProjectsScreen(app.store, app.exporter, screen) { project, destination ->
                                     app.store.select(project.id)
                                     // "Continue recording" always means at the end.
                                     if (destination == 0) app.store.recordAtEnd(project.id)

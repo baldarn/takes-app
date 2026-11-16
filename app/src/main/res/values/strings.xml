@@ -26,6 +26,20 @@
     <string name="projects_unavailable_title">Project that cannot be opened</string>
     <string name="projects_recently_deleted">Recently deleted</string>
     <string name="projects_deleted_summary">%1$s · deleted %2$s</string>
+    <string name="projects_over_30_days">Over 30 days</string>
+    <string name="projects_deleted_no_date">Deletion date unavailable · excluded from bulk cleanup</string>
+    <string name="projects_expired_title">Delete older projects?</string>
+    <plurals name="projects_expired_message">
+        <item quantity="one">%1$d project has been in Recently deleted for more than 30 days. Permanently delete it, including original recordings, edits and exports? This cannot be undone.</item>
+        <item quantity="other">%1$d projects have been in Recently deleted for more than 30 days. Permanently delete them, including original recordings, edits and exports? This cannot be undone.</item>
+    </plurals>
+    <plurals name="projects_expired_delete">
+        <item quantity="one">Delete %1$d project</item>
+        <item quantity="other">Delete %1$d projects</item>
+    </plurals>
+    <string name="projects_not_now">Not now</string>
+    <string name="projects_review">Review</string>
+    <string name="projects_expired_failed">Some deleted projects could not be removed. They remain in Recently deleted. %1$s</string>
     <string name="projects_restore">Restore</string>
     <string name="projects_delete_permanently">Delete permanently</string>
     <string name="projects_rename_title">Rename project</string>
@@ -58,6 +72,30 @@
     <string name="projects_edit">Edit</string>
     <string name="projects_originals">Originals</string>
     <string name="projects_add_videos">Add videos</string>
+    <string name="projects_export_named">Export video for %1$s</string>
+    <string name="repair_card">Repair media · %1$d missing</string>
+    <plurals name="repair_card_history">
+        <item quantity="one">%1$d missing from history</item>
+        <item quantity="other">%1$d missing from history</item>
+    </plurals>
+    <string name="repair_title">Repair media</string>
+    <string name="repair_explanation">Choose each unchanged original video or audio file. Cuts and undo/redo history will stay in place.</string>
+    <string name="repair_take">Take %1$d · %2$s</string>
+    <string name="repair_in_history">Kept in editing history</string>
+    <string name="repair_on_timeline">On timeline: %1$s</string>
+    <string name="repair_file_details">File details</string>
+    <string name="repair_locate">Locate original…</string>
+    <string name="repair_all_found">Every original is in place.</string>
+    <string name="repair_remove">Remove missing takes from timeline</string>
+    <string name="repair_remove_note">This is one undoable edit. All originals and previous edits stay in the project.</string>
+    <string name="repair_removed">Removed from timeline · Undo in the editor</string>
+    <string name="repair_unverified_question">This older take has no saved fingerprint. Is the selected video its unchanged original?</string>
+    <string name="repair_use_original">Use this original</string>
+    <string name="repair_checking">Checking original take…</string>
+    <string name="repair_unverified">This older take has no saved fingerprint. Confirm that the selected video is its unchanged original before reconnecting it.</string>
+    <string name="repair_exists">The original is already in the project.</string>
+    <string name="repair_unreadable">This file is not the original take: it cannot be read, or its length or kind differs.</string>
+    <string name="repair_checksum">This is not the original take: its checksum differs. Choose the unchanged original video.</string>
     <string name="projects_zip">Zip project</string>
     <string name="projects_zip_fallback_name">Project</string>
     <plurals name="projects_camera_switches">

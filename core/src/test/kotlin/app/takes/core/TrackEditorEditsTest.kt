@@ -257,4 +257,16 @@ class TrackEditorEditsTest {
         assertEquals(empty.toTimeline(), saved.edit.toTimeline())
         assertNotNull(saved.edit.layered)
     }
+
+    @Test
+    fun removingMissingSourcesTakesTheirPicturesAndSoundsAsOneEdit() {
+        val other = SourceMedia(id = uuid(2), filename = "other.mov", duration = 4.0)
+        val mixed = EditState(clips.take(2) + TimelineClip(uuid(30), other.id, 0.0, 4.0) + clips.drop(2))
+        assertEquals(1, TrackEditorEdits.usingSources(mixed, setOf(other.id)).video.size)
+        val removed = TrackEditorEdits.removingSources(mixed, setOf(other.id))!!
+        assertTrue(removed.toTimeline().video.none { it.content.sourceID == other.id })
+        assertTrue(removed.toTimeline().audio.none { it.sourceID == other.id })
+        assertEquals(10.0, removed.duration, 1e-6)
+        assertNull(TrackEditorEdits.removingSources(state, setOf(other.id)))
+    }
 }

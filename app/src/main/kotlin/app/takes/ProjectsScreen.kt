@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.VideocamOff
@@ -46,10 +48,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,26 +66,32 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.takes.core.DeletionRules
 import app.takes.core.Project
 import app.takes.core.ProjectException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 import java.text.DateFormat
 import java.util.Date
 
 private val Card = Color(0xFF1B1D21)
 private val Muted = Color(0xFFA0A4AB)
 private val SelectedGreen = Color(0xFF34C759)
+private val Caution = Color(0xFFFF9F0A)
 
 private fun dateLabel(time: Long) = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(time))
 
 /** [open] receives the chosen project and the destination tab: 0 recorder, 2 editor. */
 @Composable
-fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Project, Int) -> Unit) {
+fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier = Modifier, open: (Project, Int) -> Unit) {
     var renaming by remember { mutableStateOf<Project?>(null) }
     var erasing by remember { mutableStateOf<Project?>(null) }
     var showingCredits by remember { mutableStateOf(false) }
+    // The project whose export panel is open from its card, as the original's export sheet.
+    var exportingID by rememberSaveable { mutableStateOf("") }
     // The project that picked videos go to; empty for a new project.
     var importInto by rememberSaveable { mutableStateOf("") }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { videos ->
@@ -102,7 +112,12 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
     }
 
-    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // As the original, on arriving at the list: projects over 30 days in Recently deleted are offered for removal.
+    var expired by remember { mutableStateOf(emptyList<DeletedProject>()) }
+    LaunchedEffect(Unit) { if (store.importing == null && store.error == null) expired = store.expiredDeletions() }
+    val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    LazyColumn(modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             // The buttons go under the title where they do not fit beside it, as at the largest text sizes.
             FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
@@ -117,7 +132,7 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
             item { Text(stringResource(R.string.projects_empty), color = Muted) }
         }
         items(store.projects, key = { it.id }) { project ->
-            ProjectCard(project, store, open, rename = { renaming = project }, addVideos = { pickVideos(project.id) },
+            ProjectCard(project, store, open, rename = { renaming = project }, addVideos = { pickVideos(project.id) }, export = { exportingID = project.id },
                 zip = { zipping = project.id; saveZip.launch(project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { zipName } + ".zip") })
         }
         items(store.unavailable.toList(), key = { "unavailable-" + it.first }) { (folder, reason) ->
@@ -135,6 +150,10 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
                 Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp)) {
                     Text(entry.project.title, color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text(entry.date?.let { stringResource(R.string.projects_deleted_summary, summary(entry.project), dateLabel(it)) } ?: summary(entry.project), color = Muted, fontSize = 13.sp)
+                    when {
+                        entry.date == null -> Text(stringResource(R.string.projects_deleted_no_date), color = Muted, fontSize = 12.sp)
+                        DeletionRules.isOlderThan30Days(entry.date, System.currentTimeMillis()) -> Text(stringResource(R.string.projects_over_30_days), color = Caution, fontSize = 12.sp)
+                    }
                     Row {
                         TextButton(onClick = { store.restore(entry.project) }) { Text(stringResource(R.string.projects_restore)) }
                         TextButton(onClick = { erasing = entry.project }) { Text(stringResource(R.string.projects_delete_permanently), color = RecordRed) }
@@ -151,6 +170,31 @@ fun ProjectsScreen(store: ProjectStore, modifier: Modifier = Modifier, open: (Pr
         item { TextButton(onClick = { showingCredits = true }) { Text(stringResource(R.string.credits_title), color = Muted) } }
     }
 
+    store.projects.firstOrNull { it.id == exportingID }?.let { CardExport(it, store, exporter) { exportingID = "" } }
+    if (expired.isNotEmpty()) {
+        val count = expired.size
+        AlertDialog(
+            onDismissRequest = { expired = emptyList() },
+            title = { Text(stringResource(R.string.projects_expired_title)) },
+            text = { Text(pluralStringResource(R.plurals.projects_expired_message, count, count)) },
+            confirmButton = {
+                TextButton(onClick = { store.eraseExpired(expired); expired = emptyList() }) {
+                    Text(pluralStringResource(R.plurals.projects_expired_delete, count, count), color = RecordRed)
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { expired = emptyList() }) { Text(stringResource(R.string.projects_not_now)) }
+                    TextButton(onClick = {
+                        expired = emptyList()
+                        // Recently deleted is on this list, under the projects: its header is shown at the top.
+                        val header = 1 + (if (store.projects.isEmpty()) 1 else 0) + store.projects.size + store.unavailable.size
+                        scope.launch { list.scrollToItem(header) }
+                    }) { Text(stringResource(R.string.projects_review)) }
+                }
+            },
+        )
+    }
     if (showingCredits) CreditsScreen(report = { store.error = it }) { showingCredits = false }
     store.importing?.let { step ->
         // As in the original, an import, a duplicate or a ZIP can be cancelled, and then keeps nothing it made.
@@ -196,9 +240,11 @@ private fun summary(project: Project): String {
 }
 
 @Composable
-private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit, zip: () -> Unit) {
+private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit, export: () -> Unit, zip: () -> Unit) {
     var originals by remember { mutableStateOf(false) }
     var unfinished by remember { mutableStateOf(false) }
+    var repairing by remember { mutableStateOf(false) }
+    if (repairing) RepairMediaDialog(project.id, store) { repairing = false }
     if (unfinished) UnfinishedRecordings(project, store) { unfinished = false }
     if (originals) OriginalRecordings(project, store) { originals = false }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(12.dp)) {
@@ -214,6 +260,7 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
             // The project Record and Edit act on, as the original's check mark.
             if (store.selectedID == project.id) Icon(Icons.Filled.CheckCircle, stringResource(R.string.projects_selected), Modifier.padding(start = 8.dp).size(22.dp), tint = SelectedGreen)
         }
+        RepairMediaLine(project, store) { repairing = true }
         // As in the original: the two main actions stay visible, the rest is in a menu.
         // The two go one over the other where they do not fit beside the menu, which stays at the end.
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -224,6 +271,12 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                     Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp))
                     Text(stringResource(R.string.projects_edit), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false)
                 }
+            }
+            // As in the original, the export of the movie is one tap from the card, and needs something to export.
+            val canExport = project.edit.duration > 0
+            IconButton(onClick = export, enabled = canExport) {
+                Icon(Icons.Outlined.IosShare, stringResource(R.string.projects_export_named, project.title),
+                    Modifier.size(22.dp), tint = if (canExport) Color.White else Muted.copy(alpha = 0.5f))
             }
             Box {
                 var menu by remember { mutableStateOf(false) }
@@ -269,4 +322,23 @@ private fun Thumbnail(file: File?) {
     }
     val shape = Modifier.size(84.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black)
     image?.let { Image(it.asImageBitmap(), null, shape, contentScale = ContentScale.Crop) } ?: Box(shape)
+}
+
+/**
+ * The editor's export panel for [project], opened from its card as the original's export sheet: the format,
+ * the export as it runs, an export that paused, and the finished movie. [close] is called once nothing of it
+ * is on screen any more.
+ */
+@Composable
+private fun CardExport(project: Project, store: ProjectStore, exporter: Exporter, close: () -> Unit) {
+    var choosing by remember(project.id) { mutableStateOf(true) }
+    // The export canvas as in the editor: the size the Crop tool fixed, else the first clip's shape.
+    val firstShape by produceState<Pair<Int, Int>?>(null, project.edit.clips.firstOrNull()?.sourceID) {
+        value = project.edit.clips.firstOrNull()?.let { clip -> project.sources.firstOrNull { it.id == clip.sourceID } }
+            ?.let { withContext(Dispatchers.IO) { displaySize(store.file(project, it)) } }
+    }
+    val canvas = project.edit.outputSize?.let { it.width.roundToInt() to it.height.roundToInt() } ?: firstShape
+    ExportPanel(project, canvas, store, exporter, choosing) { choosing = false }
+    val ended = !choosing && exporter.status == null && exporter.result == null
+    LaunchedEffect(ended) { if (ended) close() }
 }

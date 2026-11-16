@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CubeLUT
+import app.takes.core.DeletionRules
 import app.takes.core.EditState
 import app.takes.core.ImportedLUT
 import app.takes.core.LUTException
@@ -706,6 +707,79 @@ class ProjectStore(context: Context) {
         }
     }
 
+    /** The originals of [project] whose file is no longer in its folder, as the original's `missingSources`. */
+    fun missingSources(project: Project): List<SourceMedia> = project.sources.filter { !file(project, it).exists() }
+
+    /**
+     * Takes [project]'s pictures and sounds of the missing originals off the timeline, as one undoable edit, as the
+     * original's "Remove missing takes from timeline" (ContentView.swift:457-466). False when nothing was removed.
+     */
+    fun removeMissing(project: Project): Boolean {
+        val current = projects.firstOrNull { it.id == project.id } ?: return false
+        val missing = missingSources(current).mapTo(HashSet()) { it.id }
+        val edit = TrackEditorEdits.removingSources(current.edit, missing) ?: return false
+        return update(current.commit(edit))
+    }
+
+    /**
+     * Puts the file at [uri] back in place of the missing original [source] of [project], as the original's
+     * `beginRelink` (ProjectStore.swift:666-703): the copy must last as long as the take, within 0.05 s, hold
+     * its kind of track and, when the take has a fingerprint, have the same SHA-256. A take without one is
+     * relinked only when [allowUnverified]; it keeps the new file's fingerprint from then on.
+     */
+    fun relink(project: Project, source: SourceMedia, uri: Uri, allowUnverified: Boolean = false) {
+        if (importing != null) return
+        begin(cancellable = true)
+        importing = context.getString(R.string.repair_checking)
+        scope.launch {
+            val problem = withContext(Dispatchers.IO) {
+                val destination = file(project, source)
+                val temporary = File(disk.folder(project.id).apply { mkdirs() }, ".relink-${newID()}.tmp")
+                try {
+                    if (source.sha256 == null && !allowUnverified) return@withContext context.getString(R.string.repair_unverified)
+                    if (destination.exists()) return@withContext context.getString(R.string.repair_exists)
+                    resolver.openInputStream(uri)?.use { input -> temporary.outputStream().use { copyStopping(input, it) } }
+                        ?: return@withContext context.getString(R.string.repair_unreadable)
+                    val duration = mediaDuration(temporary)
+                    val kind = if (source.audioOnly == true) hasAudio(temporary) else displaySize(temporary) != null
+                    if (duration == null || kind.not() || kotlin.math.abs(duration - source.duration) >= 0.05) return@withContext context.getString(R.string.repair_unreadable)
+                    val hash = fingerprint(temporary)
+                    if (source.sha256 != null && hash != source.sha256) return@withContext context.getString(R.string.repair_checksum)
+                    stopIfCancelled()
+                    if (!temporary.renameTo(destination)) return@withContext context.getString(R.string.repair_unreadable)
+                    withContext(Dispatchers.Main) {
+                        projects.firstOrNull { it.id == project.id }?.let { value ->
+                            update(value.copy(sources = value.sources.map { if (it.id == source.id) it.copy(sha256 = hash) else it }, updatedAt = System.currentTimeMillis()))
+                        }
+                    }
+                    null
+                } catch (_: Cancelled) {
+                    null
+                } catch (problem: Exception) {
+                    describe(problem)
+                } finally {
+                    temporary.delete()
+                }
+            }
+            end()
+            problem?.let { error = it }
+        }
+    }
+
+    private fun fingerprint(file: File): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 20)
+            while (true) {
+                stopIfCancelled()
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     /** Copies originals of [project] to the device's Movies and Music collections. The files themselves stay. */
     fun saveOriginals(project: Project, sources: List<SourceMedia>) = saveOriginals(sources.map { file(project, it) to (it.audioOnly == true) })
 
@@ -831,6 +905,26 @@ class ProjectStore(context: Context) {
 
     fun erase(project: Project) = attempt(R.string.projects_erase_failed) { disk.eraseDeleted(project.id) }
 
+    /**
+     * The projects of Recently Deleted that have been there more than 30 days, as the original's
+     * `expiredDeletions` (ProjectStore.swift:301-304). One without a deletion date never expires.
+     */
+    fun expiredDeletions(now: Long = System.currentTimeMillis()): List<DeletedProject> =
+        deleted.filter { entry -> entry.date?.let { DeletionRules.isOlderThan30Days(it, now) } == true }
+
+    /** Permanently deletes [confirmed] that are still in Recently Deleted and still expired, as `eraseExpiredDeletions`. */
+    fun eraseExpired(confirmed: List<DeletedProject>, now: Long = System.currentTimeMillis()) {
+        if (importing != null) return
+        var failure: String? = null
+        for (entry in confirmed) {
+            val date = disk.deletionRecord(entry.project.id)?.date ?: continue
+            if (!DeletionRules.isOlderThan30Days(date, now)) continue
+            try { disk.eraseDeleted(entry.project.id) } catch (problem: Exception) { if (failure == null) failure = describe(problem) }
+        }
+        failure?.let { error = context.getString(R.string.projects_expired_failed, it) }
+        reload()
+    }
+
     private fun attempt(failure: Int, action: () -> Unit) {
         try {
             action()
@@ -848,7 +942,10 @@ class ProjectStore(context: Context) {
         val library = disk.loadAll()
         projects = library.projects
         unavailable = library.unavailable
-        deleted = disk.loadAll(disk.deletedRoot).projects.map { DeletedProject(it, disk.deletionRecord(it.id)?.date) }
+        // In the original's order: a known deletion date first, the latest first (DeletionRules.ordered).
+        deleted = DeletionRules.ordered(disk.loadAll(disk.deletedRoot).projects.map { DeletedProject(it, disk.deletionRecord(it.id)?.date) }) {
+            DeletionRules.Entry(it.project.id, it.date, it.date != null)
+        }
     }
 
     private fun update(project: Project): Boolean = try {

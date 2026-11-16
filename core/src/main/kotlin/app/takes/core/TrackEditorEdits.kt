@@ -124,4 +124,16 @@ object TrackEditorEdits {
 
     /** The bookmark [id] named [label] ([TrackBookmarks.labelled]); null when nothing changes. */
     fun renamingBookmark(state: EditState, id: String, label: String): EditState? = TrackEditState.editing(state) { TrackBookmarks.labelled(it, id, label) }
+
+    /** The pictures and sounds of [state] that play one of [sources] ([TrackLinking.items]). */
+    fun usingSources(state: EditState, sources: Set<String>): TimelineSelection = TrackLinking.items(state.toTimeline(), sources)
+
+    /**
+     * [state] without the pictures and sounds that play one of [sources], as the original's "Remove missing
+     * takes from timeline" (YouRec/ContentView.swift:457-466): one edit, what was linked to them closes up as a
+     * removal does ([TrackEditing.removing]). Null when nothing plays them.
+     */
+    fun removingSources(state: EditState, sources: Set<String>): EditState? = TrackEditState.editing(state) { timeline ->
+        TrackLinking.items(timeline, sources).takeUnless { it.isEmpty }?.let { TrackEditing.removing(timeline, it).timeline }
+    }
 }

@@ -25,6 +25,20 @@
     <string name="projects_unavailable_title">Progetto che non si può aprire</string>
     <string name="projects_recently_deleted">Eliminati di recente</string>
     <string name="projects_deleted_summary">%1$s · eliminato il %2$s</string>
+    <string name="projects_over_30_days">Oltre 30 giorni</string>
+    <string name="projects_deleted_no_date">Data di eliminazione non disponibile · esclusa dalla pulizia complessiva</string>
+    <string name="projects_expired_title">Eliminare i progetti più vecchi?</string>
+    <plurals name="projects_expired_message">
+        <item quantity="one">%1$d progetto è tra gli eliminati di recente da più di 30 giorni. Eliminarlo definitivamente, con le registrazioni originali, le modifiche e le esportazioni? Non si può annullare.</item>
+        <item quantity="other">%1$d progetti sono tra gli eliminati di recente da più di 30 giorni. Eliminarli definitivamente, con le registrazioni originali, le modifiche e le esportazioni? Non si può annullare.</item>
+    </plurals>
+    <plurals name="projects_expired_delete">
+        <item quantity="one">Elimina %1$d progetto</item>
+        <item quantity="other">Elimina %1$d progetti</item>
+    </plurals>
+    <string name="projects_not_now">Non ora</string>
+    <string name="projects_review">Rivedi</string>
+    <string name="projects_expired_failed">Alcuni progetti eliminati non si sono potuti rimuovere. Restano tra gli eliminati di recente. %1$s</string>
     <string name="projects_restore">Ripristina</string>
     <string name="projects_delete_permanently">Elimina definitivamente</string>
     <string name="projects_rename_title">Rinomina progetto</string>
@@ -60,6 +74,30 @@
     <string name="projects_edit">Modifica</string>
     <string name="projects_originals">Originali</string>
     <string name="projects_add_videos">Aggiungi video</string>
+    <string name="projects_export_named">Esporta il video di %1$s</string>
+    <string name="repair_card">Ripara i media · mancanti: %1$d</string>
+    <plurals name="repair_card_history">
+        <item quantity="one">%1$d mancante dalla cronologia</item>
+        <item quantity="other">%1$d mancanti dalla cronologia</item>
+    </plurals>
+    <string name="repair_title">Ripara i media</string>
+    <string name="repair_explanation">Scegli ciascun file video o audio originale, non modificato. I tagli e la cronologia di annulla/ripeti restano al loro posto.</string>
+    <string name="repair_take">Ripresa %1$d · %2$s</string>
+    <string name="repair_in_history">Conservata nella cronologia delle modifiche</string>
+    <string name="repair_on_timeline">Nella timeline: %1$s</string>
+    <string name="repair_file_details">Dettagli del file</string>
+    <string name="repair_locate">Trova l\'originale…</string>
+    <string name="repair_all_found">Tutti gli originali sono al loro posto.</string>
+    <string name="repair_remove">Togli dalla timeline le riprese mancanti</string>
+    <string name="repair_remove_note">È una sola modifica, annullabile. Tutti gli originali e le modifiche precedenti restano nel progetto.</string>
+    <string name="repair_removed">Tolte dalla timeline · Annulla nell\'editor</string>
+    <string name="repair_unverified_question">Questa ripresa più vecchia non ha un\'impronta salvata. Il video scelto è il suo originale non modificato?</string>
+    <string name="repair_use_original">Usa questo originale</string>
+    <string name="repair_checking">Controllo della ripresa originale…</string>
+    <string name="repair_unverified">Questa ripresa più vecchia non ha un\'impronta salvata. Conferma che il video scelto è il suo originale non modificato prima di ricollegarlo.</string>
+    <string name="repair_exists">L\'originale è già nel progetto.</string>
+    <string name="repair_unreadable">Questo file non è la ripresa originale: non si legge, oppure la durata o il tipo sono diversi.</string>
+    <string name="repair_checksum">Questa non è la ripresa originale: il checksum è diverso. Scegli il video originale non modificato.</string>
     <string name="projects_zip">Esporta ZIP</string>
     <string name="projects_zip_fallback_name">Progetto</string>
     <plurals name="projects_camera_switches">
