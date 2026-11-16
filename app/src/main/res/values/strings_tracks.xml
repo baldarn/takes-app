@@ -1,0 +1,52 @@
+<resources>
+    <!-- Move: the selection dragged along the timeline (the original's EditorView.swift:1162-1239) -->
+    <string name="move_button">Move</string>
+    <string name="move_button_description">Move the selected parts and anything linked to them</string>
+    <string name="move_selection_start">Selection start</string>
+    <string name="move_offset">%1$s s</string>
+    <string name="move_offset_description">Moved by %1$s seconds</string>
+    <string name="move_snapped">Snapped</string>
+    <string name="move_hint">Drag the selection along the timeline</string>
+    <string name="move_done">Moved · Undo available</string>
+    <string name="move_cancelled">Move cancelled</string>
+    <string name="move_stale">Timeline changed. Select the clips again.</string>
+    <string name="move_nothing">Select a clip to move it.</string>
+
+    <!-- Gaps -->
+    <string name="gap_label">Gap</string>
+    <string name="gap_close">Close gap</string>
+    <string name="gap_close_description">Close the gap at the playhead: everything after it comes earlier</string>
+    <string name="gap_closed">Gap closed · Undo available</string>
+
+    <!-- Functions of a row of clips, off a row (SequenceOnly) -->
+    <string name="unavailable_reorder">Pictures are not in one row here. Use Move to put a picture somewhere else.</string>
+    <string name="unavailable_transition">Transitions are set between pictures that follow one another in one row, and this edit has pictures over one another or apart.</string>
+    <string name="unavailable_clipboard">Copy, Cut and Paste hold a row of clips, and this edit has pictures over one another or apart.</string>
+    <string name="unavailable_state">Unavailable</string>
+
+    <!-- Placement (the original's TrackEditors.swift:440-841) -->
+    <string name="placement_title">Placement</string>
+    <string name="placement_default">Placement · default</string>
+    <string name="placement_open">Edit the placement of the pictures playing here</string>
+    <string name="placement_apply">Apply</string>
+    <string name="placement_reset">Reset placement</string>
+    <string name="placement_hint">Drag to move · pinch to resize</string>
+    <string name="placement_video">Video</string>
+    <string name="placement_front">front</string>
+    <string name="placement_back">back</string>
+    <string name="placement_middle">middle %1$d of %2$d</string>
+    <string name="placement_layout">Layout</string>
+    <string name="placement_layout_note">Layouts reset framing and Fit</string>
+    <string name="placement_cover">Cover</string>
+    <string name="placement_side_by_side">Side by side</string>
+    <string name="placement_top_bottom">Top and bottom</string>
+    <string name="placement_pip">Picture in picture</string>
+    <string name="placement_bring_front">Bring to front</string>
+    <string name="placement_send_back">Send to back</string>
+    <string name="placement_fill">Fill window</string>
+    <string name="placement_center">Center picture</string>
+    <string name="placement_replaces_transition">Changing this arrangement replaces the transition between these videos</string>
+    <string name="placement_audio_note">Audio from overlapping clips mixes. Select an audio item in the timeline to change its volume.</string>
+    <string name="placement_applied">Placement saved · Undo available</string>
+    <string name="placement_removed">Placement reset · Undo available</string>
+</resources>
