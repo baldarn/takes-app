@@ -3,6 +3,8 @@ package app.takes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -42,7 +44,8 @@ internal fun AddVideoDialog(
             )
         },
         text = {
-            Column {
+            // Scrolls where the screen is short, as in landscape.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 pasteHere?.let {
                     TextButton(onClick = it) {
                         Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp))

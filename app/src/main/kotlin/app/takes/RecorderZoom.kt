@@ -212,7 +212,7 @@ private fun ZoomPreset(zoom: Double, selectsMainLens: Boolean, selected: Boolean
     // The tap waits to see whether it is a double one; the touch is answered at once, as in the original.
     val view = LocalView.current
     Column(
-        Modifier.turned().size(44.dp, 48.dp).clip(RoundedCornerShape(50))
+        Modifier.size(44.dp, 48.dp).clip(RoundedCornerShape(50))
             .pointerInput(enabled) { if (enabled) awaitEachGesture { awaitFirstDown(requireUnconsumed = false); view.tick() } }
             // The single tap waits for a possible second one, so Instant never fires before a double tap.
             .combinedClickable(enabled = enabled, role = Role.Button, onDoubleClick = quick, onClick = normal)
@@ -251,8 +251,7 @@ private fun ZoomDuration(capture: CaptureController, tapped: () -> Unit, dragged
     val view = LocalView.current
     val change = { next: Double -> if (capture.chooseZoomDuration(next)) view.tick() }
     Box(
-        // Turned with the phone, and the drag with it: up for the person lengthens the time however the phone is held.
-        Modifier.turned().size(56.dp, 48.dp).pointerInput(capture) {
+        Modifier.size(56.dp, 48.dp).pointerInput(capture) {
             awaitEachGesture {
                 val down = awaitFirstDown()
                 var start: Double? = null

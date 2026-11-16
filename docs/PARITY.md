@@ -25,10 +25,10 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 128 |
+| DONE | 129 |
 | PARTIAL | 39 |
 | CORE ONLY | 6 |
-| MISSING | 30 |
+| MISSING | 29 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -36,7 +36,7 @@ Per area:
 
 | Area | DONE | PARTIAL | CORE ONLY | MISSING | N/A |
 |---|---|---|---|---|---|
-| 1. App shell and project list | 15 | 4 | 1 | 3 | 0 |
+| 1. App shell and project list | 16 | 4 | 1 | 2 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 6 | 1 | 2 | 3 |
 | 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
@@ -57,7 +57,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 |---|---|---|---|---|---|---|
 | Three destinations: Record, Projects, Edit | O/ContentView.swift:66-70 | DONE | A/MainActivity.kt:50-69 | — | | |
 | Tabs disabled during a take or an import | O/ContentView.swift:541-550 | PARTIAL | A/MainActivity.kt:66-72 (the tabs are off and dimmed while `hasActiveTake`) | Not during an import | S | Yes |
-| Landscape interface (editor side-by-side layout, recorder rotates) | O/YouRecApp.swift:77-110, O/EditorView.swift:354-383 | MISSING | `screenOrientation="portrait"` in app/src/main/AndroidManifest.xml:22 | Landscape layouts for recorder and editor | L | Yes |
+| Landscape interface (editor side-by-side layout, recorder rotates) | O/YouRecApp.swift:77-110, O/EditorView.swift:354-383, O/RecorderView.swift:141-280, 341-390 | DONE | The activity turns, except upside down, and is not made again (app/src/main/AndroidManifest.xml `configChanges`), so a take, the players and a tool's draft go on; A/EditorScreen.kt `EditorFrame` (the picture beside the transport and the tools, 52 % of the width, the timeline under both at 164 dp and scrolling), A/RecorderScreen.kt (the take buttons a rail at the end away from the cameras), A/RecorderSettingsSheet.kt (the quick panel at the end, as tall as the screen), A/MainActivity.kt `Tabbed` | Departures where the port has more on screen than the original: the tabs stand in a column at the start in landscape; the status bar is hidden in landscape, as the iPhone hides it; the editor's header (title, Undo, Redo, Snap, Export) stays above the picture instead of a compact one over it, and the selection row stays with the tools beside the picture instead of under the timeline; with the keyboard up in landscape the timeline goes, to leave room for the tool being typed into | | |
 | First launch creates a project; last project re-selected | O/ContentView.swift:341, O/ProjectStore.swift:64 | PARTIAL | A/CaptureController.kt:401 creates on first Record; A/ProjectStore.kt:95 `select` | Verify the selection is persisted across launches (not confirmed, see last section) | S | Yes |
 | New project | O/ContentView.swift:629 | DONE | A/ProjectsScreen.kt:123, A/ProjectStore.kt:100 | — | | |
 | Project list sorted by last update | O/ProjectStore.swift:328 | DONE | A/ProjectStore.kt:418 | — | | |
@@ -130,7 +130,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Audio keeps running across camera switches (independent engine, gap fill, clock correction) | O/CaptureAudio.swift:190-321, O/LiveMicrophone.swift:22-58 | DONE | CameraX persistent recording: on a Galaxy A54 the sound runs unbroken across a camera change (issue 53) | — | | |
 | "Protect recording audio" | O/RecorderView.swift:1265-1270 | N/A | — | The setting keeps the original's audio session through call banners. Android does not take the microphone for a ringing call; an answered call silences it, and the take is then paused as in the original (A/CaptureController.kt `handle`) | | |
 | Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt `MarkButton`, A/CaptureController.kt `bookmark`; the marks of an interrupted take are kept, indexed at launch with it (A/ProjectStore.kt `indexFinishedTakes`) | — | | |
-| Orientation follows the device, locked for the take | O/RecorderView.swift:341-390 | DONE | A/CaptureController.kt `followDevice` (the recorded frame follows the phone between takes and is held from Record to Stop), A/RecorderTurn.kt (every control turns in place to stand upright) | The screen itself stays portrait | | |
+| Orientation follows the device, locked for the take | O/RecorderView.swift:341-390 | DONE | A/RecorderScreen.kt (the activity held as it stands from Record to Stop, pauses included), A/CaptureController.kt `followDisplay` (the take is recorded the way the interface stands, as the original's; with an assist drawing the frames the camera is bound again for a turn, between takes only) | As in the original, a phone whose rotation is locked by the person records the way the screen stands | | |
 | Warnings: microphone off, silenced, camera lost, storage full | O/CaptureController.swift:617-687, 2672-2695 | PARTIAL | A/CaptureController.kt `handle`, `checkSpace`, `finalize` (warnings, and the take paused on a taken or failed microphone and on low storage) | Thermal banner | S | Phone |
 | Backgrounding saves the take | O/CaptureController.swift:1165-1180 | DONE | A/RecorderScreen.kt (lifecycle observer), A/CaptureController.kt `background` (the take is paused and its segment saved, as in the original; returning never resumes by itself) | — | | |
 | Camera and microphone permission flow | Info settings in project.pbxproj:972-983 | DONE | A/RecorderScreen.kt `RecorderScreen` | — | | |

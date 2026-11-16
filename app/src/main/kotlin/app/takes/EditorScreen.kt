@@ -155,6 +155,13 @@ import app.takes.core.TimelineEditing
 import app.takes.core.TimelineNavigation
 import app.takes.core.TimelineZoom
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.heightIn
+import android.content.res.Configuration
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.Layout
 import app.takes.core.TimelineSnapping
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TrackRenderPlan
@@ -755,15 +762,28 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
-    Column(modifier.fillMaxSize().then(previewing)) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    // In landscape the picture stands beside the tools and the timeline runs under both, as in the original's
+    // landscape branch (EditorView.swift:354-383). The parts are the same ones in both orientations, so turning the
+    // phone keeps the players, the scroll and a tool's draft.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    // What a tool panel takes beside the picture in portrait; a panel of buttons takes the room it needs.
+    val toolWeight = when {
+        moving != null -> 0f
+        placementWork != null || effecting != null || cropping != null -> 1f
+        titling != null || transitioning != null || pausing != null || subtitling != null -> 1.5f
+        else -> 0f
+    }
+    val timelineRows = rememberScrollState()
+    val toolRows = rememberScrollState()
+    EditorFrame(landscape, toolWeight, modifier.fillMaxSize().then(previewing)) {
+        Row(Modifier.layoutId(EditorSlot.Header).fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
             SnapToggle(snap.on, snap::toggle) { store.error = snapNote }
             Button(onClick = { editor.pause(); choosingExport = true }, modifier = Modifier.padding(start = 4.dp), enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Text(stringResource(R.string.editor_export)) }
         }
-        Box(Modifier.weight(1f).fillMaxWidth().background(Color.Black), Alignment.Center) {
+        Box(Modifier.layoutId(EditorSlot.Preview).background(Color.Black), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
             Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).clipToBounds().onGloballyPositioned { previewBounds = it.boundsInWindow() }) {
                 val grades = deckColors.map { color ->
@@ -943,6 +963,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 ) { Icon(Icons.Filled.OpenInFull, null, tint = Color.White) }
             }
         }
+        Column(Modifier.layoutId(EditorSlot.Transport)) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
             val tight = PaddingValues(horizontal = 6.dp)
@@ -974,6 +995,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
         cleaningProgress?.let {
             Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
+        }
         }
         // A level being chosen by dragging a waveform up or down: the original's quick volume (EditorTimeline.swift:609-687).
         val leveled = leveling
@@ -1062,6 +1084,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             if (after.snap != null && after.snap != before.snap) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         }
         val addSites = remember(edit) { AddSite.of(edit) }
+        // In landscape the timeline keeps the original's 164 points and scrolls up and down past them (EditorView.swift:376).
+        Column(Modifier.layoutId(EditorSlot.Timeline).then(if (landscape) Modifier.heightIn(max = 164.dp).verticalScroll(timelineRows) else Modifier)) {
         Timeline(
             live?.clips ?: leveled?.shown(shown) ?: shown, files, leveled?.takeIf { live == null }?.shownSounds(soundRows.items) ?: soundRows.items, names,
             // A tap picks one item, or lets go of it when it is all that is picked; a long press adds it or takes it out.
@@ -1134,6 +1158,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         )
         // The badges of Enhance audio and Censor, under the timeline and scrolling with it.
         AudioToolBadges(timeline, scroll, pixelsPerSecond) { badge -> audioTool = badge.kind to AudioToolWork.of(edit, badge, soundSelection(edit, marks.selected.clips, marks.selected.audio, marks.range?.let { EditInterval.of(it.start, it.end) })) }
+        }
         val framing = cropping
         // Once the edit holds the Freeze Frame just made, the tool opens on its controls.
         LaunchedEffect(edit, frozenEffect) {
@@ -1167,7 +1192,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         // The project changed under the session (it cannot be undone meanwhile, but a take may arrive): it ends, as in the original.
         LaunchedEffect(saved) { moving?.let { if (!it.isCurrent(saved.toTimeline())) { moving = null; moveShown = null; feedback = moveStale } } }
         if (session != null) {
-            MoveControls(session, picker, update = updateMove, place = placeStop, pause = { cancelPendingPlay(); editor.pause() }, end = endMove)
+            Box(Modifier.layoutId(EditorSlot.Tools).then(if (landscape) Modifier.verticalScroll(toolRows) else Modifier)) {
+                MoveControls(session, picker, update = updateMove, place = placeStop, pause = { cancelPendingPlay(); editor.pause() }, end = endMove)
+            }
         } else if (placed != null) {
             val applied = stringResource(R.string.placement_applied)
             val removedNote = stringResource(R.string.placement_removed)
@@ -1188,7 +1215,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (next != placed.timeline) { commit(next.toEdit(saved.captureBase), playhead); feedback = removedNote }
                 },
                 cancel = { placementWork = null; placementShown = null },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.layoutId(EditorSlot.Tools),
             )
         } else if (effectsWork != null) {
             // The tool closes when the edit changes under it, as with Undo.
@@ -1203,7 +1230,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     effectsWork.on.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
                 },
                 cancel = { effecting = null },
-                modifier = Modifier.weight(1f), appliesTo = toolScopeLabel, tools = effectTools,
+                modifier = Modifier.layoutId(EditorSlot.Tools), appliesTo = toolScopeLabel, tools = effectTools,
                 // The held frame goes in at the playhead as one Undo step, with what the tool had done so far in the step before it.
                 freeze = {
                     val base = effectsWork.applied()?.takeIf { effectsWork.on.scoped == null } ?: edit
@@ -1249,7 +1276,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                 },
                 cancel = { editor.pause(); auditionEnd = null; cropping = null },
-                modifier = Modifier.weight(1f), appliesTo = toolScopeLabel,
+                modifier = Modifier.layoutId(EditorSlot.Tools), appliesTo = toolScopeLabel,
             )
         } else if (titling != null) {
             val work = titling!!
@@ -1291,7 +1318,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (index != null) commit(TimelineEditing.removeText(edit, index, work.title.id), playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; titling = null },
-                modifier = Modifier.weight(1.5f),
+                modifier = Modifier.layoutId(EditorSlot.Tools),
             )
         } else if (transitioning != null) {
             val work = transitioning!!
@@ -1341,7 +1368,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     commit(next, next?.let { TimelineEditing.layout(it.clips).join(work.join)?.time ?: place?.time?.coerceAtMost(it.duration) } ?: playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; transitioning = null },
-                modifier = Modifier.weight(1.5f),
+                modifier = Modifier.layoutId(EditorSlot.Tools),
             )
         } else if (pausing != null) {
             val work = pausing!!
@@ -1376,7 +1403,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 },
                 apply = done, remove = done,
                 cancel = { editor.pause(); auditionEnd = null; auditionReturn = null; pausing = null },
-                modifier = Modifier.weight(1.5f),
+                modifier = Modifier.layoutId(EditorSlot.Tools),
             )
         } else if (subtitling != null) {
             SubtitlesPanel(
@@ -1390,7 +1417,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 apply = { val next = subtitling; subtitling = null; if (next != null && next != edit) commit(next, playhead) },
                 close = { subtitling = null }, sample = samplePicture,
                 audition = { from, to -> auditionEnd = to; auditionReturn = null; playhead = from; editor.play(from) },
-                modifier = Modifier.weight(1.5f),
+                modifier = Modifier.layoutId(EditorSlot.Tools),
             )
         } else {
             // Tools act on the clip under the playhead. Short rows, so nothing is cut off at any font size.
@@ -1477,6 +1504,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     dismissButton = { TextButton(onClick = { pendingLink = null }) { Text(stringResource(R.string.common_cancel)) } },
                 )
             }
+            // In landscape the tools scroll beside the picture.
+            Column(Modifier.layoutId(EditorSlot.Tools).then(if (landscape) Modifier.verticalScroll(toolRows) else Modifier)) {
             SelectionBar(
                 step = marks.step,
                 // On the frame grid, on a cut when one is near, and never inside a transition.
@@ -1722,6 +1751,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 addVideo = { editor.pause(); addSite = null; adding = true },
                 canDelete = location != null, delete = { location?.let { commit(TimelineEditing.delete(edit, it.index), clipStart(edit, it.index)) } },
             )
+            }
         }
     }
 
@@ -1833,6 +1863,65 @@ private val ColorLook.label: Int
     }
 
 /** As [ColorSettings.title], from the resources. */
+/** The parts of the editor's screen, which [EditorFrame] lays out for the orientation. */
+private enum class EditorSlot { Header, Preview, Transport, Timeline, Tools }
+
+/**
+ * The editor's screen. In portrait, from the top: the header, the picture, the transport, the timeline and the tools;
+ * the picture takes what is left, shared with a tool panel by [toolWeight] when one is open. In landscape, as the
+ * original's (EditorView.swift:354-383): the timeline runs along the bottom, and above it the picture, under the
+ * header, stands beside the transport and the tools, which take 52 % of the width. The keyboard leaves no room
+ * for the timeline in landscape: it goes while the keyboard is up.
+ */
+@Composable
+private fun EditorFrame(landscape: Boolean, toolWeight: Float, modifier: Modifier, content: @Composable () -> Unit) {
+    Layout(content, modifier) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        fun slot(id: EditorSlot) = measurables.firstOrNull { it.layoutId == id }
+        fun Measurable.natural(width: Int, room: Int) = measure(Constraints(width, width, 0, maxOf(0, room)))
+        val header: Placeable?
+        val transport: Placeable?
+        val timeline: Placeable?
+        val preview: Placeable?
+        val tools: Placeable?
+        if (!landscape) {
+            var room = height
+            header = slot(EditorSlot.Header)?.natural(width, room)?.also { room -= it.height }
+            transport = slot(EditorSlot.Transport)?.natural(width, room)?.also { room -= it.height }
+            timeline = slot(EditorSlot.Timeline)?.natural(width, room)?.also { room -= it.height }
+            room = maxOf(0, room)
+            val panel = slot(EditorSlot.Tools)
+            tools = if (panel != null && toolWeight > 0) panel.measure(Constraints.fixed(width, (room * toolWeight / (1 + toolWeight)).toInt()))
+            else panel?.natural(width, room)
+            preview = slot(EditorSlot.Preview)?.measure(Constraints.fixed(width, maxOf(0, room - (tools?.height ?: 0))))
+            layout(width, height) {
+                var y = 0
+                listOf(header, preview, transport, timeline, tools).forEach { it?.place(0, y); y += it?.height ?: 0 }
+            }
+        } else {
+            val side = (width * 0.52f).toInt()
+            val picture = width - side
+            // With the keyboard up there is no room for it: the picture and the tool being typed into keep the screen.
+            timeline = if (height < 240.dp.roundToPx()) null else slot(EditorSlot.Timeline)?.natural(width, height / 2)
+            val top = height - (timeline?.height ?: 0)
+            header = slot(EditorSlot.Header)?.natural(picture, top)
+            preview = slot(EditorSlot.Preview)?.measure(Constraints.fixed(picture, maxOf(0, top - (header?.height ?: 0))))
+            transport = slot(EditorSlot.Transport)?.natural(side, top)
+            val room = maxOf(0, top - (transport?.height ?: 0))
+            val panel = slot(EditorSlot.Tools)
+            tools = if (panel != null && toolWeight > 0) panel.measure(Constraints.fixed(side, room)) else panel?.natural(side, room)
+            layout(width, height) {
+                header?.place(0, 0)
+                preview?.place(0, header?.height ?: 0)
+                transport?.place(picture, 0)
+                tools?.place(picture, transport?.height ?: 0)
+                timeline?.place(0, top)
+            }
+        }
+    }
+}
+
 @Composable
 internal fun ColorSettings.label(): String =
     imported?.name ?: stringResource(if (look == ColorLook.Natural && hasBalance) R.string.color_balance else look.label)
@@ -1913,7 +2002,7 @@ private fun AudioItemDialog(
         onDismissRequest = dismiss,
         title = { Text(name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(stringResource(R.string.sound_item_range, preciseLabel(item.start), preciseLabel(item.end), item.track + 1), color = Muted, fontSize = 13.sp)
                 TextButton(onClick = shape) { Text(stringResource(R.string.sound_volume_and_fades)) }
                 TextButton(onClick = { apply(moved) }, enabled = moved != null) { Text(stringResource(R.string.sound_move_to_playhead)) }

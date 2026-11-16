@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.display.DisplayManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -16,7 +17,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.text.format.Formatter
 import android.util.Range
-import android.view.OrientationEventListener
+import android.view.Display
 import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.annotation.RequiresApi
@@ -56,7 +57,6 @@ import androidx.lifecycle.LifecycleRegistry
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CaptureFormat
-import app.takes.core.DeviceTurn
 import app.takes.core.MicrophoneRoute
 import app.takes.core.PinchZoom
 import app.takes.core.Project
@@ -161,10 +161,11 @@ class CaptureController(private val context: Context, private val store: Project
     var meterAvailable by mutableStateOf(false); private set
     var audioWarning by mutableStateOf<String?>(null); private set
     /**
-     * The quarter the phone is held in, as the orientation sensor names it: the controls stand upright
-     * for it. Held from the first Record to Stop, as the original holds its interface for the take.
+     * How the interface stands: the display's rotation, a `Surface.ROTATION_*`. The interface turns with the phone,
+     * except upside down, and is held from the first Record to Stop, as the original's (YouRecApp.swift:77-110,
+     * RecorderView.swift:341-390); the take is recorded the way it stands.
      */
-    var turn by mutableStateOf(0); private set
+    var rotation by mutableStateOf(Surface.ROTATION_0); private set
     var message by mutableStateOf<String?>(null)
     /** The name of the microphone in use: the one sound comes from when the system tells, else the one asked for. */
     var microphone by mutableStateOf<String?>(null); private set
@@ -180,34 +181,34 @@ class CaptureController(private val context: Context, private val store: Project
     /** Bookmarks placed in the current take. */
     var marks by mutableStateOf(0); private set
 
-    private var deviceQuarter = 0
+    private val displays = context.getSystemService(DisplayManager::class.java)
+    private val display get() = displays.getDisplay(Display.DEFAULT_DISPLAY)
 
-    private val orientation = object : OrientationEventListener(context) {
-        override fun onOrientationChanged(degrees: Int) {
-            // A phone lying flat gives no angle and keeps the quarter it had.
-            val quarter = DeviceTurn.quarter(degrees, deviceQuarter)
-            if (quarter == deviceQuarter) return
-            deviceQuarter = quarter
-            followDevice()
+    // A half turn from one landscape to the other changes no configuration: the display says it.
+    private val turns = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == Display.DEFAULT_DISPLAY) followDisplay()
         }
     }
 
     /**
-     * A take keeps the orientation it began in from the first Record to Stop, pauses
-     * included, so its segments share one frame, and its controls stay as they stood.
-     * The device is followed between takes.
+     * The interface follows the phone between takes; while a take is under way the activity is held as it stands
+     * (RecorderScreen), so a take keeps the orientation it began in from the first Record to Stop, pauses included,
+     * and its segments share one frame, as in the original (RecorderView.swift:350-355, CaptureController.swift:1207-1209).
+     * Only the frame of the preview and of the recording is set, unless an assist draws the frames.
      */
-    private fun followDevice() {
+    private fun followDisplay() {
+        val now = display?.rotation ?: return
+        val turned = now != rotation
+        rotation = now
+        cases.preview.targetRotation = now
         if (phase != Phase.Idle) return
-        // Only the frame of the recording is set: nothing is bound again by turning the phone.
-        cases.video.targetRotation = when (deviceQuarter) {
-            90 -> Surface.ROTATION_270
-            180 -> Surface.ROTATION_180
-            270 -> Surface.ROTATION_90
-            else -> Surface.ROTATION_0
-        }
-        turn = deviceQuarter
-        updateFrames()
+        cases.video.targetRotation = now
+        // The pass over the frames is given its pictures' turn when it is bound: with an assist on, the camera is
+        // bound again for the new turn, between takes only.
+        if (turned && cases.effects != 0) rebind() else updateFrames()
     }
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
@@ -281,7 +282,8 @@ class CaptureController(private val context: Context, private val store: Project
         cases.preview.setSurfaceProvider(surface)
         cameras = describe(provider.availableCameraInfos)
         if (cameras.isEmpty()) { message = context.getString(R.string.recorder_no_camera); return }
-        orientation.enable()
+        displays.registerDisplayListener(turns, null)
+        followDisplay()
         audioManager.registerAudioRecordingCallback(routes, null)
         // Reports the devices already connected at once, which fills the list.
         audioManager.registerAudioDeviceCallback(devices, null)
@@ -296,7 +298,7 @@ class CaptureController(private val context: Context, private val store: Project
     fun detach() {
         finishTake()
         zoomRamp?.cancel()
-        orientation.disable()
+        displays.unregisterDisplayListener(turns)
         audioManager.unregisterAudioRecordingCallback(routes)
         audioManager.unregisterAudioDeviceCallback(devices)
         attached = false
@@ -987,7 +989,7 @@ class CaptureController(private val context: Context, private val store: Project
         projectID?.let(store::recordAtEnd)
         phase = Phase.Idle
         // The phone may have been turned during the take.
-        followDevice()
+        followDisplay()
         marks = 0
         segmentProject = null
         // A choice of microphone made by hand lasts until Stop, as in the original.

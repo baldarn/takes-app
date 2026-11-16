@@ -1,5 +1,6 @@
 package app.takes
 
+import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -9,6 +10,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -61,6 +64,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -102,10 +106,13 @@ internal fun CameraSettings(capture: CaptureController, project: Project?, front
     // A tap beside the panel closes it and a tap on the panel does nothing, neither with a ripple.
     val quiet = remember { MutableInteractionSource() }
     val title = stringResource(if (more) R.string.recorder_settings_more else R.string.recorder_settings_title)
-    Box(
+    // In landscape the quick panel stands at the end of the screen, as tall as it, and at most 496 wide or 70 % of the
+    // width, as in the original (RecorderView.swift:685-688); it scrolls when it is taller than the screen.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    BoxWithConstraints(
         Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (more) 1f else 0.25f))
             .clickable(quiet, null, onClick = close).semantics { paneTitle = title },
-        contentAlignment = Alignment.BottomCenter,
+        contentAlignment = if (landscape) Alignment.CenterEnd else Alignment.BottomCenter,
     ) {
         if (more) {
             Column(
@@ -117,8 +124,11 @@ internal fun CameraSettings(capture: CaptureController, project: Project?, front
             }
         } else {
             Column(
-                Modifier.padding(6.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(PanelGrey)
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp)).clickable(quiet, null) {},
+                (if (landscape) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
+                    .padding(6.dp).width(minOf(496.dp, maxWidth * 0.7f)).fillMaxHeight() else Modifier.padding(6.dp).fillMaxWidth())
+                    .clip(RoundedCornerShape(20.dp)).background(PanelGrey)
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp)).clickable(quiet, null) {}
+                    .verticalScroll(rememberScrollState()),
             ) {
                 TitleBar(title, close, null)
                 QuickSettings(capture, frontLight, setFrontLight)

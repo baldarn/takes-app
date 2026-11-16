@@ -243,7 +243,7 @@ All absent on Android.
 
 | ID | Item | Original | Android today | Status | Notes |
 |---|---|---|---|---|---|
-| O1 | The interface turns | Portrait and both landscapes; in landscape the three buttons form a rail at the end away from the cameras, and the bars keep out of the picture when it fits (`RV:100-104,141-255,270-280`, `O/YouRecApp.swift:90-110`) | Portrait only (`app/src/main/AndroidManifest.xml:22`); the recorded orientation follows the phone and is named on the status line (`aCC:114-127`, `aRS:163`) | **missing** | — |
+| O1 | The interface turns | Portrait and both landscapes; in landscape the three buttons form a rail at the end away from the cameras, and the bars keep out of the picture when it fits (`RV:100-104,141-255,270-280`, `O/YouRecApp.swift:90-110`) | Portrait only (`app/src/main/AndroidManifest.xml:22`); the recorded orientation follows the phone and is named on the status line (`aCC:114-127`, `aRS:163`) | **missing** | Done for issue 62 (decision 5): the activity turns, the take buttons form the rail, the take is recorded as the interface stands |
 | O2 | The orientation is fixed for the whole take | From the first Record to Stop, pauses included; later segments keep the first one's frame (`RV:135,350-355`, `CC:1207-1209,1364-1366,1462`, `O/CaptureSegmentWriter.swift:146-175`) | Fixed while a segment is written; free again while paused (`aCC:117`) | **differs** | A take can mix portrait and landscape segments |
 
 ### 1.11 Settings
@@ -323,7 +323,7 @@ what the original does, and it keeps `Project.kt` out of the recorder work.
 
 Manifest (`app/src/main/AndroidManifest.xml`): `CAMERA` (5), `RECORD_AUDIO` (6), `INTERNET`
 for the subtitle model only (8), any camera required (4), the activity locked to portrait
-(22). The original also declares motion use, for the horizon; Android needs no permission
+(22; no longer, since issue 62 and decision 5). The original also declares motion use, for the horizon; Android needs no permission
 for the gravity sensor. Nothing in this review requires a new permission.
 
 Strings: 56 `recorder_` keys in each of `values/strings.xml:428-484` and
@@ -483,7 +483,7 @@ can be used for that is to confirm. Recommendation in decision 9.
 | A4 | A long click on each tile opens a dialog with the text | — | — | exact |
 | H1 | `view.performHapticFeedback(…)`: `CLOCK_TICK` for steps and presets, `CONFIRM` for Mark and toggles | follows the system setting | `CLOCK_TICK` since 21; `CONFIRM` since 30, `VIRTUAL_KEY` before that | approximate (other motors, other strengths); no permission |
 | H2 | `semantics { selected = … }` on the chips, state descriptions on the record button | — | — | exact |
-| O1 | Either turn the controls in place from the orientation listener the controller already has (`aCC:114-127`), or let the activity turn (see decision 5) | — | 26 | the first is approximate, the second exact but much larger |
+| O1 | Either turn the controls in place from the orientation listener the controller already has (`aCC:114-127`), or let the activity turn (see decision 5). Decided: the activity turns, without being made again, and is held with `SCREEN_ORIENTATION_LOCKED` from Record to Stop | — | 26 | exact, except that the tabs and the status bar of the port are laid out for landscape (`docs/PARITY.md`, section 1) |
 | O2 | Add `Phase.Paused` to the guard at `aCC:117` | — | — | exact |
 | U1, U2 | A bottom sheet for the quick panel and a full-screen list for More settings; values in a small class over the `recorder` preferences | each row by its own gate | — | exact in content |
 
@@ -683,6 +683,12 @@ light, haptics, headset: about fifteen), one after each of 13, 14 and 15.
    the recorder and the editor and care that the camera is not rebuilt during a take.
    Recommended: turn the controls now; decide on the full version with the editor's
    landscape layout (`docs/PARITY.md:58`).
+   **Decided (issue 62): the full version.** The controls turned in place first; then the
+   maintainer approved the turning interface. The activity turns with the phone, except
+   upside down, as the original's, and handles the change itself (`configChanges`), so
+   nothing is made again: the camera, a take, the players and a tool's draft go on. The
+   recorder holds the activity as it stands from Record to Stop and records the take the
+   way the interface stands; the editor has the original's landscape layout.
 6. **HDR by default?** The original records HDR where it can. The port exports SDR only,
    so HDR takes would be tone-mapped at export and cost more storage for little gain today.
    Recommended: offer HDR where the phone has it, off by default, until export keeps HDR.

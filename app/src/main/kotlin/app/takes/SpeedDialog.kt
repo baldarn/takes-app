@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Slider
@@ -47,7 +49,8 @@ internal fun SpeedDialog(rate: Double, scope: String?, apply: (Double) -> Unit, 
         onDismissRequest = dismiss,
         title = { Text(stringResource(R.string.speed_title)) },
         text = {
-            Column {
+            // Scrolls where the screen is short, as in landscape.
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 scope?.let { Text(it, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp)) }
                 Text(speedLabel(chosen), fontSize = 34.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterHorizontally))
                 val steps = ((SpeedSettings.MAXIMUM_RATE - SpeedSettings.MINIMUM_RATE) / SpeedSettings.STEP).roundToInt() - 1
