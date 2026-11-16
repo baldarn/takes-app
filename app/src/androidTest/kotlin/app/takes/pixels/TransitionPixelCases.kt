@@ -344,7 +344,8 @@ class TransitionPixelCases(private val bench: Bench) {
         )
     } + Case("Whip pan and defocus: the time a frame takes at 3840x2160") { blurCost(3840, 2160) } +
         Case("Defocus in the preview: the decks spread, then the disc") { previewDefocus() } +
-        Case("Every preview shader compiles on this device") { previewCompiles() }
+        Case("Every preview shader compiles on this device") { previewCompiles() } +
+        PREVIEW_SIZES.map { (width, height) -> Case("Whip pan in the preview: no copies of a line on a view of ${width}x$height") { previewWhip(width, height) } }
 
     /**
      * Every program the preview runs, made as the editor makes them: the transition's and the layers' for every style
@@ -369,6 +370,53 @@ class TransitionPixelCases(private val bench: Bench) {
             effects++
         }
         note("transition and layer programs for modes ${SceneDrawing.SINGLE} to ${SceneDrawing.DEFOCUS} made, and $effects effect programs")
+    }
+
+    /**
+     * The preview's shader on a view of [width] × [height], as long as a phone's in portrait, one full screen or a
+     * tablet's: on a view longer than 960 pixels it takes fewer samples of the smear, more than a pixel apart, and
+     * spreads both decks along the axis first, so a line through a whip pan at its peak is one even streak, as in
+     * the export ([evenStreak]).
+     */
+    private fun Checks.previewWhip(width: Int, height: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return note("no preview shader below Android 13")
+        val settings = TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0)
+        val canvas = Size(width.toDouble(), height.toDouble())
+        val frame = TransitionPicture.frame(settings, 0.5, canvas)
+        val moment = app.takes.core.TransitionScene.Moment(
+            app.takes.core.TransitionScene.Source.Clip(0, 0, 0.0), app.takes.core.TransitionScene.Source.Clip(1, 1, 0.0), frame, 0.5, 0.5,
+        )
+        val drawing = SceneDrawing.of(moment, width.toFloat(), height.toFloat(), { (it as app.takes.core.TransitionScene.Source.Clip).deck.toFloat() }) { Rect(0.0, 0.0, canvas.width, canvas.height) }
+        val radius = drawing.blurRadius.toDouble()
+        note("radius %.1f px: %d samples, %.2f px apart, spread by %.2f px".format(
+            radius, TransitionGeometry.panSamples(radius, maxOf(width, height).toDouble()),
+            2 * radius / TransitionGeometry.panSamples(radius, maxOf(width, height).toDouble()), TransitionGeometry.panSpread(radius, maxOf(width, height).toDouble()),
+        ))
+        val decks = Bitmap.createBitmap(width, 2 * height, Bitmap.Config.ARGB_8888)
+        Canvas(decks).apply {
+            drawColor(Color.BLACK)
+            drawRect((width / 2 - 1).toFloat(), 0f, (width / 2 + 2).toFloat(), height.toFloat(), Paint().apply { color = Color.WHITE })
+        }
+        val reader = ImageReader.newInstance(width, 2 * height, PixelFormat.RGBA_8888, 1, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
+        val node = RenderNode("decks").apply {
+            setPosition(0, 0, width, 2 * height)
+            beginRecording().drawBitmap(decks, 0f, 0f, null)
+            endRecording()
+            setRenderEffect(TransitionPreviewShader().effect(drawing, width.toFloat(), height.toFloat()))
+        }
+        val renderer = HardwareRenderer().apply { setSurface(reader.surface); setContentRoot(node) }
+        try {
+            renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
+            val image = reader.acquireNextImage()
+            val drawn = Bitmap.wrapHardwareBuffer(checkNotNull(image.hardwareBuffer), null)!!.copy(Bitmap.Config.ARGB_8888, false)
+            image.close()
+            val row = IntArray(width) { drawn.getPixel(it, height / 2) }
+            evenStreak(Picture(width, height) { x, y -> if (y == height / 2) row[x] else 0 }, settings)
+        } finally {
+            renderer.destroy()
+            reader.close()
+            node.discardDisplayList()
+        }
     }
 
     /**
@@ -564,6 +612,9 @@ class TransitionPixelCases(private val bench: Bench) {
 
         /** The sizes the sample spacing of the two blurs is measured at. */
         val SIZES = listOf(1920 to 1080, 3840 to 2160)
+
+        /** The preview's views a whip pan is measured on: a phone's in portrait, one full screen in landscape, a tablet's. */
+        val PREVIEW_SIZES = listOf(1080 to 608, 1920 to 1080, 2560 to 1440)
 
         const val ALONE_LEVELS = 1.0
         const val MIX_LEVELS = 2.0

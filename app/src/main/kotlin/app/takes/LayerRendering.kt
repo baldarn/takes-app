@@ -258,9 +258,9 @@ object LayerShader {
 
 /**
  * The preview's side of the layer shader, on Android 13 and later. As
- * [TransitionPreviewShader] does for a sequence, it draws on the view, about
- * the size the original reduces a picture to before a blur, and spreads the
- * lanes of a pair in a defocus first, across and then down.
+ * [TransitionPreviewShader] does for a sequence, it draws on the view, at the
+ * view's size, and spreads the lanes of a pair first: along the axis of a
+ * whip pan, across and then down for a defocus.
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class LayerPreviewShader {
@@ -311,6 +311,17 @@ class LayerPreviewShader {
     fun effect(drawing: LayerDrawing, width: Float, height: Float, pairTitles: android.graphics.Shader? = null): RenderEffect {
         val frame = frame(drawing).set(drawing, width, height, pairTitles)
         val scene = drawing.scene
+        if (drawing.mixed && scene.mode == SceneDrawing.WHIP && scene.blurs) {
+            // On a view longer than 960 pixels the smear's samples lie more than a pixel apart: the lanes of the pair
+            // are spread along its axis first to fill the space between them, as for a defocus's disc.
+            val sigma = TransitionGeometry.panSpread(scene.blurRadius.toDouble(), maxOf(width, height).toDouble()).toFloat()
+            if (sigma < 0.25f) return frame
+            val vertical = scene.values[5] > 0.5f
+            val along = LayerDrawing.scene(
+                SceneDrawing(SceneDrawing.SPREAD, scene.kindA, scene.kindB, scene.fill, FloatArray(24).also { it[0] = sigma; it[1] = if (vertical) 0f else 1f; it[2] = if (vertical) 1f else 0f }),
+            )
+            return RenderEffect.createChainEffect(frame, down.set(along, width, height))
+        }
         if (!drawing.mixed || scene.mode != SceneDrawing.DEFOCUS || !scene.blurs) return frame
         // The shader takes half the samples of a disc on a picture longer than 1920 pixels.
         val samples = if (maxOf(width, height) > 1920f) TransitionGeometry.DEFOCUS_SAMPLES / 2 else TransitionGeometry.DEFOCUS_SAMPLES

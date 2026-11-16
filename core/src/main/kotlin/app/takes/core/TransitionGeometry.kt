@@ -1,6 +1,7 @@
 package app.takes.core
 
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
@@ -190,6 +191,39 @@ object TransitionGeometry {
 
     /** The standard deviation, in pixels, of the Gaussian a picture is spread by before a disc of [radius] pixels taken in [samples]. */
     fun defocusSpread(radius: Double, samples: Int = DEFOCUS_SAMPLES): Double = DEFOCUS_SPREAD * maxOf(0.0, radius) * kotlin.math.sqrt(Math.PI / samples)
+
+    /**
+     * The most samples the transition shader's smear takes (its `pan`): a
+     * pixel apart on a picture up to 960 pixels long, the most the export's
+     * reduced picture is ([blurScale]), and fewer on a longer one drawn in one
+     * pass, down to [PAN_FEWEST] at 3840 pixels, so its cost stays bounded.
+     */
+    const val PAN_SAMPLES = 128
+    const val PAN_FEWEST = 32
+
+    /** The samples the shader's smear of [radius] pixels to each side takes on a picture whose long side is [longSide] pixels. */
+    fun panSamples(radius: Double, longSide: Double): Int {
+        val most = floor(PAN_SAMPLES * 960.0 / maxOf(1.0, longSide)).toInt().coerceIn(PAN_FEWEST, PAN_SAMPLES)
+        return minOf(most, ceil(2 * radius).toInt())
+    }
+
+    /** The Gaussian's share of the spacing of the samples of a smear that fills the space between them, leaving it even to 2 %. */
+    const val PAN_SPREAD = 0.5
+
+    /**
+     * The standard deviation, in pixels, of the Gaussian a picture is spread
+     * by along the axis of a smear of [radius] pixels to each side, before a
+     * preview's view [longSide] pixels long is smeared in one pass: none
+     * where the samples lie a pixel apart or less, as on the export's reduced
+     * picture; else as wide as [PAN_SPREAD] of the space between them, so a
+     * line becomes one even streak and not copies of itself.
+     */
+    fun panSpread(radius: Double, longSide: Double): Double {
+        val samples = panSamples(radius, longSide)
+        if (samples <= 0) return 0.0
+        val spacing = 2 * radius / samples
+        return if (spacing <= 1.0) 0.0 else PAN_SPREAD * spacing
+    }
 
     const val SPLIT_EDGE = 0.15
     const val HITCHCOCK_FEATHER = 0.08

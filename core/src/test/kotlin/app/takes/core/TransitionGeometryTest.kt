@@ -215,6 +215,44 @@ class TransitionGeometryTest {
         assertEquals(1.0, TransitionGeometry.blurScale(100.0, Size(640.0, 360.0)), 0.0)
     }
 
+    // The shader's smear (app TransitionShader.TAIL `pan`): a pixel apart up to 128 samples on the export's reduced
+    // picture, at most 960 pixels long (YouRec/TransitionRenderer.swift:268-275); fewer on a preview's longer view.
+    @Test fun aSmearTakesFewerSamplesOnALongerPicture() {
+        assertEquals(20, TransitionGeometry.panSamples(10.0, 960.0))
+        assertEquals(128, TransitionGeometry.panSamples(100.0, 960.0))
+        assertEquals(113, TransitionGeometry.panSamples(100.0, 1080.0))
+        assertEquals(64, TransitionGeometry.panSamples(100.0, 1920.0))
+        assertEquals(48, TransitionGeometry.panSamples(200.0, 2560.0))
+        assertEquals(32, TransitionGeometry.panSamples(300.0, 3840.0))
+        assertEquals(32, TransitionGeometry.panSamples(300.0, 7680.0))
+        // On the export's reduced picture the samples are never more than a pixel apart: nothing to spread.
+        for (radius in listOf(0.0, 0.4, 10.0, 64.0, 200.0)) {
+            val uhd = Size(3840.0, 2160.0)
+            val (width, height) = TransitionGeometry.blurCanvas(uhd, TransitionGeometry.blurScale(radius, uhd))
+            val reduced = radius * width / 3840
+            assertEquals(0.0, TransitionGeometry.panSpread(reduced, maxOf(width, height).toDouble()), 0.0)
+        }
+    }
+
+    @Test fun aPreviewSpreadsWhatItSmearsSoTheSamplesDoNotShow() {
+        // A whip pan at its peak on the preview's views: a phone's in portrait, one full screen, a tablet's.
+        for (canvas in listOf(Size(1080.0, 608.0), Size(1920.0, 1080.0), Size(2560.0, 1440.0), Size(3840.0, 2160.0))) {
+            val radius = TransitionGeometry.whip(TransitionSettings(style = TransitionStyle.Whip), 0.5, canvas).blurRadius
+            val long = maxOf(canvas.width, canvas.height)
+            val n = TransitionGeometry.panSamples(radius, long)
+            val sigma = TransitionGeometry.panSpread(radius, long)
+            assertEquals("$canvas", 2 * radius / n * TransitionGeometry.PAN_SPREAD, sigma, 1e-9)
+            // A point spread by the Gaussian, then taken at the n samples of the smear: even along the streak.
+            val at = (0 until n).map { radius * ((it + 0.5) / n * 2 - 1) }
+            val streak = (0..200).map { step ->
+                val x = -0.8 * radius + 1.6 * radius * step / 200
+                at.sumOf { kotlin.math.exp(-0.5 * (x - it) * (x - it) / (sigma * sigma)) }
+            }
+            val ripple = (streak.max() - streak.min()) / streak.average()
+            assertTrue("$canvas: $n samples ${2 * radius / n} px apart, spread by $sigma, ripple $ripple", ripple <= 0.03)
+        }
+    }
+
     // YouRec/TransitionRenderer.swift:268-275: at most 960 pixels on the long side once reduced.
     @Test fun reducedPictureOfABlur() {
         val uhd = Size(3840.0, 2160.0)

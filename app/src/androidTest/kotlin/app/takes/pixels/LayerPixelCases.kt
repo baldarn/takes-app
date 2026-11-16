@@ -338,7 +338,50 @@ class LayerPixelCases(private val bench: Bench) {
             },
         )
     } + layers("whip pan and defocus under an overlay: the time a frame takes at 3840x2160") { blurCost(3840, 2160) } +
-        layers("a defocus in the preview: the lanes of the pair spread, then the disc, the picture in front sharp") { previewDefocus() }
+        layers("a defocus in the preview: the lanes of the pair spread, then the disc, the picture in front sharp") { previewDefocus() } +
+        layers("a whip pan in the preview on a view of 1920x1080: the lanes of the pair spread along it, one even streak") { previewWhip(1920, 1080) }
+
+    /**
+     * The preview's layer shader on a view of [width] × [height], one full screen: it takes fewer samples of the
+     * smear, more than a pixel apart, and spreads the lanes of the pair along its axis first, so a line through a whip
+     * pan at its peak is one even streak, as in the export ([evenStreak]).
+     */
+    private fun Checks.previewWhip(width: Int, height: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return note("no preview shader below Android 13")
+        val settings = TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0)
+        val canvas = FrameSize(width.toDouble(), height.toDouble())
+        val moment = app.takes.core.TransitionScene.Moment(
+            app.takes.core.TransitionScene.Source.Clip(0, 0, 0.0), app.takes.core.TransitionScene.Source.Clip(1, 1, 0.0),
+            app.takes.core.TransitionPicture.frame(settings, 0.5, canvas), 0.5, 0.5,
+        )
+        val scene = SceneDrawing.of(moment, width.toFloat(), height.toFloat(), { (it as app.takes.core.TransitionScene.Source.Clip).deck.toFloat() }) { Rect(0.0, 0.0, canvas.width, canvas.height) }
+        val drawing = LayerDrawing(scene, true, 0, FloatArray(LayerDrawing.MOST * LayerDrawing.STRIDE))
+        val lanes = Bitmap.createBitmap(width, 2 * height, Bitmap.Config.ARGB_8888)
+        Canvas(lanes).apply {
+            drawColor(Color.BLACK)
+            drawRect((width / 2 - 1).toFloat(), 0f, (width / 2 + 2).toFloat(), height.toFloat(), Paint().apply { color = Color.WHITE })
+        }
+        val reader = ImageReader.newInstance(width, 2 * height, PixelFormat.RGBA_8888, 1, HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)
+        val node = RenderNode("lanes").apply {
+            setPosition(0, 0, width, 2 * height)
+            beginRecording().drawBitmap(lanes, 0f, 0f, null)
+            endRecording()
+            setRenderEffect(LayerPreviewShader().effect(drawing, width.toFloat(), height.toFloat()))
+        }
+        val renderer = HardwareRenderer().apply { setSurface(reader.surface); setContentRoot(node) }
+        try {
+            renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw()
+            val image = reader.acquireNextImage()
+            val drawn = Bitmap.wrapHardwareBuffer(checkNotNull(image.hardwareBuffer), null)!!.copy(Bitmap.Config.ARGB_8888, false)
+            image.close()
+            val row = IntArray(width) { drawn.getPixel(it, height / 2) }
+            evenStreak(Picture(width, height) { x, y -> if (y == height / 2) row[x] else 0 }, settings)
+        } finally {
+            renderer.destroy()
+            reader.close()
+            node.discardDisplayList()
+        }
+    }
 
     /**
      * The preview's layer shader, compiled and run by the platform as the editor runs it, on a layer of three lanes:

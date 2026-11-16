@@ -227,7 +227,8 @@ object TransitionShader {
         // One side moved by an offset and blurred evenly along an axis, a radius to each side: in linear light. The
         // samples lie a pixel apart, up to 128 of them: on the reduced picture the export blurs, at most 960 pixels
         // long, a smear without gaps. A larger picture drawn in one pass (a preview's view longer than that) takes
-        // fewer, down to 32 at 3840 pixels, so its cost stays bounded.
+        // fewer, down to 32 at 3840 pixels, so its cost stays bounded (TransitionGeometry.panSamples); the preview
+        // has then spread it along the axis to fill the space between them (TransitionGeometry.panSpread).
         vec3 pan(float kind, vec2 q, vec2 offset, vec2 axis, float radius) {
             if (radius < 0.5) return lin(side(kind, q - offset));
             float most = clamp(floor(128.0 * 960.0 / max(uSize.x, uSize.y)), 32.0, 128.0);
@@ -460,10 +461,16 @@ object TransitionShader {
 
 /**
  * The preview's side of the shader, on Android 13 and later. It draws on the
- * view, whose picture is already about the size the original reduces a
- * picture to before a blur (960 pixels on its long side), so it is not
- * reduced; a defocus spreads both decks first, across and then down, each
- * pass an effect of its own under the frame's.
+ * view, at the view's size: a phone's in portrait is about the size the
+ * original reduces a picture to before a blur (960 pixels on its long side),
+ * one in landscape or full screen, or a tablet's, two or three times that.
+ * It is not reduced, as a render effect cannot change the size it draws at
+ * and the decks' views would have to be laid out smaller while they play.
+ * Instead the shader takes fewer samples of a blur on a longer view and the
+ * decks are spread first to fill the space between them, each pass an effect
+ * of its own under the frame's: along the axis of a whip pan
+ * ([TransitionGeometry.panSpread]), across and then down for the disc of a
+ * defocus ([TransitionGeometry.defocusSpread]).
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class TransitionPreviewShader {
@@ -490,6 +497,14 @@ class TransitionPreviewShader {
     /** The effect for a layer [width] pixels wide holding the two decks, each [height] pixels tall. */
     fun effect(drawing: SceneDrawing, width: Float, height: Float): RenderEffect {
         val frame = frame(drawing).set(drawing, width, height)
+        if (drawing.mode == SceneDrawing.WHIP && drawing.blurs) {
+            // On a view longer than 960 pixels the smear's samples lie more than a pixel apart: both decks are spread
+            // along its axis first to fill the space between them, as a defocus's are for its disc.
+            val sigma = TransitionGeometry.panSpread(drawing.blurRadius.toDouble(), maxOf(width, height).toDouble()).toFloat()
+            if (sigma < 0.25f) return frame
+            val vertical = drawing.values[5] > 0.5f
+            return RenderEffect.createChainEffect(frame, down.set(SceneDrawing.spread(0f, sigma, if (vertical) 0f else 1f, if (vertical) 1f else 0f), width, height))
+        }
         if (drawing.mode != SceneDrawing.DEFOCUS || !drawing.blurs) return frame
         // The shader takes half the samples of a disc on a picture longer than 1920 pixels.
         val samples = if (maxOf(width, height) > 1920f) TransitionGeometry.DEFOCUS_SAMPLES / 2 else TransitionGeometry.DEFOCUS_SAMPLES
