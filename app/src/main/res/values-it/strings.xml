@@ -154,6 +154,8 @@
     <string name="color_choose_another_lut">Scegli un\'altra LUT</string>
     <string name="color_use_look">Usa un Look</string>
     <string name="color_strength">Intensità</string>
+    <string name="color_highlights">Alte luci</string>
+    <string name="color_highlights_help">Regola i toni chiari prima del look. Sposta a sinistra per abbassarli.</string>
     <string name="color_exposure">Esposizione</string>
     <string name="color_warmth">Calore</string>
     <string name="color_tint">Tinta</string>
