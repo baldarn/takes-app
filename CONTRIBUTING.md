@@ -70,12 +70,16 @@ Before a pull request, run what the maintainer and the CI run:
   [`speech/README.md`](speech/README.md).
 - `app` has no host tests. Logic that can be tested goes into `core` as a pure
   function, and the screen calls it.
-- The pixels of the transition shader are checked by instrumented tests in
-  `app/src/androidTest`, on an emulator or a phone. They are not part of the CI; run them
-  when you change `TransitionRendering.kt`:
+- The pixels of the transition shader and of the effects are checked by instrumented
+  tests in `app/src/androidTest`, on an emulator or a phone. The CI runs them on an
+  emulator whose GL is SwiftShader, on the processor; run them yourself when you change
+  `TransitionRendering.kt` or an effect's shader. The script installs the debug build and
+  its test build, runs the tests and fails unless the report ends in OK (`am instrument`
+  alone exits with 0 even when tests fail). `ANDROID_SERIAL` picks the device when
+  several are attached, and `-e only <text>` runs the cases whose name contains the text:
 
-      ./gradlew :app:installDebug :app:installDebugAndroidTest
-      adb shell am instrument -w app.takes.dev.test/app.takes.pixels.TransitionPixelRunner
+      ./scripts/pixel-tests.sh
+      ./scripts/pixel-tests.sh -e only 'Wipe|Silent Tint'
 
 ## Where things live
 
@@ -167,7 +171,7 @@ Tidy fixup commits on your branch before the merge.
 
 - Pull requests are reviewed by the maintainer.
 - The CI (`.github/workflows/ci.yml`) must be green: it runs the command under
-  [Tests and lint](#tests-and-lint).
+  [Tests and lint](#tests-and-lint), and the pixel tests on an emulator.
 - Merging is "Rebase and merge": the history of `main` is linear, one commit per change.
   The branch is deleted after the merge.
 - `main` cannot be deleted or force-pushed.
