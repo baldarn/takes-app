@@ -44,8 +44,6 @@ import app.takes.core.PictureFraming
 import app.takes.core.matrixValues
 import app.takes.core.normalized
 import androidx.media3.effect.OverlayEffect
-import app.takes.core.AudioItem
-import app.takes.core.SoundEnvelope
 import app.takes.core.ExportCheckpoint
 import app.takes.core.ExportProgress
 import app.takes.core.ExportReceipt
@@ -104,20 +102,12 @@ import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.roundToLong
 
 /** A clip of a render plan as a player or export item, cut to the footage it plays: never later than the frame that begins there ([RenderPlan.cutMicros]). */
 fun clippedItem(picture: RenderPlan.Picture, file: File): MediaItem = MediaItem.Builder()
     .setUri(Uri.fromFile(file))
     .setMediaId(picture.id)
     .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(picture.sourceStartUs).setEndPositionUs(picture.sourceEndUs).build())
-    .build()
-
-/** A sound of a render plan's sound tracks as an export item, cut to the part of its source the movie plays. */
-fun clippedItem(sound: RenderPlan.Entry.Sound, file: File): MediaItem = MediaItem.Builder()
-    .setUri(Uri.fromFile(file))
-    .setMediaId(sound.item.id)
-    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(sound.sourceStartUs).setEndPositionUs(sound.sourceEndUs).build())
     .build()
 
 /**
@@ -213,17 +203,6 @@ class FramingEffect(private val clip: TimelineClip, private val begins: Double, 
         return matrix
     }
 }
-
-/** One audio item as a player or export item, cut to the part of its source it plays. */
-fun clippedItem(item: AudioItem, file: File, seconds: Double = item.duration): MediaItem = MediaItem.Builder()
-    .setUri(Uri.fromFile(file))
-    .setMediaId(item.id)
-    .setClippingConfiguration(
-        MediaItem.ClippingConfiguration.Builder()
-            .setStartPositionUs((item.sourceStart * 1e6).roundToLong())
-            .setEndPositionUs(((item.sourceStart + seconds) * 1e6).roundToLong())
-            .build(),
-    ).build()
 
 /** A black picture for the stretches of an export that have no clip, made once and kept with the app's temporary files. */
 fun blackStill(context: Context): File = File(context.cacheDir, "export-black.png").also { file ->

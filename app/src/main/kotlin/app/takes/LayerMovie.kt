@@ -8,7 +8,6 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
-import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
@@ -21,13 +20,11 @@ import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import app.takes.core.ExportSections
 import app.takes.core.LayerPlan
-import app.takes.core.LayerSound
 import app.takes.core.RenderPlan
 import app.takes.core.Size as FrameSize
 import app.takes.core.TimelineTransition
 import app.takes.core.TransitionScene
 import java.io.File
-import kotlin.math.roundToLong
 
 /** A picture of a layer plan as a player or export item, cut to the footage it plays, as [clippedItem] cuts a clip of a render plan. */
 fun clippedItem(picture: LayerPlan.Picture, file: File): MediaItem = MediaItem.Builder()
