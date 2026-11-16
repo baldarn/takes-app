@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CenterFocusWeak
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Lightbulb
@@ -63,6 +65,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
@@ -78,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.CaptureController.Phase
 import app.takes.core.CaptureFormat
+import app.takes.core.HorizonFraming
 import app.takes.core.Project
 import app.takes.core.ZoomTransition
 
@@ -167,6 +171,27 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
             ) { capture.chooseStabilization(!capture.settings.stabilization) }
         }
     }
+    if (capture.offersLevel) tiles.add { modifier ->
+        val on = capture.settings.levelHorizon && capture.canLevel
+        AssistTile(
+            stringResource(R.string.recorder_level), Icons.Filled.Straighten, on,
+            enabled = capture.canChangeFormat && capture.canLevel,
+            details = (if (capture.canLevel) "" else stringResource(R.string.recorder_level_rear_only) + "\n\n") + stringResource(R.string.recorder_level_help),
+            explain = { help = it }, modifier = modifier,
+        ) { capture.chooseLevelHorizon(!capture.settings.levelHorizon) }
+    }
+    tiles.add { modifier ->
+        val on = capture.settings.followFace
+        val status = if (on) stringResource(when (capture.followStatus) {
+            CameraFrames.FollowStatus.Searching -> R.string.recorder_follow_searching
+            CameraFrames.FollowStatus.Following -> R.string.recorder_follow_following
+            CameraFrames.FollowStatus.Holding -> R.string.recorder_follow_holding
+        }) + "\n\n" else if (!capture.canChangeFollow && capture.ready) stringResource(R.string.recorder_assist_paused_only) + "\n\n" else ""
+        AssistTile(
+            stringResource(R.string.recorder_follow), Icons.Filled.Face, on, enabled = capture.canChangeFollow,
+            details = status + stringResource(R.string.recorder_follow_help), explain = { help = it }, modifier = modifier,
+        ) { capture.chooseFollowFace(!capture.settings.followFace) }
+    }
     tiles.add { modifier ->
         // Needs nothing of the camera: the light is the display's.
         AssistTile(
@@ -243,6 +268,8 @@ private fun RecordingColor(capture: CaptureController) {
             capture.hasActiveTake -> R.string.recorder_color_note_pause
             !capture.ready -> R.string.recorder_color_note_not_ready
             !capture.offers.hdr -> R.string.recorder_color_note_sdr_only
+            // The level horizon and follow face draw the frames in 8 bits.
+            capture.settings.hdr && !hdr && capture.framesInRecording -> R.string.recorder_color_note_assist
             // Asked for, and this camera has it, but not in the size being recorded.
             capture.settings.hdr && !hdr -> R.string.recorder_color_note_size
             hdr -> R.string.recorder_color_note_hdr
@@ -264,6 +291,7 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
             SettingsRow { Text(project?.title ?: stringResource(R.string.recorder_new_project), color = Color.White) }
             SettingsRow { SettingsNote(stringResource(R.string.recorder_settings_captured, clock(project?.capturedDuration ?: 0.0))) }
         }
+        if (capture.offersLevel) LevelSettings(capture)
         if (capture.hasFrontCamera) {
             SettingsSection(stringResource(R.string.recorder_settings_picture)) {
                 // Changing either rebuilds the camera, which is done between segments, never under one.
@@ -401,4 +429,38 @@ internal fun zoomTimeName(seconds: Double): String =
 private fun clock(seconds: Double): String {
     val value = (if (seconds.isFinite()) seconds else 0.0).toLong().coerceAtLeast(0)
     return "%02d:%02d".format(value / 60, value % 60)
+}
+
+/** "Level horizon" in More settings: its largest angle, and how much that magnifies the picture. */
+@Composable
+private fun LevelSettings(capture: CaptureController) {
+    val settings = capture.settings
+    val enabled = capture.ready && !capture.hasActiveTake && capture.canLevel
+    SettingsSection(stringResource(R.string.recorder_level)) {
+        val angle = stringResource(R.string.recorder_level_degrees, java.text.NumberFormat.getNumberInstance().apply { maximumFractionDigits = 1 }.format(settings.horizonDegrees))
+        val label = stringResource(R.string.recorder_level_max_angle)
+        SettingsRow(Modifier.alpha(if (enabled) 1f else 0.4f)) {
+            Text(label, color = Color.White, modifier = Modifier.weight(1f))
+            Text(angle, color = SettingsCyan, fontWeight = FontWeight.SemiBold)
+        }
+        SettingsRow(Modifier.alpha(if (enabled) 1f else 0.4f)) {
+            val view = LocalView.current
+            androidx.compose.material3.Slider(
+                settings.horizonDegrees.toFloat(),
+                { value -> val before = settings.horizonDegrees; capture.chooseHorizonDegrees(value.toDouble()); if (settings.horizonDegrees != before) view.tick() },
+                Modifier.weight(1f).semantics { contentDescription = label; stateDescription = angle },
+                enabled = enabled,
+                valueRange = HorizonFraming.MINIMUM_DEGREES.toFloat()..HorizonFraming.MAXIMUM_DEGREES.toFloat(),
+                colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = SettingsCyan),
+            )
+        }
+        // The magnification at the size recorded, 16:9.
+        val scale = "%.2f".format(HorizonFraming.scale(settings.horizonDegrees, app.takes.core.Size(16.0, 9.0)))
+        SettingsRow {
+            SettingsNote(
+                stringResource(if (settings.levelHorizon) R.string.recorder_level_framing else R.string.recorder_level_framing_off, scale) + "\n" +
+                    stringResource(R.string.recorder_level_note),
+            )
+        }
+    }
 }

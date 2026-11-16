@@ -154,4 +154,31 @@
     <string name="recorder_unfinished_delete">Delete recording</string>
     <string name="recorder_unfinished_notice">An unfinished recording could not be opened. Its original files are available to save.</string>
     <string name="recorder_unfinished_save_failed">The file could not be saved: %1$s</string>
+    <!-- Frame assists: level horizon, follow face, focus peaking. -->
+    <string name="recorder_level">Level horizon</string>
+    <string name="recorder_level_help">Keeps small tilts level on rear cameras using a fixed crop. Adjust Max angle in More settings before a take or while paused.</string>
+    <string name="recorder_level_rear_only">Level horizon works with the rear cameras.</string>
+    <string name="recorder_level_max_angle">Max angle</string>
+    <string name="recorder_level_degrees">%1$s°</string>
+    <string name="recorder_level_framing">%1$s× framing</string>
+    <string name="recorder_level_framing_off">%1$s× framing · Level horizon is off</string>
+    <string name="recorder_level_note">Choose it before a take or while paused. A larger angle crops more of the picture.</string>
+    <string name="recorder_follow">Follow face</string>
+    <string name="recorder_follow_help">Follows a face across the wide view of this lens, using your selected zoom to frame it. At the widest setting, a small crop leaves room to pan. If the face leaves, framing holds.</string>
+    <string name="recorder_follow_searching">Looking for a face</string>
+    <string name="recorder_follow_following">Following face</string>
+    <string name="recorder_follow_holding">Holding last framing</string>
+    <string name="recorder_assist_paused_only">Turn this on before a take or while paused.</string>
+    <string name="recorder_color_note_assist">Level horizon and Follow face record in SDR.</string>
+    <string name="recorder_frames_failed">The camera could not be used with Level horizon, Follow face or Focus peaking. They are off.</string>
+    <string name="recorder_peaking_on">Focus peaking on</string>
+    <string name="recorder_peaking_off">Focus peaking off</string>
+    <string name="recorder_peaking_toggle">Toggle focus peaking</string>
+    <string name="recorder_peaking_value">%1$s · Peaking on</string>
+    <string name="recorder_peaking_paused_only">Focus peaking can be turned on before a take or while paused.</string>
+    <!-- Recording gain, in the microphone panel. -->
+    <string name="recorder_gain">Recording gain</string>
+    <string name="recorder_gain_value">%1$s dB</string>
+    <string name="recorder_gain_reset">Reset to 0</string>
+    <string name="recorder_gain_note">Changes the volume of new recordings, including during a take. Remembered for each microphone. The level is given to each new clip, where the editor can change it again. Red means the signal may distort; lowering gain cannot repair distortion already present in the microphone.</string>
 </resources>

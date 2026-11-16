@@ -1,0 +1,497 @@
+package app.takes
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.PointF
+import android.graphics.SurfaceTexture
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.media.FaceDetector
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLExt
+import android.opengl.EGLSurface
+import android.opengl.GLES11Ext
+import android.opengl.GLES20
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.SystemClock
+import android.view.Surface
+import androidx.camera.core.CameraEffect
+import androidx.camera.core.SurfaceOutput
+import androidx.camera.core.SurfaceProcessor
+import androidx.camera.core.SurfaceRequest
+import androidx.core.os.HandlerCompat
+import app.takes.core.Affine
+import app.takes.core.DualCameraLayout
+import app.takes.core.FaceFraming
+import app.takes.core.FaceTarget
+import app.takes.core.HorizonEstimate
+import app.takes.core.HorizonFraming
+import app.takes.core.HorizonLine
+import app.takes.core.Rect
+import app.takes.core.SingleCameraCrop
+import app.takes.core.Size
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+/**
+ * The recorder's own pass over each camera frame, for what the original does to its frames: the level horizon
+ * turns and crops them, follow face crops them around a face, and focus peaking marks sharp edges in the preview.
+ * It is put between the camera and its outputs only while one of these is on: otherwise the camera library's
+ * own path records the take, untouched.
+ *
+ * Everything is worked out in the camera's own picture, as it arrives (`tc` below, top-left fractions), and each
+ * output maps that picture its own way, so the preview and the recording show the same framing.
+ *
+ * The frames are drawn with OpenGL ES 2 on a thread of their own. Faces are found with the platform's
+ * [FaceDetector] on a small copy of the picture, a few times a second, off that thread.
+ */
+class CameraFrames(context: Context) : SurfaceProcessor {
+    /** What the frames are to do; set from the main thread, read with each frame. */
+    data class Assists(
+        /** The largest angle of the level horizon, or null when it is off. */
+        val levelDegrees: Double? = null,
+        val follow: Boolean = false,
+        val peaking: Boolean = false,
+        /** The camera already steadies the picture. */
+        val stabilized: Boolean = false,
+        /** Degrees the camera's picture turns clockwise to stand as it is recorded. */
+        val upright: Int = 90,
+        /** The zoom the lens delivers, its widest, and the zoom chosen when the crop makes it (follow face). */
+        val inputZoom: Double = 1.0,
+        val minimumZoom: Double = 1.0,
+        val selectedZoom: Double? = null,
+    )
+
+    enum class FollowStatus { Searching, Following, Holding }
+
+    @Volatile var assists = Assists()
+    /** Called on the main thread when the face follow finds, holds or loses its face. */
+    @Volatile var onFollowStatus: ((FollowStatus) -> Unit)? = null
+
+    private val thread = HandlerThread("camera-frames").apply { start() }
+    private val handler = HandlerCompat.createAsync(thread.looper)
+    private val main = Handler(context.mainLooper)
+    val executor: Executor = Executor { handler.post(it) }
+    private val analysis = Executors.newSingleThreadExecutor { Thread(it, "camera-frames-analysis") }
+
+    // MARK: Gravity, for the level horizon.
+
+    private val sensors = context.getSystemService(SensorManager::class.java)
+    private val gravitySensor: Sensor? = sensors?.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: sensors?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    /** The phone can tell which way is down. */
+    val levelAvailable: Boolean get() = gravitySensor != null
+    @Volatile private var gravity: FloatArray? = null
+    @Volatile private var gravityAt = 0L
+    private var listening = false
+    private val gravityListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            gravity = floatArrayOf(event.values[0], event.values[1])
+            gravityAt = SystemClock.elapsedRealtimeNanos()
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
+
+    /** Listens to gravity while the level horizon is on. Main thread. */
+    fun listenToGravity(on: Boolean) {
+        if (on == listening || gravitySensor == null) return
+        listening = on
+        if (on) sensors?.registerListener(gravityListener, gravitySensor, SensorManager.SENSOR_DELAY_GAME, handler)
+        else { sensors?.unregisterListener(gravityListener); gravity = null }
+    }
+
+    /** The effect to bind with the use cases, for [targets] of [CameraEffect]. */
+    fun effect(targets: Int): CameraEffect = object : CameraEffect(targets, executor, this, { _ -> }) {}
+
+    // MARK: OpenGL
+
+    private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
+    private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
+    private var config: EGLConfig? = null
+    private var idle: EGLSurface = EGL14.EGL_NO_SURFACE
+    private var program = 0
+    private var texture = 0
+    private var input: SurfaceTexture? = null
+    private var inputSurface: Surface? = null
+    private var inputSize = android.util.Size(1920, 1080)
+    private val textureMatrix = FloatArray(16)
+    private val outputMatrix = FloatArray(16)
+
+    private class Output(val output: SurfaceOutput, val surface: EGLSurface, val video: Boolean)
+    private val outputs = mutableListOf<Output>()
+
+    private fun setUp() {
+        if (display != EGL14.EGL_NO_DISPLAY) return
+        display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        val version = IntArray(2)
+        EGL14.eglInitialize(display, version, 0, version, 1)
+        val attributes = intArrayOf(
+            EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL_RECORDABLE_ANDROID, 1,
+            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT or EGL14.EGL_PBUFFER_BIT, EGL14.EGL_NONE,
+        )
+        val configs = arrayOfNulls<EGLConfig>(1)
+        val found = IntArray(1)
+        EGL14.eglChooseConfig(display, attributes, 0, configs, 0, 1, found, 0)
+        config = configs[0] ?: error("No EGL configuration")
+        eglContext = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0)
+        idle = EGL14.eglCreatePbufferSurface(display, config, intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
+        EGL14.eglMakeCurrent(display, idle, idle, eglContext)
+        program = link(VERTEX, FRAGMENT)
+        val names = IntArray(1)
+        GLES20.glGenTextures(1, names, 0)
+        texture = names[0]
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture)
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+    }
+
+    private fun link(vertex: String, fragment: String): Int {
+        fun shader(type: Int, source: String) = GLES20.glCreateShader(type).also {
+            GLES20.glShaderSource(it, source)
+            GLES20.glCompileShader(it)
+            val ok = IntArray(1)
+            GLES20.glGetShaderiv(it, GLES20.GL_COMPILE_STATUS, ok, 0)
+            if (ok[0] == 0) error("Shader: " + GLES20.glGetShaderInfoLog(it))
+        }
+        return GLES20.glCreateProgram().also {
+            GLES20.glAttachShader(it, shader(GLES20.GL_VERTEX_SHADER, vertex))
+            GLES20.glAttachShader(it, shader(GLES20.GL_FRAGMENT_SHADER, fragment))
+            GLES20.glLinkProgram(it)
+        }
+    }
+
+    override fun onInputSurface(request: SurfaceRequest) {
+        setUp()
+        input?.release()
+        inputSurface?.release()
+        inputSize = request.resolution
+        val surfaceTexture = SurfaceTexture(texture).apply { setDefaultBufferSize(inputSize.width, inputSize.height) }
+        val surface = Surface(surfaceTexture)
+        input = surfaceTexture
+        inputSurface = surface
+        restart()
+        surfaceTexture.setOnFrameAvailableListener({ draw(it) }, handler)
+        request.provideSurface(surface, executor) {
+            surfaceTexture.setOnFrameAvailableListener(null)
+            surfaceTexture.release()
+            surface.release()
+            if (input === surfaceTexture) { input = null; inputSurface = null }
+        }
+    }
+
+    override fun onOutputSurface(output: SurfaceOutput) {
+        setUp()
+        val surface = output.getSurface(executor) { event ->
+            if (event.eventCode == SurfaceOutput.Event.EVENT_REQUEST_CLOSE) {
+                outputs.firstOrNull { it.output === output }?.let { remove(it) }
+                output.close()
+            }
+        }
+        val egl = EGL14.eglCreateWindowSurface(display, config, surface, intArrayOf(EGL14.EGL_NONE), 0)
+        outputs += Output(output, egl, output.targets and CameraEffect.VIDEO_CAPTURE != 0)
+    }
+
+    private fun remove(output: Output) {
+        outputs.remove(output)
+        EGL14.eglMakeCurrent(display, idle, idle, eglContext)
+        EGL14.eglDestroySurface(display, output.surface)
+    }
+
+    // MARK: Each frame
+
+    private var horizon = HorizonEstimate()
+    private var framing = DualCameraLayout.Framing()
+    private var reserve = 1.0
+    private var target = FaceTarget()
+    private var status = FollowStatus.Searching
+    private var previousTime: Double? = null
+    private var lastLevel: Double? = null
+    private var lastFollow = false
+    private var lastAnalysis = Double.NEGATIVE_INFINITY
+    private var analysing = false
+    private var generation = 0
+
+    /** A new picture, camera or turn: the framing starts afresh. */
+    private fun restart() {
+        generation++
+        horizon = HorizonEstimate()
+        framing = DualCameraLayout.Framing()
+        target = FaceTarget()
+        previousTime = null
+        setStatus(FollowStatus.Searching)
+    }
+
+    private fun setStatus(next: FollowStatus) {
+        if (status == next) return
+        status = next
+        main.post { onFollowStatus?.invoke(next) }
+    }
+
+    private fun draw(surfaceTexture: SurfaceTexture) {
+        if (surfaceTexture !== input) return
+        EGL14.eglMakeCurrent(display, idle, idle, eglContext)
+        surfaceTexture.updateTexImage()
+        surfaceTexture.getTransformMatrix(textureMatrix)
+        val now = SystemClock.elapsedRealtimeNanos() / 1e9
+        val effect = transform(now)
+        val wanted = assists
+        for (output in outputs.toList()) {
+            if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, eglContext)) continue
+            output.output.updateTransformMatrix(outputMatrix, textureMatrix)
+            GLES20.glViewport(0, 0, output.output.size.width, output.output.size.height)
+            render(outputMatrix, effect, peaking = wanted.peaking && !output.video)
+            if (output.video) EGLExt.eglPresentationTimeANDROID(display, output.surface, surfaceTexture.timestamp)
+            EGL14.eglSwapBuffers(display, output.surface)
+        }
+    }
+
+    /** From the frame's picture to the camera's, in top-left fractions of the camera's picture. */
+    private fun transform(now: Double): Affine {
+        val wanted = assists
+        val dt = SingleCameraCrop.elapsed(previousTime, now)
+        if (SingleCameraCrop.restarts(true, previousTime, now)) restart()
+        previousTime = now
+        val size = Size(inputSize.width.toDouble(), inputSize.height.toDouble())
+        // The level horizon, from gravity and now and then the picture.
+        var level: HorizonFraming? = null
+        val maximum = wanted.levelDegrees
+        if (maximum != lastLevel) { horizon = HorizonEstimate(); lastLevel = maximum }
+        if (maximum != null) {
+            val g = gravity?.takeIf { SystemClock.elapsedRealtimeNanos() - gravityAt < 250_000_000L }
+            // The platform's gravity points up from the ground, the original's down; both in units of g there.
+            val roll = g?.let { HorizonEstimate.roll(-it[0] / SensorManager.GRAVITY_EARTH.toDouble(), -it[1] / SensorManager.GRAVITY_EARTH.toDouble(), 90.0, false) }
+            val angle = horizon.correction(roll, now, maximum, wanted.stabilized)
+            level = HorizonFraming(angle, HorizonFraming.scale(maximum, size))
+            if (roll != null && abs(roll) < 13 * Math.PI / 180) analyse(now, roll, wanted, level = true)
+        }
+        // Follow face: a crop of the picture that eases toward the face.
+        if (wanted.follow != lastFollow) { lastFollow = wanted.follow; target = FaceTarget(); setStatus(FollowStatus.Searching) }
+        reserve = SingleCameraCrop.reserve(reserve, wanted.follow, manual = false, dt = dt)
+        framing = framing.copy(zoom = SingleCameraCrop.zoom(wanted.inputZoom, wanted.selectedZoom, wanted.minimumZoom, reserve))
+        if (wanted.follow) {
+            analyse(now, null, wanted, level = false)
+            val face = target.current(now)
+            setStatus(if (face != null) FollowStatus.Following else if (status == FollowStatus.Searching) FollowStatus.Searching else FollowStatus.Holding)
+            framing = FaceFraming.follow(face, size, Rect(0.0, 0.0, size.width, size.height), framing, dt)
+        } else if (reserve <= 1.0 && wanted.selectedZoom == null) {
+            // Back to the whole picture, centred, for the next time.
+            framing = DualCameraLayout.Framing()
+        }
+        val crop = SingleCameraCrop.crop(framing, null, wanted.inputZoom, wanted.minimumZoom, 0.0, false).rectangle
+        val mapping = Affine(crop.width, 0.0, 0.0, crop.height, crop.minX, crop.minY)
+        return level?.sourceTransform(size)?.concatenating(mapping) ?: mapping
+    }
+
+    // MARK: Looking at the picture
+
+    private var faceDetector: FaceDetector? = null
+    private var faceSize = android.util.Size(0, 0)
+
+    /**
+     * Copies a small picture now and then and looks at it off this thread: a long straight edge for the level
+     * horizon, at most every quarter of a second, and faces for the follow, at most five times a second.
+     */
+    private fun analyse(now: Double, roll: Double?, wanted: Assists, level: Boolean) {
+        if (analysing || now - lastAnalysis < (if (level) 0.24 else 0.2)) return
+        analysing = true
+        lastAnalysis = now
+        val long = if (level && !wanted.follow) 256 else 480
+        val width = (if (inputSize.width >= inputSize.height) long else long * inputSize.width / inputSize.height) and 1.inv()
+        val height = (if (inputSize.width >= inputSize.height) long * inputSize.height / inputSize.width else long) and 1.inv()
+        val pixels = readBack(width, height)
+        val token = generation
+        analysis.execute {
+            val luma = if (wanted.levelDegrees != null && roll != null) ByteArray(width * height) { i ->
+                val p = i * 4
+                (((pixels.get(p).toInt() and 0xFF) * 54 + (pixels.get(p + 1).toInt() and 0xFF) * 183 + (pixels.get(p + 2).toInt() and 0xFF) * 19) shr 8).toByte()
+            } else null
+            val line = luma?.let { sample(it, width, height, wanted.upright) }
+            val faces = if (wanted.follow) faces(pixels, width, height, wanted.upright) else emptyList()
+            handler.post {
+                analysing = false
+                if (token != generation) return@post
+                if (roll != null && luma != null) horizon.observe(line, roll, now)
+                if (wanted.follow) target = target.observing(faces, now)
+            }
+        }
+    }
+
+    /** The straight edge, on the picture at most 256 wide, turned as it is recorded. */
+    private fun sample(luma: ByteArray, width: Int, height: Int, upright: Int): Double? {
+        val ratio = min(1.0, 256.0 / max(width, height))
+        val w = (width * ratio).toInt()
+        val h = (height * ratio).toInt()
+        val small = if (ratio >= 1.0) luma else ByteArray(w * h) { i -> luma[(i / w) * height / h * width + (i % w) * width / w] }
+        return if (upright % 180 != 0) HorizonLine.estimateSideways(small, w, h) else HorizonLine.estimate(small, w, h)
+    }
+
+    /** The faces in the picture, as boxes in fractions of the camera's picture. */
+    private fun faces(pixels: ByteBuffer, width: Int, height: Int, upright: Int): List<Rect> {
+        val colours = IntArray(width * height)
+        for (i in colours.indices) {
+            val p = i * 4
+            colours[i] = (0xFF shl 24) or ((pixels.get(p).toInt() and 0xFF) shl 16) or ((pixels.get(p + 1).toInt() and 0xFF) shl 8) or (pixels.get(p + 2).toInt() and 0xFF)
+        }
+        val picture = Bitmap.createBitmap(colours, width, height, Bitmap.Config.ARGB_8888)
+        // The detector finds faces standing up, in pictures stored in 16 bits.
+        val turned = Bitmap.createBitmap(picture, 0, 0, width, height, android.graphics.Matrix().apply { postRotate(upright.toFloat()) }, false)
+            .copy(Bitmap.Config.RGB_565, false)
+        val w = turned.width and 1.inv()
+        val h = turned.height
+        if (faceDetector == null || faceSize.width != w || faceSize.height != h) {
+            faceDetector = FaceDetector(w, h, MAX_FACES)
+            faceSize = android.util.Size(w, h)
+        }
+        val input = if (turned.width == w) turned else Bitmap.createBitmap(turned, 0, 0, w, h)
+        val found = arrayOfNulls<FaceDetector.Face>(MAX_FACES)
+        val count = runCatching { faceDetector!!.findFaces(input, found) }.getOrDefault(0)
+        val middle = PointF()
+        return (0 until count).mapNotNull { index ->
+            val face = found[index]?.takeIf { it.confidence() >= FaceDetector.Face.CONFIDENCE_THRESHOLD } ?: return@mapNotNull null
+            face.getMidPoint(middle)
+            val eyes = face.eyesDistance().toDouble()
+            // From the eyes to a box around the face, on the picture standing up.
+            val box = Rect((middle.x - eyes * 1.1) / w, (middle.y - eyes * 0.9) / h, eyes * 2.2 / w, eyes * 2.6 / h)
+            camera(box, upright)
+        }
+    }
+
+    /** A box on the picture standing up, turned back into the camera's picture. */
+    private fun camera(box: Rect, upright: Int): Rect {
+        fun back(x: Double, y: Double): Pair<Double, Double> = when ((upright % 360 + 360) % 360) {
+            90 -> y to 1 - x
+            180 -> 1 - x to 1 - y
+            270 -> 1 - y to x
+            else -> x to y
+        }
+        val corners = listOf(back(box.minX, box.minY), back(box.maxX, box.maxY))
+        val minX = min(corners[0].first, corners[1].first)
+        val minY = min(corners[0].second, corners[1].second)
+        return Rect(minX, minY, abs(corners[0].first - corners[1].first), abs(corners[0].second - corners[1].second))
+    }
+
+    private var frameBuffer = 0
+    private var frameTexture = 0
+    private var frameSize = android.util.Size(0, 0)
+
+    /** The camera's picture as it arrives, [width] by [height], rows from the top, four bytes a pixel. */
+    private fun readBack(width: Int, height: Int): ByteBuffer {
+        if (frameSize.width != width || frameSize.height != height) {
+            if (frameBuffer != 0) {
+                GLES20.glDeleteFramebuffers(1, intArrayOf(frameBuffer), 0)
+                GLES20.glDeleteTextures(1, intArrayOf(frameTexture), 0)
+            }
+            val names = IntArray(1)
+            GLES20.glGenTextures(1, names, 0)
+            frameTexture = names[0]
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, frameTexture)
+            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+            GLES20.glGenFramebuffers(1, names, 0)
+            frameBuffer = names[0]
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer)
+            GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, frameTexture, 0)
+            frameSize = android.util.Size(width, height)
+        }
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer)
+        GLES20.glViewport(0, 0, width, height)
+        // The first row drawn, at the bottom, is the picture's top row, and the first row read back.
+        render(IDENTITY, Affine(1.0, 0.0, 0.0, 1.0, 0.0, 0.0), peaking = false)
+        val pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+        GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        return pixels
+    }
+
+    private fun render(output: FloatArray, effect: Affine, peaking: Boolean) {
+        GLES20.glUseProgram(program)
+        val position = GLES20.glGetAttribLocation(program, "aPosition")
+        val coordinate = GLES20.glGetAttribLocation(program, "aCoordinate")
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 0, QUAD)
+        GLES20.glEnableVertexAttribArray(coordinate)
+        GLES20.glVertexAttribPointer(coordinate, 2, GLES20.GL_FLOAT, false, 0, CORNERS)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uOutput"), 1, false, output, 0)
+        val columns = floatArrayOf(
+            effect.a.toFloat(), effect.b.toFloat(), 0f,
+            effect.c.toFloat(), effect.d.toFloat(), 0f,
+            effect.tx.toFloat(), effect.ty.toFloat(), 1f,
+        )
+        GLES20.glUniformMatrix3fv(GLES20.glGetUniformLocation(program, "uEffect"), 1, false, columns, 0)
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uTexel"), 1f / inputSize.width, 1f / inputSize.height)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPeaking"), if (peaking) 1 else 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uTexture"), 0)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+    }
+
+    private companion object {
+        const val EGL_RECORDABLE_ANDROID = 0x3142
+        const val MAX_FACES = 4
+        val IDENTITY = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
+
+        fun buffer(vararg values: Float): FloatBuffer =
+            ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
+
+        val QUAD = buffer(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
+        val CORNERS = buffer(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)
+
+        const val VERTEX = """
+            attribute vec4 aPosition;
+            attribute vec4 aCoordinate;
+            uniform mat4 uOutput;
+            varying vec2 vCoordinate;
+            void main() {
+                gl_Position = aPosition;
+                vCoordinate = (uOutput * aCoordinate).xy;
+            }
+        """
+
+        // Focus peaking as the original's `recorderFocusPeaking` (VideoEffects.metal): a sharp edge is a strong
+        // gradient with high-frequency detail, extended by one pixel, mixed into the picture in red.
+        const val FRAGMENT = """
+            #extension GL_OES_EGL_image_external : require
+            precision highp float;
+            uniform samplerExternalOES uTexture;
+            uniform mat3 uEffect;
+            uniform vec2 uTexel;
+            uniform int uPeaking;
+            varying vec2 vCoordinate;
+            float luma(vec2 p) { return dot(texture2D(uTexture, p).rgb, vec3(0.2126, 0.7152, 0.0722)); }
+            float sharp(vec2 p) {
+                float l = luma(p - vec2(uTexel.x, 0.0));
+                float r = luma(p + vec2(uTexel.x, 0.0));
+                float t = luma(p - vec2(0.0, uTexel.y));
+                float b = luma(p + vec2(0.0, uTexel.y));
+                float c = luma(p);
+                float gradient = length(vec2(r - l, b - t));
+                float detail = max(abs(l + r - 2.0 * c), abs(t + b - 2.0 * c));
+                return smoothstep(0.065, 0.16, gradient) * smoothstep(0.017, 0.06, detail);
+            }
+            void main() {
+                vec2 p = (uEffect * vec3(vCoordinate, 1.0)).xy;
+                vec4 colour = texture2D(uTexture, p);
+                if (uPeaking == 1) {
+                    float strength = max(sharp(p), 0.9 * max(sharp(p + vec2(uTexel.x, 0.0)), sharp(p + vec2(0.0, uTexel.y))));
+                    colour.rgb = mix(colour.rgb, vec3(1.0, 0.045, 0.025), strength);
+                }
+                gl_FragColor = colour;
+            }
+        """
+    }
+}

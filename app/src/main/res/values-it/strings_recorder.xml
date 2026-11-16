@@ -154,4 +154,31 @@
     <string name="recorder_unfinished_delete">Elimina la registrazione</string>
     <string name="recorder_unfinished_notice">Non è stato possibile aprire una registrazione incompleta. I suoi file originali si possono salvare.</string>
     <string name="recorder_unfinished_save_failed">Non è stato possibile salvare il file: %1$s</string>
+    <!-- Frame assists: level horizon, follow face, focus peaking. -->
+    <string name="recorder_level">Livella orizzonte</string>
+    <string name="recorder_level_help">Mantiene in piano le piccole inclinazioni con le camere posteriori, con un ritaglio fisso. Regola l\'angolo massimo in Altre impostazioni prima di una ripresa o durante una pausa.</string>
+    <string name="recorder_level_rear_only">La livella dell\'orizzonte funziona con le camere posteriori.</string>
+    <string name="recorder_level_max_angle">Angolo massimo</string>
+    <string name="recorder_level_degrees">%1$s°</string>
+    <string name="recorder_level_framing">Inquadratura %1$s×</string>
+    <string name="recorder_level_framing_off">Inquadratura %1$s× · Livella orizzonte spenta</string>
+    <string name="recorder_level_note">Sceglilo prima di una ripresa o durante una pausa. Un angolo più grande ritaglia di più l\'immagine.</string>
+    <string name="recorder_follow">Segui volto</string>
+    <string name="recorder_follow_help">Segue un volto in tutta la vista ampia di questo obiettivo, inquadrandolo con lo zoom scelto. Allo zoom minimo un piccolo ritaglio lascia spazio per spostarsi. Se il volto esce, l\'inquadratura resta ferma.</string>
+    <string name="recorder_follow_searching">Cerco un volto</string>
+    <string name="recorder_follow_following">Segue il volto</string>
+    <string name="recorder_follow_holding">Inquadratura ferma sull\'ultima posizione</string>
+    <string name="recorder_assist_paused_only">Attivalo prima di una ripresa o durante una pausa.</string>
+    <string name="recorder_color_note_assist">Livella orizzonte e Segui volto registrano in SDR.</string>
+    <string name="recorder_frames_failed">Non è stato possibile usare la camera con Livella orizzonte, Segui volto o Focus peaking. Sono spenti.</string>
+    <string name="recorder_peaking_on">Focus peaking attivo</string>
+    <string name="recorder_peaking_off">Focus peaking spento</string>
+    <string name="recorder_peaking_toggle">Attiva o spegni il focus peaking</string>
+    <string name="recorder_peaking_value">%1$s · Peaking attivo</string>
+    <string name="recorder_peaking_paused_only">Il focus peaking si attiva prima di una ripresa o durante una pausa.</string>
+    <!-- Guadagno di registrazione, nel pannello del microfono. -->
+    <string name="recorder_gain">Guadagno di registrazione</string>
+    <string name="recorder_gain_value">%1$s dB</string>
+    <string name="recorder_gain_reset">Riporta a 0</string>
+    <string name="recorder_gain_note">Cambia il volume delle nuove registrazioni, anche durante una ripresa. Ricordato per ogni microfono. Il livello va a ogni nuova clip, dove l\'editor può cambiarlo di nuovo. Il rosso indica che il segnale può distorcere; abbassare il guadagno non ripara la distorsione già presente nel microfono.</string>
 </resources>

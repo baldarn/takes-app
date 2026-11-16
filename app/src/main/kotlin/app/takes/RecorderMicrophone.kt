@@ -1,5 +1,10 @@
 package app.takes
 
+import app.takes.core.RecordingGain
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -132,7 +137,7 @@ private fun MeterBars(capture: CaptureController) {
 
 /**
  * What the control opens: the level in dBFS with "Clipping" and "No signal", and the microphones.
- * The original's panel also sets the recording gain, which the camera library's recorder does not take.
+ * and the recording gain of the microphone in use, as the original's panel.
  */
 @Composable
 private fun MicrophonePanel(capture: CaptureController, close: () -> Unit) {
@@ -157,6 +162,7 @@ private fun MicrophonePanel(capture: CaptureController, close: () -> Unit) {
                 color = if (shown.clipping) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        RecordingGainControls(capture, shown.clipping)
     }
     // A running segment keeps its microphone: the choice is for the next one.
     val free = capture.phase == Phase.Idle || capture.phase == Phase.Paused
@@ -171,5 +177,35 @@ private fun MicrophonePanel(capture: CaptureController, close: () -> Unit) {
             stringResource(R.string.recorder_settings_microphone_busy), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).width(250.dp),
         )
+    }
+}
+
+/**
+ * The recording gain, −40 to +12 dB in half decibels, remembered for each microphone (the original's
+ * `RecordingGainControls`). The camera library's recorder takes no gain, so the file is recorded as it is and
+ * the gain becomes the level of the take's clip; the meter shows the sound with the gain, as the take will be.
+ */
+@Composable
+private fun RecordingGainControls(capture: CaptureController, clipping: Boolean) {
+    val view = LocalView.current
+    val gain = capture.recordingGain
+    val label = stringResource(R.string.recorder_gain)
+    val value = stringResource(R.string.recorder_gain_value, String.format(java.util.Locale.getDefault(), "%+.1f", gain))
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).width(250.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                value, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f),
+                color = if (clipping) Color.Red else MaterialTheme.colorScheme.onSurface,
+            )
+            TextButton(onClick = { capture.chooseRecordingGain(0.0) }, enabled = gain != 0.0) { Text(stringResource(R.string.recorder_gain_reset)) }
+        }
+        Slider(
+            gain.toFloat(),
+            { next -> val before = capture.recordingGain; capture.chooseRecordingGain(next.toDouble()); if (capture.recordingGain != before) view.tick() },
+            Modifier.semantics { contentDescription = label; stateDescription = value },
+            valueRange = RecordingGain.MINIMUM_DB.toFloat()..RecordingGain.MAXIMUM_DB.toFloat(),
+            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = if (clipping) Color.Red else LevelGreen),
+        )
+        Text(stringResource(R.string.recorder_gain_note), fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

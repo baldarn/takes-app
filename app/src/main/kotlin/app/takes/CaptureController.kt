@@ -25,11 +25,13 @@ import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraInfo
+import androidx.camera.core.CameraEffect
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.DynamicRange
 import androidx.camera.core.ExperimentalMirrorMode
 import androidx.camera.core.MirrorMode
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -86,7 +88,8 @@ class CaptureController(private val context: Context, private val store: Project
         val front: Boolean get() = info.lensFacing == CameraSelector.LENS_FACING_FRONT
     }
     /** The preview and the recording of one bind. They are built together, for the camera and the settings of the moment. */
-    private class UseCases(val preview: Preview, val recorder: Recorder, val video: VideoCapture<Recorder>)
+    /** [effects]: the outputs the recorder's own pass over the frames ([CameraFrames]) draws, as [CameraEffect] targets; none when 0. */
+    private class UseCases(val preview: Preview, val recorder: Recorder, val video: VideoCapture<Recorder>, val effects: Int = 0)
     /**
      * An input the user can record from. The system routes by output device, so that is what is kept.
      * [key] is the same at every connection, which the system's own id is not.
@@ -104,6 +107,7 @@ class CaptureController(private val context: Context, private val store: Project
         var requested: Phase? = null // null: the system ended this segment
         var abandoned = false // the recorder did not report its end in time; see [abandon]
         var indexed = false // in the project
+        var microphone: String? = null // the microphone it began with, whose recording gain it is given
     }
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
@@ -111,6 +115,12 @@ class CaptureController(private val context: Context, private val store: Project
     val settings = RecorderSettings(prefs)
     /** The focus of the camera in use: tap to focus, the lock and manual focus. */
     val focus = CameraFocus(context, settings)
+    /** The recorder's own pass over the frames, for the level horizon, follow face and focus peaking. */
+    val frames = CameraFrames(context).apply { onFollowStatus = { followStatus = it } }
+    /** What follow face is doing, for its tile. */
+    var followStatus by mutableStateOf(CameraFrames.FollowStatus.Searching); private set
+    /** The recording gain of the microphone in use, in decibels. */
+    var recordingGain by mutableStateOf(0.0); private set
     private val scope = MainScope()
     private var audioSource = MediaRecorder.AudioSource.CAMCORDER
     private var surface: Preview.SurfaceProvider? = null
@@ -197,6 +207,7 @@ class CaptureController(private val context: Context, private val store: Project
             else -> Surface.ROTATION_0
         }
         turn = deviceQuarter
+        updateFrames()
     }
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
@@ -334,6 +345,7 @@ class CaptureController(private val context: Context, private val store: Project
         provider?.unbindAll()
         camera = null
         focus.unbound()
+        frames.listenToGravity(false)
     }
 
     private fun describe(infos: List<CameraInfo>): List<CameraChoice> {
@@ -417,7 +429,7 @@ class CaptureController(private val context: Context, private val store: Project
      * The preview and the recording for [format]. Each part of the format was asked of the camera before
      * (see [offers]), so nothing here is requested from a camera that does not have it.
      */
-    private fun build(format: CaptureFormat, rotation: Int): UseCases {
+    private fun build(format: CaptureFormat, rotation: Int, effects: Int = 0): UseCases {
         val preview = Preview.Builder()
             // Same shape as the recorded movie, so the preview shows the real frame.
             .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
@@ -444,7 +456,7 @@ class CaptureController(private val context: Context, private val store: Project
             }
             .build()
         video.targetRotation = rotation
-        return UseCases(preview, recorder, video)
+        return UseCases(preview, recorder, video, effects)
     }
 
     // CameraX keeps the audio source to itself (a restricted API): there is no public way
@@ -463,20 +475,37 @@ class CaptureController(private val context: Context, private val store: Project
         provider.unbindAll()
         // A segment being written keeps its recorder: the format changes between segments.
         val writing = phase == Phase.Recording || phase == Phase.Saving
-        val wanted = CaptureFormat.of(CaptureFormat.Wish(settings.ultraHD, settings.hdr, settings.stabilization), choice.offers)
+        // The frame assists stay as they were bound while a segment is written: they change between segments.
+        val effects = if (writing) cases.effects else assistTargets(choice)
+        // The pass over the frames draws 8 bits a colour: a take it changes is recorded in SDR.
+        val hdr = settings.hdr && effects and CameraEffect.VIDEO_CAPTURE == 0
+        val wanted = CaptureFormat.of(CaptureFormat.Wish(settings.ultraHD, hdr, settings.stabilization), choice.offers)
         var bound: Camera? = null
-        for (attempt in if (writing) listOf(format) else CaptureFormat.attempts(wanted)) {
+        // Without the assists as a last resort: the camera that refuses them still records.
+        val tries = if (writing) listOf(format to effects) else CaptureFormat.attempts(wanted).map { it to effects } +
+            if (effects != 0) CaptureFormat.attempts(wanted).take(1).map { it to 0 } else emptyList()
+        for ((attempt, assists) in tries) {
             if (!writing) {
-                cases = build(attempt, cases.video.targetRotation)
+                cases = build(attempt, cases.video.targetRotation, assists)
                 format = attempt
             }
             bound = try {
-                provider.bindToLifecycle(held, choice.info.cameraSelector, cases.preview, cases.video)
+                if (cases.effects == 0) provider.bindToLifecycle(held, choice.info.cameraSelector, cases.preview, cases.video)
+                else provider.bindToLifecycle(
+                    held, choice.info.cameraSelector,
+                    UseCaseGroup.Builder().addUseCase(cases.preview).addUseCase(cases.video).addEffect(frames.effect(cases.effects)).build(),
+                )
             } catch (_: Exception) {
                 provider.unbindAll()
                 null
             }
             if (bound != null) break
+        }
+        if (bound != null && effects != 0 && cases.effects == 0) {
+            message = context.getString(R.string.recorder_frames_failed)
+            settings.levelHorizon = false
+            settings.followFace = false
+            settings.focusPeaking = false
         }
         if (bound == null) {
             camera = null
@@ -499,6 +528,99 @@ class CaptureController(private val context: Context, private val store: Project
         zoomRange = minimum..maxOf(minimum, PinchZoom.maximum((state?.maxZoomRatio ?: 1f).toDouble()))
         applyZoom(prefs.getFloat("zoom.${choice.id}", 1f).toDouble())
         focus.bound(bound, choice.id)
+        updateFrames()
+    }
+
+    // MARK: Frame assists. The level horizon, follow face and focus peaking, drawn by [frames] while one is on.
+
+    /** The level horizon is the rear cameras', as in the original, and needs to know where down is. */
+    private fun levels(choice: CameraChoice?): Boolean = settings.levelHorizon && choice != null && !choice.front && frames.levelAvailable
+
+    /** What the frames are drawn for when [choice] is bound: the recording too for the level and the follow, the preview alone for peaking. */
+    private fun assistTargets(choice: CameraChoice): Int = when {
+        levels(choice) || settings.followFace -> CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE
+        settings.focusPeaking -> CameraEffect.PREVIEW
+        else -> 0
+    }
+
+    /** The bound camera's frames go through [frames] into the recording as well. */
+    private val framesRecorded: Boolean get() = camera != null && cases.effects and CameraEffect.VIDEO_CAPTURE != 0
+
+    /** Follow face crops a lens kept at its widest, so the face can be followed across all of it: the zoom chosen is the crop's. */
+    private val followsDigitally: Boolean get() = framesRecorded && settings.followFace
+
+    /** The level horizon can be used with the camera in use. */
+    val canLevel: Boolean get() = !(current?.front ?: true) && frames.levelAvailable
+    val levelling: Boolean get() = framesRecorded && levels(current)
+    /** A rear camera of this phone can level the horizon: the tile and its settings are shown. */
+    val offersLevel: Boolean get() = frames.levelAvailable && cameras.any { !it.front }
+    /** The frames of the take go through [frames], which records them in SDR. */
+    val framesInRecording: Boolean get() = framesRecorded
+    /** Follow face can be turned on or off now: between segments, or at any time once the frames go into the recording. */
+    val canChangeFollow: Boolean get() = ready && phase != Phase.Saving && (canChangeFormat || framesRecorded)
+
+    fun chooseLevelHorizon(on: Boolean) {
+        if (!canChangeFormat || settings.levelHorizon == on || (on && !canLevel)) return
+        settings.levelHorizon = on
+        refreshAssists()
+    }
+
+    fun chooseHorizonDegrees(degrees: Double) {
+        settings.horizonDegrees = app.takes.core.HorizonFraming.degrees(degrees)
+        updateFrames()
+    }
+
+    fun chooseFollowFace(on: Boolean) {
+        if (!canChangeFollow || settings.followFace == on) return
+        settings.followFace = on
+        if (canChangeFormat) refreshAssists() else applyZoom(zoom)
+    }
+
+    /** Focus peaking, from a long press on the focus button; between segments unless the frames already pass through [frames]. */
+    fun toggleFocusPeaking() {
+        val on = !settings.focusPeaking
+        if (on && camera != null && cases.effects == 0 && !canChangeFormat) {
+            focus.show(context.getString(R.string.recorder_peaking_paused_only))
+            return
+        }
+        settings.focusPeaking = on
+        focus.show(context.getString(if (on) R.string.recorder_peaking_on else R.string.recorder_peaking_off))
+        if (canChangeFormat) refreshAssists() else updateFrames()
+    }
+
+    /** Binds again when what the frames are drawn for has changed, so that with no assist on nothing is in the way. */
+    private fun refreshAssists() {
+        val choice = current ?: return
+        if (assistTargets(choice) != cases.effects) rebind() else applyZoom(zoom)
+    }
+
+    /** Tells [frames] what to do with the next frames. */
+    private fun updateFrames() {
+        val digital = followsDigitally
+        val level = if (levelling) settings.horizonDegrees else null
+        frames.assists = CameraFrames.Assists(
+            levelDegrees = level,
+            follow = framesRecorded && settings.followFace,
+            peaking = camera != null && cases.effects != 0 && settings.focusPeaking,
+            stabilized = format.stabilization != CaptureFormat.Stabilization.Off,
+            upright = camera?.cameraInfo?.getSensorRotationDegrees(cases.video.targetRotation) ?: 90,
+            inputZoom = if (digital) zoomRange.start else zoom,
+            minimumZoom = zoomRange.start,
+            selectedZoom = if (digital) zoom else null,
+        )
+        frames.listenToGravity(level != null && inFront)
+    }
+
+    /** Sets the recording gain of the microphone in use, from the next segment's sound on. */
+    fun chooseRecordingGain(db: Double) {
+        val key = microphoneKey ?: PHONE_MICROPHONE
+        settings.setRecordingGain(key, db)
+        showGain()
+    }
+
+    private fun showGain() {
+        recordingGain = settings.recordingGain(microphoneKey ?: PHONE_MICROPHONE)
+        meter.gain = Math.pow(10.0, recordingGain / 20)
     }
 
     private fun lens(choice: CameraChoice) =
@@ -602,6 +724,7 @@ class CaptureController(private val context: Context, private val store: Project
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             // No choice below Android 12: the system's microphone is shown as it is.
             microphone = active?.let(::describe) ?: context.getString(R.string.recorder_mic_phone)
+            showGain()
             return
         }
         if (!attached) return
@@ -622,6 +745,7 @@ class CaptureController(private val context: Context, private val store: Project
         val ranked = MicrophoneRoute.available(settings.microphonePriority, connected)
         microphoneKey = actual ?: ranked.firstOrNull()
         microphone = active?.let(::describe) ?: names[microphoneKey]
+        showGain()
         // The route is asked for only in front: it is the whole system's.
         if (!inFront) return
         val decision = route.resolve(ranked, actual, requestedMicrophone, inTake = phase != Phase.Idle, now = SystemClock.elapsedRealtimeNanos() / 1e9)
@@ -679,7 +803,9 @@ class CaptureController(private val context: Context, private val store: Project
     private fun applyZoom(value: Double, remember: Boolean = true) {
         val bounded = value.coerceIn(zoomRange)
         zoom = bounded
-        camera?.cameraControl?.setZoomRatio(bounded.toFloat())
+        // Follow face keeps the lens at its widest and makes the zoom with its crop.
+        camera?.cameraControl?.setZoomRatio((if (followsDigitally) zoomRange.start else bounded).toFloat())
+        updateFrames()
         if (remember) cameraID?.let { prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply() }
     }
 
@@ -785,6 +911,7 @@ class CaptureController(private val context: Context, private val store: Project
         val now = SystemClock.elapsedRealtimeNanos() / 1e9
         next.requestedAt = now
         next.sound = audio
+        next.microphone = microphoneKey ?: PHONE_MICROPHONE
         pace = space.begin(now, format.ultraHD)
         spaceCheckedAt = now
         segment = next
@@ -932,7 +1059,9 @@ class CaptureController(private val context: Context, private val store: Project
         // A mark made as the take stops can fall a moment past what was written: it belongs to the last frame.
         val last = maxOf(0.0, seconds - 1.0 / 30)
         val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
-        current.indexed = store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events))
+        // The recording gain of its microphone, as the level of the take's clip: the file stays as it was recorded.
+        val gain = settings.recordingGain(current.microphone)
+        current.indexed = store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events), gain)
     }
 
     /** The segment has ended: the take is paused or over, as was asked, and the camera returns. */

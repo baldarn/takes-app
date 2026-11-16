@@ -486,9 +486,10 @@ class ProjectStore(context: Context) {
         select(previous?.takeIf { id -> projects.any { it.id == id } })
     }
 
-    fun addRecording(projectID: String, source: SourceMedia): Boolean {
+    /** [gainDB]: the recorder's gain for the take, given to its clip as its level. */
+    fun addRecording(projectID: String, source: SourceMedia, gainDB: Double = 0.0): Boolean {
         val project = projects.firstOrNull { it.id == projectID } ?: return false
-        return update(project.addRecording(source))
+        return update(project.addRecording(source, gainDB = gainDB))
     }
 
     fun commit(projectID: String, state: EditState) = change(projectID) { it.commit(state) }
