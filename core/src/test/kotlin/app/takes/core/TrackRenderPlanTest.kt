@@ -45,12 +45,13 @@ class TrackRenderPlanTest {
 
     /** What the picture of a plan answers at [times]: what each deck plays and how loud, the titles, the captions and the frame. */
     private fun picture(plan: RenderPlan, times: List<Double>): List<Any?> = times.flatMap { time ->
-        (0 until RenderPlan.DECKS).flatMap { listOf(plan.playing(it, time), plan.deckLevel(it, time)) } + listOf(plan.titlesAt(time), plan.captionsAt(time), plan.moment(time))
+        (0 until RenderPlan.DECKS).flatMap { deck -> listOf(plan.playing(deck, time), plan.onDeck(deck, time)?.let { plan.clipLevel(it.index, time - it.start) }) } +
+            listOf(plan.titlesAt(time), plan.captionsAt(time), plan.moment(time))
     }
 
-    /** What the sound tracks of a plan answer at [times]: how loud each is, and the sound its player holds. */
+    /** What the sound tracks of a plan answer at [times]: the sound each plays and how loud. */
     private fun tracks(plan: RenderPlan, times: List<Double>): List<Any?> = times.flatMap { time ->
-        (0 until AudioItem.TRACKS).flatMap { listOf(plan.trackLevel(it, time), plan.cued(it, time)) }
+        (0 until AudioItem.TRACKS).flatMap { track -> TimelineEditing.audioAt(plan.sounds, track, time).let { listOf(it, it?.let { item -> plan.soundLevel(item, time - item.start) }) } }
     }
 
     /** The clips whose cleaned sound may be at hand: every one that asks, none, every other clip, and all that ask but the first. */
@@ -253,8 +254,9 @@ class TrackRenderPlanTest {
             // What is heard of the two tracks together, away from where a sound begins or ends.
             val edges = today.sounds.flatMap { listOf(it.start, it.end) }
             for (time in times.filter { time -> edges.none { abs(it - time) < 0.001 } }) {
-                val heard = (0 until AudioItem.TRACKS).map { today.trackLevel(it, time) }.sorted()
-                val now = (0 until AudioItem.TRACKS).map { made.trackLevel(it, time) }.sorted()
+                fun level(plan: RenderPlan, track: Int) = TimelineEditing.audioAt(plan.sounds, track, time)?.let { plan.soundLevel(it, time - it.start) } ?: 0.0
+                val heard = (0 until AudioItem.TRACKS).map { level(today, it) }.sorted()
+                val now = (0 until AudioItem.TRACKS).map { level(made, it) }.sorted()
                 for ((one, other) in heard.zip(now)) assertEquals("$name at $time", one, other, 0.0001)
             }
         }

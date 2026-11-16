@@ -161,14 +161,6 @@ class RenderPlanTest {
             ),
             plan.soundtracks,
         )
-        // The preview holds the sound that plays, or the next to come, and hears nothing between them.
-        assertEquals(voice, plan.cued(1, 0.0))
-        assertEquals(voice, plan.cued(1, 3.0))
-        assertEquals(second, plan.cued(1, 4.5))
-        assertEquals(late, plan.cued(1, 6.5))
-        assertNull(plan.cued(0, 11.5))
-        assertEquals(0.0, plan.trackLevel(1, 4.5), tiny)
-        assertEquals(1.0, plan.trackLevel(1, 3.0), tiny)
         // A track with nothing on it has no sequence.
         assertEquals(listOf(0), RenderPlan.of(EditState(listOf(a), audio = listOf(music))).soundtracks.map { it.number })
     }
@@ -199,12 +191,9 @@ class RenderPlanTest {
             val time = step / 10.0
             for (index in 0..1) assertEquals(TimelineEditing.soundLevel(state.clips, index, time - plan.pictures[index].start), plan.clipLevel(index, time - plan.pictures[index].start), 0.0)
         }
-        // Half way through the dissolve each deck plays its clip at half its level.
-        assertEquals(ClipAudio(volumeDB = 6.0).gain / 2, plan.deckLevel(0, 3.5), 1e-6)
-        assertEquals(0.5, plan.deckLevel(1, 3.5), 1e-6)
-        // A deck with no clip at that moment is silent.
-        assertEquals(0.0, plan.deckLevel(1, 1.0), tiny)
-        assertEquals(0.0, plan.deckLevel(0, 5.0), tiny)
+        // Half way through the dissolve each clip plays at half its level.
+        assertEquals(ClipAudio(volumeDB = 6.0).gain / 2, plan.clipLevel(0, 3.5 - plan.pictures[0].start), 1e-6)
+        assertEquals(0.5, plan.clipLevel(1, 3.5 - plan.pictures[1].start), 1e-6)
         assertEquals(1 to 1, plan.playing(1, 5.0))
         assertNull(plan.playing(0, 5.0))
         assertEquals(0 to 0, plan.playing(0, 3.5))

@@ -104,13 +104,8 @@ class RenderPlanPreviewTest {
                     assertEquals("$name at $time", was.next(deck, time), plan.coming(deck, time)?.let { plan.chains[it] })
                     assertEquals("$name at $time", was.deckPlaying(deck, time), plan.onDeck(deck, time)?.index)
                     assertEquals("$name at $time", was.deckClip(deck, time), plan.onDeck(deck, time)?.index ?: plan.held(deck, time)?.index)
-                    assertEquals("$name at $time", was.deckSound(deck, time), plan.deckLevel(deck, time), 0.0)
                 }
                 assertEquals("$name at $time", was.leading(time), plan.leading(time)?.let { plan.chains[it] to plan.pictures[plan.chains[it].first].deck })
-                for (track in 0 until AudioItem.TRACKS) {
-                    assertEquals("$name at $time", was.cue(track, time), plan.cued(track, time))
-                    assertEquals("$name at $time", was.trackSound(track, time), plan.trackLevel(track, time), 0.0)
-                }
                 assertEquals("$name at $time", TransitionScene.moment(state.clips, time, Size(1080.0, 1920.0), was.deckOf) { 60.0 }, plan.moment(time, Size(1080.0, 1920.0)) { 60.0 })
                 assertEquals("$name at $time", TitleMotionRanges(state.clips).shown(state.clips, time) { 60.0 }, plan.titlesShown(time) { 60.0 })
                 asked++

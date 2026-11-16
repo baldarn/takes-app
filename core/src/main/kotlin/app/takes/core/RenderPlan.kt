@@ -218,19 +218,6 @@ data class RenderPlan(
     /** How loud a sound of the sound tracks is [offset] seconds into it. */
     fun soundLevel(item: AudioItem, offset: Double): Double = TimelineEditing.soundLevel(item, offset)
 
-    /** How loud [deck] is at [time] in the preview, where a player has one volume: the level of the clip it plays, 0 where it plays none. */
-    fun deckLevel(deck: Int, time: Double): Double {
-        val clip = onDeck(deck, time) ?: return 0.0
-        return clipLevel(clip.index, time - clip.start)
-    }
-
-    /** How loud sound track [track] is at [time] in the preview. */
-    fun trackLevel(track: Int, time: Double): Double = TimelineEditing.audioAt(sounds, track, time)?.let { soundLevel(it, time - it.start) } ?: 0.0
-
-    /** The sound the preview's player of [track] holds at [time]: the one playing, or the next to come. */
-    fun cued(track: Int, time: Double): AudioItem? =
-        TimelineEditing.audioAt(sounds, track, time) ?: sounds.filter { it.track == track && it.start > time }.minByOrNull { it.start }
-
     // MARK: The sound of an export
 
     /**
