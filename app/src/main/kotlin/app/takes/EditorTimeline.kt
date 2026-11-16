@@ -16,6 +16,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import app.takes.core.WaveformBuilder
+import app.takes.core.EditTime
+import app.takes.core.TrackMove
+import app.takes.core.VideoInsertionSite
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import kotlin.math.sqrt
 import app.takes.core.TextOverlay
 import androidx.compose.ui.draw.alpha
@@ -57,6 +62,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -161,6 +167,12 @@ internal fun Timeline(
     movingSounds: Set<String> = emptySet(),
     /** How long the movie is as the editor plays and exports it, which can run past the last picture while sound goes on ([app.takes.core.MovieLength]). */
     length: Double = 0.0,
+    /** The stops of Move's boundary picker while it is on: dashed lines to tap, the group of lines under a tap to [pickBoundary]. */
+    boundaries: List<EditTime>? = null, pickBoundary: (List<EditTime>) -> Unit = {},
+    /** The add buttons at the start, in each gap and at the end, on the top row of pictures; null when they are not offered. */
+    addSites: List<AddSite>? = null, addVideo: (VideoInsertionSite) -> Unit = {},
+    /** Every bookmark, in timeline seconds, marked on the ruler; a tap on several at once opens [openBookmarks]. */
+    bookmarks: List<Double> = emptyList(), openBookmarks: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -181,6 +193,10 @@ internal fun Timeline(
     val onMove by rememberUpdatedState(moveDrag)
     val latestSoundRows by rememberUpdatedState(soundRows)
     val latestMovingSounds by rememberUpdatedState(movingSounds)
+    val latestBoundaries by rememberUpdatedState(boundaries)
+    val onPickBoundary by rememberUpdatedState(pickBoundary)
+    val latestBookmarks by rememberUpdatedState(bookmarks)
+    val onOpenBookmarks by rememberUpdatedState(openBookmarks)
     val haptics = LocalHapticFeedback.current
     val pitch = rowPitch(rows)
     val strip = stripHeight(rows)
@@ -240,6 +256,24 @@ internal fun Timeline(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 onTouched() // scrubbing pauses playback; it stays paused after release
+                // While the boundary picker is on, a tap picks the dashed line under it; a drag still scrolls (EditorTimeline.swift:539-551).
+                latestBoundaries?.let { stops ->
+                    var travelled = 0f
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                        travelled += abs(change.positionChange().x) + abs(change.positionChange().y)
+                        if (!change.pressed) {
+                            if (travelled < viewConfiguration.touchSlop) {
+                                change.consume()
+                                val half = size.width / 2f
+                                val markers = TrackMove.markers(stops, size.width.toDouble()) { (half + it.seconds * scale - scroll.value).toDouble() }
+                                TrackMove.picked(markers, down.position.x.toDouble())?.let(onPickBoundary)
+                            }
+                            break
+                        }
+                    }
+                    return@awaitEachGesture
+                }
                 val laid = latestRows
                 val time = ((down.position.x - size.width / 2f + scroll.value) / scale).toDouble()
                 val inStrip = down.position.y >= StripTop.toPx() && down.position.y <= (StripTop + strip).toPx()
@@ -255,14 +289,33 @@ internal fun Timeline(
                     if (!grabbed) return@awaitEachGesture
                     down.consume()
                     var total = 0f
+                    var scrolled = 0f
+                    var at = down.position.x
                     var lifted = false
+                    val edge = 44.dp.toPx()
+                    val fastest = 14.dp.toPx()
                     try {
                         while (true) {
-                            val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
-                            total += change.positionChange().x
-                            change.consume()
-                            if (!change.pressed) { lifted = true; break }
-                            move.drag((total / scale).toDouble())
+                            // A finger held near either end scrolls the timeline on, and what it holds goes with it.
+                            val event = withTimeoutOrNull(16) { awaitPointerEvent(PointerEventPass.Initial) }
+                            if (event != null) {
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                total += change.positionChange().x
+                                at = change.position.x
+                                change.consume()
+                                if (!change.pressed) { lifted = true; break }
+                            }
+                            val speed = when {
+                                at < edge -> -fastest * ((edge - at) / edge).coerceIn(0f, 1f)
+                                at > size.width - edge -> fastest * ((at - size.width + edge) / edge).coerceIn(0f, 1f)
+                                else -> 0f
+                            }
+                            if (speed != 0f) {
+                                val before = scroll.value
+                                scroll.dispatchRawDelta(speed)
+                                scrolled += scroll.value - before
+                            }
+                            if (event != null || speed != 0f) move.drag(((total + scrolled) / scale).toDouble())
                         }
                     } finally {
                         if (lifted) move.end() else move.cancel()
@@ -307,7 +360,16 @@ internal fun Timeline(
             }
         }.pointerInput(Unit) {
             // A tap that no clip, title or sound took.
-            detectTapGestures { at -> onSeek(((at.x - size.width / 2f + scroll.value) / scale).toDouble(), at.y >= StripTop.toPx()) }
+            detectTapGestures { at ->
+                val time = ((at.x - size.width / 2f + scroll.value) / scale).toDouble()
+                // On the ruler a tap goes to the bookmark under it, or opens the list when there are several (EditorTimeline.swift:552-557).
+                val near = if (at.y < StripTop.toPx()) latestBookmarks.filter { abs(it - time) * scale < 10.dp.toPx() } else emptyList()
+                when {
+                    near.size > 1 -> onOpenBookmarks()
+                    near.size == 1 -> onSeek(near[0], false)
+                    else -> onSeek(time, at.y >= StripTop.toPx())
+                }
+            }
         },
     ) {
         val viewport = constraints.maxWidth
@@ -404,6 +466,13 @@ internal fun Timeline(
                 fontFeatureSettings = "tnum"
             }
         }
+        val bookmarkPaint = remember(density) {
+            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.rgb(0xFF, 0x7A, 0x45)
+                textSize = with(density) { 9.sp.toPx() }
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+        }
         Canvas(Modifier.fillMaxWidth().height(StripTop)) {
             val half = size.width / 2
             val step = TimelineZoom.rulerStep((pixelsPerSecond / density.density).toDouble())
@@ -415,8 +484,28 @@ internal fun Timeline(
                 drawLine(Muted, Offset(x, size.height - 4.dp.toPx()), Offset(x, size.height), 1.dp.toPx())
                 drawContext.canvas.nativeCanvas.drawText(TimelineZoom.rulerLabel(time), x + 3.dp.toPx(), 11.dp.toPx(), rulerPaint)
             }
+            // The bookmarks, wherever they are, as orange marks on the ruler; those within 12 dp of one another as one, with their count
+            // (EditorTimeline.swift:1000-1015).
+            val clusters = mutableListOf<Pair<Float, Int>>()
+            for (time in bookmarks.sorted()) {
+                val x = half + (time * pixelsPerSecond).toFloat() - scroll.value
+                if (x < 0 || x > size.width) continue
+                val last = clusters.lastOrNull()
+                if (last != null && x - last.first < 12.dp.toPx()) clusters[clusters.lastIndex] = last.first to last.second + 1 else clusters += x to 1
+            }
+            for ((x, count) in clusters) {
+                drawPath(Path().apply {
+                    moveTo(x - 4.dp.toPx(), size.height - 7.dp.toPx()); lineTo(x + 4.dp.toPx(), size.height - 7.dp.toPx()); lineTo(x, size.height); close()
+                }, BookmarkColor)
+                if (count > 1) drawContext.canvas.nativeCanvas.drawText(count.toString(), x + 4.dp.toPx(), size.height - 7.dp.toPx(), bookmarkPaint)
+            }
         }
         Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
+        boundaries?.let { BoundaryMarkers(it, pixelsPerSecond, scroll, onPickBoundary) }
+        if (addSites != null) {
+            val middle = StripTop + (rowTile(rows) + rowWave(rows)) / 2
+            for (site in addSites) key(site.site) { AddSiteButton(site, pixelsPerSecond, scroll, middle, addVideo) }
+        }
         level?.readout?.let { LevelReadoutLabel(it, viewport.toFloat()) }
         if (clips.isNotEmpty()) {
             val label = trim?.let { stringResource(R.string.editor_clip_duration, it.index + 1, preciseLabel(it.clip.duration)) }
@@ -679,6 +768,114 @@ private fun PictureRows(
                 val bottom = last * pitch + (tile + wave).toPx()
                 drawRect(GhostColor, Offset(left, top), Size(right - left, bottom - top), style = Stroke(1.5.dp.toPx(), pathEffect = dashes))
             }
+        }
+    }
+}
+
+/**
+ * The stops of Move's boundary picker, as the original draws them
+ * (EditorTimeline.swift:1018-1037): a dashed cyan line down the timeline at
+ * each stop on the screen, those within 22 dp of one another grouped under
+ * one triangle with their count, which a tap picks.
+ */
+@Composable
+private fun BoxWithConstraintsScope.BoundaryMarkers(stops: List<EditTime>, pixelsPerSecond: Float, scroll: ScrollState, pick: (List<EditTime>) -> Unit) {
+    val density = LocalDensity.current
+    val width = constraints.maxWidth.toFloat()
+    val markers by remember(stops, pixelsPerSecond, width) {
+        derivedStateOf {
+            val half = width / 2
+            TrackMove.markers(stops, width.toDouble()) { (half + it.seconds * pixelsPerSecond - scroll.value).toDouble() }
+        }
+    }
+    val plate = remember(density) {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.BLACK
+            textSize = with(density) { 10.sp.toPx() }
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+    }
+    Canvas(Modifier.matchParentSize()) {
+        val dashes = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))
+        for (marker in markers) {
+            for (time in marker.times) {
+                val x = width / 2 + (time.seconds * pixelsPerSecond).toFloat() - scroll.value
+                drawLine(PickColor.copy(alpha = 0.85f), Offset(x, 18.dp.toPx()), Offset(x, size.height), 1.5.dp.toPx(), pathEffect = dashes)
+            }
+            val center = marker.center.toFloat()
+            drawPath(Path().apply {
+                moveTo(center - 5.dp.toPx(), 13.dp.toPx()); lineTo(center + 5.dp.toPx(), 13.dp.toPx()); lineTo(center, 20.dp.toPx()); close()
+            }, PickColor)
+            if (marker.times.size > 1) {
+                val count = marker.times.size.toString()
+                val text = plate.measureText(count)
+                drawRect(PickColor, Offset(center - text / 2 - 3.dp.toPx(), 0f), Size(text + 6.dp.toPx(), 14.dp.toPx()))
+                drawContext.canvas.nativeCanvas.drawText(count, center - text / 2, 11.dp.toPx(), plate)
+            }
+        }
+    }
+    // Each line, or group of lines, as a button for TalkBack; the touches are the timeline's.
+    for (marker in markers) key(marker.times.first().ticks) {
+        val label = if (marker.times.size == 1) stringResource(R.string.move_boundary_description, preciseLabel(marker.times[0].seconds))
+        else pluralStringResource(R.plurals.move_boundaries_description, marker.times.size, marker.times.size)
+        Box(
+            Modifier.offset { IntOffset(marker.center.roundToInt() - 22.dp.roundToPx(), 0) }.size(44.dp)
+                .semantics { contentDescription = label; onClick(label) { pick(marker.times); true } },
+        )
+    }
+}
+
+/**
+ * An add button on the top row of pictures, as the original draws it
+ * (EditorTimeline.swift:318-366, :1041-1050): a dark circle with a plus, 44
+ * dp to touch. The start's lies left of where the timeline begins, or in the
+ * empty time before the first picture while that is off the screen, and the
+ * end's right of where the last picture ends; a gap's stays in the part of
+ * the gap on the screen, and is not there while that part is narrower than
+ * the button.
+ */
+@Composable
+private fun BoxWithConstraintsScope.AddSiteButton(site: AddSite, pixelsPerSecond: Float, scroll: ScrollState, middle: Dp, add: (VideoInsertionSite) -> Unit) {
+    val density = LocalDensity.current
+    val width = constraints.maxWidth.toFloat()
+    val (button, outside, margin) = with(density) { Triple(44.dp.toPx(), 48.dp.toPx(), 2.dp.toPx()) }
+    // Where the middle of the button is, in pixels from the left of the timeline; null while it does not fit.
+    val middleX by remember(site, pixelsPerSecond, width) {
+        derivedStateOf {
+            fun x(time: Double) = width / 2 + (time * pixelsPerSecond).toFloat() - scroll.value
+            fun inside(): Float? {
+                val left = maxOf(0f, x(site.from) + margin)
+                val right = minOf(width, x(site.to) - margin)
+                return if (right - left >= button) (left + right) / 2 else null
+            }
+            when (site.site) {
+                // Off the screen, the start's button stays in the empty time before the first picture.
+                VideoInsertionSite.Start -> (x(site.from) - outside).takeIf { it >= button / 2 } ?: inside()
+                VideoInsertionSite.End -> x(site.from) + outside
+                is VideoInsertionSite.Gap -> inside()
+            }
+        }
+    }
+    val at = middleX ?: return
+    val label = stringResource(
+        when (site.site) {
+            VideoInsertionSite.Start -> R.string.add_site_start
+            VideoInsertionSite.End -> R.string.add_site_end
+            is VideoInsertionSite.Gap -> R.string.add_site_gap
+        },
+    )
+    Box(
+        Modifier.offset { IntOffset((at - button / 2).roundToInt(), (middle - 22.dp).roundToPx()) }.size(44.dp)
+            .clickable(onClickLabel = label) { add(site.site) }.semantics { contentDescription = label },
+        Alignment.Center,
+    ) {
+        Canvas(Modifier.size(24.dp)) {
+            drawCircle(Color(0xFF2B2B2B))
+            drawCircle(Color(0xFF8C8C8C), style = Stroke(1.dp.toPx()))
+            val arm = 6.dp.toPx()
+            val stroke = 1.6.dp.toPx()
+            drawLine(Color.White, Offset(center.x - arm, center.y), Offset(center.x + arm, center.y), stroke, StrokeCap.Round)
+            drawLine(Color.White, Offset(center.x, center.y - arm), Offset(center.x, center.y + arm), stroke, StrokeCap.Round)
         }
     }
 }

@@ -15,7 +15,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.takes.core.CaptureEventsFile
-import app.takes.core.ClipFragment
 import app.takes.core.CubeLUT
 import app.takes.core.EditState
 import app.takes.core.ImportedLUT
@@ -32,9 +31,11 @@ import app.takes.core.ProjectRestoreException
 import app.takes.core.SourceMedia
 import app.takes.core.SubtitleScratch
 import app.takes.core.TimelineClip
+import app.takes.core.TimelineClipboard
+import app.takes.core.TrackEditorEdits
+import app.takes.core.VideoInsertionSite
 import app.takes.core.TimelineEditing
 import app.takes.core.PhotoClip
-import app.takes.core.UnusedTakes
 import app.takes.core.newID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -133,7 +134,7 @@ class ProjectStore(context: Context) {
      * What Copy or Cut last took in each project, by project id. As in the original, a project has its own
      * clipboard, kept while the app runs and never saved: a fragment names the recordings of its project.
      */
-    val clipboards = mutableStateMapOf<String, ClipFragment>()
+    val clipboards = mutableStateMapOf<String, TimelineClipboard>()
 
     // Counts the unfinished recordings moved aside or deleted, so that the screen lists them again. Before the first launch work, which uses it.
     private var recoveryChanges by mutableStateOf(0)
@@ -207,9 +208,10 @@ class ProjectStore(context: Context) {
      * Copies videos and photos picked from the device into the project and puts them into its timeline at second
      * [at], in the order picked, as one Undo step, as the original's editor adds them (VideoBatchImport.swift:21-72).
      * A photo becomes a movie of [PhotoClip.SECONDS] seconds. Nothing is added when one of them cannot be read.
-     * [done] is told where the first one begins.
+     * With a [site], an add button of the timeline, they go there instead ([placeFootage]).
+     * [done] is told what was added, to select, and where the first one begins.
      */
-    fun insertMedia(projectID: String, uris: List<Uri>, at: Double, done: (Double) -> Unit = {}) {
+    fun insertMedia(projectID: String, uris: List<Uri>, at: Double, site: VideoInsertionSite? = null, done: (TrackEditorEdits.Made) -> Unit = {}) {
         if (uris.isEmpty() || importing != null) return
         scope.launch {
             val added = mutableListOf<SourceMedia>()
@@ -222,11 +224,11 @@ class ProjectStore(context: Context) {
             }
             importing = null
             val project = projects.firstOrNull { it.id == projectID }
-            val placed = if (failed || project == null) null else UnusedTakes.add(added.fold(project) { it, source -> it.addSource(source) }, added, at)
-            if (placed == null || !update(placed.project)) {
+            val placed = if (failed || project == null) null else placeFootage(added.fold(project) { it, source -> it.addSource(source) }, added, at, site)
+            if (placed == null || !update(placed.first)) {
                 project?.let { for (source in added) file(it, source).delete() }
                 error = if (uris.size == 1) context.getString(R.string.projects_import_failed_one) else context.getString(R.string.add_media_failed)
-            } else done(placed.start)
+            } else done(placed.second)
         }
     }
 
@@ -504,10 +506,23 @@ class ProjectStore(context: Context) {
      * second [at], in the order given, as one Undo step. Returns where the
      * first one begins, or null when nothing was added.
      */
-    fun addUnused(projectID: String, takes: List<SourceMedia>, at: Double): Double? {
+    fun addUnused(projectID: String, takes: List<SourceMedia>, at: Double, site: VideoInsertionSite? = null): TrackEditorEdits.Made? {
         val project = projects.firstOrNull { it.id == projectID } ?: return null
-        val added = UnusedTakes.add(project, takes, at) ?: return null
-        return if (update(added.project)) added.start else null
+        val added = placeFootage(project, takes, at, site) ?: return null
+        return if (update(added.first)) added.second else null
+    }
+
+    /**
+     * [takes] of [project], whole, put into its edit as new footage, as the original's editor adds them
+     * (TimelineEditing.swift:86-127): at second [at] with everything after moved later, or at [site],
+     * using the free time there first. One Undo step; the clips are new ones, selected afterwards.
+     */
+    private fun placeFootage(project: Project, takes: List<SourceMedia>, at: Double, site: VideoInsertionSite?): Pair<Project, TrackEditorEdits.Made>? {
+        val footage = project.recordings.associateBy { it.id }
+        if (takes.isEmpty() || takes.any { footage[it.id] == null }) return null
+        val clips = takes.map { TimelineClip(sourceID = it.id, start = 0.0, end = footage.getValue(it.id).duration) }
+        val made = TrackEditorEdits.insertingFootage(project.edit, clips, at, site) ?: return null
+        return project.commit(made.edit) to made
     }
 
     /**

@@ -11,6 +11,32 @@
     <string name="move_cancelled">Spostamento annullato</string>
     <string name="move_stale">La timeline è cambiata. Seleziona di nuovo le clip.</string>
     <string name="move_nothing">Seleziona una clip per spostarla.</string>
+    <string name="move_scope_selected">Solo selezione</string>
+    <string name="move_scope_left">Con sinistra</string>
+    <string name="move_scope_right">Con destra</string>
+    <string name="move_scope_both">Entrambi i lati</string>
+    <string name="move_scope_selected_hint">Sposta le parti selezionate e ciò che è collegato a esse.</string>
+    <string name="move_scope_left_hint">Include le clip adiacenti a sinistra, fino al primo vuoto.</string>
+    <string name="move_scope_right_hint">Include le clip adiacenti a destra, fino al primo vuoto.</string>
+    <string name="move_scope_both_hint">Include le clip adiacenti in entrambe le direzioni, fino al primo vuoto su ogni lato.</string>
+    <string name="move_previous">Sposta al taglio precedente</string>
+    <string name="move_next">Sposta al taglio successivo</string>
+    <string name="move_choose">Sposta su un confine</string>
+    <string name="move_pick_title">Tocca una linea tratteggiata azzurra sulla timeline</string>
+    <string name="move_pick_note">La selezione inizierà lì.</string>
+    <string name="move_pick_back">Indietro</string>
+    <string name="move_pick_back_description">Torna a Sposta</string>
+    <string name="move_boundary_description">Confine a %1$s</string>
+    <plurals name="move_boundaries_description">
+        <item quantity="one">Scegli tra %1$d confini vicini</item>
+        <item quantity="many">Scegli tra %1$d confini vicini</item>
+        <item quantity="other">Scegli tra %1$d confini vicini</item>
+    </plurals>
+    <string name="move_choose_start">Scegli un tempo di inizio</string>
+    <string name="move_nudge_earlier">Un fotogramma prima</string>
+    <string name="move_nudge_later">Un fotogramma dopo</string>
+    <string name="move_nudge_earlier_short">◀ 1 fotogramma</string>
+    <string name="move_nudge_later_short">1 fotogramma ▶</string>
 
     <!-- Vuoti -->
     <string name="gap_label">Vuoto</string>
@@ -49,4 +75,34 @@
     <string name="placement_audio_note">L\'audio delle clip sovrapposte si mescola. Seleziona un elemento audio nella timeline per cambiarne il volume.</string>
     <string name="placement_applied">Posizione salvata · Annulla disponibile</string>
     <string name="placement_removed">Posizione ripristinata · Annulla disponibile</string>
+
+    <!-- Punti in cui incollare -->
+    <string name="paste_target_start">Inizio</string>
+    <string name="paste_target_end">Fine</string>
+    <string name="paste_target_gap">Vuoto</string>
+    <string name="paste_target_video">Video · %1$s | %2$s</string>
+    <string name="paste_target_audio">Audio · %1$s | %2$s</string>
+
+    <!-- Pulsanti di aggiunta sulla timeline -->
+    <string name="add_site_start">Aggiungi video o foto all’inizio</string>
+    <string name="add_site_gap">Aggiungi video o foto nel vuoto</string>
+    <string name="add_site_end">Aggiungi video o foto alla fine</string>
+    <string name="paste_here">Incolla qui</string>
+    <plurals name="footage_inserted">
+        <item quantity="one">Clip inserita · Annulla disponibile</item>
+        <item quantity="many">%1$d clip inserite · Annulla disponibile</item>
+        <item quantity="other">%1$d clip inserite · Annulla disponibile</item>
+    </plurals>
+
+    <!-- Segnalibri ovunque -->
+    <string name="bookmarks_all">Tutti i segnalibri</string>
+    <string name="bookmarks_add_at">Aggiungi a %1$s</string>
+    <string name="bookmarks_none">Ancora nessun segnalibro.</string>
+    <string name="bookmark_default">Segnalibro</string>
+    <string name="bookmark_rename">Rinomina segnalibro</string>
+    <string name="bookmark_delete">Elimina segnalibro</string>
+    <string name="bookmark_label_title">Nome del segnalibro</string>
+    <string name="bookmark_label">Nome</string>
+    <string name="bookmark_added">Segnalibro aggiunto</string>
+    <string name="bookmark_removed">Segnalibro rimosso · Annulla disponibile</string>
 </resources>

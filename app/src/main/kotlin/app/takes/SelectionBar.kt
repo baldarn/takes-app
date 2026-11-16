@@ -65,6 +65,7 @@ import app.takes.core.EditState
 import app.takes.core.EditTargets
 import app.takes.core.RangeMarks
 import app.takes.core.TimeRange
+import app.takes.core.TimelinePasteTarget
 import app.takes.core.TrackComponents
 import kotlin.math.roundToInt
 
@@ -194,6 +195,7 @@ internal fun SelectionBar(
     preview: (() -> Unit)? = null, delete: (() -> Unit)? = null,
     copy: (() -> Unit)? = null, cut: (() -> Unit)? = null, canCopy: Boolean = true,
     paste: (() -> Unit)? = null, canPaste: Boolean = true, replacesTransition: Boolean = false, clearClipboard: () -> Unit = {},
+    pasteTargets: List<PasteChoice> = emptyList(),
     editSound: (() -> Unit)? = null,
     transitions: List<TransitionChip> = emptyList(),
     unavailable: String? = null, explain: (String) -> Unit = {},
@@ -254,11 +256,11 @@ internal fun SelectionBar(
                 delete?.let { BarIcon(Icons.Outlined.Delete, deleteLabel, RecordRed, it) }
                 editSound?.let { BarIcon(Icons.Outlined.Tune, R.string.editor_edit_sound, Color.White, it) }
                 BarIcon(Icons.Filled.Close, R.string.selection_clear, Color.White.copy(alpha = 0.8f), clear)
-                paste?.let { PasteButton(canPaste, replacesTransition, because ?: it, off = because != null) }
+                paste?.let { PasteButton(canPaste, replacesTransition, because ?: it, off = because != null, pasteTargets.takeIf { because == null }.orEmpty()) }
             }
         } else {
             paste?.let {
-                PasteButton(canPaste, replacesTransition, because ?: it, off = because != null)
+                PasteButton(canPaste, replacesTransition, because ?: it, off = because != null, pasteTargets.takeIf { because == null }.orEmpty())
                 BarIcon(Icons.Filled.Close, R.string.clipboard_clear, Color.White.copy(alpha = 0.8f), clearClipboard)
             }
             if (transitions.isEmpty()) Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -299,15 +301,47 @@ private fun ClipboardButton(icon: ImageVector, name: Int, label: Int, enabled: B
     }
 }
 
+/** A place Paste offers at the playhead, by its name ([app.takes.core.TimelinePasteTarget.labelKey]). */
+internal class PasteChoice(val label: String, val paste: () -> Unit)
+
+/**
+ * Paste, as the original's (EditorView.swift:775-798): with the playhead on
+ * several places at once, a cut of the picture and one of the sound, a menu
+ * of them; "Replaces transition" under it when pasting there undoes one.
+ */
 @Composable
-private fun PasteButton(enabled: Boolean, replacesTransition: Boolean, action: () -> Unit, off: Boolean = false) {
+private fun PasteButton(enabled: Boolean, replacesTransition: Boolean, action: () -> Unit, off: Boolean = false, choices: List<PasteChoice> = emptyList()) {
     val tint = if (enabled && !off) ClipboardColor else Quiet
     val unavailable = stringResource(R.string.unavailable_state)
-    TextButton(onClick = action, Modifier.semantics { if (off) stateDescription = unavailable }, enabled = enabled, contentPadding = PaddingValues(horizontal = 10.dp)) {
-        Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp), tint = tint)
-        Column(Modifier.padding(start = 4.dp)) {
-            Text(stringResource(R.string.clipboard_paste), color = tint, maxLines = 1, lineHeight = 16.sp)
-            if (replacesTransition) Text(stringResource(R.string.clipboard_replaces_transition), color = tint, fontSize = 10.sp, lineHeight = 11.sp, maxLines = 1)
+    val replaces = stringResource(R.string.clipboard_replaces_transition)
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        TextButton(
+            onClick = { if (choices.size > 1) menu = true else action() },
+            Modifier.semantics { if (off) stateDescription = unavailable else if (replacesTransition) stateDescription = replaces },
+            enabled = enabled, contentPadding = PaddingValues(horizontal = 10.dp),
+        ) {
+            Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp), tint = tint)
+            Column(Modifier.padding(start = 4.dp)) {
+                Text(stringResource(R.string.clipboard_paste), color = tint, maxLines = 1, lineHeight = 16.sp)
+                if (replacesTransition) Text(replaces, color = tint, fontSize = 10.sp, lineHeight = 11.sp, maxLines = 1)
+            }
         }
+        DropdownMenu(menu && choices.size > 1, onDismissRequest = { menu = false }) {
+            for (choice in choices) DropdownMenuItem(text = { Text(choice.label) }, onClick = { menu = false; choice.paste() })
+        }
+    }
+}
+
+/** A place to paste as the original names it (TimelinePaste.swift:38-52): Start, End, Gap, or the two items either side, "Video · V2 | V3". */
+@Composable
+internal fun pasteLabel(label: TimelinePasteTarget.Label): String {
+    fun number(prefix: String, n: Int) = if (n > 0) "$prefix$n" else prefix
+    return when (label.key) {
+        TimelinePasteTarget.Label.Key.Start -> stringResource(R.string.paste_target_start)
+        TimelinePasteTarget.Label.Key.End -> stringResource(R.string.paste_target_end)
+        TimelinePasteTarget.Label.Key.Gap -> stringResource(R.string.paste_target_gap)
+        TimelinePasteTarget.Label.Key.Video -> stringResource(R.string.paste_target_video, number("V", label.left), number("V", label.right))
+        TimelinePasteTarget.Label.Key.Audio -> stringResource(R.string.paste_target_audio, number("A", label.left), number("A", label.right))
     }
 }
