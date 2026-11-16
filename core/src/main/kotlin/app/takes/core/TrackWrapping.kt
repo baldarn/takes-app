@@ -151,6 +151,7 @@ internal object TrackWrapping {
         audio = pick(saved.audio, old.audio, now.audio), color = pick(saved.color, old.color, now.color), crop = pick(saved.crop, old.crop, now.crop),
         speed = pick(saved.speed, old.speed, now.speed), subtitleWords = pick(saved.subtitleWords, old.subtitleWords, now.subtitleWords),
         videoEffects = pick(saved.videoEffects, old.videoEffects, now.videoEffects),
+        frozenFrame = pick(saved.frozenFrame, old.frozenFrame, now.frozenFrame),
     )
 
     /**
