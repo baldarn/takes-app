@@ -23,7 +23,7 @@ MONTA SULLA TIMELINE
 • Riduzione del rumore per l'audio registrato.
 • Rimuovi le pause: trova i silenzi in una clip e li taglia.
 • Colore: look, esposizione, calore e tinta per ogni clip, oppure importa una tua LUT .cube.
-• Effetti video come in YouRec: Noir, Notte americana, Bleach Bypass, Caleidoscopio e altri sette, ognuno con la sua storia nel cinema.
+• Effetti video come in YouRec: Noir, Notte americana, Bleach Bypass, Caleidoscopio, Sfondo automatico e molti altri, ognuno con la sua storia nel cinema.
 • Ritaglia e reinquadra l'immagine, ruotala o animala tra due inquadrature.
 • Aggiungi video sul cursore: registra lì una nuova ripresa, o inserisci quelle che non hai ancora usato.
 • Sottotitoli: il parlato viene trascritto sul telefono, poi puoi correggere il testo e sceglierne lo stile. Due modelli vocali tra cui scegliere: il più grande è quello usato da YouRec.
