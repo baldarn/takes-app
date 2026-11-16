@@ -12,8 +12,9 @@ import kotlin.math.ln
  * YouRec/VideoEffects/VideoEffectTiming.swift (cited as `Timing`),
  * YouRec/VideoEffects/VideoEffectSampling.swift (`Sampling`), the compositor
  * YouRec/VideoToolCompositor.swift (`Compositor`) and the audio of
- * YouRec/MediaRenderer.swift (`Renderer`). They will become part of the
- * playback map; for now they hold the maths.
+ * YouRec/MediaRenderer.swift (`Renderer`). A clip's playback
+ * ([TimelineClip.playbackSpans]) and its map ([SourcePlaybackMap.of]) are
+ * made from them.
  */
 
 /**
@@ -82,7 +83,13 @@ class VideoEffectSequenceClock(val lower: Double, val upper: Double, val cadence
             val spans = VideoEffectTiming.playbackSpans(effects, from, to, speed, listOf(SourceInterval(from, to)))
             return VideoEffectSequenceClock(start, end, VideoEffectCadenceClock(cadenced, spans.map { VideoEffectCadenceClock.Rate(it.start, it.end, it.rate) }))
         }
+
+        /** The clock of [clip]. */
+        fun of(clip: TimelineClip): VideoEffectSequenceClock = of(clip.videoEffects.orEmpty(), clip.start, clip.end, clip.speed)
     }
+
+    /** Whether a cadence holds frames anywhere on this clock: an Undercranking or a Super 8 that is on. */
+    val cadenced: Boolean get() = cadence.active
 }
 
 /**
@@ -185,6 +192,15 @@ data class VideoEffectSamplePlan(
 data class FreezeFrameMoment(val sourceTime: Double, val holdTime: Double, val zoom: Double, val print: Boolean, val grainFrame: Int)
 
 /**
+ * The source second whose look one frame of a clip shows, and the clocks its
+ * effects are drawn with: on a held frame the held second, with [holdTime]
+ * how long it has been held (Freeze Frame's clock); under a cadence the frame
+ * the cadence holds ([held]), so its whole look holds with it; else the
+ * second playing. Compositor:326-336.
+ */
+data class VideoEffectShown(val sourceTime: Double, val held: Boolean = false, val holdTime: Double? = null)
+
+/**
  * What a hold plays at one moment: the source second [sourceTime] at [gain],
  * or nothing when [sourceTime] is null.
  */
@@ -204,6 +220,13 @@ data class UndercrankingMoment(val sourceTime: Double, val held: Boolean, val fl
 
 object VideoEffectTiming {
     private val timed = setOf(VideoEffectID.Undercranking, VideoEffectID.StepPrinting)
+
+    /** The effects that change what a clip shows when: a held frame, a cadence with its retime, blended steps. */
+    val TIME_EFFECTS: Set<VideoEffectID> = setOf(VideoEffectID.FreezeFrame, VideoEffectID.StepPrinting, VideoEffectID.Undercranking)
+
+    /** Whether [effects] retime the clip from [start] to [end]: an enabled Undercranking or Step Printing over part of it. */
+    fun retimes(effects: List<VideoEffectSettings>?, start: Double, end: Double): Boolean =
+        effects != null && effects.any { it.enabled && it.kind in timed && it.start < end && it.end > start }
 
     /**
      * What a clip plays, as source stretches each at one rate: [kept], the
@@ -245,6 +268,31 @@ object VideoEffectTiming {
         }
         for ((a, b) in boundaries.zipWithNext()) if (b > a) add(a, b)
         return result
+    }
+
+    /**
+     * What the frame [offset] seconds into [clip] shows ([VideoEffectShown]),
+     * on footage of [sourceFPS], with the clip's [clock]: the held frame of a
+     * Freeze Frame, the frame a cadence holds (the first at or after its
+     * boundary, inside the clip), or the second playing. Step Printing's
+     * blend is not here: each of its frames is drawn at its own second.
+     */
+    fun shown(clip: TimelineClip, offset: Double, sourceFPS: Double, clock: VideoEffectSequenceClock): VideoEffectShown {
+        clip.frozenFrame?.let { return VideoEffectShown(it.sourceTime, true, it.offset + maxOf(0.0, offset)) }
+        val sourceTime = clip.sourceTime(offset)
+        val hold = clock.cadence.hold(sourceTime) ?: return VideoEffectShown(sourceTime)
+        val read = VideoEffectTime.firstFrame(minOf(clock.upper - 0.00001, maxOf(clock.lower, hold.boundary)), sourceFPS)
+        return VideoEffectShown(minOf(maxOf(clock.lower, read), clock.upper), true)
+    }
+
+    /**
+     * Which held frame of a cadence the frame [offset] seconds into [clip]
+     * shows, as a number that changes when the cadence moves on; null where
+     * no cadence holds. A held frame of a Freeze Frame is one number.
+     */
+    fun heldFrame(clip: TimelineClip, offset: Double, clock: VideoEffectSequenceClock): Long? {
+        if (clip.frozenFrame != null) return Long.MIN_VALUE
+        return clock.cadence.hold(clip.sourceTime(offset))?.index?.toLong()
     }
 
     // Freeze Frame.

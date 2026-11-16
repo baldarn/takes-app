@@ -75,24 +75,51 @@ data class SourcePlaybackMap(val runs: List<PlaybackRun>) {
 
     companion object {
         /**
-         * The timing a clip has by itself: one run per stretch it plays, at
-         * the clip's speed. The boundaries between runs are rounded to ticks,
-         * not each run's length, so the residue of rounding does not add up
-         * (YouRec/TrackTimeline.swift:49-64). A clip here plays one stretch
-         * at one rate and mutes none of it; the original's held frame, pause
-         * cuts and effect spans are not on the clip yet.
+         * The timing a clip has by itself: one run per stretch it plays
+         * ([TimelineClip.playbackSpans]), each silent where the clip mutes its
+         * source there. The boundaries between runs are rounded to ticks,
+         * not each run's length, so the residue of rounding does not add up.
+         * A held frame is one hold, silent when its Freeze Frame cuts the
+         * sound (YouRec/TrackTimeline.swift:49-64; a hold that plays on is
+         * this port's, as the original's sequence renderer plays it,
+         * YouRec/MediaRenderer.swift:497-504).
          */
         fun of(clip: TimelineClip): SourcePlaybackMap {
+            clip.frozenFrame?.let { hold ->
+                return SourcePlaybackMap(listOf(PlaybackRun(EditTime.of(hold.duration), hold.sourceTime, hold.sourceTime, silent = holdSilent(clip))))
+            }
             var total = 0.0
             var prior = EditTime.ZERO
+            val effects = clip.videoEffects.orEmpty()
             return SourcePlaybackMap(
-                SpeedMapping.spans(clip, clip.speed).map { span ->
+                clip.playbackSpans.map { span ->
                     total += span.duration
                     val boundary = EditTime.of(total)
-                    PlaybackRun(boundary - prior, span.start, span.end).also { prior = boundary }
+                    PlaybackRun(boundary - prior, span.start, span.end, VideoEffectSettings.mutesSourceAudio(effects, (span.start + span.end) / 2))
+                        .also { prior = boundary }
                 }.filter { it.duration > EditTime.ZERO },
             )
         }
+
+        /**
+         * [of] the clip, [length] ticks long: the length a sequence's layout
+         * gives it ([TrackConversion]), the difference of rounding taken by
+         * the last run. A clip that plays one stretch at one rate is one run.
+         */
+        fun of(clip: TimelineClip, length: EditTime): SourcePlaybackMap {
+            val map = of(clip)
+            if (map.runs.size <= 1 && map.runs.none { it.silent || it.isHold }) return single(length, clip.start, clip.end)
+            val difference = length - map.duration
+            if (difference == EditTime.ZERO) return map
+            val last = map.runs.last()
+            val runs = map.runs.dropLast(1) + last.copy(duration = maxOf(EditTime(1), last.duration + difference))
+            return SourcePlaybackMap(runs)
+        }
+
+        /** Whether the hold of a held frame is silent: unless its Freeze Frame plays the sound on. */
+        fun holdSilent(clip: TimelineClip): Boolean =
+            clip.frozenFrame == null || VideoEffectSettings.mutesSourceAudio(clip.videoEffects.orEmpty(), clip.start, frozen = true) ||
+                clip.videoEffects.orEmpty().none { it.kind == VideoEffectID.FreezeFrame }
 
         /** One run from [sourceStart] to [sourceEnd] taking [duration]. */
         fun single(duration: EditTime, sourceStart: Double, sourceEnd: Double): SourcePlaybackMap =

@@ -43,7 +43,7 @@ class ClipVideoEffectsTest {
     @Test fun effectsRaiseTheSchemaOfTheRecipe() {
         assertEquals(16, clip(listOf(correction)).schema)
         assertEquals(16, clip(listOf(correction)).copy(audio = ClipAudio(fadeIn = 9.0), crop = CropSettings(rotation = 10.0)).schema)
-        assertEquals(18, Project.LATEST_READABLE_SCHEMA) // the timeline and timelines that are no sequence came after
+        assertEquals(19, Project.LATEST_READABLE_SCHEMA) // the timeline and timelines that are no sequence came after, held frames and time effects after them
     }
 
     /** The effects live on the clip's recipe, which is the picture's content in the timeline a step is saved as. */

@@ -79,8 +79,16 @@ data class RenderPlan(
         val shaped: Boolean,
         /** Whether its recorded sound is left out because its cleaned sound plays instead, from a sequence of [RenderPlan.cleaned]. */
         val soundRemoved: Boolean,
+        /** The stretches of footage it plays, each at one rate ([PicturePlayback]); one at [rate] for a picture at one speed. */
+        val spans: List<EffectPlaybackSpan> = listOf(EffectPlaybackSpan(sourceStart, sourceEnd, rate)),
     ) {
         val end: Double get() = start + duration
+
+        /** Seconds of footage past [sourceStart], [offset] seconds into the picture. */
+        fun position(offset: Double): Double = PicturePlayback.position(spans, offset)
+
+        /** Seconds into the picture at [position] seconds of footage past [sourceStart]. */
+        fun offset(position: Double): Double = PicturePlayback.offset(spans, position)
     }
 
     /** One player of the preview: the clips it holds, in order, and the chains they form. */
@@ -274,8 +282,8 @@ data class RenderPlan(
                 if (stops - starts < SHORTEST_PART) continue
                 black(deck, starts)
                 // The whole clip is cut where the edit cuts it; a part of it where the stretch does.
-                val first = if (starts <= begins) picture.sourceStartUs else cutMicros(picture.sourceStart + (starts - begins) * picture.rate)
-                val last = if (stops >= ends) picture.sourceEndUs else cutMicros(picture.sourceStart + (stops - begins) * picture.rate)
+                val first = if (starts <= begins) picture.sourceStartUs else cutMicros(picture.sourceStart + picture.position(starts - begins))
+                val last = if (stops >= ends) picture.sourceEndUs else cutMicros(picture.sourceStart + picture.position(stops - begins))
                 decks[deck] += Part.Footage(index, starts, stops, first, maxOf(first + 1, last))
                 filled[deck] = stops
             }
@@ -381,11 +389,13 @@ data class RenderPlan(
             val clean = clips.indices.filter { (clips[it].audio?.denoise ?: 0.0) > 0 && (cleaned == null || it in cleaned) }.toSet()
 
             val pictures = clips.mapIndexed { index, clip ->
+                val spans = clip.playbackSpans
                 Picture(
                     index, clip.id, clip.sourceID, layout.placements[index].start, clip.duration,
-                    clip.start, clip.end, cutMicros(clip.start), cutMicros(clip.end), clip.rate, chainOf[index], deckOf[index], clip.color, clip.crop,
+                    clip.start, clip.end, cutMicros(clip.start), cutMicros(clip.end), PicturePlayback.steady(spans) ?: clip.rate, chainOf[index], deckOf[index], clip.color, clip.crop,
                     shaped = clip.audio != null || TimelineEditing.entering(clips, index) != null || TimelineEditing.leaving(clips, index) != null,
                     soundRemoved = index in clean,
+                    spans = spans,
                 )
             }
             val decks = List(DECKS) { deck ->

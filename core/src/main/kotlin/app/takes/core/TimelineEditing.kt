@@ -343,6 +343,40 @@ object TimelineEditing {
     }
 
     /**
+     * A Freeze Frame at the playhead, as the original's `freezing` makes it
+     * (YouRec/VideoEffects/VideoEffectTiming.swift:70-86): the clip showing
+     * at [time], on the 1/30 s grid, is cut there and a held frame of the
+     * second it shows goes between the pieces, three seconds long, with a
+     * Freeze Frame of its own and none of the clip's other time effects,
+     * speed, transitions, bookmarks, words or fades. Nothing after it is
+     * removed: the footage resumes after the hold. Refused inside a
+     * transition, where no single frame is showing. The edit and the id of
+     * the new Freeze Frame; null when refused.
+     */
+    fun freezing(state: EditState, time: Double): Pair<EditState, String>? {
+        if (!time.isFinite() || state.clips.isEmpty()) return null
+        val frame = TrackEditing.FRAME
+        val duration = state.duration
+        val position = if (time >= duration - frame / 2) duration else minOf(maxOf(0.0, Math.round(time / frame) * frame), maxOf(0.0, duration - frame))
+        if (state.isSequence && layout(state.clips).all.any { it.transition != null && position > it.range.start + JOIN_REACH && position < it.range.endInclusive - JOIN_REACH }) return null
+        val (index, offset) = locate(state.clips, position) ?: return null
+        val clip = state.clips[index]
+        if (clip.frozenFrame != null) return null
+        val sourceTime = VideoEffectTiming.freezeSourceTime(clip.start, clip.end, clip.sourceTime(offset), frame)
+        val end = minOf(clip.end, sourceTime + frame)
+        val effect = VideoEffectSettings(VideoEffectID.FreezeFrame, start = sourceTime, end = end)
+        val hold = clip.copy(
+            id = newID(), start = sourceTime, end = end, speed = null,
+            transition = null, openingTransition = null, transitionFit = null, openingTransitionFit = null,
+            bookmarks = null, subtitleWords = null,
+            audio = clip.audio?.let { ClipAudio(it.volumeDB, it.muted, denoise = it.denoise) }?.takeIf { it != ClipAudio() },
+            frozenFrame = VideoEffectTiming.freezeHold(sourceTime, effect),
+            videoEffects = clip.videoEffects.orEmpty().filter { it.kind.descriptor.family != EffectFamily.Time } + effect,
+        )
+        return insert(state, listOf(hold), position)?.let { it to effect.id }
+    }
+
+    /**
      * The clip with new source bounds, kept inside its source and at least
      * [MINIMUM_CLIP] long. Moving one edge never moves the other.
      *

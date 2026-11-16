@@ -699,21 +699,22 @@ object TrackEditing {
 
     /**
      * [map] with its runs cut where [clip]'s playback changes and each run's
-     * silence written from the clip: a hold is silent, and footage is silent
+     * silence written from the clip: a hold is silent unless it is a held
+     * frame whose Freeze Frame plays the sound on, and footage is silent
      * where the clip mutes its source. YouRec/TrackTimeline.swift:65-79.
-     * A clip here plays one stretch at one rate and mutes none of it, so this
-     * only writes what is already so; it is kept as the place the rule lives.
      */
     private fun applyingMute(map: SourcePlaybackMap, clip: TimelineClip): SourcePlaybackMap {
-        val boundaries = SpeedMapping.spans(clip, clip.speed).flatMap { listOf(it.start, it.end) }
+        val boundaries = clip.playbackSpans.flatMap { listOf(it.start, it.end) }
+        val effects = clip.videoEffects.orEmpty()
+        val holdSilent = SourcePlaybackMap.holdSilent(clip)
         val result = ArrayList<PlaybackRun>(map.runs.size)
         for (run in map.runs) {
-            if (run.isHold) { result += if (run.silent) run else run.copy(silent = true); continue }
+            if (run.isHold) { result += if (run.silent == holdSilent) run else run.copy(silent = holdSilent); continue }
             val points = (listOf(run.sourceStart, run.sourceEnd) + boundaries.filter { it > run.sourceStart && it < run.sourceEnd }).distinct().sorted()
             var prior = EditTime.ZERO
             for ((a, b) in points.zipWithNext()) {
                 val end = if (b == run.sourceEnd) run.duration else EditTime.of(run.duration.seconds * (b - run.sourceStart) / (run.sourceEnd - run.sourceStart))
-                if (end > prior) result += PlaybackRun(end - prior, a, b, false)
+                if (end > prior) result += PlaybackRun(end - prior, a, b, VideoEffectSettings.mutesSourceAudio(effects, (a + b) / 2))
                 prior = end
             }
         }
