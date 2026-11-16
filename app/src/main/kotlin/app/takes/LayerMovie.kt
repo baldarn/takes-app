@@ -18,6 +18,7 @@ import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
+import app.takes.core.ColorSettings
 import app.takes.core.ExportSections
 import app.takes.core.LayerPlan
 import app.takes.core.RenderPlan
@@ -70,7 +71,7 @@ class LayerMovie(
         val clip = shown.content
         val begins = shown.start - origin
         val effects = buildList<Effect> {
-            shown.color?.let { add(SingleColorLut.createFromCube(ColorLuts.cube(it, luts))) }
+            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) add(SingleColorLut.createFromCube(ColorLuts.cube(shown.color ?: ColorSettings(), luts, log))) }
             val source = size(shown.sourceID)
             if (shown.crop != null && source != null) add(FramingEffect(clip, begins, source, frame))
             add(fit())

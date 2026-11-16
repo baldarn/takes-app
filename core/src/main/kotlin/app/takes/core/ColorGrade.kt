@@ -87,6 +87,32 @@ object ColorGrade {
         return DoubleArray(3) { toDisplay(linear[it].coerceIn(0.0, 1.0)) }
     }
 
+    /**
+     * One color of a log recording through the whole grade, as the original's
+     * compositor grades it (YouRec/VideoToolCompositor.swift:505-529): the code
+     * values decoded to linear Rec.709 light ([LogColor.decode]), exposure,
+     * warmth, tint and Highlights on that light with its headroom kept, the
+     * viewing transform ([LogColor.display]), then the look on the picture as
+     * viewed, or an imported LUT on what it expects ([LogColor.lutInput]),
+     * at the grade's strength. The result is display-encoded 0–1.
+     */
+    fun applyLog(settings: ColorSettings, lut: CubeLUT?, input: LUTInput?, profile: LUTInput, red: Double, green: Double, blue: Double): DoubleArray {
+        val scene = LogColor.decode(doubleArrayOf(red, green, blue), profile)
+        val gain = 2.0.pow(settings.exposure ?: 0.0)
+        val warmth = settings.warmth ?: 0.0
+        val tint = settings.tint ?: 0.0
+        val gains = doubleArrayOf(1 + 0.12 * warmth, 1 - 0.10 * tint, 1 - 0.12 * warmth)
+        val balanced = LogColor.highlights(DoubleArray(3) { maxOf(0.0, scene[it]) * gain * gains[it] }, settings.highlights ?: 0.0)
+        val viewed = LogColor.display(balanced)
+        val shown = DoubleArray(3) { toDisplay(viewed[it]) }
+        if (settings.amount <= 0 || (lut == null && settings.look == ColorLook.Natural)) return shown
+        val graded = if (lut != null) {
+            val entry = LogColor.lutInput(balanced, viewed, input ?: LUTInput.Rec709)
+            lut.sample(entry[0].toFloat(), entry[1].toFloat(), entry[2].toFloat()).let { DoubleArray(3) { i -> it[i].toDouble() } }
+        } else look(settings.look, shown[0], shown[1], shown[2])
+        return DoubleArray(3) { (shown[it] + (graded[it] - shown[it]) * minOf(1.0, settings.amount)).coerceIn(0.0, 1.0) }
+    }
+
     /** One color through the whole grade. */
     fun apply(settings: ColorSettings, lut: CubeLUT?, red: Double, green: Double, blue: Double): DoubleArray {
         val balanced = balance(settings, red, green, blue)
@@ -99,14 +125,16 @@ object ColorGrade {
     /**
      * The grade as a cube of [DIMENSION] points per side: three floats per
      * point, red changing fastest, then green, then blue. [lut] is the parsed
-     * file when the settings use an imported LUT.
+     * file when the settings use an imported LUT. With [sourceLog] the table
+     * takes the code values of a recording in that log profile ([applyLog]).
      */
-    fun table(settings: ColorSettings, lut: CubeLUT? = null): FloatArray {
+    fun table(settings: ColorSettings, lut: CubeLUT? = null, sourceLog: LUTInput? = null): FloatArray {
         val table = FloatArray(DIMENSION * DIMENSION * DIMENSION * 3)
         val last = (DIMENSION - 1).toDouble()
         var index = 0
         for (blue in 0 until DIMENSION) for (green in 0 until DIMENSION) for (red in 0 until DIMENSION) {
-            val color = apply(settings, lut, red / last, green / last, blue / last)
+            val color = if (sourceLog == null) apply(settings, lut, red / last, green / last, blue / last)
+            else applyLog(settings, lut, settings.imported?.input, sourceLog, red / last, green / last, blue / last)
             table[index++] = color[0].toFloat(); table[index++] = color[1].toFloat(); table[index++] = color[2].toFloat()
         }
         return table

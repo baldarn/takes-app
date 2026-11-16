@@ -11,6 +11,7 @@ import androidx.annotation.RequiresApi
 import app.takes.core.ColorGrade
 import app.takes.core.ColorSettings
 import app.takes.core.CubeLUT
+import app.takes.core.LUTInput
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -23,13 +24,16 @@ object ColorLuts {
     private val tables = LruCache<String, FloatArray>(16)
     private val strips = LruCache<String, Bitmap>(8)
 
-    /** [folder] is the project folder, where an imported LUT's file lives. A LUT file that cannot be read leaves only the balance. */
-    fun table(settings: ColorSettings, folder: File): FloatArray {
-        val key = folder.path + settings.copy(id = "") // the same grade on another clip is the same table
+    /**
+     * [folder] is the project folder, where an imported LUT's file lives. A LUT file that cannot be read leaves only the balance.
+     * [sourceLog] is the log profile of the recording, whose code values the table then takes ([LogFootage]).
+     */
+    fun table(settings: ColorSettings, folder: File, sourceLog: LUTInput? = null): FloatArray {
+        val key = folder.path + settings.copy(id = "") + sourceLog // the same grade on another clip is the same table
         tables.get(key)?.let { return it }
         val imported = settings.imported?.let { runCatching { CubeLUT.parse(File(folder, it.filename).readBytes()) }.getOrNull() }
         val effective = if (settings.imported != null && imported == null) settings.copy(amount = 0.0) else settings
-        return ColorGrade.table(effective, imported).also { tables.put(key, it) }
+        return ColorGrade.table(effective, imported, sourceLog).also { tables.put(key, it) }
     }
 
     private fun pixel(table: FloatArray, red: Int, green: Int, blue: Int): Int {
@@ -39,17 +43,17 @@ object ColorLuts {
     }
 
     /** The table in the layout Media3's color LUT effect takes: `[red][green][blue]`, opaque ARGB. */
-    fun cube(settings: ColorSettings, folder: File): Array<Array<IntArray>> {
-        val table = table(settings, folder)
+    fun cube(settings: ColorSettings, folder: File, sourceLog: LUTInput? = null): Array<Array<IntArray>> {
+        val table = table(settings, folder, sourceLog)
         return Array(SIZE) { red -> Array(SIZE) { green -> IntArray(SIZE) { blue -> pixel(table, red, green, blue) } } }
     }
 
     // The table as a picture for the preview shader: the blue slices side by side,
     // red across each slice and green down.
-    private fun strip(settings: ColorSettings, folder: File): Bitmap {
-        val key = folder.path + settings.copy(id = "") // the same grade on another clip is the same table
+    private fun strip(settings: ColorSettings, folder: File, sourceLog: LUTInput?): Bitmap {
+        val key = folder.path + settings.copy(id = "") + sourceLog // the same grade on another clip is the same table
         strips.get(key)?.let { return it }
-        val table = table(settings, folder)
+        val table = table(settings, folder, sourceLog)
         val pixels = IntArray(SIZE * SIZE * SIZE)
         for (green in 0 until SIZE) for (blue in 0 until SIZE) for (red in 0 until SIZE) {
             pixels[green * SIZE * SIZE + blue * SIZE + red] = pixel(table, red, green, blue)
@@ -77,8 +81,8 @@ object ColorLuts {
 
     /** The grade as an effect for a view showing the video. Older Android versions preview without color; the export is unaffected. */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    fun previewEffect(settings: ColorSettings, folder: File): RenderEffect {
-        val lookup = BitmapShader(strip(settings, folder), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+    fun previewEffect(settings: ColorSettings, folder: File, sourceLog: LUTInput? = null): RenderEffect {
+        val lookup = BitmapShader(strip(settings, folder, sourceLog), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
             filterMode = BitmapShader.FILTER_MODE_LINEAR
         }
         val shader = RuntimeShader(SHADER).apply {
