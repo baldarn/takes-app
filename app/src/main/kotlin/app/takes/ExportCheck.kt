@@ -2,6 +2,7 @@ package app.takes
 
 import app.takes.core.ExportProblem
 import android.graphics.Bitmap
+import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
@@ -35,6 +36,58 @@ object ExportCheck {
     }
 
     /**
+     * Whether the picture of [movie] at [seconds] decodes: its decoder, from the key frame before it, gives a
+     * picture at that time or after it.
+     */
+    private fun decodes(movie: File, seconds: Double): Boolean {
+        val extractor = MediaExtractor()
+        var decoder: MediaCodec? = null
+        return try {
+            extractor.setDataSource(movie.path)
+            val track = (0 until extractor.trackCount).first { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true }
+            val format = extractor.getTrackFormat(track)
+            extractor.selectTrack(track)
+            val target = Math.round(seconds * 1e6)
+            extractor.seekTo(target, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            val codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!).also { decoder = it }
+            codec.configure(format, null, null, 0)
+            codec.start()
+            val info = MediaCodec.BufferInfo()
+            var fed = false
+            val until = System.nanoTime() + 10_000_000_000L
+            while (System.nanoTime() < until) {
+                if (!fed) {
+                    val input = codec.dequeueInputBuffer(10_000)
+                    if (input >= 0) {
+                        val size = extractor.readSampleData(codec.getInputBuffer(input)!!, 0)
+                        if (size < 0) {
+                            codec.queueInputBuffer(input, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            fed = true
+                        } else {
+                            codec.queueInputBuffer(input, 0, size, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+                val output = codec.dequeueOutputBuffer(info, 10_000)
+                if (output >= 0) {
+                    val shown = info.size > 0 && info.presentationTimeUs >= target - 1000
+                    codec.releaseOutputBuffer(output, false)
+                    if (shown) return true
+                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return false
+                }
+            }
+            false
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { decoder?.stop() }
+            runCatching { decoder?.release() }
+            extractor.release()
+        }
+    }
+
+    /**
      * Proves that [movie] is the movie of [expected] seconds at [framesPerSecond] that was asked for, as the
      * original does before it publishes one: it has picture and sound, its length is the edit's within the
      * tolerance ([ExportSections.durationMatches]), and its first and its last picture decode
@@ -54,10 +107,14 @@ object ExportCheck {
                 return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) retriever.getScaledFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST, 96, 96)
                 else retriever.getFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST)
             }
-            (picture(0.0) ?: throw ExportProblem(ExportProblem.Reason.FirstPicture)).recycle()
+            // The system's frame reader gives up on ten-bit HDR pictures it has to decode many frames to reach (seen
+            // on a Galaxy A54): such a picture is then decoded here.
+            val first = picture(0.0)
+            if (first != null) first.recycle() else if (!decodes(movie, 0.0)) throw ExportProblem(ExportProblem.Reason.FirstPicture)
             halfway()
             ExportSections.lastPictureTime(actual, expected, framesPerSecond)?.let { last ->
-                (picture(last) ?: throw ExportProblem(ExportProblem.Reason.LastPicture)).recycle()
+                val shown = picture(last)
+                if (shown != null) shown.recycle() else if (!decodes(movie, last)) throw ExportProblem(ExportProblem.Reason.LastPicture)
             }
         } catch (problem: IOException) {
             throw problem

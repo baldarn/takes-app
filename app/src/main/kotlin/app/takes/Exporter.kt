@@ -52,6 +52,7 @@ import app.takes.core.ExportReceipts
 import app.takes.core.ExportSections
 import app.takes.core.ExportSpace
 import app.takes.core.ExportSpaceException
+import app.takes.core.ExportFormat
 import app.takes.core.ExportSettings
 import app.takes.core.Rect as FrameRect
 import app.takes.core.Size as FrameSize
@@ -283,16 +284,26 @@ fun frameRate(file: File): Double? {
  * first thing it is given, which is then the clock's still, and a still states none: every movie would be
  * encoded as one of 30 frames a second, with the bitrate Media3 picks for 30. This states the movie's own.
  */
-class ClockedEncoders(private val encoders: Codec.EncoderFactory, private val framesPerSecond: Int) : Codec.EncoderFactory {
+class ClockedEncoders(private val encoders: Codec.EncoderFactory, private val framesPerSecond: Int, private val hdr: Boolean = false) : Codec.EncoderFactory {
     override fun createForAudioEncoding(format: Format, logSessionId: LogSessionId?): Codec = encoders.createForAudioEncoding(format, logSessionId)
 
     override fun createForVideoEncoding(format: Format, logSessionId: LogSessionId?): Codec =
-        encoders.createForVideoEncoding(format.buildUpon().setFrameRate(framesPerSecond.toFloat()).build(), logSessionId)
+        if (!hdr) encoders.createForVideoEncoding(format.buildUpon().setFrameRate(framesPerSecond.toFloat()).build(), logSessionId)
+        else TenBitEncoderInput(encoders.createForVideoEncoding(format.buildUpon().setFrameRate(framesPerSecond.toFloat()).setColorInfo(HdrMovie.COLOR).build(), logSessionId))
 
     override fun audioNeedsEncoding(): Boolean = encoders.audioNeedsEncoding()
 
     override fun videoNeedsEncoding(): Boolean = encoders.videoNeedsEncoding()
 }
+
+/**
+ * The transformer of one pass of an export: [codec] at [framesPerSecond] ([ClockedEncoders]), sound in AAC. An
+ * [hdr] movie is H.265 whatever [codec] says, with its picture in HLG ([HdrMovie]).
+ */
+fun movieTransformer(context: Context, codec: String, framesPerSecond: Int, hdr: Boolean = false): Transformer.Builder = Transformer.Builder(context)
+    .setVideoMimeType(if (hdr) MimeTypes.VIDEO_H265 else codec)
+    .setAudioMimeType(MimeTypes.AUDIO_AAC)
+    .setEncoderFactory(ClockedEncoders(DefaultEncoderFactory.Builder(context).build(), framesPerSecond, hdr))
 
 /** An export that stopped and waits to be resumed: the project it belongs to, the seconds of picture that are saved, and why it stopped when it was not for leaving the app. */
 data class PausedExport(val projectID: String, val savedSeconds: Double, val reason: String?)
@@ -526,17 +537,20 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         // The movie lasts as long as its longest item, as in the original: past the last clip it goes on in black under the sound.
         val duration = sound.duration(asked.duration, store.soundLength(project))
         val plan = if (duration > asked.duration) asked.copy(duration = duration) else asked
-        val movie = withContext(Dispatchers.IO) {
-            val used = plan.pictures.map { it.sourceID }.distinct()
+        val used = plan.pictures.map { it.sourceID }.distinct()
+        val movie = { transfers: Map<String, Int> ->
             ExportMovie(
                 context, plan, settings.frameRate, files, canvas,
                 sizes = used.associateWith { files[it]?.let(::displaySize) }, // the upright size of each recording; a crop is measured in its pixels
                 rates = used.associateWith { files[it]?.let(::frameRate) },
                 black = blackStill(context), luts = folder,
                 media = project.sources.associateBy { it.id },
+                transfers = transfers,
             )
         }
-        finish(project, movie, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
+        orSdr(used.associateWith { files.getValue(it) }, duration, checkpoint, { withContext(Dispatchers.IO) { movie(it) } }) {
+            finish(project, it, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
+        }
     }
 
     /**
@@ -588,16 +602,40 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val sound = prepareSound(project, files)
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
         val duration = sound.duration(plan.duration)
-        val movie = withContext(Dispatchers.IO) {
-            val used = plan.pictures.map { it.sourceID }.distinct()
+        val used = plan.pictures.map { it.sourceID }.distinct()
+        val movie = { transfers: Map<String, Int> ->
             LayerMovie(
                 context, plan, settings.frameRate, files, canvas, columns,
                 sizes = used.associateWith { files[it]?.let(::displaySize) },
                 rates = used.associateWith { files[it]?.let(::frameRate) },
                 black = blackStill(context), luts = folder,
+                transfers = transfers,
             )
         }
-        finish(project, movie, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
+        orSdr(used.associateWith { files.getValue(it) }, duration, checkpoint, { withContext(Dispatchers.IO) { movie(it) } }) {
+            finish(project, it, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
+        }
+    }
+
+    /**
+     * Runs [export] on the movie [made] from the HDR transfers of the recordings in [files]: an HDR movie where the
+     * device writes one ([HdrMovie]). Should the encoder then fail on it, HDR is given up for the rest of the app's
+     * run ([HdrMovie.refuse]), the sections made so far are let go, and the movie is made again in SDR, tone-mapped,
+     * as on a device that writes no HDR: an export never fails for being HDR.
+     */
+    private suspend fun orSdr(
+        files: Map<String, File>, duration: Double, checkpoint: ExportCheckpoint, made: suspend (Map<String, Int>) -> MovieRender, export: suspend (MovieRender) -> Unit,
+    ) {
+        val movie = made(withContext(Dispatchers.IO) { HdrMovie.transfers(files) })
+        if (!movie.hdr) return export(movie)
+        try {
+            export(movie)
+        } catch (problem: ExportException) {
+            android.util.Log.w("Exporter", "HDR export failed, made again in SDR", problem)
+            HdrMovie.refuse()
+            withContext(Dispatchers.IO) { ExportSections.sections(duration).forEach { checkpoint.section(it.index).delete() } }
+            export(made(emptyMap()))
+        }
     }
 
     /**
@@ -611,7 +649,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val settings = project.exportSettings
         val files = project.sources.associate { it.id to store.file(project, it) }
         fun partial() = File(scratch, UUID.randomUUID().toString().uppercase() + ".mp4")
-        val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
+        // HDR is only written as 10-bit H.265, whatever codec was chosen (YouRec/Project.swift:669).
+        val codec = if (ExportFormat.codec(settings, movie.hdr) == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
         val sections = ExportSections.sections(duration)
 
         // Beside the picture, not before it: the sound of the whole movie in one pass. The audio engine mixes it into
@@ -632,7 +671,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     }
                     report(ExportProgress.of(ExportProgress.Step.Audio))
                     val file = partial()
-                    render(mixedSound(mix), file, codec, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Audio, it)) }
+                    render(mixedSound(mix), file, codec, movie.rate, hdr = false) { report(ExportProgress.of(ExportProgress.Step.Audio, it)) }
                     withContext(Dispatchers.IO) {
                         if (ExportTrack.read(file, "audio/") == null) throw ExportProblem(ExportProblem.Reason.SoundNotRendered)
                         checkpoint.publish(file, checkpoint.audioFile)
@@ -652,7 +691,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 for (attempt in 1..ATTEMPTS) {
                     val file = partial()
                     withContext(Dispatchers.IO) { ExportSpace.require(ExportSpace.section(canvas.first, canvas.second, section.length), scratch) }
-                    render(movie.picture(section), file, codec, movie.rate) { report(ExportProgress.picture(section.start, it, section.length, duration)) }
+                    render(movie.picture(section), file, codec, movie.rate, movie.hdr) { report(ExportProgress.picture(section.start, it, section.length, duration)) }
                     // A file that opens proves nothing, an interrupted one opens too: a section is whole when it
                     // holds every one of its frames. An encoder may end one frame short; it is then asked again.
                     saved = withContext(Dispatchers.IO) {
@@ -729,7 +768,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             val previous = ExportReceipts.list(folder)
             val peak = checkpoint.measuredPeak
             try {
-                ExportReceipts.publish(ExportReceipts.receipt(project, name, checksums, canvas.first, canvas.second, settings.codec, peak), joined, output)
+                ExportReceipts.publish(ExportReceipts.receipt(project, name, checksums, canvas.first, canvas.second, ExportFormat.codec(settings, movie.hdr), peak), joined, output)
             } catch (_: Exception) {
                 throw Refusal(context.getString(R.string.export_save_failed))
             }
@@ -761,7 +800,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
      * Cancelling the coroutine cancels the pass. [framesPerSecond] is the movie's frame rate, which the
      * encoder has to be told ([ClockedEncoders]).
      */
-    private suspend fun render(composition: Composition, file: File, codec: String, framesPerSecond: Int, progress: (Double) -> Unit) = coroutineScope {
+    private suspend fun render(composition: Composition, file: File, codec: String, framesPerSecond: Int, hdr: Boolean, progress: (Double) -> Unit) = coroutineScope {
         var running: Transformer? = null
         val watching = launch {
             val holder = ProgressHolder()
@@ -772,10 +811,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
         try {
             suspendCancellableCoroutine<Unit> { continuation ->
-                val transformer = Transformer.Builder(context)
-                    .setVideoMimeType(codec)
-                    .setAudioMimeType(MimeTypes.AUDIO_AAC)
-                    .setEncoderFactory(ClockedEncoders(DefaultEncoderFactory.Builder(context).build(), framesPerSecond))
+                val transformer = movieTransformer(context, codec, framesPerSecond, hdr)
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) = continuation.resume(Unit)
 
@@ -789,6 +825,15 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         } finally {
             watching.cancel()
         }
+    }
+
+    /**
+     * Whether [project]'s movie comes out HDR: some picture of its timeline is HDR and the device writes HDR movies
+     * ([HdrMovie]), as the original asks of the timeline's recordings (`YouRec/EditorController.swift:612-630`).
+     */
+    suspend fun hdr(project: Project): Boolean = withContext(Dispatchers.IO) {
+        val shown = project.edit.toTimeline().video.map { it.content.sourceID }.toSet()
+        HdrMovie.transfers(project.sources.filter { it.id in shown }.associate { it.id to store.file(project, it) }).isNotEmpty()
     }
 
     /**

@@ -55,6 +55,9 @@ interface MovieRender {
     /** The movie's frames a second. */
     val rate: Int
 
+    /** Whether the movie is HDR, in HLG ([HdrMovie]). */
+    val hdr: Boolean get() = false
+
     /** The picture of [section], without sound: exactly its frames, the first at zero. */
     fun picture(section: ExportSections.Section): Composition
 
@@ -96,7 +99,11 @@ class ExportMovie(
     private val sizes: Map<String, Pair<Int, Int>?>, private val rates: Map<String, Double?>, private val black: File, private val luts: File,
     /** The recordings, by id: the person masks are kept by them. */
     private val media: Map<String, app.takes.core.SourceMedia> = emptyMap(),
+    /** The HDR transfer of each recording that is HDR ([HdrMovie.transfer]): any makes the movie HDR. */
+    private val transfers: Map<String, Int> = emptyMap(),
 ) : MovieRender {
+    override val hdr = plan.pictures.any { it.sourceID in transfers }
+
     private val decks = plan.sequences.size
 
     /** The movie's length in seconds. */
@@ -128,21 +135,34 @@ class ExportMovie(
     private fun piece(part: RenderPlan.Part.Footage, origin: Double): EditedMediaItem {
         val shown = plan.pictures[part.index]
         val picture = buildList<Effect> {
-            if (plan.clips[part.index].videoEffects.orEmpty().any { it.kind == app.takes.core.VideoEffectID.NightFix }) add(NightFixEffect(plan.clips[part.index], shown.start - origin)) // on the raw frame
+            val color = ClipColor(this, hdr, transfers[shown.sourceID])
+            if (plan.clips[part.index].videoEffects.orEmpty().any { it.kind == app.takes.core.VideoEffectID.NightFix }) {
+                color.asSdr()
+                add(NightFixEffect(plan.clips[part.index], shown.start - origin)) // on the raw frame
+            }
             // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
-            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) add(SingleColorLut.createFromCube(ColorLuts.cube(shown.color ?: ColorSettings(), luts, log))) }
+            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log) }
+            val clip = plan.clips[part.index]
+            // Before the fitting where nothing after it needs SDR: an effect after a deck's Presentation is best avoided (docs/EXPORT-TWO-SEQUENCES.md, section 8).
+            if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
             // A crop fills the frame with part of the footage, frame by frame; fitting then has nothing left to do.
             val source = size(shown.sourceID)
-            if ((shown.crop != null || plan.clips[part.index].mirror != null) && source != null) add(FramingEffect(plan.clips[part.index], shown.start - origin, source, frame))
+            if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, shown.start - origin, source, frame))
             add(fit())
-            val clip = plan.clips[part.index]
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
             // A held frame, of a freeze or a cadence, is kept before the effects, which draw it at the second it holds.
             if (holdsFrames(clip)) add(TimeHoldEffect(clip, shown.start - origin, rate.toDouble()))
             // The clip's video effects on the picture as it lies in the frame, bars included; titles come after.
-            if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, clip, context = context, media = media[shown.sourceID]), sourceFPS))
+            if (!clip.videoEffects.isNullOrEmpty()) {
+                color.asSdr()
+                add(VideoEffectChain(clip, shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, clip, context = context, media = media[shown.sourceID]), sourceFPS))
+            }
             // Step Printing blends the frames of each block as the chain drew them.
-            if (printsSteps(clip)) add(StepPrintingEffect(clip, shown.start - origin, sourceFPS))
+            if (printsSteps(clip)) {
+                color.asSdr()
+                add(StepPrintingEffect(clip, shown.start - origin, sourceFPS))
+            }
+            color.inHdr()
         }
         val timed = TimedPiece.of(plan.clips[part.index], shown.spans, part, files[shown.sourceID])
         val item = MediaItem.Builder().setUri(android.net.Uri.fromFile(files.getValue(shown.sourceID))).setMediaId(shown.id)
@@ -180,7 +200,7 @@ class ExportMovie(
             }.build()
         }
         // Titles are drawn by the transition effect, with the picture of their clip; subtitles once, over the finished picture.
-        val written = listOfNotNull(plan.subtitles?.let { SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets) })
+        val written = listOfNotNull(plan.subtitles?.let { SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets, hdr) })
         // Where each clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
         val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }
         val drawn = buildList<Effect> {
@@ -188,15 +208,16 @@ class ExportMovie(
             // them: Media3 counts them in a frame length it keeps with seven digits, and they fall behind the grid
             // by a microsecond every thousand frames.
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
-            add(TransitionEffect(plan, picture, decks, perSecond, content, titled = plan.titled))
+            add(TransitionEffect(plan, picture, decks, perSecond, content, titled = plan.titled, hdr = hdr))
             if (written.isNotEmpty()) add(OverlayEffect(written))
             add(SectionFramesEffect(drawing.first, drawing.count, rate))
+            if (hdr) add(TenBitGate())
         }
         return Composition.Builder(listOf(clock) + sequences)
             .setVideoCompositorSettings(DecksCompositor(picture, decks))
             .setEffects(Effects(emptyList(), drawn))
-            // The movie is always SDR, so HDR footage from a phone camera is tone-mapped.
-            .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+            // An SDR movie tone-maps HDR footage; an HDR one carries its HLG through ([HdrMovie]).
+            .setHdrMode(if (hdr) Composition.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR else Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
             .build()
     }
 

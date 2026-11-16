@@ -32,4 +32,14 @@
         android:name="app.takes.effects.TemporalExportRunner"
         android:label="Temporal matte exports"
         android:targetPackage="app.takes.dev" />
+    <!-- Exports of an HDR recording, with a transition, a title and a look: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.effects.HdrExportRunner -->
+    <instrumentation
+        android:name="app.takes.effects.HdrExportRunner"
+        android:label="HDR exports"
+        android:targetPackage="app.takes.dev" />
+    <!-- A whole export of a project made of one recording, timed: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.effects.ProjectExportRunner -->
+    <instrumentation
+        android:name="app.takes.effects.ProjectExportRunner"
+        android:label="Project exports"
+        android:targetPackage="app.takes.dev" />
 </manifest>

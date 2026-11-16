@@ -180,7 +180,11 @@ class SubtitleLayout(val cues: List<SubtitleCue>, settings: SubtitleSettings, wi
  * captions showing at each moment, drawn by the same [SubtitleLayout] code as
  * the preview. Applied once, over the finished picture, like the titles.
  */
-class SubtitleOverlay(cues: List<SubtitleCue>, private val settings: SubtitleSettings, private val width: Int, private val height: Int, assets: AssetManager) : BitmapOverlay() {
+class SubtitleOverlay(
+    cues: List<SubtitleCue>, private val settings: SubtitleSettings, private val width: Int, private val height: Int, assets: AssetManager,
+    /** Whether the picture is an HDR movie's, HLG ([HdrMovie]): the captions' colors are then carried into it. */
+    private val hdr: Boolean = false,
+) : BitmapOverlay() {
     private val layout = SubtitleLayout(cues, settings, width, height, assets)
     private val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
     private var frame: Bitmap? = null
@@ -221,6 +225,7 @@ class SubtitleOverlay(cues: List<SubtitleCue>, private val settings: SubtitleSet
         for (top in 0 until height step band) {
             val rows = minOf(band, height - top)
             drawn.getPixels(buffer, 0, width, 0, top, width, rows) // read as plain colors
+            if (hdr) for (index in 0 until width * rows) buffer[index] = HdrMovie.sdrToHlg(buffer[index])
             result.setPixels(buffer, 0, width, 0, top, width, rows) // and stored as they are
         }
         return result

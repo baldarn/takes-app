@@ -29,7 +29,7 @@ Nothing here was run on a device or an emulator. Section 5 lists what that leave
 | **Layout: set, change, remove, split, delete, move, insert/paste, speed, undo** | matches | Within a timeline whose clips always follow one another. Checked against `docs/TRANSITIONS-FIT.md` and against the Swift. |
 | **Layout: trim, extend, opening and close** | differs | F9, F10. Pause removal matches since pauses are a setting of the clip (F11). |
 | **Export: frame accuracy, 4K, frame-rate conversion** | not verifiable from source | The mechanisms are described in F6, F17, F19, F20; whether they hold needs a device. |
-| **Export: HDR** | differs | Always tone-mapped to SDR (F7). |
+| **Export: HDR** | matches, with less precision | HLG BT.2020 H.265 10-bit when a clip is HDR, highlights kept through the transition; eight-bit steps inside (F7). |
 | **Tests** | differs | The original has pixel tests of every recipe (`Tests/TransitionTests.swift:65-107`) and compares preview with export frame by frame (`:146-151`). The Android shader has none: `app` has no test source set, and the core tests cover the numbers only. |
 
 ## 2. Findings, most visible first
@@ -106,12 +106,12 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
   This assumes output frames on an even grid, which the Android export does not guarantee (F17). The Android choice does keep preview and export alike, which the original's 30 fps editor and 60 fps export are not.
 - **Fix.** Pass the export's frame rate to `TransitionScene.moment` in `TransitionEffect`, as the original does, or keep 30 and say so in the panel when the export rate is not 30.
 
-### F7. HDR footage is exported as SDR — every export of HDR footage [R]
+### F7. HDR footage is exported in HDR, on eight-bit steps — every export of HDR footage [R][P]
 
 - **Original.** The compositor works in extended linear sRGB, half float (`YouRec/VideoToolCompositor.swift:194`), and the movie is HLG BT.2020 when any clip is HDR (`YouRec/TrackRenderer.swift:166-168`). The Hitchcock key clamps HDR values so highlights are revealed before the last frame (`YouRec/TransitionRenderer.swift:215-221`; pixel test at `Tests/TransitionTests.swift:99-100`).
-- **Android.** Every export tone-maps to SDR (`app/Exporter.kt:150-151`), the transition program uses 8-bit textures (`app/TransitionRendering.kt:311`, `:385`), and the shader clamps to 0…1 on the way in and out (`:125-132`).
-- **Difference.** A whole-app difference, not one of transitions; within transitions it removes the headroom that makes bright points spread as discs in a defocus. The Hitchcock clamp is equivalent once everything is SDR.
-- **Fix.** None within transitions; note it in the parity ledger.
+- **Android.** Since issue 37 a movie with an HDR clip (HLG or PQ) is HLG BT.2020 H.265 Main 10 where the device has an encoder for HDR editing (Android 13+; `app/HdrMovie.kt`). Media3 1.11 cannot lay HDR sequences over one another (its `DefaultVideoCompositor` refuses HDR input), so the export runs Media3's SDR pipeline with the footage read as it is (`HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR`): the textures carry the HLG signal, eight bits a color. The transition shader then decodes HLG to linear light counted from SDR white (75 % of the signal, BT.2408), so a highlight is above 1 as in the original, mixes, and encodes HLG again; the fill, the split line and the titles are carried from SDR into HLG at SDR white; the Hitchcock key is read on the side held to SDR white. Each frame is drawn again into the encoder in ten bits (`app/TenBitEncoderInput.kt`), so the file is ten-bit.
+- **Difference.** Highlights survive a dissolve, a wipe, a defocus, a whip pan (measured on a Galaxy A54: an HLG peak of 940 of 1023 stays 940 in the middle of a dissolve, a defocus spreads it). The intermediate pictures are eight-bit HLG where the original's are half floats: smooth gradients can band more than in the original. Elsewhere (Android 12 and older, no such encoder) the movie is still tone-mapped to SDR.
+- **Fix.** Ten-bit or half-float intermediates need Media3's compositor to take HDR.
 
 ### F8. The duration slider ends somewhere else — specific cases [R][P]
 
@@ -192,7 +192,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 ### F18. Linearisation, precision — subtle [I]
 
 - The shader decodes and encodes with the sRGB curve (`app/TransitionRendering.kt:125-132`). The export's textures are in Media3's default SDR working space, which is encoded with the BT.709 / SMPTE 170M curve, and Core Image linearises BT.709 video with that curve. Mid-transition weights therefore differ slightly from the original; ends are untouched (mode 0 returns the pixel as it is, `:168`).
-- 8-bit intermediates against half float: possible banding in long dissolves of dark pictures.
+- 8-bit intermediates against half float: possible banding in long dissolves of dark pictures. An HDR movie has them too, on the HLG signal (F7).
 - Alpha: the shader reads and writes opaque colour only; a transparent deck area counts as black, which is what the original composites over (`YouRec/VideoToolCompositor.swift:162`). No premultiplication error is possible.
 
 ### F19. Two sequences are drawn into a frame twice as tall — internal [R] for the code, [I] for the limit

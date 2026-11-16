@@ -470,6 +470,7 @@
     <string name="export_fps">%1$d fps</string>
     <string name="export_format">Format</string>
     <string name="export_h265_smaller">H.265 (smaller file)</string>
+    <string name="export_hdr_codec">H.265 · 10-bit HDR</string>
     <string name="export_done_title">Movie exported</string>
     <string name="export_share">Share</string>
     <string name="export_save_to_gallery">Save to gallery</string>

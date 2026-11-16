@@ -26,9 +26,9 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 | Status | Count |
 |---|---|
 | DONE | 129 |
-| PARTIAL | 39 |
+| PARTIAL | 41 |
 | CORE ONLY | 6 |
-| MISSING | 29 |
+| MISSING | 27 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -40,13 +40,13 @@ Per area:
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 6 | 1 | 2 | 3 |
 | 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
-| 5. Editor: picture tools | 7 | 4 | 3 | 4 | 0 |
+| 5. Editor: picture tools | 7 | 5 | 3 | 3 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 5 | 5 | 0 | 11 | 0 |
 | 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
-| 11. Export | 10 | 0 | 0 | 2 | 0 |
+| 11. Export | 10 | 1 | 0 | 1 | 0 |
 | 12. Settings, credits, localisation, accessibility | 3 | 1 | 0 | 1 | 2 |
 
 The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
@@ -198,7 +198,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Colour Correction (exposure, contrast, tonal ranges, white balance, saturation, vibrance, hue; Light/Color tabs; keyframes) | O/VideoEffects/VideoEffectCatalog.swift:209, O/VideoEffects/VideoEffectsEditor.swift:1344-1419 | MISSING | — | Part of video effects; could be folded into the LUT pipeline | M | Yes |
 | Stabilisation: Off / Light / Standard / Strong, compare, crop factor | O/StabilizationEditor.swift:325-335, O/StabilizationPath.swift:4-196, O/VideoStabilizer.swift:119-206, O/StabilizationMotion.cpp:140-179 | CORE ONLY | C/StabilizationPath.kt (levels, pose algebra, the path with one crop, the transform at a time, the reference range kept by splits) | Motion analysis (the C++ compiles under the NDK), the clip field, per-frame transform in preview and export, cache, the tool | L | Yes |
 | Image overlay (timed, size, opacity, position, A/B motion) | O/EditorTools.swift:1238-1254 | CORE ONLY | C/ImageOverlay.kt:7 | Import, clip field, UI, drawing | M | Yes |
-| HDR kept through editing | README:48-49, O/MediaRenderer.swift:455-457 | MISSING | Tone-mapped to SDR (A/Exporter.kt:115) | HDR preview and export | L | Phone |
+| HDR kept through editing | README:48-49, O/MediaRenderer.swift:455-457 | PARTIAL | The export keeps HDR (section 11): HLG and PQ recordings (A/HdrMovie.kt `transfer`, by their stated transfer as O/MediaRenderer.swift:835-842), a transition, a title, a look (A/HdrEffects.kt `HlgColorLut`, the table on SDR video's signal and extrapolated past SDR white as O/VideoToolCompositor.swift:505-529 does with `inputExtrapolate`), subtitles and SDR clips in the same movie (put at HLG's reference white) | The preview is not HDR: its decks are TextureViews, where the system shows HDR footage in SDR (unchanged; an HDR SurfaceView would not take the transition shader's RenderEffect). Video effects, Night Fix and Step Printing work on SDR only: an HDR clip with one is held to SDR white from there on. PQ is carried into HLG as Media3 does (its light over 1000 nits, no OOTF) | M | Phone |
 
 ## 6. Transitions
 
@@ -318,7 +318,7 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 | Resolution: project, 720p, 1080p, 4K | O/Project.swift:645-661, O/MovieExportPanel.swift:64-115 | DONE | A/EditorScreen.kt:1427-1433, C/Project.kt:233-246 | "Upscaled from" note | | |
 | Frame rate 24, 25, 30, 50, 60 | O/Project.swift:663-667, O/MovieExportPanel.swift:96-98, O/TrackRenderer.swift:164 | DONE | A/ExportPanel.kt (the five rates, 30 by default), C/TransitionScene.kt `frameRate`: a frame every 1/fps whatever the footage, from the export's clock (A/ExportMovie.kt, A/LayerMovie.kt) | The frame a still holds is found on a grid of 30 a second at every rate, where the original uses the movie's | | |
 | Codec H.264 / H.265 | same | DONE | A/EditorScreen.kt:1437, A/Exporter.kt:282 | — | | |
-| HDR export (HLG, forced H.265 10-bit) | O/Project.swift:669, O/MediaRenderer.swift:455-457 | MISSING | Tone-mapped to SDR (A/Exporter.kt:115) | | L | Phone |
+| HDR export (HLG, forced H.265 10-bit) | O/Project.swift:669, O/MediaRenderer.swift:455-457, O/MovieExportPanel.swift:100-102 | PARTIAL | A movie with an HDR picture is HLG BT.2020 H.265 Main 10 whatever codec was chosen (C/ExportFormat.kt `codec`; A/ExportMovie.kt, A/LayerMovie.kt, A/Exporter.kt `movieTransformer`), and the export dialog shows "H.265 · 10-bit HDR" in place of the choice (A/ExportPanel.kt, A/Exporter.kt `hdr`) | Media3 1.11 cannot compose HDR sequences, so the picture goes through its SDR pipeline as the HLG signal, eight bits a color, and is drawn again into the encoder in ten (A/TenBitEncoderInput.kt): the file is ten-bit but its steps are eight-bit ones, where the original works in half floats (more banding in smooth gradients). Needs Android 13 and an H.265 encoder for HDR editing (Media3's test); elsewhere HDR footage is tone-mapped to SDR as before. The system's frame reader cannot decode the last picture of such a movie on a Galaxy A54, so the check decodes it itself (A/ExportCheck.kt) | M | Phone |
 | Progress and Cancel | O/MovieExportPanel.swift:117-139, 193-199 | DONE | A/ExportPanel.kt (named steps), A/Exporter.kt, C/ExportProgress.kt | — | | |
 | Export pauses on backgrounding and resumes from 12 s sections | O/ExportCheckpoint.swift:23-146 | DONE | A/Exporter.kt:304-356 (pauses when the app leaves the front, resumes from the sections kept), C/ExportCheckpoint.kt | — | | |
 | Share the movie | O/MovieExportPanel.swift:24-41 | DONE | A/EditorScreen.kt:1494-1496 | — | | |

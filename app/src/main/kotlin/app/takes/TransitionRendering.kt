@@ -166,7 +166,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
 /** The shader of every transition, written once and worded for each of the two renderers. */
 object TransitionShader {
     // Mixes happen in linear light, as in the original: pixels are decoded from sRGB, combined, and encoded again.
-    internal const val HEAD = """
+    // A color given as sRGB (the fill, the line of a split screen, a title) is the frame's own as it is ([sig]), a
+    // title laid over a side by its opacity as it is encoded ([titled]), and a Hitchcock key read on the side as
+    // encoded and held to 0…1 ([keyed]). For the preview, and for an SDR export ([HEAD]).
+    internal const val PREVIEW_HEAD = """
         vec3 lin(vec3 c) {
             c = clamp(c, 0.0, 1.0);
             return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
@@ -175,19 +178,45 @@ object TransitionShader {
             c = clamp(c, 0.0, 1.0);
             return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
         }
+        vec3 sig(vec3 c) { return c; }
+        vec3 titled(vec4 t, vec3 c) { return t.rgb + (1.0 - t.a) * c; }
+        vec3 keyed(vec3 c) { return clamp(c, 0.0, 1.0); }
     """
+
+    /**
+     * The same for the export. Compiled with `HDR` defined ([HDR]), the pictures are HLG in BT.2020 ([HdrMovie]):
+     * linear light is then counted from SDR white, which HLG puts at 75 % of its signal (ITU-R BT.2408), so a
+     * highlight is above 1, as in the original's extended linear working space (`YouRec/VideoToolCompositor.swift:194`);
+     * a color given as SDR is carried into HLG as SDR footage is ([HdrMovie.GLSL]); a Hitchcock key is read on the
+     * side held to SDR white, as the original clamps HDR values for it (`YouRec/TransitionRenderer.swift:215-221`).
+     * Without it, the program is the SDR one, line for line.
+     */
+    internal const val HEAD = """
+        #ifdef HDR
+        ${HdrMovie.GLSL}
+        vec3 lin(vec3 c) { return hlgLin(c); }
+        vec3 enc(vec3 c) { return hlgEnc(c); }
+        vec3 sig(vec3 c) { return sdrToHlg(c); }
+        vec3 titled(vec4 t, vec3 c) { return t.a > 0.0 ? sig(t.rgb / t.a) * t.a + (1.0 - t.a) * c : c; }
+        vec3 keyed(vec3 c) { return hlgToSdr(c); }
+        #else
+        $PREVIEW_HEAD
+        #endif
+    """
+
+    /** What goes before an export program's text to compile it for an HDR movie ([HEAD]). */
+    const val HDR = "#define HDR 1\n"
 
     private const val SIDE = """
         // One side's picture at a pixel of the frame, with the titles of its deck over it before the sides are
         // combined, as the original draws a clip with its titles (VideoToolCompositor.swift:282); past the frame its
         // edge pixels go on.
         vec3 side(float kind, vec2 p) {
-            if (kind > 1.5 && kind < 2.5) return uFill;
+            if (kind > 1.5 && kind < 2.5) return sig(uFill);
             vec2 at = clamp(p, vec2(0.5), uSize - 0.5);
             float which = kind > 2.5 ? kind - 3.0 : kind;
             vec3 c = kind > 2.5 ? held(which, at) : deck(kind, at);
-            vec4 t = title(which, at);
-            return t.rgb + (1.0 - t.a) * c;
+            return titled(title(which, at), c);
         }
     """
 
@@ -265,7 +294,7 @@ object TransitionShader {
             if (uMode > 8.5) return spread(uKind.x, q);
             if (uMode > 7.5) return reduce(uKind.x, q);
             if (uMode < 1.5) return enc(mix(lin(side(uKind.x, q)), lin(side(uKind.y, q)), uA.x));
-            if (uMode < 2.5) return enc(uA.x * lin(side(uKind.x, q)) + uA.y * lin(uFill) + uA.z * lin(side(uKind.y, q)));
+            if (uMode < 2.5) return enc(uA.x * lin(side(uKind.x, q)) + uA.y * lin(sig(uFill)) + uA.z * lin(side(uKind.y, q)));
             if (uMode < 3.5) {
                 // A wipe: the second picture behind the edge, the first ahead of it, a ramp across its band.
                 float share = clamp(1.0 - dot(q - uA.xy, uA.zw) / uB.x, 0.0, 1.0);
@@ -283,24 +312,22 @@ object TransitionShader {
             }
             if (uMode > 4.5) {
                 // Hitchcock: the second picture comes through the first by the first's own brightness, as it is encoded.
-                vec3 key = clamp(side(uKind.x, q), 0.0, 1.0);
-                float share = clamp(uA.x * dot(key, vec3(0.2126, 0.7152, 0.0722)) + uA.y, 0.0, 1.0);
-                return enc(mix(lin(key), lin(side(uKind.y, q)), share));
+                vec3 first = side(uKind.x, q);
+                float share = clamp(uA.x * dot(keyed(first), vec3(0.2126, 0.7152, 0.0722)) + uA.y, 0.0, 1.0);
+                return enc(mix(lin(first), lin(side(uKind.y, q)), share));
             }
             // A split screen: each picture framed in its half over black, the second half over the first, then
             // the line between them; the whole blends from the first picture alone and to the second alone.
             vec3 pair = vec3(0.0);
             if (within(q, uA)) pair = lin(side(uKind.x, uD.xy + (q - uA.xy) * uD.z));
             if (within(q, uB)) pair = lin(side(uKind.y, uE.xy + (q - uB.xy) * uE.z));
-            if (within(q, uC)) pair = lin(vec3(uF.w));
+            if (within(q, uC)) pair = lin(sig(vec3(uF.w)));
             vec3 sum = uF.y * pair;
             if (uF.x > 0.0) sum += uF.x * lin(side(uKind.x, q));
             if (uF.z > 0.0) sum += uF.z * lin(side(uKind.y, q));
             return enc(sum);
         }
     """
-
-    private const val BODY = HEAD + SIDE + TAIL
 
     internal const val UNIFORMS = """
         uniform vec2 uSize;
@@ -349,10 +376,7 @@ object TransitionShader {
         void main() {
             vec2 q = vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y);
             vec3 c = scene(q);
-            if (uTitled.z > 0.5) {
-                vec4 t = texture2D(uTitle0, q / uSize);
-                c = t.rgb + (1.0 - t.a) * c;
-            }
+            if (uTitled.z > 0.5) c = titled(texture2D(uTitle0, q / uSize), c);
             gl_FragColor = vec4(uLinear.y > 0.5 ? lin(c) : c, 1.0);
         }
     """
@@ -371,7 +395,9 @@ object TransitionShader {
         vec3 held(float which, vec2 p) { return deck(which, p); }
         // The preview draws a clip's titles on its deck's view.
         vec4 title(float which, vec2 p) { return vec4(0.0); }
-        $BODY
+        $PREVIEW_HEAD
+        $SIDE
+        $TAIL
         vec4 main(vec2 xy) {
             // A spread is made of both decks, each in its half, for the frame drawn after it.
             if (uMode > 8.5) {
@@ -598,6 +624,8 @@ class DecksCompositor(private val canvas: Size, private val decks: Int, private 
 class TransitionEffect(
     private val plan: RenderPlan, private val canvas: Size, private val decks: Int,
     private val frames: (TransitionLayout.Join) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
+    /** Whether the decks are HLG in BT.2020, an HDR movie's ([HdrMovie]): the fill and the titles are carried into it. */
+    private val hdr: Boolean = false,
 ) : GlEffect {
     /** The effect of [clips] by themselves, planned as an export plans them. */
     constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect, titled: Boolean = false) :
@@ -662,7 +690,7 @@ class TransitionEffect(
             if (program != 0) return
             program = GLES20.glCreateProgram()
             GLES20.glAttachShader(program, compiled(GLES20.GL_VERTEX_SHADER, TransitionShader.VERTEX))
-            GLES20.glAttachShader(program, compiled(GLES20.GL_FRAGMENT_SHADER, TransitionShader.FRAGMENT))
+            GLES20.glAttachShader(program, compiled(GLES20.GL_FRAGMENT_SHADER, (if (hdr) TransitionShader.HDR else "") + TransitionShader.FRAGMENT))
             GLES20.glLinkProgram(program)
             val status = IntArray(1)
             GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, status, 0)

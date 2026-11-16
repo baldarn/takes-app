@@ -13,7 +13,6 @@ import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
-import androidx.media3.effect.SingleColorLut
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
@@ -52,8 +51,12 @@ class LayerMovie(
     private val context: Context, private val plan: LayerPlan, ceiling: Int, private val files: Map<String, File>,
     val canvas: Pair<Int, Int>, private val columns: Int, private val sizes: Map<String, Pair<Int, Int>?>, private val rates: Map<String, Double?>,
     private val black: File, private val luts: File,
+    /** The HDR transfer of each recording that is HDR ([HdrMovie.transfer]): any makes the movie HDR. */
+    private val transfers: Map<String, Int> = emptyMap(),
 ) : MovieRender {
     private val lanes = plan.lanes
+
+    override val hdr = plan.pictures.any { it.sourceID in transfers }
 
     override val rate = TransitionScene.frameRate(ceiling)
 
@@ -71,14 +74,24 @@ class LayerMovie(
         val clip = shown.content
         val begins = shown.start - origin
         val effects = buildList<Effect> {
-            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) add(SingleColorLut.createFromCube(ColorLuts.cube(shown.color ?: ColorSettings(), luts, log))) }
+            // In an HDR movie each picture ends in HLG, as a sequence's clips do (ExportMovie).
+            val color = ClipColor(this, hdr, transfers[shown.sourceID])
+            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log) }
+            if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
             val source = size(shown.sourceID)
             if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, begins, source, frame))
             add(fit())
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
             if (holdsFrames(clip)) add(TimeHoldEffect(clip, begins, rate.toDouble()))
-            if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, begins, rate.toDouble(), sourceFPS = sourceFPS))
-            if (printsSteps(clip)) add(StepPrintingEffect(clip, begins, sourceFPS))
+            if (!clip.videoEffects.isNullOrEmpty()) {
+                color.asSdr()
+                add(VideoEffectChain(clip, begins, rate.toDouble(), sourceFPS = sourceFPS))
+            }
+            if (printsSteps(clip)) {
+                color.asSdr()
+                add(StepPrintingEffect(clip, begins, sourceFPS))
+            }
+            color.inHdr()
         }
         val timed = TimedPiece.of(clip, shown.spans, part, files[shown.sourceID])
         val item = MediaItem.Builder().setUri(Uri.fromFile(files.getValue(shown.sourceID))).setMediaId(shown.id)
@@ -104,14 +117,16 @@ class LayerMovie(
         val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }
         val drawn = buildList<Effect> {
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
-            add(LayersEffect(plan, picture, lanes, columns, perTransition, content, titled = true))
-            plan.subtitles?.let { add(OverlayEffect(listOf(SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets)))) }
+            add(LayersEffect(plan, picture, lanes, columns, perTransition, content, titled = true, hdr = hdr))
+            plan.subtitles?.let { add(OverlayEffect(listOf(SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets, hdr)))) }
             add(SectionFramesEffect(drawing.first, drawing.count, rate))
+            if (hdr) add(TenBitGate())
         }
         return Composition.Builder(listOf(clock) + sequences)
             .setVideoCompositorSettings(DecksCompositor(picture, lanes, columns))
             .setEffects(Effects(emptyList(), drawn))
-            .setHdrMode(Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
+            // An SDR movie tone-maps HDR footage; an HDR one carries its HLG through ([HdrMovie]).
+            .setHdrMode(if (hdr) Composition.HDR_MODE_EXPERIMENTAL_FORCE_INTERPRET_HDR_AS_SDR else Composition.HDR_MODE_TONE_MAP_HDR_TO_SDR_USING_OPEN_GL)
             .build()
     }
 

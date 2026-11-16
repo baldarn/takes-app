@@ -138,12 +138,11 @@ object LayerShader {
     // the original draws a picture with its titles (VideoToolCompositor.swift:282, :409-411).
     private const val SIDE = """
         vec3 side(float kind, vec2 p) {
-            if (kind < -0.5) return uFill;
+            if (kind < -0.5) return sig(uFill);
             vec2 at = clamp(p, vec2(0.5), uSize - 0.5);
             float lane = kind > 9.5 ? kind - 10.0 : kind;
             vec3 c = kind > 9.5 ? held(lane, at) : deck(kind, at);
-            vec4 t = title(lane, at);
-            return t.rgb + (1.0 - t.a) * c;
+            return titled(title(lane, at), c);
         }
     """
 
@@ -158,7 +157,7 @@ object LayerShader {
     // the canvas point taken back to the picture's own pixel through its window. A picture's titles are in its side
     // ([title], by its lane), so they are moved and shrink with it; those of a split screen go once over the pair ([pairTitles]).
     private val body = SIDE + TransitionShader.TAIL + """
-        vec3 over(vec3 under, vec4 top) { return top.rgb + (1.0 - top.a) * under; }
+        vec3 over(vec3 under, vec4 top) { return titled(top, under); }
         vec3 placed(vec2 q, vec3 under, vec4 clip, vec4 map, vec2 layer) {
             if (!within(q, clip)) return under;
             return side(layer.x, (q - map.xy) / layer.y + map.zw);
@@ -237,7 +236,7 @@ object LayerShader {
         uniform shader titles;
         vec4 title(float lane, vec2 p) { return vec4(0.0); }
         vec4 pairTitles(vec2 p) { return uOver < -0.5 ? vec4(0.0) : titles.eval(p); }
-        ${TransitionShader.HEAD}
+        ${TransitionShader.PREVIEW_HEAD}
         $body
         vec4 main(vec2 xy) {
             // A spread is made of the lanes of the pair in transition, each in its place, for the frame drawn after
@@ -339,6 +338,8 @@ class LayerPreviewShader {
 class LayersEffect(
     private val plan: LayerPlan, private val canvas: Size, private val lanes: Int, private val columns: Int,
     private val frames: (TimelineTransition) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
+    /** Whether the lanes are HLG in BT.2020, an HDR movie's ([HdrMovie]): the fill and the titles are carried into it. */
+    private val hdr: Boolean = false,
 ) : GlEffect {
     init {
         require(lanes in 1..LayerDrawing.MOST) { "At most ${LayerDrawing.MOST} lanes" }
@@ -384,7 +385,7 @@ class LayersEffect(
             if (program != 0) return
             program = GLES20.glCreateProgram()
             GLES20.glAttachShader(program, compiled(GLES20.GL_VERTEX_SHADER, TransitionShader.VERTEX))
-            GLES20.glAttachShader(program, compiled(GLES20.GL_FRAGMENT_SHADER, LayerShader.FRAGMENT))
+            GLES20.glAttachShader(program, compiled(GLES20.GL_FRAGMENT_SHADER, (if (hdr) TransitionShader.HDR else "") + LayerShader.FRAGMENT))
             GLES20.glLinkProgram(program)
             val status = IntArray(1)
             GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, status, 0)

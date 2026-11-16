@@ -134,6 +134,7 @@ private fun ExportSettingsDialog(
         value = exporter.exported(project.copy(exportSettings = settings))
     }
     val made = exported?.takeIf { it.current }
+    val hdr by produceState(false, project.id, project.updatedAt, project.historyCursor) { value = exporter.hdr(project) }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(stringResource(R.string.export_title)) },
@@ -148,7 +149,11 @@ private fun ExportSettingsDialog(
                 }
                 // O/MovieExportPanel.swift:96-98: every rate the original exports at.
                 Choices(stringResource(R.string.export_frame_rate), ExportSettings.FRAME_RATES.map { stringResource(R.string.export_fps, it) to it }, settings.frameRate) { settings = settings.copy(frameRate = it) }
-                Choices(stringResource(R.string.export_format), listOf("H.264" to ExportSettings.Codec.H264, stringResource(R.string.export_h265_smaller) to ExportSettings.Codec.HEVC), settings.codec) {
+                // O/MovieExportPanel.swift:100-102: an HDR movie is H.265 in ten bits, with no choice.
+                if (hdr) {
+                    Text(stringResource(R.string.export_format), color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
+                    Text(stringResource(R.string.export_hdr_codec))
+                } else Choices(stringResource(R.string.export_format), listOf("H.264" to ExportSettings.Codec.H264, stringResource(R.string.export_h265_smaller) to ExportSettings.Codec.HEVC), settings.codec) {
                     settings = settings.copy(codec = it)
                 }
                 val movie = exported
