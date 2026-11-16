@@ -49,7 +49,7 @@ fun clippedItem(picture: LayerPlan.Picture, file: File): MediaItem = MediaItem.B
  */
 class LayerMovie(
     private val context: Context, private val plan: LayerPlan, ceiling: Int, private val files: Map<String, File>,
-    val canvas: Pair<Int, Int>, private val columns: Int, private val sizes: Map<String, Pair<Int, Int>?>, rates: Map<String, Double?>,
+    val canvas: Pair<Int, Int>, private val columns: Int, private val sizes: Map<String, Pair<Int, Int>?>, private val rates: Map<String, Double?>,
     private val black: File, private val luts: File,
 ) : MovieRender {
     private val lanes = plan.lanes
@@ -74,11 +74,15 @@ class LayerMovie(
             val source = size(shown.sourceID)
             if (shown.crop != null && source != null) add(FramingEffect(clip, begins, source, frame))
             add(fit())
-            if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, begins, rate.toDouble()))
+            val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
+            if (holdsFrames(clip)) add(TimeHoldEffect(clip, begins))
+            if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, begins, rate.toDouble(), sourceFPS = sourceFPS))
+            if (printsSteps(clip)) add(StepPrintingEffect(clip, begins, sourceFPS))
         }
+        val timed = TimedPiece.of(clip, shown.spans, part, files[shown.sourceID])
         val item = MediaItem.Builder().setUri(Uri.fromFile(files.getValue(shown.sourceID))).setMediaId(shown.id)
-            .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(part.sourceStartUs).setEndPositionUs(part.sourceEndUs).build()).build()
-        return EditedMediaItem.Builder(item).setRemoveAudio(true).setEffects(Effects(emptyList(), effects)).apply { steadySpeed(shown.rate)?.let(::setSpeed) }.build()
+            .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(timed.startUs).setEndPositionUs(timed.endUs).build()).build()
+        return EditedMediaItem.Builder(item).setRemoveAudio(true).setEffects(Effects(emptyList(), effects)).apply { timed.speed?.let(::setSpeed) }.build()
     }
 
     override fun picture(section: ExportSections.Section): Composition {

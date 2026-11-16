@@ -92,7 +92,7 @@ fun mixedSound(mix: File): Composition = Composition.Builder(
  */
 class ExportMovie(
     private val context: Context, private val plan: RenderPlan, ceiling: Int, private val files: Map<String, File>, val canvas: Pair<Int, Int>,
-    private val sizes: Map<String, Pair<Int, Int>?>, rates: Map<String, Double?>, private val black: File, private val luts: File,
+    private val sizes: Map<String, Pair<Int, Int>?>, private val rates: Map<String, Double?>, private val black: File, private val luts: File,
 ) : MovieRender {
     private val decks = plan.sequences.size
 
@@ -132,13 +132,20 @@ class ExportMovie(
             val source = size(shown.sourceID)
             if (shown.crop != null && source != null) add(FramingEffect(plan.clips[part.index], shown.start - origin, source, frame))
             add(fit())
+            val clip = plan.clips[part.index]
+            val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
+            // A held frame, of a freeze or a cadence, is kept before the effects, which draw it at the second it holds.
+            if (holdsFrames(clip)) add(TimeHoldEffect(clip, shown.start - origin))
             // The clip's video effects on the picture as it lies in the frame, bars included; titles come after.
-            if (!plan.clips[part.index].videoEffects.isNullOrEmpty()) add(VideoEffectChain(plan.clips[part.index], shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, plan.clips[part.index])))
+            if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, clip), sourceFPS))
+            // Step Printing blends the frames of each block as the chain drew them.
+            if (printsSteps(clip)) add(StepPrintingEffect(clip, shown.start - origin, sourceFPS))
         }
+        val timed = TimedPiece.of(plan.clips[part.index], shown.spans, part, files[shown.sourceID])
         val item = MediaItem.Builder().setUri(android.net.Uri.fromFile(files.getValue(shown.sourceID))).setMediaId(shown.id)
-            .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(part.sourceStartUs).setEndPositionUs(part.sourceEndUs).build()).build()
+            .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(timed.startUs).setEndPositionUs(timed.endUs).build()).build()
         // Speed comes first in Media3, so the effects after it are timed in movie seconds.
-        return EditedMediaItem.Builder(item).setRemoveAudio(true).setEffects(Effects(emptyList(), picture)).apply { steadySpeed(shown.rate)?.let(::setSpeed) }.build()
+        return EditedMediaItem.Builder(item).setRemoveAudio(true).setEffects(Effects(emptyList(), picture)).apply { timed.speed?.let(::setSpeed) }.build()
     }
 
     /**
