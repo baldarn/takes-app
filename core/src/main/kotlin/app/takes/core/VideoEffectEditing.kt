@@ -22,7 +22,10 @@ object VideoEffectEditing {
                     changed = true
                     return@mapNotNull null
                 }
-                frozen.copy(duration = freeze.number("hold", clip.start).coerceIn(MINIMUM_HOLD, MAXIMUM_HOLD))
+                // Only a Hold duration that changes sets the hold: a piece of a split hold keeps its own length otherwise.
+                val was = clip.videoEffects.orEmpty().firstOrNull { it.kind == VideoEffectID.FreezeFrame }?.number("hold", clip.start)
+                val hold = freeze.number("hold", clip.start)
+                if (hold == was) frozen else frozen.copy(duration = hold.coerceIn(MINIMUM_HOLD, MAXIMUM_HOLD), offset = 0.0)
             }
             if (next == clip.videoEffects && hold == clip.frozenFrame) clip else clip.copy(videoEffects = next, frozenFrame = hold).also { changed = true }
         }

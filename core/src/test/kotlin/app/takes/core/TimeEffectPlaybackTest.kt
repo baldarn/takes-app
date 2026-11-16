@@ -245,3 +245,28 @@ class TimeEffectPlaybackTest {
         near(1.5, frozenShown.holdTime!!)
     }
 }
+
+class HeldFrameEditingTest {
+    private fun frozen(): EditState =
+        TimelineEditing.freezing(EditState(listOf(TimelineClip(id = "C1", sourceID = "S1", start = 0.0, end = 6.0))), 2.0)!!.first
+
+    /** A held frame is cut by its length, each piece holding the same frame (YouRec/TrackTimeline.swift:1017-1020). */
+    @Test fun aSplitCutsAHoldByItsLength() {
+        val state = frozen()
+        val split = TimelineEditing.split(state, 3.0)!!
+        assertEquals(4, split.clips.size)
+        val (left, right) = split.clips[1] to split.clips[2]
+        assertEquals(1.0, left.frozenFrame!!.duration, 1e-9)
+        assertEquals(2.0, right.frozenFrame!!.duration, 1e-9)
+        assertEquals(1.0, right.frozenFrame!!.offset, 1e-9)
+        assertEquals(2.0, left.frozenFrame!!.sourceTime, 0.0)
+        assertEquals(2.0, right.frozenFrame!!.sourceTime, 0.0)
+        assertEquals(9.0, split.duration, 1e-9)
+        // The later piece pushes in on the hold's clock carried on.
+        assertEquals(1.5, VideoEffectTiming.shown(right, 0.5, 30.0, VideoEffectSequenceClock.of(right)).holdTime!!, 1e-9)
+        // Another change of its effects leaves each piece its length.
+        val effects = right.videoEffects!!.map { it.with("push", EffectValue.Number(0.1)) }
+        val pushed = VideoEffectEditing.setEffects(split, mapOf(right.id to effects))!!
+        assertEquals(2.0, pushed.clips[2].frozenFrame!!.duration, 1e-9)
+    }
+}

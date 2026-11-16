@@ -122,8 +122,8 @@ object TrackEditing {
      * later piece; a placement of a cut picture is also given to the later
      * pieces, and the prune keeps whichever still overlap.
      *
-     * YouRec/TrackTimeline.swift:1007-1079. The original also cuts a held
-     * frame by its length; a clip here holds no frame.
+     * YouRec/TrackTimeline.swift:1007-1079: a held frame is cut by its
+     * length, each piece holding the same frame.
      */
     fun split(timeline: TrackTimeline, time: EditTime, selection: TimelineSelection): Split {
         val chosen = TrackLinking.expanded(timeline, selection)
@@ -132,9 +132,20 @@ object TrackEditing {
         for (item in timeline.video) {
             if (item.id !in chosen.video || time <= item.start || time >= item.end) { video += item; continue }
             val local = time - item.start
+            val right = newID()
+            val frozen = item.content.frozenFrame
+            if (frozen != null) {
+                // A held frame is cut by its length: each piece holds the same frame, the later one with the hold's clock carried on.
+                video += item.copy(content = item.content.copy(frozenFrame = frozen.copy(duration = local.seconds)), mapping = item.mapping.sliced(EditInterval(EditTime.ZERO, local)))
+                video += item.copy(
+                    content = item.content.copy(id = right, frozenFrame = frozen.copy(duration = (item.end - time).seconds, offset = frozen.offset + local.seconds)),
+                    start = time, localOrigin = item.localOrigin + local, mapping = item.mapping.sliced(EditInterval(local, item.mapping.duration)),
+                )
+                children[item.id] = right
+                continue
+            }
             val source = item.mapping.source(local)
             if (source == null) { video += item; continue }
-            val right = newID()
             video += item.copy(content = item.content.copy(end = source), mapping = item.mapping.sliced(EditInterval(EditTime.ZERO, local)))
             video += item.copy(
                 content = item.content.copy(id = right, start = source), start = time, localOrigin = item.localOrigin + local,
