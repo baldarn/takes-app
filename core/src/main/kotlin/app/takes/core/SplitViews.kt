@@ -16,6 +16,9 @@ package app.takes.core
  * while the picture alone outweighs the pair it is shown whole, with the
  * other half and the line fading in over it by the pair's share; from the
  * moment the pair outweighs it, the pair alone is shown.
+ *
+ * An edit drawn by picture layers draws its split screen the same way with
+ * the views of the two lanes that show it ([layered]).
  */
 object SplitViews {
     /**
@@ -61,6 +64,37 @@ object SplitViews {
             mix.second > mix.pair -> Drawing(Side(first, mix.pair, 1), Side(null, 1.0, 0), line, mix.pair)
             else -> Drawing(Side(first, 1.0, 1), Side(second, 1.0, 1), line, 1.0)
         }
+    }
+
+    /**
+     * A split screen among picture layers, drawn with the lanes' views as a sequence's decks are ([of]): the pair
+     * is [layer], its place back to front in the moment's layers; [first] and [second] are the lanes that show
+     * its sides, null for a side that is the fill color.
+     */
+    data class Layered(val layer: Int, val frame: TransitionFrame.Split, val drawing: Drawing, val first: Int?, val second: Int?) {
+        /** The lanes the pair shows, which draw no titles of their own: those of both go once over the pair. */
+        val lanes: List<Int> get() = listOfNotNull(first, second)
+    }
+
+    /**
+     * The split screen of [moment], drawn on [canvas] from [lanes] views ([of]); null when its pair is not a
+     * split screen, or when its two sides are not each on a lane of its own or the fill color. [content] is where
+     * the footage of a picture, by its index, lies in its view.
+     */
+    fun layered(moment: LayerPlan.Moment, canvas: Size, lanes: Int, content: (Int) -> Rect): Layered? {
+        val layer = moment.layers.indexOfLast { it is LayerPlan.Layer.Mixed }.takeIf { it >= 0 } ?: return null
+        val pair = moment.layers[layer] as LayerPlan.Layer.Mixed
+        val frame = pair.frame as? TransitionFrame.Split ?: return null
+        val first = TransitionScene.deckOf(pair.first)
+        val second = TransitionScene.deckOf(pair.second)
+        if (listOfNotNull(first, second).any { it !in 0 until lanes } || (first != null && first == second)) return null
+        val whole = Rect(0.0, 0.0, canvas.width, canvas.height)
+        fun lies(source: TransitionScene.Source) = when (source) {
+            is TransitionScene.Source.Clip -> content(source.index)
+            is TransitionScene.Source.Held -> content(source.index)
+            is TransitionScene.Source.Fill -> whole
+        }
+        return Layered(layer, frame, of(frame, canvas, lies(pair.first), lies(pair.second)), first, second)
     }
 
     private fun topDown(rect: Rect, canvas: Size) = Rect(rect.x, canvas.height - rect.maxY, rect.width, rect.height)

@@ -74,4 +74,44 @@ class SplitViewsTest {
         val end = at(1.0)
         assertNull(end.second.placed); assertEquals(0.0, end.first.alpha, 0.0)
     }
+
+    // An edit drawn by picture layers: its pair in a split screen drawn by the views of the two lanes that show it,
+    // as a sequence's decks draw it (YouRec/TransitionRenderer.swift:252-264).
+    private fun layers(settings: TransitionSettings, join: Int = 1): LayerPlan {
+        val a = TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 4.0)
+        val c = TimelineClip(id = "C", sourceID = "S", start = 1.0, end = 5.0)
+        val state = TimelineEditing.setJoin(EditState(listOf(a, c)), join, settings.copy(id = "T", duration = 1.0))!!
+        return LayerPlan.planned(state.toTimeline(), 2)!!
+    }
+
+    private fun middle(plan: LayerPlan): Double = plan.transitions.single().let { it.origin.seconds + it.timing.videoDuration / 2 }
+
+    @Test fun aSplitScreenAmongLayersIsDrawnByTheViewsOfItsTwoLanes() {
+        val plan = layers(side)
+        val moment = plan.moment(middle(plan), canvas)
+        val split = SplitViews.layered(moment, canvas, plan.lanes) { whole }!!
+        val pair = moment.layers[split.layer] as LayerPlan.Layer.Mixed
+        assertEquals(pair.frame, split.frame)
+        assertEquals(listOf(TransitionScene.deckOf(pair.first), TransitionScene.deckOf(pair.second)), listOf(split.first, split.second))
+        assertEquals(listOf(0, 1), split.lanes.sorted())
+        assertEquals(SplitViews.of(pair.frame as TransitionFrame.Split, canvas, whole, whole), split.drawing)
+        // Each clip lies where its own view puts it.
+        val content = Rect(20.0, 0.0, 160.0, 100.0)
+        assertEquals(SplitViews.of(split.frame, canvas, content, whole), SplitViews.layered(moment, canvas, plan.lanes) { if (it == (pair.first as TransitionScene.Source.Clip).index) content else whole }!!.drawing)
+        // Views cannot draw a lane that is not there.
+        assertNull(SplitViews.layered(moment, canvas, 1) { whole })
+    }
+
+    @Test fun anOpeningSplitScreenAmongLayersShowsTheFillOnItsOtherSide() {
+        val plan = layers(side, join = 0)
+        val split = SplitViews.layered(plan.moment(middle(plan), canvas), canvas, plan.lanes) { whole }!!
+        assertNull(split.first)
+        assertEquals(listOf(0), split.lanes)
+    }
+
+    @Test fun anotherStyleAmongLayersIsNotASplitScreen() {
+        val plan = layers(TransitionSettings(style = TransitionStyle.Dissolve))
+        assertNull(SplitViews.layered(plan.moment(middle(plan), canvas), canvas, plan.lanes) { whole })
+        assertNull(SplitViews.layered(plan.moment(0.5, canvas), canvas, plan.lanes) { whole })
+    }
 }

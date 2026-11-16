@@ -44,6 +44,7 @@ import app.takes.core.LayerPlan
 import app.takes.core.PictureFrame
 import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
+import app.takes.core.SplitViews
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TransitionScene
 
@@ -62,7 +63,10 @@ import app.takes.core.TransitionScene
  *
  * Before Android 13 each lane's view is moved into its window and clipped to
  * it, back to front: exact for pictures over one another and for windows; a
- * pair in transition is cross-faded, as the decks of a sequence are there.
+ * pair in a split screen is drawn as a sequence's decks are there, each lane
+ * scaled, moved and clipped into its half ([SplitViews.layered]), with the
+ * divider and the titles of both over it; any other pair in transition is
+ * cross-faded, as the decks of a sequence are there.
  */
 @Composable
 internal fun LayerPictures(
@@ -71,8 +75,11 @@ internal fun LayerPictures(
     moment: (FrameSize) -> LayerPlan.Moment, content: (Int, FrameSize) -> Rect,
 ) {
     // The pictures of a split screen are drawn without their titles, and those of both go once over the pair, as the
-    // original draws them (YouRec/VideoToolCompositor.swift:282, :298-301); with the shader only.
-    val split = if (shadedPreview) splitTitles(moment(FrameSize(1920.0, 1080.0)), titles) else null
+    // original draws them (YouRec/VideoToolCompositor.swift:282, :298-301): with the shader, or with the views below it.
+    val split = moment(FrameSize(1920.0, 1080.0)).let { now ->
+        val drawn = shadedPreview || SplitViews.layered(now, FrameSize(1920.0, 1080.0), count) { Rect(0.0, 0.0, 1920.0, 1080.0) } != null
+        if (drawn) splitTitles(now, titles) else null
+    }
     val pairTitles = remember { PairTitles(painter) }
     val lane: @Composable (Int, Modifier) -> Unit = { index, modifier ->
         Box(modifier.fillMaxSize().clipToBounds()) {
@@ -120,12 +127,16 @@ internal fun LayerPictures(
     } else {
         BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
             val frame = FrameSize(constraints.maxWidth.toDouble(), constraints.maxHeight.toDouble())
-            val places = places(moment(frame), count)
+            val now = moment(frame)
+            // A split screen: each lane of its pair scaled, moved and clipped into its half, as a sequence's decks are.
+            val pair = SplitViews.layered(now, frame, count) { content(it, frame) }
+            val places = places(now, count, pair)
             for (index in 0 until count) key(index) {
                 val place = places[index]
+                val side = place?.side
                 lane(
                     index,
-                    Modifier.zIndex(place?.rank ?: -1f).graphicsLayer {
+                    if (side != null) Modifier.splitSide(side, place.rank) else Modifier.zIndex(place?.rank ?: -1f).graphicsLayer {
                         alpha = place?.alpha ?: 0f
                         val window = place?.window ?: return@graphicsLayer
                         // The lane's picture, the size of the frame, scaled about its top left corner into the window and clipped to what it shows there.
@@ -148,9 +159,25 @@ internal fun LayerPictures(
                     },
                 )
             }
+            if (pair != null) {
+                // The fill on a side without a picture, the divider over both, and the titles of both once over the pair, under what is in front of it.
+                val base = pair.layer * 2f
+                val pairMoment = now.layers[pair.layer] as LayerPlan.Layer.Mixed
+                for ((source, side) in listOf(pairMoment.first to pair.drawing.first, pairMoment.second to pair.drawing.second)) {
+                    if (source is TransitionScene.Source.Fill) SplitFill(source.color, side, base + side.rank * SIDE_STEP)
+                }
+                SplitLine(pair.frame, pair.drawing, base + LINE_STEP)
+                val over = split?.titles.orEmpty()
+                if (over.isNotEmpty()) Canvas(Modifier.zIndex(base + TITLES_STEP).fillMaxSize()) { drawIntoCanvas { painter.draw(it.nativeCanvas, size.width, size.height, over) } }
+            }
         }
     }
 }
+
+/** Within the two places back to front a pair in a split screen has below Android 13: its second side, its divider, its titles. */
+private const val SIDE_STEP = 0.5f
+private const val LINE_STEP = 1.25f
+private const val TITLES_STEP = 1.5f
 
 /** The [lanes] of a split screen in transition, which draw no titles, and the [titles] of both, each once, drawn over the pair. */
 private class SplitTitles(val lanes: Set<Int>, val titles: List<TitleMotionRanges.Shown>)
@@ -187,10 +214,13 @@ private class PairTitles(private val painter: TitlePainter) {
     }
 }
 
-/** Where a lane's view goes in the preview below Android 13: its place back to front, how opaque it is, and its window. */
-private class LanePlace(val rank: Float, val alpha: Float, val window: app.takes.core.PlacedPicture?)
+/**
+ * Where a lane's view goes in the preview below Android 13: its place back to front, how opaque it is, and its window;
+ * or, for a side of a split screen, where [side] puts it.
+ */
+private class LanePlace(val rank: Float, val alpha: Float, val window: app.takes.core.PlacedPicture?, val side: SplitViews.Side? = null)
 
-private fun places(moment: LayerPlan.Moment, count: Int): Array<LanePlace?> {
+private fun places(moment: LayerPlan.Moment, count: Int, split: SplitViews.Layered?): Array<LanePlace?> {
     val places = arrayOfNulls<LanePlace>(count)
     fun lane(source: TransitionScene.Source): Int? = when (source) {
         is TransitionScene.Source.Clip -> source.deck
@@ -200,7 +230,11 @@ private fun places(moment: LayerPlan.Moment, count: Int): Array<LanePlace?> {
     moment.layers.forEachIndexed { rank, layer ->
         when (layer) {
             is LayerPlan.Layer.Whole -> lane(layer.source)?.let { places[it] = LanePlace(rank * 2f, 1f, layer.window) }
-            is LayerPlan.Layer.Mixed -> {
+            is LayerPlan.Layer.Mixed -> if (split != null && split.layer == rank) {
+                for ((lane, side) in listOf(split.first to split.drawing.first, split.second to split.drawing.second)) {
+                    lane?.let { places[it] = LanePlace(rank * 2f + side.rank * SIDE_STEP, side.alpha.toFloat(), null, side) }
+                }
+            } else {
                 // The incoming picture over the outgoing one, as transparent as its share of the two.
                 val total = layer.firstShare + layer.secondShare
                 lane(layer.first)?.let { places[it] = LanePlace(rank * 2f, 1f, null) }

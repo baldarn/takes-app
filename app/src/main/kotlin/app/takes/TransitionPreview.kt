@@ -226,19 +226,8 @@ internal fun DeckPictures(
         deck(1, placed(1, Modifier.graphicsLayer { alpha = if (shares[1] > 0) 1f else 0f }))
         deck(0, placed(0, Modifier.graphicsLayer { alpha = if (shares[0] > 0) (shares[0] / (shares[0] + shares[1])).toFloat() else 0f }))
         if (drawing != null) {
-            for ((source, side) in sides) if (source is TransitionScene.Source.Fill) {
-                val solid = source.color
-                Box(Modifier.splitSide(side).fillMaxSize().background(Color(solid.red.toFloat(), solid.green.toFloat(), solid.blue.toFloat())))
-            }
-            val line = split.lineColor
-            Box(
-                Modifier.zIndex(LINE_RANK).fillMaxSize().graphicsLayer { alpha = drawing.lineAlpha.toFloat() }.drawBehind {
-                    drawRect(
-                        Color(line.red.toFloat(), line.green.toFloat(), line.blue.toFloat()),
-                        Offset(drawing.line.x.toFloat(), drawing.line.y.toFloat()), Size(drawing.line.width.toFloat(), drawing.line.height.toFloat()),
-                    )
-                },
-            )
+            for ((source, side) in sides) if (source is TransitionScene.Source.Fill) SplitFill(source.color, side)
+            SplitLine(split, drawing, LINE_RANK)
         } else {
             val solid = color
             if (fill > 0 && solid != null) {
@@ -265,8 +254,31 @@ private fun splitDecks(moment: TransitionScene.Moment): Boolean {
 /** Above both sides of a split screen. */
 private const val LINE_RANK = 2f
 
-/** A side of a split screen: its picture, a view the size of the frame, scaled about its top left corner into its half and clipped to it, or whole. */
-private fun Modifier.splitSide(side: SplitViews.Side): Modifier = zIndex(side.rank.toFloat()).graphicsLayer {
+/** A side of a split screen that is the fill color, placed as [splitSide] places a picture, at [rank] back to front. */
+@Composable
+internal fun SplitFill(solid: app.takes.core.TransitionColor, side: SplitViews.Side, rank: Float = side.rank.toFloat()) {
+    Box(Modifier.splitSide(side, rank).fillMaxSize().background(Color(solid.red.toFloat(), solid.green.toFloat(), solid.blue.toFloat())))
+}
+
+/** The divider of the split screen [frame] as [drawing] places it, at [rank] back to front: over both sides. */
+@Composable
+internal fun SplitLine(frame: TransitionFrame.Split, drawing: SplitViews.Drawing, rank: Float) {
+    val line = frame.lineColor
+    Box(
+        Modifier.zIndex(rank).fillMaxSize().graphicsLayer { alpha = drawing.lineAlpha.toFloat() }.drawBehind {
+            drawRect(
+                Color(line.red.toFloat(), line.green.toFloat(), line.blue.toFloat()),
+                Offset(drawing.line.x.toFloat(), drawing.line.y.toFloat()), Size(drawing.line.width.toFloat(), drawing.line.height.toFloat()),
+            )
+        },
+    )
+}
+
+/**
+ * A side of a split screen: its picture, a view the size of the frame, scaled about its top left corner into its
+ * half and clipped to it, or whole; at [rank] back to front.
+ */
+internal fun Modifier.splitSide(side: SplitViews.Side, rank: Float = side.rank.toFloat()): Modifier = zIndex(rank).graphicsLayer {
     alpha = side.alpha.toFloat()
     val placed = side.placed ?: return@graphicsLayer
     val scale = placed.scale.toFloat()
