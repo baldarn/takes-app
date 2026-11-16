@@ -21,14 +21,16 @@ Brought up to date on 2026-11-15, status only and without a new reading of the o
 
 Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work packages list, section 10 (video effects), the export rows of section 11, the rows of sections 2, 3 and 5 that the new core files and the recorder work changed (issue 70 lists them), and two items of the last section, now settled and removed from it: the selected project is remembered across launches (A/ProjectStore.kt:103, 154), and 1D `.cube` files are read within the 32 MB and size limits (C/CubeLUT.kt). Section 3 was then audited again row by row from the code on `main` at `4c96267` (issue 70): its places are named by function rather than by line.
 
+In section 8, the rows of the chain of Enhance audio (noise reduction with both models, low-cut, voice EQ, output gain, the inspector, the comparison, the preview window) and the export's clipping warning were brought up to date on 2026-11-17 from the code they describe.
+
 ## Summary
 
 | Status | Count |
 |---|---|
-| DONE | 134 |
-| PARTIAL | 41 |
+| DONE | 143 |
+| PARTIAL | 40 |
 | CORE ONLY | 5 |
-| MISSING | 23 |
+| MISSING | 15 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -43,7 +45,7 @@ Per area:
 | 5. Editor: picture tools | 7 | 5 | 3 | 3 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
-| 8. Audio | 5 | 5 | 0 | 11 | 0 |
+| 8. Audio | 14 | 4 | 0 | 3 | 0 |
 | 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
 | 11. Export | 11 | 1 | 0 | 0 | 0 |
@@ -239,19 +241,19 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Add audio from Files as an independent layer | O/AudioToolsEditor.swift:5-65 | DONE | A/EditorScreen.kt (`pickSound`), from the Add audio sheet (A/VoiceRecorder.kt `AddAudio`); A/ProjectStore.kt `importAudio` | Two tracks; the original has no limit | | |
 | Move, trim, level and fades of an audio item | README:117-120 | PARTIAL | A/EditorScreen.kt `AudioItemDialog` (move to playhead, cut before/after), A/SoundPanel.kt (level and fades as for a clip, the level also by dragging the item up or down) | Drag to move, trim handles, split | M | Yes |
 | Voice recording in the editor ("Record now") | O/VoiceRecorder.swift:97-414, O/AudioToolsEditor.swift:5-65 | DONE | Add audio opens the original's sheet, "Record now" or "Choose audio from Files" (A/VoiceRecorder.kt `AddAudio`); the recorder (A/VoiceRecorder.kt `VoiceRecordingDialog`, `VoiceDraft`): microphone menu, clock and level, Record / Record more / Stop, Play, Start over, Done; takes of 48 kHz mono 16-bit PCM joined without converting (C/VoiceRecording.kt `WaveFile`), the storage rule and the meter (C/VoiceRecording.kt); Done copies the WAV into the project as a sound source, kept in its ZIP like an imported sound, and puts it at the playhead in one Undo step (A/ProjectStore.kt `insertRecording`); with the camera recorder's RECORD_AUDIO permission | Departures: the takes are WAV, not CAF; the microphones are those Android lists as inputs (the phone's, wired, USB; a Bluetooth headset only from Android 12, through the communication route as the camera recorder reaches it), named as the camera recorder names them; the storage floor is the camera recorder's on Android (C/RecordingSpace.kt `ANDROID_FLAT`, none); "paused by iOS" is "paused by Android", when another app or a call silences the microphone (Android 10 and later). As in the original, the movie does not play while a take is recorded. Checked on an emulator, not yet on a phone | | Phone |
-| Noise reduction with RNNoise, amount | O/AudioChainControls.swift:402-411, O/OfflineAudioPipeline.swift:137 | PARTIAL | A/EditorScreen.kt:1359-1362 (Off/Light/Full), A/Denoiser.kt, `rnnoise/` | 0–100 % amount; clips only, not audio items (A/EditorScreen.kt:861) | S | Phone (ears) |
-| Noise reduction with DeepFilterNet3 | O/DeepFilterVoiceProcessor.swift:7, ThirdParty/DeepFilterNet3 | MISSING | In flight on `agent/deepfilter`; route in docs/MODELS-ON-ANDROID.md | Module on main, model choice in the UI | L | Phone (ears) |
-| Speech detail restoration (LavaSR v2) | O/StudioVoiceProcessor.swift:36 | MISSING | — | ONNX export and DSP port | L | Phone |
-| Studio restoration (VoiceFixer) | O/StudioRestorationProcessor.swift:50 | MISSING | — | Likely too heavy; measure first (docs/MODELS-ON-ANDROID.md) | L | Phone |
-| Low-cut filter 20–500 Hz | O/AudioDSP.swift:19-22 | MISSING | — | | S | Phone (ears) |
-| Voice EQ band ±24 dB, 80–12000 Hz | O/AudioDSP.swift:23-28 | MISSING | — | | S | Phone (ears) |
-| Output gain stage ±24 dB | O/AudioDSP.swift:18 | MISSING | — | | S | Yes |
-| Enhance audio inspector: ordered chain, add/remove/reorder, per-stage bypass, fader strips | O/AudioChainControls.swift:182-446, O/TrackEditors.swift:152-328 | MISSING | — | Chain model on clips/items, offline render with per-stage cache, UI | L | Yes |
-| Bypass/Enhanced comparison with matched listening levels | O/OfflineAudioPipeline.swift:225-300 | MISSING | — | | M | Phone (ears) |
-| ±5 s preview window while a chain renders | O/EffectApplication.swift:9-18 | MISSING | Whole file is cleaned first (A/EditorScreen.kt:433-443) | | S | Yes |
+| Noise reduction with RNNoise, amount | O/AudioChainControls.swift:402-411, O/OfflineAudioPipeline.swift:137 | DONE | A/EnhanceInspector.kt (a stage of the chain, its amount 0–100 % on the fader, on any stretch of any sound), A/Denoiser.kt, `rnnoise/` | | | |
+| Noise reduction with DeepFilterNet3 | O/DeepFilterVoiceProcessor.swift:7, ThirdParty/DeepFilterNet3 | DONE | `deepfilter/` (the original's engine ported to Kotlin, the network run by ONNX Runtime frame by frame), chosen in A/EnhanceInspector.kt's Model menu, rendered by A/Denoiser.kt `NoiseReduction` | Departures: the weights (8.6 MB, MIT) are carried inside the app as a resource of `deepfilter/`, fetched and checked by SHA-256 at build time, never by the phone; ONNX Runtime is Microsoft's `onnxruntime-android` (MIT), a second copy beside the one linked inside sherpa-onnx, which it cannot reach: about 22 MB more to download and 45 MB more installed on an arm64 phone (`deepfilter/README.md`), and none for 32-bit x86, where the stage plays the recording; 32-bit float ONNX instead of the original's 16-bit Core ML, so not bit-identical. Not yet heard on a phone | | Phone (ears) |
+| Speech detail restoration (LavaSR v2) | O/StudioVoiceProcessor.swift:36 | MISSING | — | Left out for now: about 56 MB of model the app would have to download, which the owner has not approved; not in the Add filter menu (A/EnhanceInspector.kt). A project that has the stage keeps it, shown as its column, and plays its recording there | L | Phone |
+| Studio restoration (VoiceFixer) | O/StudioRestorationProcessor.swift:50 | MISSING | — | Left out for now, as LavaSR: hundreds of MB to download, not approved; likely too heavy too (docs/MODELS-ON-ANDROID.md) | L | Phone |
+| Low-cut filter 20–500 Hz | O/AudioDSP.swift:19-22 | DONE | C/AudioChain.kt `BiquadCoefficients`, `AudioChainProcessor`; A/Denoiser.kt; the fader in A/EnhanceInspector.kt | | | |
+| Voice EQ band ±24 dB, 80–12000 Hz | O/AudioDSP.swift:23-28 | DONE | C/AudioChain.kt `BiquadCoefficients`; A/Denoiser.kt; fader and frequency slider in A/EnhanceInspector.kt | | | |
+| Output gain stage ±24 dB | O/AudioDSP.swift:18 | DONE | C/AudioChain.kt; A/Denoiser.kt; the fader in A/EnhanceInspector.kt | | | |
+| Enhance audio inspector: ordered chain, add/remove/reorder, per-stage bypass, fader strips | O/AudioChainControls.swift:182-446, O/TrackEditors.swift:152-328 | DONE | A/EnhanceInspector.kt (columns with grip, On/Off and filled fader catching on the start value and the ends; the selected stage's card with model, EQ frequency, earlier/later, Reset, Remove; Add filter; "Build your sound"), C/AudioChainControls.kt `AudioChainEditing`, opened from the Audio tool and the badges under the timeline (A/EditorScreen.kt) | Departures: a full-screen panel that plays the sound only, without the picture; a column is dragged to another place after a long press on its grip; no separate landscape layout | | |
+| Bypass/Enhanced comparison with matched listening levels | O/OfflineAudioPipeline.swift:225-300 | DONE | A/EnhanceInspector.kt (Bypass, Match listening levels remembered, its explanation on a long press, suspended with an output gain), C/AudioListeningLevels.kt, C/AudioChainControls.kt `AudioChainComparison`; A/MixPlayback.kt `volume` | Not yet heard on a phone | | Phone (ears) |
+| ±5 s preview window while a chain renders | O/EffectApplication.swift:9-18 | DONE | A/EnhanceInspector.kt (only the stretch heard is processed, A/Denoiser.kt `processWindow`; "Preparing 10 s preview" with its progress, Play cancels); the editor's own playback processes from the playhead too (A/EditorScreen.kt, `TrackAudioRegions.windowRequests`) | | | |
 | Censor audio (beep: waveform, frequency, level, envelope; per track) | O/AudioToolsEditor.swift:143-185, O/AudioCensor.swift:6-130 | MISSING | — | Needs range selection; tone generator in preview and export | M | Phone (ears) |
 | Remove pauses: detect and cut as one undo step | O/EditorTools.swift:1395-1471, O/VideoTools.swift:238-436, O/TrackTimeline.swift:1376-1385 | DONE | A/PausesPanel.kt (summary, Scan again, pause by pause with Cut or Keep and Listen, Before and After, Detection settings: automatic or manual level, minimum pause 0.1–3 s, keep after and before speech, Remove), A/PauseLevels.kt, C/PauseTool.kt, C/Pauses.kt; the pauses are a setting of the clip (`TimelineClip.pauses`, schema 22, C/Project.kt), which stays one clip and plays its footage without them (`playbackSpans`), its transitions scaled only when they cost more than it lasts (`TimelineEditing.setPauses`, `TrackEditing.settingPauses`); the players and the export take each stretch between two pauses as an item of its own (C/PicturePlayback.kt `pieces`, A/EditorPlayer.kt, A/LayerPlayback.kt) | The tool shows the whole movie, not the scope's clips alone: a pause's time and Listen are the movie's (C/PauseTool.kt `range`). Projects made by earlier versions keep the pieces those made | | |
-| Export checks audio for clipping and warns | O/MovieExportPanel.swift:42-57, O/Project.swift:691-695 | MISSING | — | Peak pass and warning | M | Yes |
+| Export checks audio for clipping and warns | O/MovieExportPanel.swift:42-57, O/Project.swift:691-695 | DONE | A/ExportPanel.kt `ExportAudioWarning`, the peak measured as the mix is written (A/AudioEngine.kt `writeMix`), C/ExportReceipt.kt `AudioWarning` | | | |
 
 ## 9. Subtitles
 
