@@ -54,7 +54,55 @@ class SubtitleSpeechAudio(private val channels: Int, rate: Int) {
          */
         fun spoken(text: String): String {
             val plain = text.replace(NOTE, " ").replace(SPACES, " ").trim()
-            return if (plain.startsWith("(") && plain.endsWith(")") && plain.indexOf(')') == plain.lastIndex) "" else plain
+            if (plain.startsWith("(") && plain.endsWith(")") && plain.indexOf(')') == plain.lastIndex) return ""
+            return if (invented(plain)) "" else plain
         }
+
+        /**
+         * Whether [text] is what Whisper writes for music or noise rather than speech: the whole of it one of the
+         * stock phrases it learned from subtitled videos ([STOCK]), or one phrase of two words or more said three
+         * times or more, as sentences or in a row (a single word only [SAID_ALONE] times: "no, no, no" is speech). This
+         * goes beyond the original, which uses its recognizer's text as it is (`O/SubtitleTranscriber.swift:69-77`):
+         * docs/SUBTITLES-REVIEW.md, finding 10. A sentence that merely contains such a phrase is kept.
+         */
+        fun invented(text: String): Boolean {
+            val whole = normal(text)
+            if (whole.isEmpty()) return false
+            if (whole in STOCK) return true
+            fun looped(phrase: String, times: Int) = times >= if (' ' in phrase) 3 else SAID_ALONE
+            val sentences = text.split(SENTENCE).map(::normal).filter { it.isNotEmpty() }
+            if (sentences.groupingBy { it }.eachCount().any { (phrase, times) -> looped(phrase, times) }) return true
+            val loop = REPEATED.matchEntire(whole) ?: return false
+            val phrase = loop.groupValues[1]
+            return looped(phrase, (whole.length + 1) / (phrase.length + 1))
+        }
+
+        /** Lower case, the punctuation and the spaces around it gone, so "Thanks for watching!" is "thanks for watching". */
+        private fun normal(text: String): String =
+            text.lowercase().replace(PUNCTUATION, " ").replace(SPACES, " ").trim()
+
+        private val SENTENCE = Regex("[.!?…。]+")
+        private val PUNCTUATION = Regex("[\\p{P}\\p{S}&&[^']]")
+        private val REPEATED = Regex("^(.+?)(?: \\1){2,}$")
+        private const val SAID_ALONE = 6
+
+        /**
+         * The stock phrases, normalised, that Whisper is known to write over music and noise: the credits and
+         * closings of the subtitled videos it was trained on. Only phrases nobody says as the whole of a stretch of
+         * speech in a recording of their own: a bare "thank you" or "grazie a tutti" can be meant, so it is kept.
+         */
+        private val STOCK = setOf(
+            "thanks for watching", "thank you for watching", "thank you so much for watching",
+            "thanks for watching and see you next time", "please subscribe", "please like and subscribe",
+            "don't forget to like and subscribe", "subtitles by the amara org community", "you",
+            "sottotitoli creati dalla comunità amara org", "sottotitoli e revisione a cura di qtss",
+            "sottotitoli a cura di qtss", "grazie per la visione", "iscriviti al canale",
+            "sous titres réalisés par la communauté d'amara org", "merci d'avoir regardé cette vidéo",
+            "subtítulos realizados por la comunidad de amara org", "gracias por ver el video", "suscríbete al canal",
+            "untertitel der amara org community", "untertitel im auftrag des zdf für funk 2017",
+            "untertitel im auftrag des zdf 2017", "untertitel von stephanie geiges", "vielen dank fürs zuschauen",
+            "legendas pela comunidade amara org", "obrigado por assistir",
+            "ondertiteling door de amara org gemeenschap", "bedankt voor het kijken",
+        )
     }
 }

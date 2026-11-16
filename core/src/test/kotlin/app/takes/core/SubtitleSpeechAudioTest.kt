@@ -65,4 +65,35 @@ class SubtitleSpeechAudioTest {
         assertEquals("(one) and (two)", SubtitleSpeechAudio.spoken("(one) and (two)"))
         assertEquals("", SubtitleSpeechAudio.spoken("   "))
     }
+
+    // Beyond the original, which uses the recognizer's text as it is (O/SubtitleTranscriber.swift:69-77):
+    // docs/SUBTITLES-REVIEW.md, finding 10.
+    @Test fun aPieceThatIsOneOfWhispersStockPhrasesGivesNoWords() {
+        assertEquals("", SubtitleSpeechAudio.spoken("Thanks for watching!"))
+        assertEquals("", SubtitleSpeechAudio.spoken(" Sottotitoli creati dalla comunità Amara.org "))
+        assertEquals("", SubtitleSpeechAudio.spoken("Sous-titres réalisés par la communauté d'Amara.org"))
+        assertEquals("", SubtitleSpeechAudio.spoken("Untertitel im Auftrag des ZDF für funk, 2017"))
+        assertEquals("", SubtitleSpeechAudio.spoken("[Music] Thank you for watching. [Music]"))
+    }
+
+    @Test fun aSentenceThatOnlyContainsAStockPhraseIsKept() {
+        assertEquals("Thanks for watching my video about bread.", SubtitleSpeechAudio.spoken("Thanks for watching my video about bread."))
+        assertEquals("Ho letto: sottotitoli creati dalla comunità Amara.org, ecco.", SubtitleSpeechAudio.spoken("Ho letto: sottotitoli creati dalla comunità Amara.org, ecco."))
+        assertEquals("Thank you.", SubtitleSpeechAudio.spoken("Thank you."))
+        assertEquals("Grazie a tutti!", SubtitleSpeechAudio.spoken("Grazie a tutti!"))
+    }
+
+    @Test fun aPhraseSaidThreeTimesOrMoreGivesNoWords() {
+        assertEquals("", SubtitleSpeechAudio.spoken("I'm going to go. I'm going to go. I'm going to go."))
+        assertEquals("", SubtitleSpeechAudio.spoken("e poi e poi e poi e poi"))
+        assertEquals("", SubtitleSpeechAudio.spoken("Okay. Okay. Okay. Okay. Okay. Okay."))
+        assertEquals("", SubtitleSpeechAudio.spoken("Va bene, va bene, va bene."))
+    }
+
+    @Test fun aPhraseSaidTwiceOrAShortWordSaidAFewTimesIsSpeech() {
+        assertEquals("No, no, no.", SubtitleSpeechAudio.spoken("No, no, no."))
+        assertEquals("Wait. Wait. Wait.", SubtitleSpeechAudio.spoken("Wait. Wait. Wait."))
+        assertEquals("Very good, very good.", SubtitleSpeechAudio.spoken("Very good, very good."))
+        assertEquals("Go, go and go back home.", SubtitleSpeechAudio.spoken("Go, go and go back home."))
+    }
 }

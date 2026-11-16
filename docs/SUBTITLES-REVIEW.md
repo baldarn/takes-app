@@ -269,6 +269,9 @@ item with the clip's id own the words.
   stock phrases; whether Qwen needs it less cannot be told from source.
 - Fix: drop a piece's text when it equals a short list of known phrases per language,
   or when one phrase repeats three times.
+- Done: `invented()` in `C/SubtitleSpeechAudio.kt` drops a piece that is wholly one of
+  Whisper's credits or closings, or one phrase of two words or more said three times
+  (a single word six times); a sentence that only contains such a phrase is kept.
 
 ### 11. No "Subtitles" badge on the timeline — every use — [read]
 
