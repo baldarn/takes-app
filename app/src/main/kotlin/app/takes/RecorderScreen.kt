@@ -259,7 +259,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 )
                 SettingsButton(
                     // A dot says that an assist is on.
-                    assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off,
+                    assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off || capture.levelling || capture.settings.followFace,
                 colour = stringResource(if (capture.format.hdr) R.string.recorder_color_hdr else R.string.recorder_color_sdr),
                     Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)),
                 ) { settingsOpen = true }
@@ -487,7 +487,7 @@ private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: B
             Box(Modifier.turned()) { ZoomButton(capture, zoomOpen, usable, toggleZoom) }
         }
         StripDivider()
-        Box(Modifier.turned()) { FocusButton(capture.focus, usable) }
+        Box(Modifier.turned()) { FocusButton(capture.focus, usable, capture.settings.focusPeaking, capture::toggleFocusPeaking) }
     }
 }
 

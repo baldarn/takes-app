@@ -25,10 +25,10 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 114 |
-| PARTIAL | 40 |
-| CORE ONLY | 15 |
-| MISSING | 34 |
+| DONE | 117 |
+| PARTIAL | 41 |
+| CORE ONLY | 12 |
+| MISSING | 33 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -38,7 +38,7 @@ Per area:
 |---|---|---|---|---|---|
 | 1. App shell and project list | 15 | 4 | 1 | 3 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
-| 3. Recorder and camera | 27 | 5 | 4 | 3 | 3 |
+| 3. Recorder and camera | 30 | 6 | 1 | 2 | 3 |
 | 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
 | 5. Editor: picture tools | 4 | 3 | 7 | 4 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
@@ -113,20 +113,20 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Mirror selfie preview / save mirrored selfies | O/RecorderView.swift:1249-1252 | DONE | More settings → Picture, A/CaptureController.kt `chooseMirrorPreview`, `chooseMirrorRecording` | — | | |
 | "Fit entire recorded frame" vs fill | O/RecorderView.swift:1303 | DONE | More settings → Framing, A/RecorderScreen.kt (`fitFrame`) | — | | |
 | Capture stabilisation toggle | O/RecorderView.swift:798-801 | DONE | Camera settings → Stabilize tile (A/RecorderSettingsSheet.kt `QuickSettings`), A/CaptureController.kt `chooseStabilization` | — | | |
-| Level horizon with max angle | O/RecorderView.swift:802-807, O/HorizonLevel.swift:8-282 | CORE ONLY | C/HorizonLevel.kt (framing and fixed magnification, the roll from gravity, the visible line, the correction over time) | A frame-processing capture path that turns and crops each frame, the gravity sensor, the setting | L | Phone |
-| Follow face (single camera crop follow) | O/RecorderView.swift:808-812, O/DualFaceDetector.swift:56-197 | CORE ONLY | C/CameraFraming.kt (`SingleCameraCrop`), C/DualCameraLayout.kt (`FaceTarget`, `FaceFraming.follow`) | Face detection and the crop pipeline on frames | L | Phone |
+| Level horizon with max angle | O/RecorderView.swift:802-807, O/HorizonLevel.swift:8-282 | DONE | Camera settings → Level horizon tile and More settings → Level horizon → Max angle (A/RecorderSettingsSheet.kt `QuickSettings`, `LevelSettings`); A/CameraFrames.kt (the app's own OpenGL pass over each frame, bound as a CameraX `CameraEffect` only while an assist needs it; gravity from the gravity sensor; the visible line every quarter second); C/HorizonLevel.kt; A/CaptureController.kt `chooseLevelHorizon`. Checked on a Galaxy A54 standing 2.5° off level: the preview and the take were turned by 2.5° the right way and magnified 1.27×, 1080p at 30 fps with no frame lost | Rear cameras only, as the original. Departures: while it is on the take is recorded in SDR (the pass draws 8 bits a colour); Max angle is a slider in More settings, without the original's panel over the picture; gravity is the latest reading rather than the one at each frame's exposure | | |
+| Follow face (single camera crop follow) | O/RecorderView.swift:808-812, O/DualFaceDetector.swift:56-197 | PARTIAL | Camera settings → Follow face tile with its status (A/RecorderSettingsSheet.kt); A/CameraFrames.kt (the crop of each frame, with the reserve, the face kept and the framing eased as C/CameraFraming.kt `SingleCameraCrop` and C/DualCameraLayout.kt `FaceTarget`, `FaceFraming.follow`); the lens is kept at its widest and the chosen zoom made by the crop (A/CaptureController.kt `followsDigitally`). Faces are found by the platform's `android.media.FaceDetector` on a 480-pixel copy, five times a second; no new library | Not yet seen following a real face on a phone (none was in front of the camera): the crop, the reserve and "Looking for a face" were checked on a Galaxy A54. The platform's detector finds frontal faces by their eyes, less well than the original's Vision. Turned on during a take only when the frames already pass through the app (Level horizon or Follow face on at Record); the take is then SDR. No two-finger pan of the crop (see Pinch zoom) | M | Phone |
 | Front light (screen-edge lamp: width, tone, opacity) | O/RecorderFrontLight.swift:8-241 | DONE | Camera settings → Front light tile, A/FrontLight.kt, C/FrontLight.kt | — | | |
 | Tap to focus | O/CaptureController.swift:2442-2472, 3331-3348 | DONE | A/RecorderScreen.kt (tap on the picture), A/CameraFocus.kt `tap`, `FocusBox` | — | | |
 | Focus lock / manual focus with lens slider | O/RecorderView.swift:949-1041, 1191-1214 | DONE | A/CameraFocus.kt `FocusButton` (AF, MF, Locked, Fixed; swipe in manual focus), `FocusSettings` in More settings, C/FocusControl.kt | — | | |
-| Focus peaking | O/RecorderView.swift:966, O/CaptureController.swift:2422-2435 | MISSING | — | Frame analysis overlay | L | Phone |
-| Dual camera: two cameras into one picture, 4 layouts, inset shape, per-feed pan/zoom, swap | O/MultiCameraCapture.swift:93-330, O/DualCameraLayout.swift:5-124, O/RecorderView.swift:292-320, 1386-1531 | CORE ONLY | C/DualCameraLayout.kt (layouts, regions, inset resize, touch ownership, placement, mask coverage, frame pairing) | CameraX concurrent camera + own compositor and encoder path, the UI | L | Phone (few devices support it) |
+| Focus peaking | O/RecorderView.swift:966, O/CaptureController.swift:2422-2435 | DONE | Hold the focus button and let go (or the screen reader's action), with a firm tick and "Focus peaking on/off" (A/CameraFocus.kt `FocusButton`, A/CaptureController.kt `toggleFocusPeaking`); the original's `recorderFocusPeaking` shader in A/CameraFrames.kt, on the preview only: the take is never drawn on. Checked on a Galaxy A54 | Turning it on during a take is refused with a hint unless the frames already pass through the app: binding the pass then would hold the picture of the take | | |
+| Dual camera: two cameras into one picture, 4 layouts, inset shape, per-feed pan/zoom, swap | O/MultiCameraCapture.swift:93-330, O/DualCameraLayout.swift:5-124, O/RecorderView.swift:292-320, 1386-1531 | CORE ONLY | C/DualCameraLayout.kt (layouts, regions, inset resize, touch ownership, placement, mask coverage, frame pairing) | CameraX concurrent cameras, the compositor (A/CameraFrames.kt could draw it) and the UI. Not built: the Galaxy A54 offers no two cameras at once (`dumpsys media.camera`: "Concurrent ID combinations: None"), so nothing could be checked there; the original also offers it only where the phone supports it | L | Phone (few devices support it) |
 | Front landscape 16:9 selfie with the phone upright | O/CaptureController.swift:1871-1971 | N/A | — | Depends on an iOS 26 sensor mode | | |
 | Live video effects while recording (21 effects, panel, frame tools) | O/VideoEffects/LiveEffectsPanel.swift:20-321, O/VideoEffects/LiveVideoEffects.swift | MISSING | — | Depends on area 10 and a GL capture path | L | Phone |
 | Crash zoom / dolly zoom buttons, tap to select the subject | O/RecorderView.swift:105-133, O/CaptureController.swift:2005-2106 | MISSING | — | Same | L | Phone |
 | Microphone choice | O/RecorderView.swift:1332-1338, O/CaptureController.swift:2553-2636 | DONE | The microphone pill's menu and More settings → Microphone, Microphone priority (A/RecorderMicrophone.kt, A/RecorderSettingsSheet.kt), A/CaptureController.kt `refreshMicrophones`, C/MicrophoneRoute.kt (the remembered order with disconnected microphones, the original's waits) | Android 12 and later; below, the system's microphone is shown | | |
 | Active microphone name and mismatch warning | O/RecorderView.swift:445-470 | DONE | A/RecorderMicrophone.kt `MicrophonePill`, A/CaptureController.kt `showActiveMicrophone` | — | | |
 | Microphone level meter | O/RecorderView.swift:913-934 | DONE | A/RecorderMicrophone.kt `MeterBars`, `MicrophonePanel` (before and during a take, "Clipping", "No signal"), A/CaptureController.kt `listen` | — | | |
-| Recording gain −40…+12 dB per microphone | O/RecorderView.swift:1348-1369, O/CaptureAudio.swift:144-185 | CORE ONLY | C/RecordingGain.kt (half-decibel grid, 20 ms ramp, unlimited) | Needs an own audio path; CameraX has no gain. The per-microphone setting | L | Phone |
+| Recording gain −40…+12 dB per microphone | O/RecorderView.swift:1348-1369, O/CaptureAudio.swift:144-185 | DONE | The microphone panel (A/RecorderMicrophone.kt `RecordingGainControls`: value, Reset to 0, slider, note), remembered for each microphone (A/RecorderSettings.kt `recordingGain`); the meter shows the level with the gain (A/MicrophoneMeter.kt `gain`) | Departure, decided for issue 53: CameraX keeps writing the take, and the gain becomes the level of the take's clip (C/Project.kt `addRecording`, the clip level the editor already writes, schema 4): the file is never changed and the level stays editable, so a take is never worse than without gain. A change during a segment applies to the whole segment, at its end. Checked on a Galaxy A54: a take at −6 dB came in with its clip at −6 dB | | |
 | Audio keeps running across camera switches (independent engine, gap fill, clock correction) | O/CaptureAudio.swift:190-321, O/LiveMicrophone.swift:22-58 | DONE | CameraX persistent recording: on a Galaxy A54 the sound runs unbroken across a camera change (issue 53) | — | | |
 | "Protect recording audio" | O/RecorderView.swift:1265-1270 | N/A | — | The setting keeps the original's audio session through call banners. Android does not take the microphone for a ringing call; an answered call silences it, and the take is then paused as in the original (A/CaptureController.kt `handle`) | | |
 | Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt `MarkButton`, A/CaptureController.kt `bookmark`; the marks of an interrupted take are kept, indexed at launch with it (A/ProjectStore.kt `indexFinishedTakes`) | — | | |
@@ -134,7 +134,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Warnings: microphone off, silenced, camera lost, storage full | O/CaptureController.swift:617-687, 2672-2695 | PARTIAL | A/CaptureController.kt `handle`, `checkSpace`, `finalize` (warnings, and the take paused on a taken or failed microphone and on low storage) | Thermal banner | S | Phone |
 | Backgrounding saves the take | O/CaptureController.swift:1165-1180 | DONE | A/RecorderScreen.kt (lifecycle observer), A/CaptureController.kt `background` (the take is paused and its segment saved, as in the original; returning never resumes by itself) | — | | |
 | Camera and microphone permission flow | Info settings in project.pbxproj:972-983 | DONE | A/RecorderScreen.kt `RecorderScreen` | — | | |
-| Haptics on mark, presets, toggles | O/RecorderView.swift:71, 836, 1119 | DONE | A/RecorderScreen.kt `tick`, `confirm`: Mark, the assist tiles, a zoom preset pressed, a zoom time changed | — | | |
+| Haptics on mark, presets, toggles | O/RecorderView.swift:71, 836, 966, 1119 | DONE | A/RecorderScreen.kt `tick`, `confirm`: Mark, the assist tiles, a zoom preset pressed, a zoom time changed, focus peaking, the Max angle and gain sliders | — | | |
 | Quick settings panel and "More settings" sheet | O/RecorderView.swift:723-766, 1225-1310 | DONE | A/RecorderSettingsSheet.kt `CameraSettings`, `QuickSettings`, `MoreSettings` | Sections for the rows still missing above | | |
 | Long-press explanation of each setting | O/RecorderView.swift:846 | DONE | A/RecorderSettingsSheet.kt `AssistTile` (holding a tile, or the screen reader's "Explain" action, as the original's assists) | — | | |
 

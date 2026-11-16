@@ -46,11 +46,17 @@ class MicrophoneMeter {
         synchronized(lock) {
             val release = if (reportedAt == 0.0) LevelMeter.RELEASE else LevelMeter.releaseOver(now - reportedAt)
             reportedAt = now
-            meter = meter.heard(peak, now, release)
+            meter = meter.heard(peak * gain, now, release)
         }
     }
 
     /** A segment begins or has ended: the next report is the first of its run. */
+    /**
+     * The recording gain as a factor: the level is shown as the take will sound, so a gain that clips shows
+     * as clipping, as in the original.
+     */
+    @Volatile var gain = 1.0
+
     fun newRun() = synchronized(lock) { reportedAt = 0.0 }
 
     val listening: Boolean get() = listener != null
@@ -82,7 +88,7 @@ class MicrophoneMeter {
                     var peak = 0
                     for (index in 0 until read) peak = maxOf(peak, abs(buffer[index].toInt()))
                     // Full scale as the original has it for 16 bit samples.
-                    val heard = peak / 32768.0
+                    val heard = peak / 32768.0 * gain
                     if (next.running) synchronized(lock) { meter = meter.heard(heard, now()) }
                 }
             }

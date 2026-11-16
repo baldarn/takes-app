@@ -5,6 +5,8 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import app.takes.core.FocusControl
 import app.takes.core.FrontLight
+import app.takes.core.HorizonFraming
+import app.takes.core.RecordingGain
 import app.takes.core.ZoomTransition
 import org.json.JSONArray
 import org.json.JSONObject
@@ -52,6 +54,26 @@ class RecorderSettings(private val prefs: SharedPreferences) {
 
     /** The front camera's takes are saved mirrored (the original's `mirrorFrontRecording`). */
     var mirrorRecording: Boolean by flag("mirrorFrontRecording", false)
+
+    /** Keep small tilts level on the rear cameras (the original's `levelHorizon`), up to [horizonDegrees]. */
+    var levelHorizon: Boolean by flag("levelHorizon", false)
+    var horizonDegrees: Double by stored(HorizonFraming.degrees(prefs.getFloat("levelHorizonDegrees", HorizonFraming.DEFAULT_DEGREES.toFloat()).toDouble())) {
+        putFloat("levelHorizonDegrees", it.toFloat())
+    }
+
+    /** Follow a face with the picture of a single camera (the original's `dualFaceFollow`). */
+    var followFace: Boolean by flag("dualFaceFollow", false)
+
+    /** Mark sharp edges in the preview (the original's `focusPeaking`). */
+    var focusPeaking: Boolean by flag("focusPeaking", false)
+
+    /** The recording gain of each microphone, in decibels (the original's `recordingGain` for each microphone). */
+    fun recordingGain(microphone: String?): Double =
+        if (microphone == null) 0.0 else RecordingGain.normalized(prefs.getFloat("recordingGain.$microphone", 0f).toDouble())
+
+    fun setRecordingGain(microphone: String, db: Double) {
+        prefs.edit().putFloat("recordingGain.$microphone", RecordingGain.normalized(db).toFloat()).apply()
+    }
 
     /** The front light: its width, its colour and its opacity are kept; being on is not, as in the original. */
     var frontLightWidth: FrontLight.Width by stored(FrontLight.width(prefs.getString("frontLightWidth", null))) { putString("frontLightWidth", it.name) }

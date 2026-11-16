@@ -51,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -283,7 +284,10 @@ internal fun FocusBox(focus: CameraFocus) {
  * automatic and locked; in manual focus a swipe up focuses farther and down nearer, finely at first.
  */
 @Composable
-internal fun FocusButton(focus: CameraFocus, enabled: Boolean) {
+internal fun FocusButton(focus: CameraFocus, enabled: Boolean, peaking: Boolean, togglePeaking: () -> Unit) {
+    val view = LocalView.current
+    // Holding the button and letting go turns focus peaking on or off, as in the original, with a firmer tick.
+    val peak = { togglePeaking(); view.confirm() }
     val mode = focus.mode
     val manual = mode == FocusControl.Mode.Manual
     var adjusted by remember { mutableStateOf<Double?>(null) }
@@ -293,16 +297,18 @@ internal fun FocusButton(focus: CameraFocus, enabled: Boolean) {
         FocusControl.Mode.Locked -> R.string.recorder_focus_locked_label
         FocusControl.Mode.Auto -> R.string.recorder_focus_auto_label
     })
-    val value = when (mode) {
+    val state = when (mode) {
         FocusControl.Mode.Fixed -> label
         FocusControl.Mode.Auto -> stringResource(R.string.recorder_focus_auto_value)
         else -> stringResource(R.string.recorder_focus_locked_value, FocusControl.percent(focus.lens))
     }
+    val value = if (peaking) stringResource(R.string.recorder_peaking_value, state) else state
+    val peakingLabel = stringResource(R.string.recorder_peaking_toggle)
     val farther = stringResource(R.string.recorder_focus_farther)
     val nearer = stringResource(R.string.recorder_focus_nearer)
-    val color = if (focus.locked) ControlYellow else Color.White
+    val color = if (peaking) Color.Red else if (focus.locked) ControlYellow else Color.White
     Box(
-        Modifier.size(52.dp, 44.dp).alpha(if (enabled) 1f else 0.4f).pointerInput(focus, enabled) {
+        Modifier.size(52.dp, 44.dp).alpha(if (enabled) 1f else 0.4f).pointerInput(focus, enabled, togglePeaking) {
             if (!enabled) return@pointerInput
             awaitEachGesture {
                 val down = awaitFirstDown()
@@ -315,7 +321,9 @@ internal fun FocusButton(focus: CameraFocus, enabled: Boolean) {
                     val travel = (change.position - down.position) / density
                     if (!change.pressed) {
                         // The position is remembered when the finger lifts; a touch that did not travel is a tap.
-                        lens?.let { focus.setLocked(true, it) } ?: run { if (!moved) focus.toggle() }
+                        lens?.let { focus.setLocked(true, it) } ?: run {
+                            if (!moved) { if (change.uptimeMillis - down.uptimeMillis >= PEAKING_HOLD_MILLIS) peak() else focus.toggle() }
+                        }
                         break
                     }
                     if (!moved && maxOf(abs(travel.x), abs(travel.y)) >= FocusControl.SWIPE_START) { moved = true; vertical = abs(travel.y) > abs(travel.x) }
@@ -336,12 +344,11 @@ internal fun FocusButton(focus: CameraFocus, enabled: Boolean) {
             role = Role.Button
             if (enabled) {
                 onClick { focus.toggle(); true }
-                if (manual) {
-                    customActions = listOf(
-                        CustomAccessibilityAction(farther) { focus.setLocked(true, focus.lens + FocusControl.STEP); true },
-                        CustomAccessibilityAction(nearer) { focus.setLocked(true, focus.lens - FocusControl.STEP); true },
-                    )
-                }
+                customActions = listOfNotNull(
+                    CustomAccessibilityAction(peakingLabel) { peak(); true },
+                    if (manual) CustomAccessibilityAction(farther) { focus.setLocked(true, focus.lens + FocusControl.STEP); true } else null,
+                    if (manual) CustomAccessibilityAction(nearer) { focus.setLocked(true, focus.lens - FocusControl.STEP); true } else null,
+                )
             }
         },
         contentAlignment = Alignment.Center,
@@ -407,3 +414,6 @@ internal fun FocusSettings(focus: CameraFocus, enabled: Boolean) {
         if (note != null) SettingsRow { SettingsNote(stringResource(note)) }
     }
 }
+
+/** How long the focus button is held for focus peaking, as the original's 0.45 s. */
+private const val PEAKING_HOLD_MILLIS = 450L
