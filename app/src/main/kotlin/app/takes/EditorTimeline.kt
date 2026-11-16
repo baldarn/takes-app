@@ -67,6 +67,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
+
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.core.TimelineClip
@@ -120,6 +124,21 @@ internal object Thumbnails {
 /** A trim in progress: the clip being changed and its uncommitted bounds. */
 internal data class Trim(val index: Int, val leading: Boolean, val clip: TimelineClip)
 
+/**
+ * A Move under way: a horizontal drag on a picture being moved moves the
+ * selection by [drag] seconds from where the finger went down; [end] when it
+ * lifts, [cancel] when the system takes the gesture away. Empty space still
+ * scrolls, and the trim handles and levels are off.
+ */
+internal class MoveDrag(val drag: (seconds: Double) -> Unit, val end: () -> Unit, val cancel: () -> Unit)
+
+/** A row of pictures: thumbnails over the waveform, smaller when several rows share the timeline. */
+private fun rowTile(rows: TimelineRows?) = if (rows == null || rows.count <= 1) TileSize else 40.dp
+private fun rowWave(rows: TimelineRows?) = if (rows == null || rows.count <= 1) WaveHeight else 16.dp
+private fun rowPitch(rows: TimelineRows?) = rowTile(rows) + rowWave(rows) + if (rows == null || rows.count <= 1) 0.dp else 2.dp
+private fun stripHeight(rows: TimelineRows?) = if (rows == null || rows.count <= 1) TileSize + WaveHeight else rowPitch(rows) * rows.count
+private val GhostColor = Color(0xFF64D2FF)
+
 @Composable
 internal fun Timeline(
     clips: List<TimelineClip>, files: Map<String, File>, sounds: List<AudioItem>, names: Map<String, String>,
@@ -129,6 +148,7 @@ internal fun Timeline(
     touched: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
     marked: MarkedView? = null, level: LevelGesture? = null,
     pinch: (factor: Float?) -> Unit = {},
+    rows: TimelineRows? = null, moveDrag: MoveDrag? = null,
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -145,17 +165,25 @@ internal fun Timeline(
     val onSeek by rememberUpdatedState(seek)
     val onPinch by rememberUpdatedState(pinch)
     val scale by rememberUpdatedState(pixelsPerSecond)
+    val latestRows by rememberUpdatedState(rows)
+    val onMove by rememberUpdatedState(moveDrag)
     val haptics = LocalHapticFeedback.current
-    // Where a touch grabs a trim handle of the current clip instead of scrolling.
-    val handle by rememberUpdatedState { x: Float, half: Float ->
-        current?.takeIf { it in clips.indices }?.let { index ->
-            val left = half + (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat() + shift - scroll.value
+    val pitch = rowPitch(rows)
+    val strip = stripHeight(rows)
+    // Where a touch grabs a trim handle of the current clip instead of scrolling. Off a single row, on the current clip's own row.
+    val handle by rememberUpdatedState { x: Float, y: Float, half: Float ->
+        current?.takeIf { it in clips.indices && moveDrag == null }?.let { index ->
+            val row = rows?.rows?.getOrNull(index) ?: 0
+            val top = with(density) { StripTop.toPx() + row * pitch.toPx() }
+            if (rows != null && (y < top || y > top + with(density) { (rowTile(rows) + rowWave(rows)).toPx() })) return@let null
+            val start = rows?.starts?.getOrNull(index) ?: TimelineEditing.clipStart(clips, index)
+            val left = half + (start * pixelsPerSecond).toFloat() + shift - scroll.value
             val right = left + (clips[index].duration * pixelsPerSecond).toFloat()
             // Just the visible grip and a little around it; the rest of the clip scrolls.
             val (outside, inside) = with(density) { 6.dp.toPx() to 14.dp.toPx() }
             // An edge under a transition that plays two clips at once is no trim edge, as in the original.
-            val leading = x in (left - outside)..(left + inside) && TimelineEditing.overlap(clips, index - 1) <= 0
-            val trailing = x in (right - inside)..(right + outside) && TimelineEditing.overlap(clips, index) <= 0
+            val leading = x in (left - outside)..(left + inside) && (rows != null || TimelineEditing.overlap(clips, index - 1) <= 0)
+            val trailing = x in (right - inside)..(right + outside) && (rows != null || TimelineEditing.overlap(clips, index) <= 0)
             when {
                 leading && trailing -> abs(x - left) < abs(x - right)
                 leading -> true
@@ -166,7 +194,7 @@ internal fun Timeline(
     }
     BoxWithConstraints(
         // Clips at a fixed height from the top; audio tracks appear under them when there is sound.
-        Modifier.fillMaxWidth().height(120.dp + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel)
+        Modifier.fillMaxWidth().height(120.dp + (strip - TileSize - WaveHeight) + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel)
             .onGloballyPositioned { windowTop = it.positionInWindow().y }.pointerInput(Unit) {
             // Two fingers zoom, as the original's pinch (EditorTimeline.swift:577-582): null as they land, then how many
             // times as far apart they are. Meanwhile nothing scrolls, trims or levels.
@@ -189,19 +217,52 @@ internal fun Timeline(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 onTouched() // scrubbing pauses playback; it stays paused after release
+                val laid = latestRows
+                val time = ((down.position.x - size.width / 2f + scroll.value) / scale).toDouble()
+                val inStrip = down.position.y >= StripTop.toPx() && down.position.y <= (StripTop + strip).toPx()
+                // The row of pictures under the finger, off a single row.
+                val row = if (laid != null && inStrip) ((down.position.y - StripTop.toPx()) / pitch.toPx()).toInt() else 0
+                // During a Move a drag on a picture being moved moves it; anywhere else the timeline scrolls.
+                onMove?.let { move ->
+                    val card = laid?.takeIf { inStrip }?.clipAt(latestClips, row, time)
+                    if (card == null || latestClips[card].id !in laid.moving) return@awaitEachGesture
+                    down.consume()
+                    var total = 0f
+                    var lifted = false
+                    try {
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                            total += change.positionChange().x
+                            change.consume()
+                            if (!change.pressed) { lifted = true; break }
+                            move.drag((total / scale).toDouble())
+                        }
+                    } finally {
+                        if (lifted) move.end() else move.cancel()
+                    }
+                    return@awaitEachGesture
+                }
                 // A drag up or down on a clip's waveform, or on a sound on an audio track, chooses its level, as in the original.
-                val grip = if (down.position.y >= StripTop.toPx() && down.position.y <= (StripTop + TileSize + WaveHeight).toPx()) handle(down.position.x, size.width / 2f) else null
+                val grip = if (inStrip) handle(down.position.x, down.position.y, size.width / 2f) else null
                 onLevel?.takeIf { grip == null }?.let { gesture ->
-                    val time = ((down.position.x - size.width / 2f + scroll.value) / scale).toDouble()
-                    val below = down.position.y - (StripTop + TileSize).toPx()
-                    val clip = if (below >= 0 && below < WaveHeight.toPx() && time >= 0 && time < TimelineEditing.duration(latestClips)) TimelineEditing.locate(latestClips, time)?.let { latestClips[it.index].id } else null
-                    val track = if (below >= WaveHeight.toPx()) ((below - WaveHeight.toPx()) / TrackHeight.toPx()).toInt() else -1
+                    val tile = rowTile(laid).toPx()
+                    val wave = rowWave(laid).toPx()
+                    val below = down.position.y - StripTop.toPx() - row * pitch.toPx() - tile
+                    val onWave = below >= 0 && below < wave && time >= 0
+                    val clip = when {
+                        !onWave || !inStrip -> null
+                        laid != null -> laid.clipAt(latestClips, row, time)?.let { latestClips[it].id }
+                        time < TimelineEditing.duration(latestClips) -> TimelineEditing.locate(latestClips, time)?.let { latestClips[it.index].id }
+                        else -> null
+                    }
+                    val underStrip = down.position.y - (StripTop + strip).toPx()
+                    val track = if (underStrip >= 0) (underStrip / TrackHeight.toPx()).toInt() else -1
                     val sound = if (track in 0 until AudioItem.TRACKS) TimelineEditing.audioAt(latestSounds, track, time)?.id else null
                     if (clip != null || sound != null) { dragLevel(down, clip, sound, time, windowTop, gesture); return@awaitEachGesture }
                 }
                 // Above and below the clips the timeline only scrolls.
-                if (down.position.y < StripTop.toPx() || down.position.y > (StripTop + TileSize + WaveHeight).toPx()) return@awaitEachGesture
-                val leading = handle(down.position.x, size.width / 2f) ?: return@awaitEachGesture
+                if (!inStrip) return@awaitEachGesture
+                val leading = grip ?: return@awaitEachGesture
                 down.consume()
                 onBeginTrim(leading)
                 try {
@@ -224,9 +285,15 @@ internal fun Timeline(
     ) {
         val viewport = constraints.maxWidth
         Column(Modifier.horizontalScroll(scroll).padding(horizontal = maxWidth / 2).padding(top = StripTop).fillMaxHeight()) {
-            val width = with(density) { (TimelineEditing.duration(clips) * pixelsPerSecond).toFloat().toDp() }
+            val width = with(density) { ((rows?.duration ?: TimelineEditing.duration(clips)) * pixelsPerSecond).toFloat().toDp() }
+            if (rows != null) PictureRows(
+                clips, files, rows, current, trim, pixelsPerSecond, viewport, scroll, marked, Modifier.width(width).height(strip),
+                openTitle = openTitle, select = { onSelect(it, null) },
+                toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(it, null) },
+                focusTransition = focusTransition,
+            )
             // Clips sit at their timeline position; a dissolve draws the incoming clip over the end of the previous one.
-            Box(Modifier.width(width).height(TileSize + WaveHeight).offset { IntOffset(shift.roundToInt(), 0) }, Alignment.CenterStart) {
+            else Box(Modifier.width(width).height(TileSize + WaveHeight).offset { IntOffset(shift.roundToInt(), 0) }, Alignment.CenterStart) {
                 clips.forEachIndexed { index, clip ->
                     val offset = (TimelineEditing.clipStart(clips, index) * pixelsPerSecond).toFloat()
                     key(clip.id) {
@@ -303,7 +370,7 @@ internal fun Timeline(
         Canvas(Modifier.fillMaxWidth().height(StripTop)) {
             val half = size.width / 2
             val step = TimelineZoom.rulerStep((pixelsPerSecond / density.density).toDouble())
-            val total = TimelineEditing.duration(clips)
+            val total = rows?.duration ?: TimelineEditing.duration(clips)
             val start = ((scroll.value - half) / pixelsPerSecond).toDouble().coerceAtLeast(0.0)
             val end = ((scroll.value + half) / pixelsPerSecond).toDouble().coerceAtMost(total)
             for (time in TimelineZoom.rulerMarks(start, end, step)) {
@@ -327,6 +394,7 @@ internal fun ClipStrip(
     clip: TimelineClip, file: File, current: Boolean, entering: TransitionLayout.Join?, leaving: TransitionLayout.Join?, dissolve: Float, trimsEnd: Boolean, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
     select: () -> Unit, toggle: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit,
+    top: Int = 0, tileHeight: Dp = TileSize, waveHeight: Dp = WaveHeight, outline: Color? = null,
 ) {
     val density = LocalDensity.current
     val onSelect by rememberUpdatedState(select)
@@ -334,7 +402,7 @@ internal fun ClipStrip(
     val selectLabel = stringResource(R.string.selection_select)
     val toggleLabel = stringResource(R.string.selection_toggle)
     val width = (clip.duration * pixelsPerSecond).toFloat()
-    val tile = with(density) { TileSize.toPx() }
+    val tile = with(density) { tileHeight.toPx() }
     val count = ceil(width / tile).toInt()
     // Only the tiles near the screen are composed and decoded.
     val visible by remember(offset, count, tile, viewport) {
@@ -347,8 +415,8 @@ internal fun ClipStrip(
     val peaks by produceState<ByteArray?>(null, file) { value = Waveforms.peaks(file) }
     val loudness = (clip.audio?.gain ?: 1.0).toFloat()
     Box(
-        Modifier.offset { IntOffset(offset.roundToInt(), 0) }.width(with(density) { width.toDp() })
-            .border(if (current) 2.dp else 1.dp, if (current) Color.White else Color.Black)
+        Modifier.offset { IntOffset(offset.roundToInt(), top) }.width(with(density) { width.toDp() })
+            .border(if (current || outline != null) 2.dp else 1.dp, outline ?: if (current) Color.White else Color.Black)
             .pointerInput(Unit) { detectTapGestures(onLongPress = { onToggle() }, onTap = { onSelect() }) }
             .semantics {
                 onClick(selectLabel) { onSelect(); true }
@@ -356,18 +424,18 @@ internal fun ClipStrip(
             },
     ) {
         Column {
-            Box(Modifier.fillMaxWidth().height(TileSize).clipToBounds().background(Color(0xFF2A2D33))) {
+            Box(Modifier.fillMaxWidth().height(tileHeight).clipToBounds().background(Color(0xFF2A2D33))) {
                 for (index in visible) {
                     key(index) {
                         val time = clip.sourceTime((index + 0.5) * tile / pixelsPerSecond).coerceAtMost(clip.end)
                         val image by produceState<Bitmap?>(null, file, (time * 2).roundToInt()) { value = Thumbnails.frame(file, time) }
                         image?.let {
-                            Image(it.asImageBitmap(), null, Modifier.offset { IntOffset((index * tile).roundToInt(), 0) }.size(TileSize), contentScale = ContentScale.Crop)
+                            Image(it.asImageBitmap(), null, Modifier.offset { IntOffset((index * tile).roundToInt(), 0) }.size(tileHeight), contentScale = ContentScale.Crop)
                         }
                     }
                 }
             }
-            Canvas(Modifier.fillMaxWidth().height(WaveHeight).background(Color(0xFF14161A))) {
+            Canvas(Modifier.fillMaxWidth().height(waveHeight).background(Color(0xFF14161A))) {
                 val levels = peaks ?: return@Canvas
                 val step = 3.dp.toPx()
                 // Draw only the columns near the screen.
@@ -425,10 +493,10 @@ internal fun ClipStrip(
         for (mark in clip.bookmarks.orEmpty()) {
             if (mark.time < clip.start || mark.time >= clip.end) continue
             Box(Modifier.offset { IntOffset((clip.offset(mark.time) * pixelsPerSecond).roundToInt() - 1.dp.roundToPx(), 0) }
-                .width(3.dp).height(TileSize + WaveHeight).background(BookmarkColor))
+                .width(3.dp).height(tileHeight + waveHeight).background(BookmarkColor))
         }
         // The part of this clip that plays over the previous one, and the transitions at its two ends by name.
-        if (dissolve > 0) Box(Modifier.width(with(density) { dissolve.toDp() }).height(TileSize + WaveHeight).background(Color.White.copy(alpha = 0.35f)))
+        if (dissolve > 0) Box(Modifier.width(with(density) { dissolve.toDp() }).height(tileHeight + waveHeight).background(Color.White.copy(alpha = 0.35f)))
         // A tap on the name goes to the join, where the transition is offered for editing; the touch reaches a little around the name.
         val onFocus by rememberUpdatedState(focusTransition)
         val focusLabel = stringResource(R.string.transition_tag_focus)
@@ -445,10 +513,77 @@ internal fun ClipStrip(
         entering?.let { tag(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp), PaddingValues(top = 14.dp, end = 12.dp)) }
         leaving?.let { tag(it, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp), PaddingValues(top = 14.dp, start = 12.dp)) }
         if (current) {
-            val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(TileSize + WaveHeight).background(Color.White, RoundedCornerShape(3.dp))
+            val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(tileHeight + waveHeight).background(Color.White, RoundedCornerShape(3.dp))
             // No grip on an edge that lies under a transition playing two clips at once: it is not the edge of the footage shown.
             if (dissolve <= 0) Box(grip.align(Alignment.CenterStart))
             if (trimsEnd) Box(grip.align(Alignment.CenterEnd))
+        }
+    }
+}
+
+/**
+ * The pictures of an edit that is no single row, each on its row at its own
+ * start (TimelineRows), with the time without picture marked as a gap and,
+ * during a Move, the outline of where the moved pictures were.
+ */
+@Composable
+private fun PictureRows(
+    clips: List<TimelineClip>, files: Map<String, File>, rows: TimelineRows, current: Int?, trim: Trim?,
+    pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, marked: MarkedView?, modifier: Modifier,
+    openTitle: (index: Int, title: TextOverlay) -> Unit, select: (String) -> Unit, toggle: (String) -> Unit,
+    focusTransition: (TransitionLayout.Join) -> Unit,
+) {
+    val density = LocalDensity.current
+    val tile = rowTile(rows)
+    val wave = rowWave(rows)
+    val pitch = with(density) { rowPitch(rows).toPx() }
+    val gapLabel = stringResource(R.string.gap_label)
+    Box(modifier) {
+        // Time without picture: black in the movie, marked here across every row.
+        for (gap in rows.gaps) {
+            Box(
+                Modifier.offset { IntOffset((gap.start * pixelsPerSecond).roundToInt(), 0) }
+                    .width(with(density) { ((gap.end - gap.start) * pixelsPerSecond).toFloat().toDp() }).fillMaxHeight()
+                    .background(Color.Black).border(1.dp, Muted.copy(alpha = 0.5f)),
+                Alignment.Center,
+            ) { Text(gapLabel, color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip) }
+        }
+        clips.forEachIndexed { index, clip ->
+            val file = files[clip.sourceID] ?: return@forEachIndexed
+            key(clip.id) {
+                ClipStrip(
+                    clip, file, index == current && trim?.index.let { it == null || it == index },
+                    entering = null, leaving = null, dissolve = 0f, trimsEnd = true,
+                    (rows.starts[index] * pixelsPerSecond).toFloat(), pixelsPerSecond, viewport, scroll,
+                    openTitle = { openTitle(index, it) }, select = { select(clip.id) }, toggle = { toggle(clip.id) },
+                    focusTransition = focusTransition,
+                    top = (rows.rows[index] * pitch).roundToInt(), tileHeight = tile, waveHeight = wave,
+                    outline = GhostColor.takeIf { clip.id in rows.moving },
+                )
+            }
+        }
+        if (marked != null) {
+            clips.forEachIndexed { index, clip ->
+                if (!marked.clip(clip.id)) return@forEachIndexed
+                Box(Modifier.offset { IntOffset(0, (rows.rows[index] * pitch).roundToInt()) }) {
+                    MarkedPart(marked, rows.starts[index], rows.starts[index] + clip.duration, pixelsPerSecond, tile + wave)
+                }
+            }
+            marked.range?.let { RangeGuides(it, pixelsPerSecond, Modifier.matchParentSize()) }
+        }
+        // Where the moved pictures were when Move began: a dashed outline over their rows.
+        rows.ghost?.let { ghost ->
+            val movingRows = clips.indices.filter { clips[it].id in rows.moving }.map { rows.rows[it] }
+            val first = movingRows.minOrNull() ?: 0
+            val last = movingRows.maxOrNull() ?: 0
+            Canvas(Modifier.matchParentSize()) {
+                val dashes = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx()))
+                val left = (ghost.start * pixelsPerSecond).toFloat()
+                val right = (ghost.end * pixelsPerSecond).toFloat()
+                val top = first * pitch
+                val bottom = last * pitch + (tile + wave).toPx()
+                drawRect(GhostColor, Offset(left, top), Size(right - left, bottom - top), style = Stroke(1.5.dp.toPx(), pathEffect = dashes))
+            }
         }
     }
 }
