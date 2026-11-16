@@ -53,6 +53,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -152,14 +153,15 @@ internal fun selectionCount(targets: EditTargets): String = listOfNotNull(
  * it there: one to add on the join the playhead is on, or the one the
  * playhead is on or inside, to open.
  */
-internal class TransitionChip(val label: String, val description: String, val adds: Boolean, val open: () -> Unit)
+internal class TransitionChip(val label: String, val description: String, val adds: Boolean, val color: Color = TransitionColor, val open: () -> Unit)
 
 /**
  * The row between the timeline and the tools. Mark is always there. Beside it,
  * while something is marked or selected, what can be done with it; otherwise
  * Paste when the clipboard holds something, then the [transitions] at the
  * playhead, or without any the last thing that happened.
- * An action that is null is not offered.
+ * An action that is null is not offered. With [unavailable], Copy, Cut and
+ * Paste are drawn as off and a tap on them gives the reason to [explain].
  */
 @Composable
 internal fun SelectionBar(
@@ -171,7 +173,9 @@ internal fun SelectionBar(
     paste: (() -> Unit)? = null, canPaste: Boolean = true, replacesTransition: Boolean = false, clearClipboard: () -> Unit = {},
     editSound: (() -> Unit)? = null,
     transitions: List<TransitionChip> = emptyList(),
+    unavailable: String? = null, explain: (String) -> Unit = {},
 ) {
+    val because = unavailable?.let { reason -> { explain(reason) } }
     Row(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         val markLabel = stringResource(when (step) {
             RangeMarks.Step.MarkStart -> R.string.range_mark_start
@@ -200,23 +204,23 @@ internal fun SelectionBar(
                         fun item(label: Int, icon: ImageVector, enabled: Boolean = true, action: () -> Unit) = DropdownMenuItem(
                             text = { Text(stringResource(label)) }, onClick = { menu = false; action() }, enabled = enabled, leadingIcon = { Icon(icon, null) },
                         )
-                        copy?.let { item(R.string.clipboard_copy, Icons.Outlined.ContentCopy, canCopy, it) }
-                        cut?.let { item(R.string.clipboard_cut, Icons.Outlined.ContentCut, canCopy, it) }
+                        copy?.let { item(R.string.clipboard_copy, Icons.Outlined.ContentCopy, canCopy, because ?: it) }
+                        cut?.let { item(R.string.clipboard_cut, Icons.Outlined.ContentCut, canCopy, because ?: it) }
                         if (paste != null) item(R.string.clipboard_clear, Icons.Filled.Close, action = clearClipboard)
                         preview?.let { item(R.string.range_preview_cut, Icons.Outlined.Slideshow, action = it) }
                     }
                 }
                 preview?.let { BarIcon(Icons.Outlined.Slideshow, R.string.range_preview_cut, Color.White, it) }
-                copy?.let { ClipboardButton(Icons.Outlined.ContentCopy, R.string.clipboard_copy, R.string.clipboard_copy_selection, canCopy, it) }
-                cut?.let { ClipboardButton(Icons.Outlined.ContentCut, R.string.clipboard_cut, R.string.clipboard_cut_selection, canCopy, it) }
+                copy?.let { ClipboardButton(Icons.Outlined.ContentCopy, R.string.clipboard_copy, R.string.clipboard_copy_selection, canCopy, because ?: it, off = because != null) }
+                cut?.let { ClipboardButton(Icons.Outlined.ContentCut, R.string.clipboard_cut, R.string.clipboard_cut_selection, canCopy, because ?: it, off = because != null) }
                 delete?.let { BarIcon(Icons.Outlined.Delete, R.string.selection_delete, RecordRed, it) }
                 editSound?.let { BarIcon(Icons.Outlined.Tune, R.string.editor_edit_sound, Color.White, it) }
                 BarIcon(Icons.Filled.Close, R.string.selection_clear, Color.White.copy(alpha = 0.8f), clear)
-                paste?.let { PasteButton(canPaste, replacesTransition, it) }
+                paste?.let { PasteButton(canPaste, replacesTransition, because ?: it, off = because != null) }
             }
         } else {
             paste?.let {
-                PasteButton(canPaste, replacesTransition, it)
+                PasteButton(canPaste, replacesTransition, because ?: it, off = because != null)
                 BarIcon(Icons.Filled.Close, R.string.clipboard_clear, Color.White.copy(alpha = 0.8f), clearClipboard)
             }
             if (transitions.isEmpty()) Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -224,7 +228,7 @@ internal fun SelectionBar(
                 for (chip in transitions) {
                     TextButton(
                         onClick = chip.open, Modifier.semantics { contentDescription = chip.description }, shape = CircleShape,
-                        colors = ButtonDefaults.textButtonColors(containerColor = TransitionColor.copy(alpha = 0.12f), contentColor = TransitionColor),
+                        colors = ButtonDefaults.textButtonColors(containerColor = chip.color.copy(alpha = 0.12f), contentColor = chip.color),
                         contentPadding = PaddingValues(horizontal = 12.dp),
                     ) {
                         Icon(if (chip.adds) Icons.Filled.Add else Icons.Outlined.Tune, null, Modifier.size(18.dp))
@@ -245,21 +249,23 @@ private fun BarIcon(icon: ImageVector, label: Int, tint: Color, action: () -> Un
 
 /** Copy or Cut: the sign over its name, as in the original. */
 @Composable
-private fun ClipboardButton(icon: ImageVector, name: Int, label: Int, enabled: Boolean, action: () -> Unit) {
+private fun ClipboardButton(icon: ImageVector, name: Int, label: Int, enabled: Boolean, action: () -> Unit, off: Boolean = false) {
     val description = stringResource(label)
-    val tint = if (enabled) ClipboardColor else Quiet
-    TextButton(onClick = action, Modifier.defaultMinSize(minWidth = 44.dp).semantics { contentDescription = description }, enabled = enabled, contentPadding = PaddingValues(horizontal = 4.dp)) {
+    val unavailable = stringResource(R.string.unavailable_state)
+    val tint = if (enabled && !off) ClipboardColor else Quiet
+    TextButton(onClick = action, Modifier.defaultMinSize(minWidth = 44.dp).semantics { contentDescription = description; if (off) stateDescription = unavailable }, enabled = enabled, contentPadding = PaddingValues(horizontal = 4.dp)) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(icon, null, Modifier.size(18.dp), tint = tint)
-            Text(stringResource(name), color = if (enabled) Color.White else Quiet, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(stringResource(name), color = if (enabled && !off) Color.White else Quiet, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
 
 @Composable
-private fun PasteButton(enabled: Boolean, replacesTransition: Boolean, action: () -> Unit) {
-    val tint = if (enabled) ClipboardColor else Quiet
-    TextButton(onClick = action, enabled = enabled, contentPadding = PaddingValues(horizontal = 10.dp)) {
+private fun PasteButton(enabled: Boolean, replacesTransition: Boolean, action: () -> Unit, off: Boolean = false) {
+    val tint = if (enabled && !off) ClipboardColor else Quiet
+    val unavailable = stringResource(R.string.unavailable_state)
+    TextButton(onClick = action, Modifier.semantics { if (off) stateDescription = unavailable }, enabled = enabled, contentPadding = PaddingValues(horizontal = 10.dp)) {
         Icon(Icons.Outlined.ContentPaste, null, Modifier.size(18.dp), tint = tint)
         Column(Modifier.padding(start = 4.dp)) {
             Text(stringResource(R.string.clipboard_paste), color = tint, maxLines = 1, lineHeight = 16.sp)

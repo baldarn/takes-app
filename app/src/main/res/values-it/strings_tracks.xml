@@ -1,0 +1,52 @@
+<resources>
+    <!-- Sposta: la selezione trascinata lungo la timeline -->
+    <string name="move_button">Sposta</string>
+    <string name="move_button_description">Sposta le parti selezionate e ciò che è collegato a esse</string>
+    <string name="move_selection_start">Inizio selezione</string>
+    <string name="move_offset">%1$s s</string>
+    <string name="move_offset_description">Spostata di %1$s secondi</string>
+    <string name="move_snapped">Agganciata</string>
+    <string name="move_hint">Trascina la selezione lungo la timeline</string>
+    <string name="move_done">Spostata · Annulla disponibile</string>
+    <string name="move_cancelled">Spostamento annullato</string>
+    <string name="move_stale">La timeline è cambiata. Seleziona di nuovo le clip.</string>
+    <string name="move_nothing">Seleziona una clip per spostarla.</string>
+
+    <!-- Vuoti -->
+    <string name="gap_label">Vuoto</string>
+    <string name="gap_close">Chiudi vuoto</string>
+    <string name="gap_close_description">Chiudi il vuoto al cursore: tutto ciò che segue viene prima</string>
+    <string name="gap_closed">Vuoto chiuso · Annulla disponibile</string>
+
+    <!-- Funzioni di una fila di clip, fuori da una fila -->
+    <string name="unavailable_reorder">Qui le immagini non sono in una sola fila. Usa Sposta per mettere un\'immagine altrove.</string>
+    <string name="unavailable_transition">Le transizioni si impostano tra immagini che si seguono in una sola fila, e in questo montaggio ci sono immagini una sopra l\'altra o separate.</string>
+    <string name="unavailable_clipboard">Copia, Taglia e Incolla tengono una fila di clip, e in questo montaggio ci sono immagini una sopra l\'altra o separate.</string>
+    <string name="unavailable_state">Non disponibile</string>
+
+    <!-- Posizione -->
+    <string name="placement_title">Posizione</string>
+    <string name="placement_default">Posizione · predefinita</string>
+    <string name="placement_open">Modifica la posizione delle immagini che si vedono qui</string>
+    <string name="placement_apply">Applica</string>
+    <string name="placement_reset">Ripristina posizione</string>
+    <string name="placement_hint">Trascina per spostare · pizzica per ridimensionare</string>
+    <string name="placement_video">Video</string>
+    <string name="placement_front">davanti</string>
+    <string name="placement_back">dietro</string>
+    <string name="placement_middle">in mezzo, %1$d di %2$d</string>
+    <string name="placement_layout">Disposizione</string>
+    <string name="placement_layout_note">Le disposizioni azzerano inquadratura e Adatta</string>
+    <string name="placement_cover">Copertura</string>
+    <string name="placement_side_by_side">Affiancate</string>
+    <string name="placement_top_bottom">Sopra e sotto</string>
+    <string name="placement_pip">Picture in picture</string>
+    <string name="placement_bring_front">Porta davanti</string>
+    <string name="placement_send_back">Manda dietro</string>
+    <string name="placement_fill">Riempi la finestra</string>
+    <string name="placement_center">Centra l\'immagine</string>
+    <string name="placement_replaces_transition">Cambiare questa disposizione sostituisce la transizione tra questi video</string>
+    <string name="placement_audio_note">L\'audio delle clip sovrapposte si mescola. Seleziona un elemento audio nella timeline per cambiarne il volume.</string>
+    <string name="placement_applied">Posizione salvata · Annulla disponibile</string>
+    <string name="placement_removed">Posizione ripristinata · Annulla disponibile</string>
+</resources>
