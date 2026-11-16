@@ -201,6 +201,13 @@ data class RenderPlan(
     fun titlesShown(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<TitleMotionRanges.Shown> =
         titleRuns.shown(clips, time, frames)
 
+    /** Where the titles of [moment], the moment at timeline second [time], are drawn: into its sides, or over a split screen ([TitleMotionRanges.sides]). */
+    fun titleSides(moment: TransitionScene.Moment, time: Double): TitleMotionRanges.Sides = titleRuns.sides(clips, moment, time)
+
+    /** Where the titles at [time] are drawn ([TitleMotionRanges.sides]). */
+    fun titleSides(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): TitleMotionRanges.Sides =
+        titleSides(moment(time, frames = frames), time)
+
     /** The clip whose own time on [deck] holds [time]; null where the deck plays none. */
     fun onDeck(deck: Int, time: Double): Picture? = pictures.lastOrNull { it.deck == deck && time >= it.start && time < it.end }
 

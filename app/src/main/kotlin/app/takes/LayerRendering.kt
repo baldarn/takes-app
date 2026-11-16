@@ -133,12 +133,17 @@ class LayerDrawing(val scene: SceneDrawing, val mixed: Boolean, val count: Int, 
 
 /** The shader of picture layers, written once and worded for each of the two renderers, around the transition shader's. */
 object LayerShader {
-    // A lane, the fill, or a kept frame: kinds that leave room for lanes past the second.
+    // A lane, the fill, or a kept frame: kinds that leave room for lanes past the second. The titles of the picture
+    // on a lane go over it here, before it is moved into its window or mixed with the other side of a transition, as
+    // the original draws a picture with its titles (VideoToolCompositor.swift:282, :409-411).
     private const val SIDE = """
         vec3 side(float kind, vec2 p) {
-            if (kind > 9.5) return held(kind - 10.0, clamp(p, vec2(0.5), uSize - 0.5));
             if (kind < -0.5) return uFill;
-            return deck(kind, clamp(p, vec2(0.5), uSize - 0.5));
+            vec2 at = clamp(p, vec2(0.5), uSize - 0.5);
+            float lane = kind > 9.5 ? kind - 10.0 : kind;
+            vec3 c = kind > 9.5 ? held(lane, at) : deck(kind, at);
+            vec4 t = title(lane, at);
+            return t.rgb + (1.0 - t.a) * c;
         }
     """
 
@@ -146,22 +151,22 @@ object LayerShader {
         uniform float uMixed;
         uniform float uCount;
         uniform vec3 uTitled;
+        uniform float uOver;
     """ + (0 until LayerDrawing.MOST).joinToString("") { "\n        uniform vec4 uClip$it;\n        uniform vec4 uMap$it;\n        uniform vec2 uLayer$it;" }
 
     // Back to front over black: the pair in transition over the whole frame, then each picture inside its clip rectangle,
-    // the canvas point taken back to the picture's own pixel through its window. The titles of a layer, where the renderer
-    // draws them here ([title], by the layer's place back to front), go over its picture before it is moved: they shrink with it.
+    // the canvas point taken back to the picture's own pixel through its window. A picture's titles are in its side
+    // ([title], by its lane), so they are moved and shrink with it; those of a split screen go once over the pair ([pairTitles]).
     private val body = SIDE + TransitionShader.TAIL + """
         vec3 over(vec3 under, vec4 top) { return top.rgb + (1.0 - top.a) * under; }
-        vec3 placed(vec2 q, vec3 under, vec4 clip, vec4 map, vec2 layer, float slot) {
+        vec3 placed(vec2 q, vec3 under, vec4 clip, vec4 map, vec2 layer) {
             if (!within(q, clip)) return under;
-            vec2 p = (q - map.xy) / layer.y + map.zw;
-            return over(side(layer.x, p), title(slot, clamp(p, vec2(0.5), uSize - 0.5)));
+            return side(layer.x, (q - map.xy) / layer.y + map.zw);
         }
         vec3 layers(vec2 q) {
             vec3 c = vec3(0.0);
-            if (uMixed > 0.5) c = over(scene(q), title(0.0, q));
-    """ + (0 until LayerDrawing.MOST).joinToString("") { "\n            if (uCount > $it.5) c = placed(q, c, uClip$it, uMap$it, uLayer$it, $it.0 + uMixed);" } + """
+            if (uMixed > 0.5) c = over(scene(q), pairTitles(q));
+    """ + (0 until LayerDrawing.MOST).joinToString("") { "\n            if (uCount > $it.5) c = placed(q, c, uClip$it, uMap$it, uLayer$it);" } + """
             return c;
         }
     """
@@ -198,13 +203,21 @@ object LayerShader {
             vec3 c = which > 1.5 ? texture2D(uHeld2, at).rgb : which > 0.5 ? texture2D(uHeld1, at).rgb : texture2D(uHeld0, at).rgb;
             return uLinear.x > 0.5 ? enc(c) : c;
         }
-        // A bitmap of titles, its first row at the top, with its colors already multiplied by their opacity.
-        vec4 title(float slot, vec2 p) {
+        // A bitmap of titles, one a lane, its first row at the top, with its colors already multiplied by their opacity.
+        vec4 titles(float slot, vec2 p) {
             vec2 at = p / uSize;
-            if (slot > 1.5) return uTitled.z > 0.5 ? texture2D(uTitle2, at) : vec4(0.0);
-            if (slot > 0.5) return uTitled.y > 0.5 ? texture2D(uTitle1, at) : vec4(0.0);
-            return uTitled.x > 0.5 ? texture2D(uTitle0, at) : vec4(0.0);
+            if (slot > 1.5) return texture2D(uTitle2, at);
+            if (slot > 0.5) return texture2D(uTitle1, at);
+            return texture2D(uTitle0, at);
         }
+        // The titles in the side of a lane, where uTitled says it has some; none past the lanes (the blurred pair).
+        vec4 title(float lane, vec2 p) {
+            if (lane > 2.5) return vec4(0.0);
+            float on = lane > 1.5 ? uTitled.z : lane > 0.5 ? uTitled.y : uTitled.x;
+            return on > 0.5 ? titles(lane, p) : vec4(0.0);
+        }
+        // The titles over a split screen: the bitmap of the lane uOver names, if any.
+        vec4 pairTitles(vec2 p) { return uOver < -0.5 ? vec4(0.0) : titles(uOver, p); }
         $body
         // With uLinear.y the pixel is written in linear light, for a reduced picture of a blur.
         void main() {
@@ -219,8 +232,11 @@ object LayerShader {
         $uniforms
         vec3 deck(float kind, vec2 p) { return content.eval(vec2(p.x, p.y + kind * uSize.y)).rgb; }
         vec3 held(float which, vec2 p) { return deck(which, p); }
-        // The preview draws a picture's titles on its lane's view.
-        vec4 title(float slot, vec2 p) { return vec4(0.0); }
+        // The preview draws a picture's titles on its lane's view; those of a split screen, a picture of the
+        // frame's size, over the pair, with uOver.
+        uniform shader titles;
+        vec4 title(float lane, vec2 p) { return vec4(0.0); }
+        vec4 pairTitles(vec2 p) { return uOver < -0.5 ? vec4(0.0) : titles.eval(p); }
         ${TransitionShader.HEAD}
         $body
         vec4 main(vec2 xy) {
@@ -250,7 +266,13 @@ class LayerPreviewShader {
     private val across = RuntimeShader(LayerShader.PREVIEW)
     private val down = RuntimeShader(LayerShader.PREVIEW)
 
-    private fun RuntimeShader.set(drawing: LayerDrawing, width: Float, height: Float): RenderEffect {
+    // A picture of no titles, for the effects that draw none.
+    private val none = android.graphics.BitmapShader(
+        android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888),
+        android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP,
+    )
+
+    private fun RuntimeShader.set(drawing: LayerDrawing, width: Float, height: Float, pairTitles: android.graphics.Shader? = null): RenderEffect {
         val scene = drawing.scene
         setFloatUniform("uSize", width, height)
         setFloatUniform("uMode", scene.mode.toFloat())
@@ -260,6 +282,8 @@ class LayerPreviewShader {
         setFloatUniform("uMixed", if (drawing.mixed) 1f else 0f)
         setFloatUniform("uCount", drawing.count.toFloat())
         setFloatUniform("uTitled", 0f, 0f, 0f)
+        setFloatUniform("uOver", if (pairTitles != null) 0f else -1f)
+        setInputShader("titles", pairTitles ?: none)
         for (layer in 0 until LayerDrawing.MOST) {
             val at = layer * LayerDrawing.STRIDE
             setFloatUniform("uClip$layer", drawing.values.copyOfRange(at, at + 4))
@@ -269,9 +293,12 @@ class LayerPreviewShader {
         return RenderEffect.createRuntimeShaderEffect(this, "content")
     }
 
-    /** The effect for a layer [width] pixels wide holding the lanes, each [height] pixels tall. */
-    fun effect(drawing: LayerDrawing, width: Float, height: Float): RenderEffect {
-        val frame = shader.set(drawing, width, height)
+    /**
+     * The effect for a layer [width] pixels wide holding the lanes, each [height] pixels tall. [pairTitles] is a
+     * picture of the frame's size holding the titles of a split screen, drawn over the pair.
+     */
+    fun effect(drawing: LayerDrawing, width: Float, height: Float, pairTitles: android.graphics.Shader? = null): RenderEffect {
+        val frame = shader.set(drawing, width, height, pairTitles)
         val scene = drawing.scene
         if (!drawing.mixed || scene.mode != SceneDrawing.DEFOCUS || !scene.blurs) return frame
         // The shader takes half the samples of a disc on a picture longer than 1920 pixels.
@@ -299,9 +326,13 @@ class LayerPreviewShader {
  * for a transition still showing it; and it works out a whip pan or a defocus
  * of the pair on a reduced picture ([ReducedBlur]), enlarged as the back layer.
  *
- * With [titled], the titles of each layer are drawn here, over its picture
- * before it is moved into its window, by [TitlePainter] as the preview draws
- * them. They are not drawn on the lanes themselves: an effect after a lane's
+ * With [titled], the titles of each picture are drawn here, over its picture
+ * before it is moved into its window or mixed with the other side of a
+ * transition, by [TitlePainter] as the preview draws them ([TitleTextures], one
+ * a lane), so a title is wiped, keyed, slid and blurred with its picture, as
+ * the original draws it (`YouRec/VideoToolCompositor.swift:282`, `:286`); for a
+ * split screen those of both pictures go once over the pair (`:310-313`).
+ * They are not drawn on the lanes themselves: an effect after a lane's
  * `Presentation` made Media3 give one lane the frames of another
  * (docs/EXPORT-TWO-SEQUENCES.md, section 8; seen here with three lanes).
  */
@@ -384,8 +415,9 @@ class LayersEffect(
             for (lane in 0 until LayerDrawing.MOST) GLES20.glUniform1i(uniform("uHeld$lane"), lane + 1)
             for (slot in 0 until LayerDrawing.MOST) GLES20.glUniform1i(uniform("uTitle$slot"), LayerDrawing.MOST + slot + 1)
             GLES20.glUniform1i(uniform("uHeld${LayerDrawing.MOST}"), 2 * LayerDrawing.MOST + 1)
-            val titledSlots = titles?.drawn.takeIf { withTitles } ?: BooleanArray(LayerDrawing.MOST)
-            GLES20.glUniform3f(uniform("uTitled"), if (titledSlots[0]) 1f else 0f, if (titledSlots[1]) 1f else 0f, if (titledSlots[2]) 1f else 0f)
+            val titledLanes = titles?.drawn.takeIf { withTitles } ?: BooleanArray(LayerDrawing.MOST)
+            GLES20.glUniform3f(uniform("uTitled"), if (titledLanes[0]) 1f else 0f, if (titledLanes[1]) 1f else 0f, if (titledLanes[2]) 1f else 0f)
+            GLES20.glUniform1f(uniform("uOver"), if (withTitles && titles != null) titles.over.toFloat() else -1f)
             GLES20.glUniform3f(uniform("uLinear"), if (linearIn) 1f else 0f, if (linearOut) 1f else 0f, if (blurredLinear) 1f else 0f)
             GLES20.glUniform2f(uniform("uCells"), columns.toFloat(), rows.toFloat())
             GLES20.glUniform2f(uniform("uSize"), width.toFloat(), height.toFloat())
@@ -423,9 +455,11 @@ class LayersEffect(
          */
         private fun drawBlurred(drawing: LayerDrawing, inputTexId: Int) {
             val linear = blur.linear
+            // Each side is reduced with its titles, which are smeared or blurred with it, as the original blurs a
+            // picture drawn with its titles (YouRec/VideoToolCompositor.swift:282, YouRec/TransitionRenderer.swift:223-251).
             val blurred = blur.draw(
                 drawing.scene, canvas.width, canvas.height,
-                reduce = { draw(LayerDrawing.scene(it), inputTexId, withTitles = false, linearOut = linear) },
+                reduce = { draw(LayerDrawing.scene(it), inputTexId, linearOut = linear) },
                 pass = { scene, held, width, height ->
                     draw(LayerDrawing.scene(scene), inputTexId, withTitles = false, held = intArrayOf(held[0], held[1], 0), width = width, height = height, linearIn = linear, linearOut = linear)
                 },
@@ -500,26 +534,26 @@ class LayersEffect(
 }
 
 /**
- * The titles of each layer of an export's frame, as a bitmap a layer drawn by
- * [TitlePainter] and given to the layer shader as a texture: the titles a
- * picture shows at the second of its footage it shows, as a clip by itself
- * ([TitleMotionRanges]), each as opaque as its picture's share of a pair in
- * transition. A layer's bitmap is drawn again only when what it shows changes.
+ * The titles of an export's frame of picture layers, one bitmap a lane ([TitleTextures]): the titles a picture shows
+ * at the second of its footage it shows, as a clip by itself ([TitleMotionRanges]), each whole, in the side of the
+ * lane that shows it. A split screen's pictures carry none; the titles of both, each once, are in the bitmap of the
+ * lane of its first picture, [over], which the shader lays over the pair (`YouRec/VideoToolCompositor.swift:298-301`).
  */
-private class LayerTitles(private val plan: LayerPlan, private val width: Int, private val height: Int, assets: android.content.res.AssetManager) {
-    private val painter = TitlePainter(assets)
+private class LayerTitles(private val plan: LayerPlan, width: Int, height: Int, assets: android.content.res.AssetManager) {
+    private val textured = TitleTextures(LayerDrawing.MOST, width, height, assets)
     private val ranges = HashMap<Int, TitleMotionRanges>()
-    private val bitmaps = arrayOfNulls<android.graphics.Bitmap>(LayerDrawing.MOST)
-    private val shown = Array(LayerDrawing.MOST) { emptyList<TitleMotionRanges.Shown>() }
 
-    /** The texture of each layer's titles, 0 before it is first drawn. */
-    val textures = IntArray(LayerDrawing.MOST)
+    /** The texture of each lane's titles, 0 before it is first drawn. */
+    val textures: IntArray get() = textured.textures
 
-    /** Whether each layer, back to front, has titles in this frame. */
+    /** Whether the side of each lane has titles in this frame; never the lane of [over]. */
     val drawn = BooleanArray(LayerDrawing.MOST)
 
-    private fun of(source: TransitionScene.Source, share: Double): List<TitleMotionRanges.Shown> {
-        if (share <= 0) return emptyList()
+    /** The lane whose bitmap holds the titles over a split screen in this frame; -1 for none. */
+    var over = -1
+        private set
+
+    private fun of(source: TransitionScene.Source): List<TitleMotionRanges.Shown> {
         val (index, offset) = when (source) {
             is TransitionScene.Source.Clip -> source.index to source.offset
             is TransitionScene.Source.Held -> source.index to source.offset
@@ -528,47 +562,38 @@ private class LayerTitles(private val plan: LayerPlan, private val width: Int, p
         val clip = plan.pictures[index].content
         if (clip.texts.isNullOrEmpty()) return emptyList()
         val alone = listOf(clip)
-        // Opacity in steps, so a steady title is drawn once, as the export draws the titles of a sequence.
         return ranges.getOrPut(index) { TitleMotionRanges(alone) }.shown(alone, offset)
-            .map { it.copy(share = (it.share * share * 64).toInt() / 64.0) }.filter { it.share > 0 }
     }
 
-    /** Draws the titles of [moment]'s layers, in the order [LayerDrawing.of] places them. */
+    /** Draws the titles of [moment]'s pictures, each into the bitmap of its lane. */
     fun prepare(moment: LayerPlan.Moment) {
-        val layers = moment.layers
-        val back = layers.indexOfLast { it is LayerPlan.Layer.Mixed }
-        val wanted = ArrayList<List<TitleMotionRanges.Shown>>()
-        (layers.getOrNull(back) as? LayerPlan.Layer.Mixed)?.let { pair ->
-            wanted += of(pair.first, pair.firstShare) + if (pair.second == pair.first) emptyList() else of(pair.second, pair.secondShare)
+        val wanted = MutableList(LayerDrawing.MOST) { emptyList<TitleMotionRanges.Shown>() }
+        fun put(source: TransitionScene.Source, titles: List<TitleMotionRanges.Shown>) {
+            val lane = TransitionScene.deckOf(source)?.takeIf { it in 0 until LayerDrawing.MOST } ?: return
+            if (wanted[lane].isEmpty()) wanted[lane] = titles
         }
-        for (layer in layers.drop(back + 1)) if (layer is LayerPlan.Layer.Whole && wanted.size < LayerDrawing.MOST) wanted += of(layer.source, 1.0)
-        for (slot in 0 until LayerDrawing.MOST) {
-            val titles = wanted.getOrNull(slot).orEmpty()
-            drawn[slot] = titles.isNotEmpty()
-            if (titles.isEmpty() || titles == shown[slot]) continue
-            shown[slot] = titles
-            val bitmap = bitmaps[slot] ?: android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888).also { bitmaps[slot] = it }
-            bitmap.eraseColor(android.graphics.Color.TRANSPARENT)
-            painter.draw(android.graphics.Canvas(bitmap), width.toFloat(), height.toFloat(), titles)
-            if (textures[slot] == 0) {
-                val made = IntArray(1)
-                GLES20.glGenTextures(1, made, 0)
-                textures[slot] = made[0]
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, made[0])
-                for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
-                for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
-                android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-            } else {
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[slot])
-                android.opengl.GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
+        over = -1
+        for (layer in moment.layers) when (layer) {
+            is LayerPlan.Layer.Whole -> put(layer.source, of(layer.source))
+            is LayerPlan.Layer.Mixed -> {
+                val sides = TransitionScene.Moment(layer.first, layer.second, layer.frame, layer.firstShare, layer.secondShare).sources.distinct()
+                if (TransitionScene.titlesInSides(layer.frame)) {
+                    for (source in sides) put(source, of(source))
+                } else {
+                    // A title on both pictures once, as the original's `seen` keeps it once.
+                    fun drawing(title: app.takes.core.TextOverlay) = title.copy(start = 0.0, end = 0.0)
+                    val both = sides.flatMap(::of).distinctBy { drawing(it.title) }
+                    val lane = sides.firstNotNullOfOrNull { TransitionScene.deckOf(it)?.takeIf { lane -> lane in 0 until LayerDrawing.MOST } }
+                    if (lane != null && both.isNotEmpty()) {
+                        wanted[lane] = both
+                        over = lane
+                    }
+                }
             }
-            GlUtil.checkGlError()
         }
+        textured.prepare(wanted)
+        for (lane in 0 until LayerDrawing.MOST) drawn[lane] = textured.drawn[lane] && lane != over
     }
 
-    fun release() {
-        textures.filter { it != 0 }.forEach { GLES20.glDeleteTextures(1, intArrayOf(it), 0) }
-        textures.fill(0)
-        bitmaps.forEach { it?.recycle() }
-    }
+    fun release() = textured.release()
 }

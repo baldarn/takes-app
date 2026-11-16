@@ -255,6 +255,43 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
         }
     }
 
+    /**
+     * The titles of a moment drawn with its pictures: [first] into the outgoing side's picture and [second] into
+     * the incoming one's, each whole, before the two are combined, so that a title is wiped, keyed, slid and blurred
+     * with its clip (YouRec/VideoToolCompositor.swift:282, :409-411); [over] once over the pair, for a split screen
+     * (:298-301). Outside a transition the clip showing is the first side.
+     */
+    data class Sides(val first: List<Shown>, val second: List<Shown>, val over: List<Shown>) {
+        /**
+         * The titles each of [count] decks or lanes carries in [moment]: a side's titles on the deck that shows it,
+         * none on a deck that shows no clip, and none on either for a split screen. Only the sides the frame shows
+         * count ([TransitionScene.Moment.sources]): in a fade through a color the clip leaving and the one coming can
+         * be on the same deck, one after the other.
+         */
+        fun onDecks(moment: TransitionScene.Moment, count: Int = 2): List<List<Shown>> {
+            val decks = MutableList(count) { emptyList<Shown>() }
+            for (source in moment.sources) {
+                val deck = TransitionScene.deckOf(source)?.takeIf { it in 0 until count } ?: continue
+                if (decks[deck].isEmpty()) decks[deck] = if (source == moment.first) first else second
+            }
+            return decks
+        }
+    }
+
+    /**
+     * Where the titles of [moment], at timeline second [time], are drawn ([Sides]): every title whole, its clip's
+     * share of the frame given by the transition itself. A title on both clips of a split screen is drawn over the
+     * pair once.
+     */
+    fun sides(clips: List<TimelineClip>, moment: TransitionScene.Moment, time: Double): Sides {
+        fun of(source: TransitionScene.Source) = TransitionScene.texts(clips, source).map { Shown(it, 1.0, pose(it, time)) }
+        val first = of(moment.first)
+        val second = if (moment.second == moment.first) emptyList() else of(moment.second)
+        if (TransitionScene.titlesInSides(moment.frame)) return Sides(first, second, emptyList())
+        fun drawing(title: TextOverlay) = title.copy(start = 0.0, end = 0.0)
+        return Sides(emptyList(), emptyList(), (first + second).distinctBy { drawing(it.title) })
+    }
+
     private companion object {
         /** One tick of the editor's clock. */
         const val TICK = 1 / 240_000.0

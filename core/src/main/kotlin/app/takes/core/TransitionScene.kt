@@ -155,18 +155,39 @@ object TransitionScene {
         return place(join.outgoingID, join.outgoing) to place(join.incomingID, join.incoming)
     }
 
-    /** The titles of [moment] with their opacity, the outgoing side's first. A side that does not show gives none. */
-    fun titles(clips: List<TimelineClip>, moment: Moment): List<Pair<TextOverlay, Double>> {
-        fun of(source: Source, share: Double): List<Pair<TextOverlay, Double>> {
-            if (share <= 0) return emptyList()
-            val (index, offset) = when (source) {
-                is Source.Clip -> source.index to source.offset
-                is Source.Held -> source.index to source.offset
-                is Source.Fill -> return emptyList()
-            }
-            val clip = clips.getOrNull(index) ?: return emptyList()
-            return TimelineEditing.textsAt(clip, clip.sourceTime(offset)).map { it to share }
+    /**
+     * Whether the titles of a frame are drawn into the picture of their clip before the two sides are combined, as
+     * the original draws them for every style but a split screen (YouRec/VideoToolCompositor.swift:282, :409-411);
+     * for a split screen the clips are drawn without them and the titles of both go once over the pair (:298-301).
+     */
+    fun titlesInSides(frame: TransitionFrame): Boolean = frame !is TransitionFrame.Split
+
+    /** The deck or lane a side is shown by; null for a fill color. */
+    fun deckOf(source: Source): Int? = when (source) {
+        is Source.Clip -> source.deck
+        is Source.Held -> source.deck
+        is Source.Fill -> null
+    }
+
+    /** The titles the clip of [source] carries at the second of its footage the side shows; none for a fill. */
+    fun texts(clips: List<TimelineClip>, source: Source): List<TextOverlay> {
+        val (index, offset) = when (source) {
+            is Source.Clip -> source.index to source.offset
+            is Source.Held -> source.index to source.offset
+            is Source.Fill -> return emptyList()
         }
+        val clip = clips.getOrNull(index) ?: return emptyList()
+        return TimelineEditing.textsAt(clip, clip.sourceTime(offset))
+    }
+
+    /**
+     * The titles of [moment] with their opacity, the outgoing side's first. A side that does not show gives none.
+     * What a renderer draws without a transition shader (the preview before Android 13); with one, each side's
+     * titles go into its picture ([TitleMotionRanges.sides]).
+     */
+    fun titles(clips: List<TimelineClip>, moment: Moment): List<Pair<TextOverlay, Double>> {
+        fun of(source: Source, share: Double): List<Pair<TextOverlay, Double>> =
+            if (share <= 0) emptyList() else texts(clips, source).map { it to share }
         return of(moment.first, moment.firstShare) + if (moment.second == moment.first) emptyList() else of(moment.second, moment.secondShare)
     }
 }

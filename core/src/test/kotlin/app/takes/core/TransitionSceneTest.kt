@@ -176,6 +176,65 @@ class TransitionSceneTest {
         assertEquals(listOf(first to 0.5, second to 0.5), TimelineEditing.titlesAt(wiped.clips, 3.0))
     }
 
+    @Test fun titlesAreDrawnIntoTheirSideForEveryStyleButSplitScreen() {
+        // YouRec/VideoToolCompositor.swift:282, :409-411: each clip is rendered with its overlays before
+        // TransitionRenderer.composite, unless the style is split; :298-301: for split, the titles of both once over the pair.
+        val first = TextOverlay(id = "T", text = "One", start = 0.0, end = 4.0)
+        val second = TextOverlay(id = "U", text = "Two", start = 0.0, end = 4.0)
+        val titled = TimelineEditing.setText(TimelineEditing.setText(pair, 0, first)!!, 1, second)!!
+        val still = TitleMotion.Pose()
+        for (style in TransitionStyle.entries.filter { it != TransitionStyle.Split && it != TransitionStyle.FlashCut && it != TransitionStyle.Still }) {
+            val clips = TimelineEditing.setJoin(titled, 1, TransitionSettings(style = style, duration = 2.0))!!.clips
+            val plan = TrackRenderPlan.of(EditState(clips))
+            val moment = plan.moment(3.0)
+            assertTrue(style.title, TransitionScene.titlesInSides(moment.frame))
+            val sides = plan.titleSides(3.0)
+            // Each whole, whatever the share of its clip: the transition itself mixes, wipes, keys, slides or blurs it.
+            assertEquals(style.title, listOf(TitleMotionRanges.Shown(first, 1.0, still)), sides.first)
+            assertEquals(style.title, listOf(TitleMotionRanges.Shown(second, 1.0, still)), sides.second)
+            assertEquals(style.title, emptyList<TitleMotionRanges.Shown>(), sides.over)
+            // On the deck that shows each side the frame shows.
+            val decks = sides.onDecks(moment)
+            for (source in moment.sources) {
+                assertEquals(style.title, if (source == moment.first) sides.first else sides.second, decks[TransitionScene.deckOf(source)!!])
+            }
+        }
+        // A fade through a color between clips one after the other on one deck: the deck carries the side showing.
+        val fade = TrackRenderPlan.of(EditState(TimelineEditing.setJoin(titled, 1, TransitionSettings(style = TransitionStyle.FadeColor, duration = 2.0))!!.clips))
+        for ((time, text) in listOf(3.5 to "One", 4.5 to "Two")) {
+            val moment = fade.moment(time)
+            assertEquals(listOf(text), fade.titleSides(time).onDecks(moment)[TransitionScene.deckOf(moment.sources.single())!!].map { it.title.text })
+        }
+        // A split screen: no titles in either side, both once over the pair, a title on both clips once.
+        val split = TimelineEditing.setJoin(titled, 1, TransitionSettings(style = TransitionStyle.Split, duration = 2.0))!!.clips
+        val splitPlan = TrackRenderPlan.of(EditState(split))
+        val sides = splitPlan.titleSides(3.0)
+        assertTrue(sides.first.isEmpty() && sides.second.isEmpty())
+        assertEquals(listOf(first, second), sides.over.map { it.title })
+        assertEquals(listOf(emptyList<TitleMotionRanges.Shown>(), emptyList()), sides.onDecks(splitPlan.moment(3.0)))
+        val same = split.mapIndexed { index, clip -> if (index == 1) clip.copy(texts = listOf(first)) else clip }
+        assertEquals(listOf(first), TrackRenderPlan.of(EditState(same)).titleSides(3.0).over.map { it.title })
+        // Outside a transition the clip showing is the first side; the second has nothing to add.
+        val alone = TrackRenderPlan.of(titled).titleSides(1.0)
+        assertEquals(listOf(first), alone.first.map { it.title })
+        assertTrue(alone.second.isEmpty() && alone.over.isEmpty())
+        // An opening: the fill has no titles, the clip's go into its side.
+        val opening = TrackRenderPlan.of(EditState(TimelineEditing.setJoin(titled, 0, TransitionSettings(style = TransitionStyle.Wipe, duration = 1.0))!!.clips)).titleSides(0.5)
+        assertTrue(opening.first.isEmpty())
+        assertEquals(listOf(first), opening.second.map { it.title })
+    }
+
+    @Test fun theTitlesOfAFrozenClipGoIntoItsHeldSide() {
+        // YouRec/VideoToolCompositor.swift:282: the held clip is rendered with its overlays as any other side.
+        val title = TextOverlay(id = "T", text = "Hi", start = 3.0, end = 4.0)
+        val clips = TimelineEditing.setText(EditState(joined(TransitionSettings(style = TransitionStyle.Still, duration = 2.0, stillDissolve = 0.5))), 0, title)!!.clips
+        val plan = TrackRenderPlan.of(EditState(clips))
+        val moment = plan.moment(6.25)
+        assertTrue(moment.first is Source.Held)
+        assertEquals(listOf(title), plan.titleSides(6.25).first.map { it.title })
+        assertEquals(listOf(title), plan.titleSides(6.25).onDecks(moment)[(moment.first as Source.Held).deck].map { it.title })
+    }
+
     // MARK: Sound
 
     @Test fun soundFollowsTheOriginalsEnvelope() {

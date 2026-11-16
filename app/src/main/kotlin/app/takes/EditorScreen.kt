@@ -594,8 +594,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val titledEdit = titling?.applied(edit)
     val titled = titledEdit?.clips ?: clips
     val titlePlan = remember(titledEdit, plan) { titledEdit?.takeIf { it.isSequence }?.let { TrackRenderPlan.of(it) } ?: plan }
-    // Worked out where they are drawn, at each frame, without composing the editor again.
-    fun shownTitles() = titlePlan.titlesShown(playhead, frames)
+    // Worked out where they are drawn, at each frame, without composing the editor again. With the shader each clip's
+    // titles are on its deck and go through the transition with it; over the picture only a split screen's.
+    fun titleMoment() = titlePlan.moment(playhead, frames = frames)
+    fun shownTitles() = if (shadedPreview && layers == null) titlePlan.titleSides(titleMoment(), playhead).over else titlePlan.titlesShown(playhead, frames)
+    fun deckTitles() = titleMoment().let { titlePlan.titleSides(it, playhead).onDecks(it) }
     // An edit drawn by layers has its titles inside the layer of their picture: each lane's, as a clip by itself.
     val titleLayers = remember(titledEdit, layers) { titledEdit?.takeIf { !it.isSequence }?.let { (EditRender.of(it, EditRendering.LANES) as? EditRender.Layers)?.plan } ?: layers }
     // Worked out where the pictures are composed.
@@ -880,7 +883,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         }
                         refusal != null -> LayersRefused(refusal)
                         else -> Box {
-                            DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                            DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures, titles = deckTitles(), painter = titlePainter)
                             // Past the last picture the movie is black under its sound, as it is exported.
                             if (pastPictures) Box(Modifier.matchParentSize().background(Color.Black))
                         }

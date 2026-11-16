@@ -178,11 +178,16 @@ object TransitionShader {
     """
 
     private const val SIDE = """
-        // One side's picture at a pixel of the frame; past the frame its edge pixels go on.
+        // One side's picture at a pixel of the frame, with the titles of its deck over it before the sides are
+        // combined, as the original draws a clip with its titles (VideoToolCompositor.swift:282); past the frame its
+        // edge pixels go on.
         vec3 side(float kind, vec2 p) {
-            if (kind > 2.5) return held(kind - 3.0, clamp(p, vec2(0.5), uSize - 0.5));
-            if (kind > 1.5) return uFill;
-            return deck(kind, clamp(p, vec2(0.5), uSize - 0.5));
+            if (kind > 1.5 && kind < 2.5) return uFill;
+            vec2 at = clamp(p, vec2(0.5), uSize - 0.5);
+            float which = kind > 2.5 ? kind - 3.0 : kind;
+            vec3 c = kind > 2.5 ? held(which, at) : deck(kind, at);
+            vec4 t = title(which, at);
+            return t.rgb + (1.0 - t.a) * c;
         }
     """
 
@@ -316,6 +321,9 @@ object TransitionShader {
         uniform sampler2D uTex;
         uniform sampler2D uHeld0;
         uniform sampler2D uHeld1;
+        uniform sampler2D uTitle0;
+        uniform sampler2D uTitle1;
+        uniform vec3 uTitled;
         uniform float uHalves;
         uniform vec2 uLinear;
         varying vec2 vTex;
@@ -328,11 +336,23 @@ object TransitionShader {
             vec3 c = which > 0.5 ? texture2D(uHeld1, at).rgb : texture2D(uHeld0, at).rgb;
             return uLinear.x > 0.5 ? enc(c) : c;
         }
+        // The titles of a deck (uTitled.x and .y say whether each has any here): a bitmap, its first row at the top,
+        // its colors already multiplied by their opacity.
+        vec4 title(float which, vec2 p) {
+            if (which > 0.5) return uTitled.y > 0.5 ? texture2D(uTitle1, p / uSize) : vec4(0.0);
+            return uTitled.x > 0.5 ? texture2D(uTitle0, p / uSize) : vec4(0.0);
+        }
         $SIDE
         $TAIL
-        // With uLinear.y the pixel is written in linear light, for a reduced picture of a blur.
+        // With uLinear.y the pixel is written in linear light, for a reduced picture of a blur. With uTitled.z the
+        // first bitmap of titles goes over the finished frame instead: the titles of both clips of a split screen.
         void main() {
-            vec3 c = scene(vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y));
+            vec2 q = vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y);
+            vec3 c = scene(q);
+            if (uTitled.z > 0.5) {
+                vec4 t = texture2D(uTitle0, q / uSize);
+                c = t.rgb + (1.0 - t.a) * c;
+            }
             gl_FragColor = vec4(uLinear.y > 0.5 ? lin(c) : c, 1.0);
         }
     """
@@ -349,6 +369,8 @@ object TransitionShader {
         $UNIFORMS
         vec3 deck(float kind, vec2 p) { return content.eval(vec2(p.x, p.y + kind * uSize.y)).rgb; }
         vec3 held(float which, vec2 p) { return deck(which, p); }
+        // The preview draws a clip's titles on its deck's view.
+        vec4 title(float which, vec2 p) { return vec4(0.0); }
         $BODY
         vec4 main(vec2 xy) {
             // A spread is made of both decks, each in its half, for the frame drawn after it.
@@ -563,16 +585,25 @@ class DecksCompositor(private val canvas: Size, private val decks: Int, private 
  * [decks], one or two. [frames] is the frame rate of the movie
  * ([RenderPlan.frameRate]) and [content] where a clip's picture lies in the
  * frame.
+ *
+ * With [titled], the titles are drawn here, by [TitlePainter] as the preview
+ * draws them ([TitleTextures]): each clip's into the picture of its side before
+ * the two are combined, as the original draws them for every style but a split
+ * screen (`YouRec/VideoToolCompositor.swift:282`, `:409-411`), so a title is
+ * wiped, keyed, slid and blurred with its clip; those of both clips of a split
+ * screen once over the pair (`:298-301`). They are not drawn on the decks
+ * themselves: an effect after a deck's `Presentation` can make Media3 give one
+ * deck the frames of another (docs/EXPORT-TWO-SEQUENCES.md, section 8).
  */
 class TransitionEffect(
     private val plan: RenderPlan, private val canvas: Size, private val decks: Int,
-    private val frames: (TransitionLayout.Join) -> Double, private val content: (Int) -> Rect,
+    private val frames: (TransitionLayout.Join) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
 ) : GlEffect {
     /** The effect of [clips] by themselves, planned as an export plans them. */
-    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect) :
-        this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content)
+    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect, titled: Boolean = false) :
+        this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content, titled)
 
-    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program()
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program(context.assets)
 
     /**
      * A moment a frame of [deck] is kept for: the start of a freeze, or the end of a chain, at [at]. The frame
@@ -588,8 +619,14 @@ class TransitionEffect(
     private var spare = 0
     private var spareFramebuffer = 0
 
-    private inner class Program : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
+    private inner class Program(assets: android.content.res.AssetManager) : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
         private val size = FrameSize(canvas.width.toDouble(), canvas.height.toDouble())
+
+        // A bitmap of titles for each deck; for a split screen the first holds those over the pair.
+        private val titles = if (titled) TitleTextures(2, canvas.width, canvas.height, assets) else null
+
+        // Where the titles of this frame go, as the shader's uTitled: into deck 0's side, into deck 1's, over the frame.
+        private val titledAs = FloatArray(3)
 
         // A still shows a frame its clip showed, which the sequence does not give again: the one on screen at the
         // moment the model names (RenderPlan.Freeze, its `shown`), which the preview holds as well. That
@@ -638,21 +675,26 @@ class TransitionEffect(
         /**
          * Draws [drawing] on a picture [width] by [height] pixels, into the framebuffer in focus. The kept
          * frames are [held] (the reduced pictures, in the passes of a blur); with [linearIn] they hold linear
-         * light, and with [linearOut] the picture drawn does.
+         * light, and with [linearOut] the picture drawn does. With [withTitles] the titles of the frame are drawn
+         * where [titledAs] says; a deck kept alone and the passes on a reduced picture, which has them already, carry none.
          */
         private fun draw(
             drawing: SceneDrawing, inputTexId: Int, held: IntArray = kept, width: Int = canvas.width, height: Int = canvas.height,
-            linearIn: Boolean = false, linearOut: Boolean = false,
+            linearIn: Boolean = false, linearOut: Boolean = false, withTitles: Boolean = false,
         ) {
             GLES20.glUseProgram(program)
-            // A kept frame that does not exist yet is never read; the input stands in so the sampler has a texture.
-            for ((unit, texture) in listOf(inputTexId, held[0], held[1]).withIndex()) {
+            // A kept frame or a bitmap of titles that does not exist yet is never read; the input stands in so the sampler has a texture.
+            val titleTextures = titles?.textures ?: IntArray(2)
+            for ((unit, texture) in listOf(inputTexId, held[0], held[1], titleTextures[0], titleTextures[1]).withIndex()) {
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit)
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, if (texture != 0) texture else inputTexId)
             }
             GLES20.glUniform1i(uniform("uTex"), 0)
             GLES20.glUniform1i(uniform("uHeld0"), 1)
             GLES20.glUniform1i(uniform("uHeld1"), 2)
+            GLES20.glUniform1i(uniform("uTitle0"), 3)
+            GLES20.glUniform1i(uniform("uTitle1"), 4)
+            if (withTitles) GLES20.glUniform3fv(uniform("uTitled"), 1, titledAs, 0) else GLES20.glUniform3f(uniform("uTitled"), 0f, 0f, 0f)
             GLES20.glUniform1f(uniform("uHalves"), decks.toFloat())
             GLES20.glUniform2f(uniform("uLinear"), if (linearIn) 1f else 0f, if (linearOut) 1f else 0f)
             GLES20.glUniform2f(uniform("uSize"), width.toFloat(), height.toFloat())
@@ -675,12 +717,16 @@ class TransitionEffect(
 
         private val blur = ReducedBlur(SceneDrawing.FILL, SceneDrawing.HELD)
 
-        /** A whip pan or a defocus worked out on its reduced picture ([ReducedBlur]), which is then enlarged to the frame, filtered. */
+        /**
+         * A whip pan or a defocus worked out on its reduced picture ([ReducedBlur]), which is then enlarged to the
+         * frame, filtered. Each side is reduced with its titles, which are then smeared or blurred with it, as the
+         * original blurs a clip drawn with its titles (`YouRec/VideoToolCompositor.swift:282`, `YouRec/TransitionRenderer.swift:223-251`).
+         */
         private fun drawBlurred(drawing: SceneDrawing, inputTexId: Int) {
             val linear = blur.linear
             val blurred = blur.draw(
                 drawing, canvas.width, canvas.height,
-                reduce = { draw(it, inputTexId, linearOut = linear) },
+                reduce = { draw(it, inputTexId, linearOut = linear, withTitles = true) },
                 pass = { scene, held, width, height -> draw(scene, inputTexId, held, width, height, linear, linear) },
             )
             draw(SceneDrawing(SceneDrawing.SINGLE, SceneDrawing.HELD, SceneDrawing.HELD, FloatArray(3), FloatArray(24)), inputTexId, intArrayOf(blurred, 0), linearIn = linear)
@@ -744,11 +790,23 @@ class TransitionEffect(
                     is TransitionScene.Source.Fill -> SceneDrawing.FILL
                 }
             }, content)
-            if (drawing.blurs) drawBlurred(drawing, inputTexId) else draw(drawing, inputTexId)
+            titledAs.fill(0f)
+            titles?.let { titles ->
+                val sides = plan.titleSides(moment, time)
+                if (sides.over.isNotEmpty()) {
+                    titles.prepare(listOf(sides.over))
+                    titledAs[2] = 1f
+                } else {
+                    titles.prepare(sides.onDecks(moment))
+                    for (deck in 0..1) titledAs[deck] = if (titles.drawn[deck]) 1f else 0f
+                }
+            }
+            if (drawing.blurs) drawBlurred(drawing, inputTexId) else draw(drawing, inputTexId, withTitles = true)
         }
 
         override fun release() {
             super.release()
+            titles?.release()
             blur.release()
             if (program != 0) GLES20.glDeleteProgram(program)
         }

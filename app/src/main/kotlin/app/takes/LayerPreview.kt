@@ -70,6 +70,10 @@ internal fun LayerPictures(
     titles: List<List<TitleMotionRanges.Shown>>, painter: TitlePainter,
     moment: (FrameSize) -> LayerPlan.Moment, content: (Int, FrameSize) -> Rect,
 ) {
+    // The pictures of a split screen are drawn without their titles, and those of both go once over the pair, as the
+    // original draws them (YouRec/VideoToolCompositor.swift:282, :298-301); with the shader only.
+    val split = if (shadedPreview) splitTitles(moment(FrameSize(1920.0, 1080.0)), titles) else null
+    val pairTitles = remember { PairTitles(painter) }
     val lane: @Composable (Int, Modifier) -> Unit = { index, modifier ->
         Box(modifier.fillMaxSize().clipToBounds()) {
             val placed = Modifier.fillMaxSize().graphicsLayer {
@@ -86,7 +90,7 @@ internal fun LayerPictures(
             }
             AndroidView({ (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = lanes[index] } }, placed)
             // The titles of the picture belong to its layer: they are moved into its window with it.
-            val shown = titles.getOrNull(index).orEmpty()
+            val shown = if (split != null && index in split.lanes) emptyList() else titles.getOrNull(index).orEmpty()
             if (shown.isNotEmpty()) Canvas(Modifier.fillMaxSize()) { drawIntoCanvas { painter.draw(it.nativeCanvas, size.width, size.height, shown) } }
         }
     }
@@ -107,7 +111,8 @@ internal fun LayerPictures(
                         is TransitionScene.Source.Fill -> LayerDrawing.FILL
                     }
                 }) { content(it, frame) }
-                renderEffect = shader.effect(drawing, width, height).asComposeRenderEffect()
+                val over = split?.titles?.takeIf { it.isNotEmpty() }?.let { pairTitles.shader(it, width.toInt(), height.toInt()) }
+                renderEffect = shader.effect(drawing, width, height, over).asComposeRenderEffect()
             },
         ) {
             for (index in 0 until count) Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) { lane(index, Modifier) }
@@ -144,6 +149,41 @@ internal fun LayerPictures(
                 )
             }
         }
+    }
+}
+
+/** The [lanes] of a split screen in transition, which draw no titles, and the [titles] of both, each once, drawn over the pair. */
+private class SplitTitles(val lanes: Set<Int>, val titles: List<TitleMotionRanges.Shown>)
+
+/** The split screen of [moment] with the titles of its pictures out of [titles], those of each lane; null when its pair is not a split screen. */
+private fun splitTitles(moment: LayerPlan.Moment, titles: List<List<TitleMotionRanges.Shown>>): SplitTitles? {
+    val pair = moment.layers.lastOrNull { it is LayerPlan.Layer.Mixed } as? LayerPlan.Layer.Mixed ?: return null
+    if (TransitionScene.titlesInSides(pair.frame)) return null
+    val lanes = listOf(pair.first, pair.second).mapNotNull(TransitionScene::deckOf).distinct()
+    // A title on both pictures once, as the original's `seen` keeps it once.
+    val both = lanes.flatMap { titles.getOrNull(it).orEmpty() }.distinctBy { it.title.copy(start = 0.0, end = 0.0) }
+    return SplitTitles(lanes.toSet(), both)
+}
+
+/** The titles over a split screen as a picture of the frame's size, for the layer shader; drawn again only when they change. */
+private class PairTitles(private val painter: TitlePainter) {
+    private var bitmap: android.graphics.Bitmap? = null
+    private var shown: List<TitleMotionRanges.Shown> = emptyList()
+    private var shader: android.graphics.BitmapShader? = null
+
+    fun shader(titles: List<TitleMotionRanges.Shown>, width: Int, height: Int): android.graphics.Shader {
+        val kept = bitmap?.takeIf { it.width == width && it.height == height }
+        val picture = kept ?: android.graphics.Bitmap.createBitmap(maxOf(1, width), maxOf(1, height), android.graphics.Bitmap.Config.ARGB_8888).also {
+            bitmap = it
+            shader = null
+        }
+        if (kept == null || titles != shown) {
+            picture.eraseColor(android.graphics.Color.TRANSPARENT)
+            painter.draw(android.graphics.Canvas(picture), width.toFloat(), height.toFloat(), titles)
+            shown = titles
+            shader = null
+        }
+        return shader ?: android.graphics.BitmapShader(picture, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP).also { shader = it }
     }
 }
 

@@ -7,6 +7,7 @@ import android.os.Build
 import android.view.LayoutInflater
 import android.view.TextureView
 import androidx.annotation.OptIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -31,6 +32,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -46,6 +49,7 @@ import app.takes.core.PictureFrame
 import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
 import app.takes.core.SplitViews
+import app.takes.core.TitleMotionRanges
 import app.takes.core.TransitionFrame
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionStyle
@@ -131,6 +135,7 @@ internal class HeldPictures {
 internal fun DeckPictures(
     decks: List<Player>, effects: List<RenderEffect?>, frames: List<((FrameSize) -> PictureFrame)?>,
     moment: (FrameSize) -> TransitionScene.Moment, content: (Int, FrameSize) -> Rect, held: HeldPictures,
+    titles: List<List<TitleMotionRanges.Shown>> = emptyList(), painter: TitlePainter? = null,
 ) {
     val deck: @Composable (Int, Modifier) -> Unit = { index, modifier ->
         val placed = modifier.fillMaxSize().graphicsLayer {
@@ -173,7 +178,12 @@ internal fun DeckPictures(
                 renderEffect = shader.effect(drawing, width, height).asComposeRenderEffect()
             },
         ) {
-            for (index in 0..1) Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) { deck(index, Modifier) }
+            for (index in 0..1) Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                deck(index, Modifier)
+                // The titles of the clip on the deck, on its view, so the transition draws them with its picture.
+                val shown = titles.getOrNull(index).orEmpty()
+                if (shown.isNotEmpty() && painter != null) Canvas(Modifier.fillMaxSize()) { drawIntoCanvas { painter.draw(it.nativeCanvas, size.width, size.height, shown) } }
+            }
         }
     } else BoxWithConstraints(Modifier.fillMaxSize()) {
         val canvas = FrameSize(constraints.maxWidth.toDouble(), constraints.maxHeight.toDouble())

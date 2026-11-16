@@ -179,11 +179,8 @@ class ExportMovie(
                 )
             }.build()
         }
-        // Titles and subtitles are drawn once, over the finished picture; subtitles on top.
-        val written = listOfNotNull(
-            if (plan.titled) TitleOverlay(plan, canvas.first, canvas.second, context.assets, perSecond) else null,
-            plan.subtitles?.let { SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets) },
-        )
+        // Titles are drawn by the transition effect, with the picture of their clip; subtitles once, over the finished picture.
+        val written = listOfNotNull(plan.subtitles?.let { SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets) })
         // Where each clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
         val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }
         val drawn = buildList<Effect> {
@@ -191,7 +188,7 @@ class ExportMovie(
             // them: Media3 counts them in a frame length it keeps with seven digits, and they fall behind the grid
             // by a microsecond every thousand frames.
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
-            add(TransitionEffect(plan, picture, decks, perSecond, content))
+            add(TransitionEffect(plan, picture, decks, perSecond, content, titled = plan.titled))
             if (written.isNotEmpty()) add(OverlayEffect(written))
             add(SectionFramesEffect(drawing.first, drawing.count, rate))
         }

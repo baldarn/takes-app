@@ -8,17 +8,16 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.opengl.GLES20
+import android.opengl.GLUtils
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.annotation.OptIn
+import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.effect.BitmapOverlay
-import app.takes.core.RenderPlan
 import app.takes.core.TextOverlay
 import app.takes.core.TitleMotionRanges
-import app.takes.core.TransitionLayout
-import app.takes.core.TransitionScene
 
 /** Draws a title the same way in the editor preview and in the exported movie. */
 object TitleRenderer {
@@ -51,61 +50,58 @@ object TitleRenderer {
     }
 }
 
-/**
- * Export overlay for the whole movie: a frame-sized bitmap holding the titles
- * its [plan] shows at each moment ([RenderPlan.titlesShown]). It is applied once, over the finished picture, each
- * title as opaque as its clip is showing, so a title dissolves and fades with
- * the clip it belongs to. The drawing is
- * [TitlePainter]'s, the same as the preview's.
- */
-class TitleOverlay(
-    private val plan: RenderPlan, private val width: Int, private val height: Int, assets: AssetManager,
-    private val frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND },
-    /** Seconds the frames' times are ahead of the plan's: where a clip drawn by itself begins in its sequence. */
-    private val shift: Double = 0.0,
-) : BitmapOverlay() {
-    private val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-    private val painter = TitlePainter(assets)
-    private var frame: Bitmap? = null
-    private var shown: List<TitleMotionRanges.Shown> = emptyList()
-    private var bitmap = empty
 
-    override fun getBitmap(presentationTimeUs: Long): Bitmap {
-        val time = presentationTimeUs / 1e6 - shift
-        // Opacity in steps, so a steady title is drawn once. A title on its way in or out is drawn for every frame.
-        val visible = plan.titlesShown(time, frames).map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
-        if (visible != shown) {
-            shown = visible
-            bitmap = if (visible.isEmpty()) empty else (frame ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { frame = it }).let {
-                it.eraseColor(Color.TRANSPARENT)
-                painter.draw(Canvas(it), width.toFloat(), height.toFloat(), visible)
-                // Titles without a design are handed over as they always were, so their movies do not change.
-                if (visible.any { shown -> shown.title.styled }) straightened(it) else it
+/**
+ * Titles of an export's frame given to a shader as textures, one a slot: a frame-sized bitmap drawn by
+ * [TitlePainter], as the preview draws them, with its first row at the top and its colors multiplied by their
+ * opacity, as Android keeps them. [TransitionEffect] has a slot a deck, [LayersEffect] one a lane: the shader lays a
+ * slot's titles over the picture of its deck or lane before the transition combines the two sides, so that a title is
+ * wiped, keyed, slid and blurred with its clip, as the original draws it (YouRec/VideoToolCompositor.swift:282,
+ * :409-411). A slot is drawn again only when what it shows changes.
+ *
+ * It is made and used on the export's graphics context.
+ */
+internal class TitleTextures(private val slots: Int, private val width: Int, private val height: Int, assets: AssetManager) {
+    private val painter = TitlePainter(assets)
+    private val bitmaps = arrayOfNulls<Bitmap>(slots)
+    private val shown = Array(slots) { emptyList<TitleMotionRanges.Shown>() }
+
+    /** The texture of each slot's titles, 0 before it is first drawn. */
+    val textures = IntArray(slots)
+
+    /** Whether each slot has titles in this frame. */
+    val drawn = BooleanArray(slots)
+
+    /** Draws [wanted], the titles of each slot in this frame (none for a slot past its end). */
+    fun prepare(wanted: List<List<TitleMotionRanges.Shown>>) {
+        for (slot in 0 until slots) {
+            // Opacity in steps, so a steady title is drawn once. A title on its way in or out is drawn for every frame.
+            val titles = wanted.getOrNull(slot).orEmpty().map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
+            drawn[slot] = titles.isNotEmpty()
+            if (titles.isEmpty() || titles == shown[slot]) continue
+            shown[slot] = titles
+            val bitmap = bitmaps[slot] ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmaps[slot] = it }
+            bitmap.eraseColor(Color.TRANSPARENT)
+            painter.draw(Canvas(bitmap), width.toFloat(), height.toFloat(), titles)
+            if (textures[slot] == 0) {
+                val made = IntArray(1)
+                GLES20.glGenTextures(1, made, 0)
+                textures[slot] = made[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, made[0])
+                for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
+                for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+            } else {
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[slot])
+                GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
             }
+            GlUtil.checkGlError()
         }
-        return bitmap
     }
 
-    private var straight: Bitmap? = null
-    private var pixels: IntArray? = null
-
-    /**
-     * Android keeps a bitmap's colors already multiplied by their opacity;
-     * Media3 multiplies an overlay's colors by its opacity again when it lays
-     * it over the picture. Soft shadows, see-through plates and a title that
-     * is fading would all come out darker than in the preview, so they are
-     * handed over with their colors not multiplied.
-     */
-    private fun straightened(drawn: Bitmap): Bitmap {
-        // A band of rows at a time: a whole 4K frame of numbers would be a large thing to keep.
-        val band = minOf(height, 64)
-        val buffer = pixels ?: IntArray(width * band).also { pixels = it }
-        val result = straight ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { it.isPremultiplied = false; straight = it }
-        for (top in 0 until height step band) {
-            val rows = minOf(band, height - top)
-            drawn.getPixels(buffer, 0, width, 0, top, width, rows) // read as plain colors
-            result.setPixels(buffer, 0, width, 0, top, width, rows) // and stored as they are
-        }
-        return result
+    fun release() {
+        textures.filter { it != 0 }.forEach { GLES20.glDeleteTextures(1, intArrayOf(it), 0) }
+        textures.fill(0)
+        bitmaps.forEach { it?.recycle() }
     }
 }
