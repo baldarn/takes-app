@@ -52,9 +52,9 @@ import kotlin.math.roundToLong
  */
 class EffectStage(
     private val bench: Bench, effects: List<VideoEffectSettings>, private val width: Int, private val height: Int,
-    assets: EffectAssets = EffectAssets.NONE, nightFix: Boolean = false,
+    assets: EffectAssets = EffectAssets.NONE, nightFix: Boolean = false, mirror: app.takes.core.MirrorSettings? = null,
 ) {
-    private val clip = TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 10.0, videoEffects = effects)
+    private val clip = TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 10.0, videoEffects = effects, mirror = mirror)
     private val program: GlShaderProgram = (if (nightFix) NightFixEffect(clip, 0.0) else VideoEffectChain(clip, 0.0, RATE, assets)).toGlShaderProgram(bench.context, /* useHdr = */ false)
     private var output: GlTextureInfo? = null
     private var failure: VideoFrameProcessingException? = null

@@ -32,8 +32,11 @@ import java.util.concurrent.Executors
  * subject, and the person in the frame. Asked for on the thread that draws.
  */
 interface EffectAssets {
-    /** The person mask of the frame at source second [sourceTime]; null when there is none yet, or none can be made. */
-    fun person(sourceTime: Double): PersonFrame? = null
+    /**
+     * The person mask of the frame at source second [sourceTime], or with [smoothed] the motion-gated EMA of it that
+     * Auto Background reads (the original's `autoMask` stream); null when there is none yet, or none can be made.
+     */
+    fun person(sourceTime: Double, smoothed: Boolean = false): PersonFrame? = null
 
     /** The palette analysed from the footage for [effect] at source second [sourceTime], before its own choices; null when there is none. */
     fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? = null
@@ -81,7 +84,7 @@ class SourceAssets(
         if (!PersonMasks.available()) null else PersonFrames(app, recording, file)
     }
 
-    override fun person(sourceTime: Double): PersonFrame? = people?.frame(sourceTime, wait, ready)
+    override fun person(sourceTime: Double, smoothed: Boolean): PersonFrame? = people?.frame(sourceTime, smoothed, wait, ready)
 
     override fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? {
         val file = source ?: return null
@@ -106,13 +109,13 @@ internal class PersonFrames(private val context: Context, private val media: Sou
     private val rotation = PersonMasks.rotation(file)
     private val upright = displaySize(file)?.let { GeometrySize(it.first.toDouble(), it.second.toDouble()) }
 
-    fun frame(sourceTime: Double, wait: Boolean, ready: () -> Unit): PersonFrame? {
+    fun frame(sourceTime: Double, smoothed: Boolean, wait: Boolean, ready: () -> Unit): PersonFrame? {
         val size = upright ?: return null
-        val mask = synchronized(reader) { reader.mask(sourceTime) } ?: run {
+        val mask = synchronized(reader) { reader.mask(sourceTime, smoothed) } ?: run {
             val chunk = PersonMaskChunks.chunk(sourceTime)
             if (wait) {
                 analyse(chunk)
-                synchronized(reader) { reader.mask(sourceTime) }
+                synchronized(reader) { reader.mask(sourceTime, smoothed) }
             } else {
                 if (asked.add("${reader.directory.path}#$chunk")) {
                     background.execute {

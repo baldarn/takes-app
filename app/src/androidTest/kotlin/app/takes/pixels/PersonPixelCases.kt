@@ -1,0 +1,298 @@
+package app.takes.pixels
+
+import app.takes.EffectAssets
+import app.takes.EffectShader
+import app.takes.PersonFrame
+import app.takes.core.AutoBackgroundFormulas
+import app.takes.core.EffectColorMath
+import app.takes.core.EffectFrameInputs
+import app.takes.core.EffectImage
+import app.takes.core.EffectMask
+import app.takes.core.EffectPalette
+import app.takes.core.EffectPaletteAnalysis
+import app.takes.core.EffectUniforms
+import app.takes.core.EffectValue
+import app.takes.core.EffectVector
+import app.takes.core.MirrorSettings
+import app.takes.core.PersonMaskChunks
+import app.takes.core.Point
+import app.takes.core.Size
+import app.takes.core.VideoEffectFormulas
+import app.takes.core.VideoEffectFormulasC
+import app.takes.core.VideoEffectID
+import app.takes.core.VideoEffectQuantization
+import app.takes.core.VideoEffectSettings
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
+import kotlin.math.sqrt
+
+/**
+ * The pixel tests of the effects that read the person in the frame: Color Isolation's subject, Quantization's face
+ * detail, Chroma Key's person hint and Auto Background, drawn by the export's [app.takes.VideoEffectChain] with a person
+ * mask from the assets, against the core's reference formulas given the same mask on the frame.
+ *
+ * The mask is a synthetic one as [PersonMaskChunks] stores it, 256 × 256 in eight bits: a soft-edged ellipse off the
+ * centre. The reference lays it on the frame by a bilinear read at each pixel's centre, worked out here from the
+ * rotation and the mirror rather than by [app.takes.core.PersonMaskPlacement], so that the placement is checked too.
+ */
+class PersonPixelCases(private val bench: Bench, private val width: Int = 480, private val height: Int = 270) {
+    /** The person, upright on the frame, 0…1 from the top left: an ellipse off the centre, its edge ramped over a fifth of its radius. */
+    private fun person(u: Double, v: Double): Double = ((1.1 - ellipse(u, v, .42, .52, .2, .38)) / .2).coerceIn(0.0, 1.0)
+
+    private fun ellipse(u: Double, v: Double, cu: Double, cv: Double, ru: Double, rv: Double): Double {
+        val du = (u - cu) / ru
+        val dv = (v - cv) / rv
+        return sqrt(du * du + dv * dv)
+    }
+
+    /** The mask as stored for a recording turned clockwise by [rotation] (0 or 90) to stand upright: in the decoded frame's coordinates. */
+    private fun stored(rotation: Int): PersonMaskChunks.Mask {
+        val n = 256
+        val rows = ByteArray(n * n) { i ->
+            val sx = (i % n + .5) / n
+            val sy = (i / n + .5) / n
+            // A stored point turned a quarter clockwise: its top left goes to the top right.
+            val value = if (rotation == 90) person(1 - sy, sx) else person(sx, sy)
+            (value * 255).roundToInt().toByte()
+        }
+        return PersonMaskChunks.Mask(1.0, n, n, rows)
+    }
+
+    /**
+     * The stored mask laid on a picture of the whole frame of [w] × [h] as the reference reads it: each pixel's centre
+     * taken back through the mirror and the turn, read between the mask's pixels.
+     */
+    private fun placed(mask: PersonMaskChunks.Mask, rotation: Int, mirrored: Boolean, w: Int = width, h: Int = height): EffectMask {
+        val stored = EffectMask.of(mask.width, mask.height) { x, y -> mask.alpha(x, y).toDouble() }
+        return EffectMask.of(w, h) { x, y ->
+            val u = ((x + .5) / w).let { if (mirrored) 1 - it else it }
+            val v = (y + .5) / h
+            stored.sample(if (rotation == 90) Point(v, 1 - u) else Point(u, v))
+        }
+    }
+
+    private val skin = rgb(214, 158, 124)
+
+    /**
+     * A person before a background: the background a ramp crossed by bars every 48 pixels; the person an ellipse a
+     * little inside the mask's half contour, skin with stripes of a red and a blue shirt every 18 pixels.
+     */
+    private val portrait = Picture(width, height) { x, y ->
+        val u = (x + .5) / width
+        val v = (y + .5) / height
+        if (ellipse(u, v, .425, .52, .195, .37) < 1) {
+            when ((y / 18) % 4) {
+                1 -> rgb(196, 40, 52)
+                3 -> rgb(40, 70, 170)
+                else -> skin
+            }
+        } else {
+            val bar = (x / 8) % 6 == 0
+            if (bar) rgb(235, 225, 90) else rgb((60 + 120 * u).roundToInt(), (90 + 70 * v).roundToInt(), (150 - 60 * u).roundToInt())
+        }
+    }
+
+    /**
+     * The same person before a green screen, a little darker at the bottom, with a grey card beside them that the key
+     * keeps and the grown person does not reach, and a stripe of a green shirt the key half takes away.
+     */
+    private val screened = Picture(width, height) { x, y ->
+        val u = (x + .5) / width
+        val v = (y + .5) / height
+        val shade = 1 - .25 * v
+        when {
+            ellipse(u, v, .425, .52, .195, .37) < 1 -> when ((y / 18) % 4) {
+                1 -> rgb(196, 40, 52)
+                3 -> rgb(80, 150, 90)
+                else -> skin
+            }
+            u in .75..0.9 && v in .15..0.35 -> rgb(128, 128, 128)
+            else -> rgb((40 * shade).roundToInt(), (200 * shade).roundToInt(), (60 * shade).roundToInt())
+        }
+    }
+
+    private fun linear(picture: Picture): EffectImage = EffectImage.of(width, height) { x, y ->
+        EffectVector(EffectColorMath.linear(picture.channel(x, y, 0) / 255.0), EffectColorMath.linear(picture.channel(x, y, 1) / 255.0), EffectColorMath.linear(picture.channel(x, y, 2) / 255.0))
+    }
+
+    /** What the chain reads: the person mask of the frame, and a Quantization's palette analysed from [source] as [EffectPixelCases] does. */
+    private class Assets(private val frame: PersonFrame?, private val source: () -> EffectImage) : EffectAssets {
+        override fun person(sourceTime: Double, smoothed: Boolean): PersonFrame? = frame
+        override fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette =
+            EffectPaletteAnalysis.analyze(EffectPaletteAnalysis.samples(source()), effect.number("colors", sourceTime).toInt(), seed = 7uL)
+    }
+
+    /** The person mask of a frame as the references take it: laid on the frame. Chroma Key's hint grows and shrinks it from there to a quarter of the frame ([VideoEffectFormulasC.personHint]). */
+    private class Person(val frame: EffectMask)
+
+    /** One pass by the core, the frame given the person mask [person] (or none). */
+    private fun reference(u: EffectUniforms, image: EffectImage, person: Person?): EffectImage = when (u.effect) {
+        VideoEffectID.ColorIsolation -> if (person == null) image else EffectImage.of(VideoEffectFormulas.pass(u, image.toPicture(), person = person.frame))
+        VideoEffectID.Quantization -> VideoEffectQuantization.pass(u, image, person = person?.frame)
+        VideoEffectID.ChromaKey -> VideoEffectFormulasC.chromaKeyPass(u, image, AutoBackgroundFormulas.background(u, image), person = person?.frame)
+        // Without a person mask the pass leaves the picture as it is.
+        VideoEffectID.AutoBackground -> if (person == null) image else AutoBackgroundFormulas.pass(u, image, person.frame, AutoBackgroundFormulas.background(u, image))
+        else -> error("No reference here for ${u.effect}")
+    }
+
+    /** What the core's formulas make of [source] under [effects] at second [time] with the frame's [person] mask, to eight bits. */
+    private fun expected(effects: List<VideoEffectSettings>, time: Double, source: Picture, assets: EffectAssets, person: Person?): Picture {
+        var image = linear(source)
+        val inputs = EffectAssets.inputs(assets, effects, time).toMutableMap()
+        for (effect in effects) inputs[effect.id] = (inputs[effect.id] ?: EffectFrameInputs()).copy(personMask = person != null)
+        for (pass in EffectShader.passes(effects, time, EffectStage.RATE, inputs)) image = reference(pass, image, person)
+        return Picture(width, height) { x, y ->
+            val c = image[x, y]
+            fun level(v: Double) = (EffectColorMath.encoded(v).coerceIn(0.0, 1.0) * 255).roundToInt()
+            rgb(level(c.x), level(c.y), level(c.z))
+        }
+    }
+
+    private fun person(mask: PersonMaskChunks.Mask, rotation: Int, mirrored: Boolean) =
+        Person(placed(mask, rotation, mirrored))
+
+    /**
+     * The pixels of the frame where Chroma Key's person hint is at one of its thresholds (Metal:474-479): its grown
+     * mask within [HINT_BAND] of 0.005, or its shrunk mask within it of 0.995, under the pixel or a neighbour (the
+     * matte's softness spreads a pixel a little). There single precision, GL's filtering and a half-float picture
+     * may fall on the other side of the threshold than double precision does, and the matte jumps by up to the key's
+     * whole alpha.
+     */
+    private fun atHintThreshold(person: EffectMask): BooleanArray {
+        val hint = VideoEffectFormulasC.personHint(person, width, height)
+        val near = BooleanArray(width * height) { i ->
+            val uv = Point((i % width + .5) / width, (i / width + .5) / height)
+            kotlin.math.abs(hint.dilated.sample(uv) - .005) < HINT_BAND || kotlin.math.abs(hint.eroded.sample(uv) - .995) < HINT_BAND
+        }
+        return BooleanArray(width * height) { i ->
+            val x = i % width
+            val y = i / width
+            (-1..1).any { dy -> (-1..1).any { dx -> near[(y + dy).coerceIn(0, height - 1) * width + (x + dx).coerceIn(0, width - 1)] } }
+        }
+    }
+
+    private fun distance(a: Int, b: Int): Int = (0..2).maxOf { kotlin.math.abs(((a shr (16 - 8 * it)) and 0xff) - ((b shr (16 - 8 * it)) and 0xff)) }
+
+    /**
+     * [effects] drawn at second [time] on [source] with the person mask stored for a recording turned by [rotation]
+     * and framed with a horizontal mirror when [mirrored], against the core given the same mask on the frame. At most
+     * [OUTLIERS] pixels may be more than [allowed] levels away, by up to [OUTLIER_LEVELS]; with Chroma Key's hint, the
+     * pixels at its thresholds besides, up to [HINT_FLIPS] of the picture. The reference without the person (or with
+     * it laid upright and unmirrored, when the case turns or mirrors it) must differ from it on [sensitive] of the
+     * picture at least, so that the case tests what it says.
+     */
+    private fun case(
+        name: String, effects: List<VideoEffectSettings>, allowed: Int, source: Picture = portrait, rotation: Int = 0, mirrored: Boolean = false,
+        time: Double = 1.0, sensitive: Double = .01,
+    ) = Case(name) {
+        val mask = stored(rotation)
+        val linear by lazy { linear(source) }
+        val assets = Assets(PersonFrame(mask, rotation, Size(width.toDouble(), height.toDouble())), { linear })
+        val stage = EffectStage(bench, effects, width, height, assets, mirror = if (mirrored) MirrorSettings(horizontal = true) else null)
+        try {
+            val drawn = stage.frame(source, (time * 1e6).roundToLong())
+            val person = person(mask, rotation, mirrored)
+            val want = expected(effects, time, source, assets, person)
+            val turned = rotation != 0 || mirrored
+            val control = expected(effects, time, source, assets, if (turned) person(stored(0), 0, false) else null)
+            val changed = BooleanArray(want.pixels.size) { distance(want.pixels[it], control.pixels[it]) > allowed }
+            val reach = changed.count { it }
+            note("the person changes ${"%.1f".format(100.0 * reach / want.pixels.size)} % of the picture by more than $allowed levels" +
+                if (turned) " against the mask laid upright and unmirrored" else "")
+            check(reach >= sensitive * want.pixels.size) { "The person changes too little of the picture: the case tests nothing" }
+            val keyed = effects.any { it.kind == VideoEffectID.ChromaKey }
+            val threshold = if (keyed) atHintThreshold(person.frame) else BooleanArray(want.pixels.size)
+            var worst = 0
+            var worstAt = 0
+            var over = 0
+            var flips = 0
+            var flipWorst = 0
+            val histogram = IntArray(5)
+            for (i in want.pixels.indices) {
+                val d = distance(drawn.pixels[i], want.pixels[i])
+                histogram[when { d <= 1 -> 0; d <= 2 -> 1; d <= 4 -> 2; d <= 8 -> 3; else -> 4 }]++
+                if (d > allowed && threshold[i]) {
+                    flips++
+                    flipWorst = maxOf(flipWorst, d)
+                    continue
+                }
+                if (d > worst) { worst = d; worstAt = i }
+                if (d > allowed) over++
+            }
+            note("${want.pixels.size} pixels, worst $worst levels at (${worstAt % width}, ${worstAt / width}): drawn #%06x, formula #%06x, from #%06x, mask %.3f; %d over %d"
+                .format(drawn.pixels[worstAt], want.pixels[worstAt], source.pixels[worstAt], person.frame.data[worstAt], over, allowed))
+            note("levels off: ≤1 ${histogram[0]}, 2 ${histogram[1]}, 3–4 ${histogram[2]}, 5–8 ${histogram[3]}, >8 ${histogram[4]}")
+            if (keyed) {
+                note("at the hint's thresholds, ${threshold.count { it }} pixels: $flips over $allowed, by up to $flipWorst")
+                check(flips <= HINT_FLIPS * want.pixels.size) { "$flips pixels at the hint's thresholds more than $allowed levels from the core's formula" }
+            }
+            if (effects.any { it.kind == VideoEffectID.Quantization }) {
+                // As EffectPixelCases: a pixel on a boundary between two bins goes to the other side in single precision,
+                // a whole palette step away; up to 1 % of the picture, each a colour the formula gives elsewhere.
+                val palette = want.pixels.toSet()
+                val stray = want.pixels.indices.count { i -> distance(drawn.pixels[i], want.pixels[i]) > allowed && palette.none { distance(it, drawn.pixels[i]) <= allowed } }
+                // Face detail changes few pixels, fewer than that 1 %: those it changes are held on their own.
+                val missed = want.pixels.indices.count { changed[it] && distance(drawn.pixels[it], want.pixels[it]) > allowed }
+                note("quantizer: $over pixels on another side of a boundary, $stray of them no colour of the formula's; of the $reach the face detail changes, $missed")
+                check(over <= want.pixels.size / 100 && stray == 0) { "$over pixels more than $allowed levels from the core's formula, $stray of them no colour it gives" }
+                check(missed <= reach / 20) { "$missed of the $reach pixels the face detail changes are more than $allowed levels from the core's formula" }
+                return@Case
+            }
+            check(over <= OUTLIERS && worst <= maxOf(allowed, OUTLIER_LEVELS)) {
+                "$over pixels more than $allowed levels from the core's formula (at most $OUTLIERS may be, by up to $OUTLIER_LEVELS), the worst $worst"
+            }
+        } finally {
+            stage.release()
+        }
+    }
+
+    private fun settings(kind: VideoEffectID, values: Map<String, Any>): VideoEffectSettings {
+        var effect = VideoEffectSettings(kind)
+        // Color Isolation and Chroma Key are made with the spatial matte on Android for now, as EffectPixelCases makes them.
+        if (kind == VideoEffectID.ColorIsolation || kind == VideoEffectID.ChromaKey) effect = effect.copy(algorithm = 1)
+        for ((id, value) in values) effect = effect.with(id, when (value) {
+            is Boolean -> EffectValue.Toggle(value)
+            is String -> EffectValue.Choice(value)
+            is app.takes.core.EffectRGB -> EffectValue.Color(value)
+            else -> EffectValue.Number((value as Number).toDouble())
+        })
+        return effect
+    }
+
+    private fun auto(values: Map<String, Any>) = listOf(settings(VideoEffectID.AutoBackground, values))
+
+    fun all(): List<Case> = listOf(
+        case("Person: Color Isolation, the subject", listOf(settings(VideoEffectID.ColorIsolation, mapOf("mode" to "The subject"))), ALLOWED),
+        case("Person: Color Isolation, the subject, softness 1", listOf(settings(VideoEffectID.ColorIsolation, mapOf("mode" to "The subject", "softness" to 1.0))), ALLOWED),
+        case("Person: Quantization, four colours of Pop 1, face detail", listOf(settings(VideoEffectID.Quantization, mapOf("colors" to 4.0, "palette" to "Pop 1", "smoothing" to 0.0))), ALLOWED,
+            sensitive = .001),
+        case("Person: Chroma Key with the person hint", listOf(settings(VideoEffectID.ChromaKey, mapOf("personHint" to true))), ALLOWED, source = screened),
+        // The screen set by hand, as EffectPixelCases' matte: the screen found on the border leaves a little alpha on the
+        // darker screen below, which the matte shows sRGB-encoded, where a thousandth of alpha is a level or more.
+        case("Person: Chroma Key with the person hint, the matte", listOf(settings(VideoEffectID.ChromaKey, mapOf(
+            "personHint" to true, "view" to "Matte", "softness" to 0.0, "autoScreen" to false, "screenColor" to app.takes.core.EffectRGB.hex("#28C83C"),
+        ))), ALLOWED, source = screened),
+        case("Person: Auto Background, solid", auto(mapOf("background" to "Solid")), ALLOWED),
+        case("Person: Auto Background, blur original 12", auto(emptyMap()), ALLOWED),
+        case("Person: Auto Background, blur original 0", auto(mapOf("portraitBlur" to 0.0)), ALLOWED),
+        case("Person: Auto Background, Studio, blurred, brighter", auto(mapOf("background" to "Studio", "backgroundBlur" to 4.0, "backgroundBrightness" to 0.3)), ALLOWED),
+        case("Person: Auto Background, Window, grown, soft", auto(mapOf("background" to "Window", "grow" to 3.0, "softness" to 0.8, "wrap" to 1.0)), ALLOWED),
+        case("Person: Auto Background, the matte", auto(mapOf("view" to "Matte")), ALLOWED),
+        case("Person: Auto Background, the matte, turned 90° and mirrored", auto(mapOf("view" to "Matte")), ALLOWED, rotation = 90, mirrored = true),
+    )
+
+    private companion object {
+        /** Eight bits in, a single-precision shader, eight bits out: a level of rounding each way. */
+        const val ALLOWED = 2
+
+        /** As EffectPixelCases: a few pixels on a hard edge may come out further, by up to [OUTLIER_LEVELS]. */
+        const val OUTLIERS = 64
+        const val OUTLIER_LEVELS = 8
+
+        /** How near a threshold of the hint a value is taken to be at it: a few steps of a half float at 0.995 (2⁻¹¹). */
+        const val HINT_BAND = .002
+
+        /** The part of the picture that may be off at the hint's thresholds. */
+        const val HINT_FLIPS = .002
+    }
+}

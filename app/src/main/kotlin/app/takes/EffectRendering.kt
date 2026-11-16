@@ -957,8 +957,7 @@ class VideoEffectChain(
             val sourceTime = shown.sourceTime
             frameOffset = offset
             frameSourceTime = sourceTime
-            personFrame = null
-            personLooked = false
+            personFrames.clear()
             placed.clear()
             val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime), shown.holdTime)
             if (passes.isEmpty()) {
@@ -1064,9 +1063,9 @@ class VideoEffectChain(
             if (pass.number("personHint") > .5) {
                 val w = maxOf(2, width / 4)
                 val h = maxOf(2, height / 4)
-                person(w, h)?.let { person ->
-                    val dilated = gpu.morph(EffectSource(person), "hint.dilated", h * .04)
-                    val eroded = gpu.morph(EffectSource(person), "hint.eroded", -h * .03)
+                person(width, height)?.let { person ->
+                    val dilated = gpu.morph(EffectSource(person), "hint.dilated", h * .04, w, h)
+                    val eroded = gpu.morph(EffectSource(person), "hint.eroded", -h * .03, w, h)
                     matte = gpu.hint(EffectSource(matte), EffectSource(dilated), EffectSource(eroded), "matte.hinted")
                 }
             }
@@ -1126,7 +1125,9 @@ class VideoEffectChain(
         private fun autoBackground(pass: EffectUniforms, source: EffectSource): Auxiliary {
             val width = source.width
             val height = source.height
-            val person = person(width, height) ?: return Auxiliary(extras = FloatArray(8))
+            // The smoothed stream for a recipe of algorithm 1, the raw masks for an older one (VideoEffectModel.swift:191-202).
+            val stream = clip.videoEffects.orEmpty().firstOrNull { it.id == pass.id }?.usesAutoMaskStream == true
+            val person = person(width, height, stream) ?: return Auxiliary(extras = FloatArray(8))
             val mask = gpu.refined(EffectSource(person), source, "auto", pass.number("softness"), pass.number("grow"), person = true)
             val estimate = gpu.backgroundEstimate(source, EffectSource(mask), "estimate")
             val gain = 2.0.pow(pass.number("backgroundBrightness"))
@@ -1148,22 +1149,24 @@ class VideoEffectChain(
         // The person in the frame being drawn: its mask, asked for once a frame, uploaded once, laid on the frame at each size asked.
         private var frameOffset = 0.0
         private var frameSourceTime = 0.0
-        private var personFrame: PersonFrame? = null
-        private var personLooked = false
+        private val personFrames = HashMap<Boolean, PersonFrame?>()
         private var personTexture = 0
         private var personUploaded: app.takes.core.PersonMaskChunks.Mask? = null
-        private val placed = HashMap<Pair<Int, Int>, EffectTarget>()
+        private val placed = HashMap<Triple<Int, Int, Boolean>, EffectTarget>()
 
-        /** The person mask of the frame laid on a picture of [width] × [height], as the picture is framed; null without one. */
-        private fun person(width: Int, height: Int): EffectTarget? {
-            if (!personLooked) {
-                personLooked = true
-                personFrame = assets.person(frameSourceTime)
-            }
-            val frame = personFrame ?: return null
-            return placed.getOrPut(width to height) {
-                val toMask = app.takes.core.PersonMaskPlacement.toMask(clip, frameOffset, frame.upright, EffectSize(width.toDouble(), height.toDouble()), frame.rotation)
-                gpu.placeMask(personSource(frame.mask), "person.${width}x$height", width, height, toMask)
+        /**
+         * The person mask of the frame laid on a picture of [width] × [height], as the picture is framed; with
+         * [smoothed] Auto Background's smoothed stream (VideoEffectAssets.swift:402-433). Null without one.
+         */
+        private fun person(width: Int, height: Int, smoothed: Boolean = false): EffectTarget? {
+            val frame = personFrames.getOrPut(smoothed) { assets.person(frameSourceTime, smoothed) } ?: return null
+            return placed.getOrPut(Triple(width, height, smoothed)) {
+                // Laid on the whole frame, then the frame brought to [width] × [height]: a smaller picture of the frame (a
+                // quarter of 270 is 67) need not keep its shape, and framed there itself the mask would be fitted inside it.
+                val frameSize = EffectSize(size.width.toDouble(), size.height.toDouble())
+                val toMask = app.takes.core.Affine.scale(frameSize.width / width, frameSize.height / height)
+                    .concatenating(app.takes.core.PersonMaskPlacement.toMask(clip, frameOffset, frame.upright, frameSize, frame.rotation))
+                gpu.placeMask(personSource(frame.mask), "person.${width}x$height.$smoothed", width, height, toMask)
             }
         }
 

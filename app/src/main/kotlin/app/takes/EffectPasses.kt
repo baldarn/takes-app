@@ -643,10 +643,14 @@ internal class EffectGpu {
             p.setFloatsUniform("uClip", floatArrayOf(blackClip.toFloat(), whiteClip.toFloat()))
         })
 
-    /** [VideoEffectFormulasC.morph]: the matte [source] grown (or shrunk, below zero) by [radius] pixels, across then down, into [key]. */
-    fun morph(source: EffectSource, key: String, radius: Double): EffectTarget {
-        fun pass(from: EffectSource, into: String, horizontal: Boolean) = draw(EffectPassShaders.MORPHOLOGY, from, into, from.width, from.height, { p ->
-            p.setFloatsUniform("uDir", if (horizontal) floatArrayOf(1f / from.width, 0f) else floatArrayOf(0f, 1f / from.height))
+    /**
+     * [VideoEffectFormulasC.morph]: the matte [source] grown (or shrunk, below zero) by [radius] pixels of a picture
+     * of [width] × [height], across then down, into [key]: at a smaller size each pass reads the source between its
+     * pixels along whole output pixels, as `ve_morphology` does into a smaller texture (Metal:481-490).
+     */
+    fun morph(source: EffectSource, key: String, radius: Double, width: Int = source.width, height: Int = source.height): EffectTarget {
+        fun pass(from: EffectSource, into: String, horizontal: Boolean) = draw(EffectPassShaders.MORPHOLOGY, from, into, width, height, { p ->
+            p.setFloatsUniform("uDir", if (horizontal) floatArrayOf(1f / width, 0f) else floatArrayOf(0f, 1f / height))
             p.setFloatsUniform("uReach", floatArrayOf(minOf(64.0, kotlin.math.abs(radius)).toFloat()))
             p.setFloatsUniform("uGrow", floatArrayOf(if (radius >= 0) 1f else 0f))
         })

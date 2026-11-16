@@ -65,7 +65,7 @@ class TransitionPixelRunner : Instrumentation() {
             val suite = TransitionPixelCases(bench)
             val effects = EffectPixelCases(bench)
             val layers = LayerPixelCases(bench)
-            val cases = (suite.all() + effects.all() + EffectPixelCases(bench, 480, 270).batchB() + EffectPixelCases(bench, 320, 180).batchC() + TimePixelCases(bench).all() + layers.all() + PictureToolPixelCases(bench).all())
+            val cases = (suite.all() + effects.all() + EffectPixelCases(bench, 480, 270).batchB() + EffectPixelCases(bench, 320, 180).batchC() + TimePixelCases(bench).all() + layers.all() + PictureToolPixelCases(bench).all() + PersonPixelCases(bench).all())
                 .filter { case -> only?.split('|')?.any { case.name.contains(it) } ?: true }
             cases.forEachIndexed { index, case ->
                 val status = Bundle().apply {
