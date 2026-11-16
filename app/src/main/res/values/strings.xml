@@ -591,6 +591,8 @@
     <string name="editor_add_video">Add video</string>
     <string name="add_video_title">Add at %1$s</string>
     <string name="add_video_unused">Unused takes (%1$d)</string>
+    <string name="add_media_phone">Videos and photos from the phone</string>
+    <string name="add_media_failed">Some of the videos and photos could not be added; nothing was added</string>
     <string name="unused_title">Unused takes</string>
     <string name="unused_note">Tap takes in the order they should play; tap again to take one out.</string>
     <string name="unused_insert">Insert</string>

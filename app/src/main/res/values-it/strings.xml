@@ -596,6 +596,8 @@
     <string name="editor_add_video">Aggiungi video</string>
     <string name="add_video_title">Aggiungi a %1$s</string>
     <string name="add_video_unused">Riprese non usate (%1$d)</string>
+    <string name="add_media_phone">Video e foto dal telefono</string>
+    <string name="add_media_failed">Alcuni video o foto non si sono potuti aggiungere; non è stato aggiunto nulla</string>
     <string name="unused_title">Riprese non usate</string>
     <string name="unused_note">Tocca le riprese nell\'ordine in cui devono comparire; tocca di nuovo per toglierle.</string>
     <string name="unused_insert">Inserisci</string>
