@@ -35,6 +35,8 @@ import app.takes.core.TimelineClipboard
 import app.takes.core.TrackEditorEdits
 import app.takes.core.VideoInsertionSite
 import app.takes.core.TimelineEditing
+import app.takes.core.VoiceRecording
+import app.takes.core.WaveFile
 import app.takes.core.PhotoClip
 import app.takes.core.newID
 import kotlinx.coroutines.Dispatchers
@@ -274,13 +276,53 @@ class ProjectStore(context: Context) {
                 error = context.getString(R.string.sound_import_failed)
                 return@launch
             }
-            val added = project.addSource(source)
-            val edit = TimelineEditing.addAudio(added.edit, source.id, source.duration, at)
-            if (edit == null) {
-                file(project, source).delete()
-                error = context.getString(R.string.sound_tracks_busy)
-            } else update(added.commit(edit))
+            placeSound(project, source, at)?.let { error = it }
         }
+    }
+
+    /**
+     * Adds the voice recording [recording], a WAV file of the editor's
+     * recorder, to the project and places it on an audio track at timeline
+     * second [at], as one undoable edit, as an imported sound is added
+     * (YouRec/VoiceRecorder.swift:404-406, YouRec/ProjectStore.swift:458-483).
+     * The file is copied, so the recorder can throw its takes away. [name] is
+     * the name the sound is shown with. Returns what went wrong, or null.
+     */
+    suspend fun insertRecording(projectID: String, recording: File, name: String, at: Double): String? {
+        if (importing != null) return context.getString(R.string.voice_add_failed)
+        val source = withContext(Dispatchers.IO) {
+            val folder = disk.folder(projectID).apply { mkdirs() }
+            val id = newID()
+            val file = File(folder, "audio-${System.currentTimeMillis()}-$id.wav")
+            val partial = File(folder, ".${file.name}.tmp")
+            try {
+                recording.copyTo(partial, overwrite = true)
+                val bytes = WaveFile.dataBytes(partial) ?: return@withContext null
+                val duration = VoiceRecording.seconds(bytes / VoiceRecording.BYTES_PER_FRAME)
+                if (!partial.renameTo(file)) return@withContext null
+                SourceMedia(id = id, filename = file.name, duration = duration, audioOnly = true, originalName = name.take(255))
+            } catch (_: Exception) {
+                null
+            } finally {
+                partial.delete()
+            }
+        }
+        val project = projects.firstOrNull { it.id == projectID }
+        if (source == null || project == null) return context.getString(R.string.voice_add_failed)
+        return placeSound(project, source, VoiceRecording.position(at, project.edit.duration))
+    }
+
+    /** Puts the sound file [source], already in the project's folder, on an audio track at [at] in one step; what went wrong, or null. */
+    private fun placeSound(project: Project, source: SourceMedia, at: Double): String? {
+        val added = project.addSource(source)
+        val edit = TimelineEditing.addAudio(added.edit, source.id, source.duration, at)
+        val problem = when {
+            edit == null -> context.getString(R.string.sound_tracks_busy)
+            !update(added.commit(edit)) -> error.also { error = null }
+            else -> return null
+        }
+        file(project, source).delete()
+        return problem
     }
 
     /**

@@ -837,4 +837,42 @@
     <string name="censor_badge">Censor</string>
     <string name="sound_enhance">Enhance audio…</string>
     <string name="sound_censor">Censor…</string>
+
+    <!-- Add audio and the voice recorder (YouRec/AudioToolsEditor.swift:5-65, YouRec/VoiceRecorder.swift:97-414) -->
+    <string name="add_audio_at">At %1$s</string>
+    <string name="add_audio_note">Adds a separate sound layer. Your existing video and audio stay in place.</string>
+    <string name="add_audio_record_now">Record now</string>
+    <string name="add_audio_files">Choose audio from Files</string>
+    <string name="add_audio_files_note">WAV, AIFF, M4A, MP3 and other supported audio files. Use Move and Volume to arrange the sound after importing.</string>
+    <string name="add_audio_added">Audio added · Undo available</string>
+    <string name="voice_title">Voice recording</string>
+    <string name="voice_file_name">Voice recording.wav</string>
+    <string name="voice_microphone">Microphone</string>
+    <string name="voice_mic_hint">Choose the microphone for the next take</string>
+    <string name="voice_elapsed">Elapsed time</string>
+    <string name="voice_record">Record</string>
+    <string name="voice_record_more">Record more</string>
+    <string name="voice_stop">Stop</string>
+    <string name="voice_play">Play</string>
+    <string name="voice_adding">Adding recording…</string>
+    <string name="voice_preparing">Preparing playback…</string>
+    <string name="voice_denied">Allow microphone access in Settings to record your voice.</string>
+    <string name="voice_start_over">Start over</string>
+    <string name="voice_discard_title">Discard this recording?</string>
+    <string name="voice_discard_message">This discards all the takes in this voice recording.</string>
+    <string name="voice_keep_take">Keep take</string>
+    <string name="voice_discard">Discard</string>
+    <string name="voice_no_microphone">No microphone is available.</string>
+    <string name="voice_no_space">Free some space on your phone before recording more audio.</string>
+    <string name="voice_could_not_start">The microphone could not start recording.</string>
+    <string name="voice_no_sound">No sound was recorded. Tap Record to try again.</string>
+    <string name="voice_could_not_play">The recording could not be played.</string>
+    <string name="voice_playback_interrupted">Playback was interrupted.</string>
+    <string name="voice_mic_changed">Microphone changed. Tap Record more to continue.</string>
+    <string name="voice_stopped_for_space">Recording stopped to leave space to save this take.</string>
+    <string name="voice_interrupted">Recording was interrupted. Check the take before continuing.</string>
+    <string name="voice_paused">Recording paused. Tap Record more to continue.</string>
+    <string name="voice_paused_by_system">Recording paused by Android. Tap Record more to continue.</string>
+    <string name="voice_record_first">Record some audio first.</string>
+    <string name="voice_add_failed">Couldn’t add the recording. Tap Done to try again.</string>
 </resources>

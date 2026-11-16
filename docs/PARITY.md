@@ -25,10 +25,10 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 123 |
+| DONE | 124 |
 | PARTIAL | 41 |
 | CORE ONLY | 7 |
-| MISSING | 32 |
+| MISSING | 31 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -43,7 +43,7 @@ Per area:
 | 5. Editor: picture tools | 7 | 4 | 3 | 4 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 9 | 0 | 1 | 0 | 0 |
-| 8. Audio | 3 | 6 | 0 | 12 | 0 |
+| 8. Audio | 4 | 6 | 0 | 11 | 0 |
 | 9. Subtitles | 10 | 1 | 0 | 2 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
 | 11. Export | 10 | 0 | 0 | 2 | 0 |
@@ -236,9 +236,9 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Clipping warning from headroom analysis | O/AudioGain.swift:199-239 | DONE | A/Headroom.kt (the recordings decoded and mixed through the export's envelopes; C/AudioLevels.kt `AudioHeadroom`), shown in A/SoundPanel.kt and beside the finger of the waveform drag | An estimate of the export's mix, not a read of it: speed without the pitch kept, other sample rates resampled linearly | | |
 | Waveform vertical swipe to set gain | O/EditorTimeline.swift:617-688, O/AudioGain.swift:16-62 | PARTIAL | A/SoundPanel.kt `dragLevel`, `Leveling`, `LevelReadoutLabel`; A/EditorScreen.kt (`Timeline`'s `level`); C/AudioLevels.kt `AudioGainDrag` | The level is not heard while it is dragged (the editor pauses); a drag inside a marked range does not reach the sounds on the audio tracks | S | Yes |
 | Automatic 8 ms fades at cuts | O/CutAudioEnvelope.swift:30-55, O/TrackRenderer.swift:281-296 | PARTIAL | Export: A/Titles.kt `SoundProcessor`, on the first and last samples of every run of sound, clips and sounds on the audio tracks; C/SoundEnvelope.kt | The preview has none (a player's volume, once a frame); in the export a split nobody trimmed still dips for some 30 ms, since each item is decoded afresh | M | Phone (ears) |
-| Add audio from Files as an independent layer | O/AudioToolsEditor.swift:5-65 | DONE | A/EditorScreen.kt:601-603, 737; A/ProjectStore.kt:140 | Two tracks; the original has no limit | | |
+| Add audio from Files as an independent layer | O/AudioToolsEditor.swift:5-65 | DONE | A/EditorScreen.kt (`pickSound`), from the Add audio sheet (A/VoiceRecorder.kt `AddAudio`); A/ProjectStore.kt `importAudio` | Two tracks; the original has no limit | | |
 | Move, trim, level and fades of an audio item | README:117-120 | PARTIAL | A/EditorScreen.kt `AudioItemDialog` (move to playhead, cut before/after), A/SoundPanel.kt (level and fades as for a clip, the level also by dragging the item up or down) | Drag to move, trim handles, split | M | Yes |
-| Voice recording in the editor ("Record now") | O/VoiceRecorder.swift:97-414 | MISSING | — | Recorder sheet, mic picker, takes joined, insert at the playhead | M | Phone |
+| Voice recording in the editor ("Record now") | O/VoiceRecorder.swift:97-414, O/AudioToolsEditor.swift:5-65 | DONE | Add audio opens the original's sheet, "Record now" or "Choose audio from Files" (A/VoiceRecorder.kt `AddAudio`); the recorder (A/VoiceRecorder.kt `VoiceRecordingDialog`, `VoiceDraft`): microphone menu, clock and level, Record / Record more / Stop, Play, Start over, Done; takes of 48 kHz mono 16-bit PCM joined without converting (C/VoiceRecording.kt `WaveFile`), the storage rule and the meter (C/VoiceRecording.kt); Done copies the WAV into the project as a sound source, kept in its ZIP like an imported sound, and puts it at the playhead in one Undo step (A/ProjectStore.kt `insertRecording`); with the camera recorder's RECORD_AUDIO permission | Departures: the takes are WAV, not CAF; the microphones are those Android lists as inputs (the phone's, wired, USB; a Bluetooth headset only from Android 12, through the communication route as the camera recorder reaches it), named as the camera recorder names them; the storage floor is the camera recorder's on Android (C/RecordingSpace.kt `ANDROID_FLAT`, none); "paused by iOS" is "paused by Android", when another app or a call silences the microphone (Android 10 and later). As in the original, the movie does not play while a take is recorded. Checked on an emulator, not yet on a phone | | Phone |
 | Noise reduction with RNNoise, amount | O/AudioChainControls.swift:402-411, O/OfflineAudioPipeline.swift:137 | PARTIAL | A/EditorScreen.kt:1359-1362 (Off/Light/Full), A/Denoiser.kt, `rnnoise/` | 0–100 % amount; clips only, not audio items (A/EditorScreen.kt:861) | S | Phone (ears) |
 | Noise reduction with DeepFilterNet3 | O/DeepFilterVoiceProcessor.swift:7, ThirdParty/DeepFilterNet3 | MISSING | In flight on `agent/deepfilter`; route in docs/MODELS-ON-ANDROID.md | Module on main, model choice in the UI | L | Phone (ears) |
 | Speech detail restoration (LavaSR v2) | O/StudioVoiceProcessor.swift:36 | MISSING | — | ONNX export and DSP port | L | Phone |

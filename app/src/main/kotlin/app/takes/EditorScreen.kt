@@ -635,6 +635,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) store.importAudio(project.id, uri, playhead)
     }
+    // Add audio at the playhead: record a voice or choose a file (AudioToolsEditor.swift:5-65, EditorView.swift:326, 339).
+    var addingAudio by remember { mutableStateOf<Double?>(null) }
     // A picture for a video effect's background, kept in the project; [pictureFor] takes its file name.
     var pictureFor by remember { mutableStateOf<((String?) -> Unit)?>(null) }
     val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -1558,7 +1560,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     joins.minByOrNull { abs(it.time - playhead) + if (it.edge == 0) 0.0 else 0.0001 }?.let { transitioning = Transitioning.at(edit, it.index, canvas) }
                 }, content = { Text(stringResource(R.string.editor_transition)) }, modifier = compact)
                 TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
-                TextButton(onClick = { editor.pause(); pickSound.launch("audio/*") }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
+                TextButton(onClick = { editor.pause(); addingAudio = playhead }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
                 TextButton(onClick = { editor.pause(); subtitling = edit }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) {
                     Icon(Icons.Outlined.Subtitles, stringResource(R.string.editor_subtitles), tint = if (edit.subtitles != null) TitleColor else LocalContentColor.current)
                 }
@@ -1577,6 +1579,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             store.adoptSoundLength(project.id)
                         }) { Text(stringResource(R.string.sound_past_picture_trim)) }
                     },
+                )
+            }
+            addingAudio?.let { at ->
+                val added = stringResource(R.string.add_audio_added)
+                AddAudio(
+                    store, project.id, at, chooseFile = { addingAudio = null; pickSound.launch("audio/*") },
+                    inserted = { addingAudio = null; jump(at); feedback = added }, close = { addingAudio = null },
                 )
             }
             if (adding) {

@@ -847,4 +847,42 @@
     <string name="censor_badge">Censura</string>
     <string name="sound_enhance">Migliora audio…</string>
     <string name="sound_censor">Censura…</string>
+
+    <!-- Aggiungi audio e la registrazione della voce (YouRec/AudioToolsEditor.swift:5-65, YouRec/VoiceRecorder.swift:97-414) -->
+    <string name="add_audio_at">A %1$s</string>
+    <string name="add_audio_note">Aggiunge un livello sonoro separato. Il video e l’audio che ci sono restano al loro posto.</string>
+    <string name="add_audio_record_now">Registra ora</string>
+    <string name="add_audio_files">Scegli l’audio da File</string>
+    <string name="add_audio_files_note">WAV, AIFF, M4A, MP3 e gli altri file audio supportati. Dopo l’importazione, usa Sposta e Volume per sistemare il suono.</string>
+    <string name="add_audio_added">Audio aggiunto · Puoi annullare</string>
+    <string name="voice_title">Registrazione vocale</string>
+    <string name="voice_file_name">Registrazione vocale.wav</string>
+    <string name="voice_microphone">Microfono</string>
+    <string name="voice_mic_hint">Scegli il microfono per la prossima ripresa</string>
+    <string name="voice_elapsed">Tempo trascorso</string>
+    <string name="voice_record">Registra</string>
+    <string name="voice_record_more">Registra ancora</string>
+    <string name="voice_stop">Stop</string>
+    <string name="voice_play">Riproduci</string>
+    <string name="voice_adding">Aggiunta della registrazione…</string>
+    <string name="voice_preparing">Preparazione della riproduzione…</string>
+    <string name="voice_denied">Consenti l’accesso al microfono nelle Impostazioni per registrare la tua voce.</string>
+    <string name="voice_start_over">Ricomincia</string>
+    <string name="voice_discard_title">Eliminare questa registrazione?</string>
+    <string name="voice_discard_message">Vengono eliminate tutte le riprese di questa registrazione vocale.</string>
+    <string name="voice_keep_take">Tieni la ripresa</string>
+    <string name="voice_discard">Elimina</string>
+    <string name="voice_no_microphone">Nessun microfono disponibile.</string>
+    <string name="voice_no_space">Libera un po’ di spazio sul telefono prima di registrare altro audio.</string>
+    <string name="voice_could_not_start">Il microfono non è riuscito ad avviare la registrazione.</string>
+    <string name="voice_no_sound">Non è stato registrato alcun suono. Tocca Registra per riprovare.</string>
+    <string name="voice_could_not_play">Non è stato possibile riprodurre la registrazione.</string>
+    <string name="voice_playback_interrupted">La riproduzione è stata interrotta.</string>
+    <string name="voice_mic_changed">Il microfono è cambiato. Tocca Registra ancora per continuare.</string>
+    <string name="voice_stopped_for_space">Registrazione fermata per lasciare lo spazio per salvare questa ripresa.</string>
+    <string name="voice_interrupted">La registrazione è stata interrotta. Controlla la ripresa prima di continuare.</string>
+    <string name="voice_paused">Registrazione in pausa. Tocca Registra ancora per continuare.</string>
+    <string name="voice_paused_by_system">Registrazione messa in pausa da Android. Tocca Registra ancora per continuare.</string>
+    <string name="voice_record_first">Prima registra un po’ di audio.</string>
+    <string name="voice_add_failed">Impossibile aggiungere la registrazione. Tocca Fine per riprovare.</string>
 </resources>
