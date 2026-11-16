@@ -50,6 +50,15 @@ data class TimelineMoveBoundaries(val anchor: EditTime = EditTime.ZERO, val time
     fun next(time: EditTime): EditTime? = times.firstOrNull { it > time }
 }
 
+/**
+ * A dashed line of the boundary picker: the stops [times] that lie within
+ * [TrackMove.MARKER_GROUPING] points of the first of them on screen, drawn
+ * from [firstX] to [lastX]. YouRec/EditorTimeline.swift:77-100.
+ */
+data class TimelineMoveMarker(val firstX: Double, val lastX: Double, val times: List<EditTime>) {
+    val center: Double get() = (firstX + lastX) / 2
+}
+
 /** An edge of the moved group, at [edge] before the move, held on the point [target]. YouRec/TrackTimeline.swift:332-335. */
 data class TimelineMoveSnap(val target: EditTime, val edge: EditTime)
 
@@ -322,5 +331,60 @@ object TrackMove {
         val targets = snapPoints(timeline, chosen.ids, extra).map { it.seconds }
         val result = TimelineSnapping.move(edges, requested.seconds, scale, targets, latch?.let { TimelineSnapping.MoveSnap(it.target.seconds, it.edge.seconds) })
         return TimelineMoveResult(EditTime.of(result.delta), result.snap?.let { TimelineMoveSnap(EditTime.of(it.target), EditTime.of(it.edge)) })
+    }
+
+    // MARK: The boundary picker
+
+    /** Stops closer than this on screen, in points, are one marker. YouRec/EditorTimeline.swift:94. */
+    const val MARKER_GROUPING = 22.0
+
+    /** How far beside a marker a tap still picks it, in points. YouRec/EditorTimeline.swift:548. */
+    const val MARKER_REACH = 22.0
+
+    /**
+     * The markers of [times] (in order, as [TimelineMoveBoundaries.times])
+     * that are on a screen [width] points wide, where [x] gives a time's
+     * place on it. Stops that would be drawn within [MARKER_GROUPING] of the
+     * first of a marker join it. YouRec/EditorTimeline.swift:83-99.
+     */
+    fun markers(times: List<EditTime>, width: Double, x: (EditTime) -> Double): List<TimelineMoveMarker> {
+        val result = ArrayList<TimelineMoveMarker>()
+        for (time in times) {
+            val at = x(time)
+            if (at < 0) continue
+            if (at > width) break
+            val last = result.lastOrNull()
+            if (last != null && at - last.firstX < MARKER_GROUPING) result[result.lastIndex] = last.copy(lastX = at, times = last.times + time)
+            else result += TimelineMoveMarker(at, at, listOf(time))
+        }
+        return result
+    }
+
+    /**
+     * The stops a tap at [x] points picks: those of the marker whose middle
+     * is nearest, when the tap is within [MARKER_REACH] of it. One stop is
+     * placed at once ([TrackMoveSession.placed]); several are offered in a
+     * list, "Choose a start time". Null when the tap is on no marker.
+     * YouRec/EditorTimeline.swift:546-551, YouRec/EditorView.swift:591-595.
+     */
+    fun picked(markers: List<TimelineMoveMarker>, x: Double): List<EditTime>? {
+        val closest = markers.minByOrNull { kotlin.math.abs(it.center - x) } ?: return null
+        return closest.times.takeIf { x >= closest.firstX - MARKER_REACH && x <= closest.lastX + MARKER_REACH }
+    }
+
+    /**
+     * The label of the stop [time] among [neighbors] when the editor's
+     * ordinary time would not tell it apart: another of them rounds to the
+     * same frame of 1/30 s. Then minutes and seconds to the microsecond,
+     * "0:04.000002"; null when the ordinary label will do.
+     * YouRec/EditorTimeline.swift:1059-1067.
+     */
+    fun preciseLabel(time: EditTime, neighbors: List<EditTime>): String? {
+        val perFrame = EditTime.SCALE / 30
+        val frame = (time.ticks + perFrame / 2) / perFrame
+        if (neighbors.none { it != time && (it.ticks + perFrame / 2) / perFrame == frame }) return null
+        val minutes = time.ticks / (60 * EditTime.SCALE)
+        val seconds = (time.ticks % (60 * EditTime.SCALE)).toDouble() / EditTime.SCALE
+        return String.format(java.util.Locale.ROOT, "%d:%09.6f", minutes, seconds)
     }
 }
