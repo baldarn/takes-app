@@ -64,7 +64,8 @@ class TransitionPixelRunner : Instrumentation() {
             report.append("\nRenderer: ${bench.renderer}; highp float in a fragment shader: ${bench.fragmentPrecision} bits\n")
             val suite = TransitionPixelCases(bench)
             val effects = EffectPixelCases(bench)
-            val cases = (suite.all() + effects.all()).filter { only == null || it.name.contains(only!!) }
+            val layers = LayerPixelCases(bench)
+            val cases = (suite.all() + effects.all() + layers.all()).filter { only == null || it.name.contains(only!!) }
             cases.forEachIndexed { index, case ->
                 val status = Bundle().apply {
                     putString("id", "TransitionPixelRunner")
@@ -97,6 +98,7 @@ class TransitionPixelRunner : Instrumentation() {
                 }
             }
             suite.release()
+            layers.release()
             bench.release()
         } catch (problem: Throwable) {
             failed++
