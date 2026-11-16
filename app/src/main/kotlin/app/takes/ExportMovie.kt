@@ -94,6 +94,8 @@ fun mixedSound(mix: File): Composition = Composition.Builder(
 class ExportMovie(
     private val context: Context, private val plan: RenderPlan, ceiling: Int, private val files: Map<String, File>, val canvas: Pair<Int, Int>,
     private val sizes: Map<String, Pair<Int, Int>?>, private val rates: Map<String, Double?>, private val black: File, private val luts: File,
+    /** The recordings, by id: the person masks are kept by them. */
+    private val media: Map<String, app.takes.core.SourceMedia> = emptyMap(),
 ) : MovieRender {
     private val decks = plan.sequences.size
 
@@ -138,7 +140,7 @@ class ExportMovie(
             // A held frame, of a freeze or a cadence, is kept before the effects, which draw it at the second it holds.
             if (holdsFrames(clip)) add(TimeHoldEffect(clip, shown.start - origin, rate.toDouble()))
             // The clip's video effects on the picture as it lies in the frame, bars included; titles come after.
-            if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, clip), sourceFPS))
+            if (!clip.videoEffects.isNullOrEmpty()) add(VideoEffectChain(clip, shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, clip, context = context, media = media[shown.sourceID]), sourceFPS))
             // Step Printing blends the frames of each block as the chain drew them.
             if (printsSteps(clip)) add(StepPrintingEffect(clip, shown.start - origin, sourceFPS))
         }

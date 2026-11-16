@@ -53,25 +53,41 @@ internal object AndroidVideoEffects {
      */
     val BATCH_TIME: List<VideoEffectID> = listOf(VideoEffectID.FreezeFrame, VideoEffectID.StepPrinting, VideoEffectID.Undercranking)
 
-    val offered: Set<VideoEffectID> = (BATCH_A + BATCH_B + BATCH_C + BATCH_TIME).toSet()
+    /**
+     * The effects that read the person in the frame, with the parts of the others that do (Color Isolation's
+     * subject, Chroma Key's person hint, Quantization's face detail): offered where LiteRT runs (PersonMasks.kt).
+     * Auto Background without its video background and match colour.
+     */
+    val BATCH_PERSON: List<VideoEffectID> = listOf(VideoEffectID.AutoBackground)
+
+    /** Whether this phone makes person masks. */
+    private val people: Boolean get() = PersonMasks.available()
+
+    val offered: Set<VideoEffectID> get() = (BATCH_A + BATCH_B + BATCH_C + BATCH_TIME + if (people) BATCH_PERSON else emptyList()).toSet()
 
     /** The library's effects of [section] that are offered, in the order the original lists them. */
     fun effects(section: VideoEffectLibrarySection): List<VideoEffectID> = section.kinds.filter { it in offered }
 
     /** Controls of an offered effect that this release does not draw, by effect. */
     private val HIDDEN: Map<VideoEffectID, Set<String>> = mapOf(
-        // "A color" only: "The subject" needs a person mask.
-        VideoEffectID.ColorIsolation to setOf("mode"),
         // Following a face needs face detection; the target is set by hand.
         VideoEffectID.CrashZoom to setOf("trackFace"),
-        VideoEffectID.Quantization to setOf("faceDetail"),
-        VideoEffectID.ChromaKey to setOf("personHint", "cleanPlate", "matchColor", "matchStrength", "backgroundAudio"),
+        VideoEffectID.ChromaKey to setOf("cleanPlate", "matchColor", "matchStrength", "backgroundAudio"),
+        VideoEffectID.AutoBackground to setOf("matchColor", "matchStrength", "backgroundAudio"),
         // Medium and Precise need optical flow.
         VideoEffectID.NightFix to setOf("mode"),
     )
 
+    /** Controls that need a person mask, hidden where this phone cannot make one: Color Isolation keeps "A color" only. */
+    private val PERSON: Map<VideoEffectID, Set<String>> = mapOf(
+        VideoEffectID.ColorIsolation to setOf("mode"),
+        VideoEffectID.Quantization to setOf("faceDetail"),
+        VideoEffectID.ChromaKey to setOf("personHint"),
+    )
+
     /** Controls of an offered effect that this release does not offer yet. */
-    fun hides(kind: VideoEffectID, parameter: String): Boolean = HIDDEN[kind]?.contains(parameter) == true
+    fun hides(kind: VideoEffectID, parameter: String): Boolean =
+        HIDDEN[kind]?.contains(parameter) == true || (!people && PERSON[kind]?.contains(parameter) == true)
 
     /** Whether the preview draws a simplified version of [effect] at source second [at]: its blurs, smoothing or matte are stand-ins. */
     fun previewSimplified(effect: VideoEffectSettings, at: Double): Boolean = when (effect.kind) {
@@ -84,7 +100,10 @@ internal object AndroidVideoEffects {
         VideoEffectID.FreezeFrame -> effect.choice("style", at) == "Print"
         VideoEffectID.SixteenMM -> effect.number("softness", at) > 0
         VideoEffectID.Widescreen -> effect.number("flares", at) > 0 || effect.choice("bars", at) == "Blur fill"
-        VideoEffectID.Quantization -> effect.number("smoothing", at) > 0
+        VideoEffectID.Quantization -> effect.number("smoothing", at) > 0 || (people && effect.toggle("faceDetail", at) && effect.number("colors", at) <= 4)
+        // The person's mask is drawn by the export; the preview leaves the picture as it is.
+        VideoEffectID.AutoBackground -> true
+        VideoEffectID.ColorIsolation -> effect.choice("mode", at) == "The subject"
         else -> false
     }
 
@@ -92,9 +111,9 @@ internal object AndroidVideoEffects {
     fun asDrawn(effect: VideoEffectSettings): VideoEffectSettings =
         if (effect.kind == VideoEffectID.CrashZoom) effect.with("trackFace", EffectValue.Toggle(false)) else effect
 
-    /** The choices of a picker this release offers: a Chroma Key's backgrounds without video, Studio and Window. */
+    /** The choices of a picker this release offers: a Chroma Key's and an Auto Background's backgrounds without video. */
     fun choices(kind: VideoEffectID, parameter: String, choices: List<String>): List<String> =
-        if (kind == VideoEffectID.ChromaKey && parameter == "background") choices.filter { it in listOf("Solid", "Image", "Blur original") } else choices
+        if ((kind == VideoEffectID.ChromaKey || kind == VideoEffectID.AutoBackground) && parameter == "background") choices.filter { it != "Video" } else choices
 }
 
 /** Where the Video effects tool is: the applied list, the library, one of its sections, or an effect's controls. */

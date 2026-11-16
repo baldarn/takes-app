@@ -47,6 +47,7 @@ private val WORDS: Map<VideoEffectID, EffectWords> = mapOf(
     VideoEffectID.CrashZoom to EffectWords(R.string.effect_crash_zoom, R.string.effect_crash_zoom_summary, R.string.effect_crash_zoom_help, R.string.effect_crash_zoom_history),
     VideoEffectID.Quantization to EffectWords(R.string.effect_quantization, R.string.effect_quantization_summary, R.string.effect_quantization_help, R.string.effect_quantization_history),
     VideoEffectID.ChromaKey to EffectWords(R.string.effect_chroma_key, R.string.effect_chroma_key_summary, R.string.effect_chroma_key_help, R.string.effect_chroma_key_history),
+    VideoEffectID.AutoBackground to EffectWords(R.string.effect_auto_background, R.string.effect_auto_background_summary, R.string.effect_auto_background_help, null),
     VideoEffectID.NightFix to EffectWords(R.string.effect_night_fix, R.string.effect_night_fix_summary, R.string.effect_night_fix_help, null),
     VideoEffectID.FreezeFrame to EffectWords(R.string.effect_freeze_frame, R.string.effect_freeze_frame_summary, R.string.effect_freeze_frame_help, R.string.effect_freeze_frame_history),
     VideoEffectID.StepPrinting to EffectWords(R.string.effect_step_printing, R.string.effect_step_printing_summary, R.string.effect_step_printing_help, R.string.effect_step_printing_history),
@@ -97,7 +98,7 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "blue" -> R.string.effect_control_blue
     "moonlight" -> R.string.effect_control_moonlight
     "range" -> R.string.effect_control_hue_range
-    "softness" -> if (kind == VideoEffectID.ChromaKey) R.string.effect_control_edge_softness else R.string.effect_control_softness
+    "softness" -> if (kind == VideoEffectID.ChromaKey || kind == VideoEffectID.AutoBackground) R.string.effect_control_edge_softness else R.string.effect_control_softness
     "crush" -> R.string.effect_control_black_crush
     "grain" -> R.string.effect_control_grain
     "shadowColor" -> R.string.effect_control_blue_shadows
@@ -183,6 +184,7 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "despill" -> R.string.effect_control_despill
     "wrap" -> R.string.effect_control_light_wrap
     "personHint" -> R.string.effect_control_person_hint
+    "portraitBlur" -> R.string.effect_control_portrait_blur
     "cleanPlate" -> R.string.effect_control_clean_plate
     "view" -> R.string.effect_control_view
     "background" -> R.string.effect_control_background
@@ -221,7 +223,8 @@ private val CHOICES: Map<String, Int> = mapOf(
     "Ordered 4x4" to R.string.effect_choice_ordered_4, "Ordered 8x8" to R.string.effect_choice_ordered_8, "From scene" to R.string.effect_choice_from_scene, "Pop 1" to R.string.effect_choice_pop_1,
     "Pop 2" to R.string.effect_choice_pop_2, "Pop 3" to R.string.effect_choice_pop_3, "Saved" to R.string.effect_choice_saved, "Auto" to R.string.effect_choice_auto,
     "Green" to R.string.effect_choice_green, "Result" to R.string.effect_choice_result, "Matte" to R.string.effect_choice_matte, "Original" to R.string.effect_choice_original,
-    "Solid" to R.string.effect_choice_solid, "Image" to R.string.effect_choice_image, "Blur original" to R.string.effect_choice_blur_original, "Fill" to R.string.effect_choice_fill,
+    "Solid" to R.string.effect_choice_solid, "Image" to R.string.effect_choice_image, "Blur original" to R.string.effect_choice_blur_original,
+    "Studio" to R.string.effect_choice_studio, "Window" to R.string.effect_choice_window, "Fill" to R.string.effect_choice_fill,
     "Fit" to R.string.effect_choice_fit, "Fast" to R.string.effect_choice_fast,
     "Clean" to R.string.effect_choice_clean, "Print" to R.string.effect_choice_print, "Cut" to R.string.effect_choice_cut,
     "Continue" to R.string.effect_choice_continue, "Fade out over hold" to R.string.effect_choice_fade_out_over_hold,

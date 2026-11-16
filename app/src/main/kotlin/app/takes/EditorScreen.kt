@@ -790,7 +790,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         val work = effecting
                         val sourceTime = clip.sourceTime(offset)
                         val shown = if (work != null) work.shown(clip, sourceTime, playhead) else clip.videoEffects
-                        val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false) { palettesReady++ }
+                        val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false, context = context, media = project.sources.firstOrNull { it.id == clip.sourceID }) { palettesReady++ }
                         palettesReady.let { } // read, so that the picture is drawn again once a palette is ready
                         restored = effectPreviews?.get(deck)?.nightFix(shown, sourceTime)
                         // A held frame pushes in on the hold's clock; a cadence's held frames and Step Printing's blends the preview does not draw.

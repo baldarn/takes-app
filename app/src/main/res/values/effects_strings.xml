@@ -154,8 +154,11 @@
     <string name="effect_quantization_history">Posterization reduces continuous tones to flat bands, echoing photographic silkscreen prints of the 1960s.</string>
     <string name="effect_chroma_key">Chroma Key</string>
     <string name="effect_chroma_key_summary">Remove a green or blue screen and choose a new background.</string>
-    <string name="effect_chroma_key_help">Use a green or blue screen behind the subject. Screen color identifies the color to remove; Background replaces it with a solid color, a picture from the phone or a blurred copy of the original. Matte view shows what is kept. Despill removes colored fringes.</string>
+    <string name="effect_chroma_key_help">Use a green or blue screen behind the subject. Screen color identifies the color to remove; Background replaces it with a solid color, a picture from the phone, a blurred copy of the original, Studio or Window. Matte view shows what is kept. Despill removes colored fringes.</string>
     <string name="effect_chroma_key_history">Color-difference travelling mattes separate a subject photographed against a blue or green backing.</string>
+    <string name="effect_auto_background">Auto Background</string>
+    <string name="effect_auto_background_summary">Keep people and blur or replace the background.</string>
+    <string name="effect_auto_background_help">Keep people and replace or blur what is behind them. With no person visible, the whole frame becomes the background. Edge softness and Shrink / grow refine the outline; Light wrap blends it with the new background. Hair and fast motion can need careful adjustment. The person is found the first time the clip is shown or exported, which takes a few seconds.</string>
     <string name="effect_night_fix">Night fix</string>
     <string name="effect_night_fix_summary">Lift dark footage and clean noise. Editor only.</string>
     <string name="effect_night_fix_help">Brighten dark footage and reduce noise after recording, with a quick single-frame cleanup. Increase recovery gradually: strong settings can soften detail or expose color blotches.</string>
@@ -251,6 +254,7 @@
     <string name="effect_control_despill">Despill</string>
     <string name="effect_control_light_wrap">Light wrap</string>
     <string name="effect_control_person_hint">Use person hint</string>
+    <string name="effect_control_portrait_blur">Portrait blur</string>
     <string name="effect_control_clean_plate">Clean plate</string>
     <string name="effect_control_view">View</string>
     <string name="effect_control_background">Background</string>
@@ -309,6 +313,8 @@
     <string name="effect_choice_solid">Solid</string>
     <string name="effect_choice_image">Image</string>
     <string name="effect_choice_blur_original">Blur original</string>
+    <string name="effect_choice_studio">Studio</string>
+    <string name="effect_choice_window">Window</string>
     <string name="effect_choice_fill">Fill</string>
     <string name="effect_choice_fit">Fit</string>
     <string name="effect_choice_fast">Fast</string>

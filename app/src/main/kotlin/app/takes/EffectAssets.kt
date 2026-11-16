@@ -1,5 +1,6 @@
 package app.takes
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -13,6 +14,9 @@ import app.takes.core.EffectPalette
 import app.takes.core.EffectPaletteAnalysis
 import app.takes.core.EffectPaletteTrack
 import app.takes.core.EffectValue
+import app.takes.core.PersonMaskChunks
+import app.takes.core.Size as GeometrySize
+import app.takes.core.SourceMedia
 import app.takes.core.EffectVector
 import app.takes.core.TimelineClip
 import app.takes.core.VideoEffectID
@@ -24,10 +28,13 @@ import java.util.concurrent.Executors
 
 /**
  * What the effects of a clip read besides its frames: a Quantization's
- * palette taken from the scene, and the picture a Chroma Key puts behind the
- * subject. Asked for on the thread that draws.
+ * palette taken from the scene, the picture a Chroma Key puts behind the
+ * subject, and the person in the frame. Asked for on the thread that draws.
  */
 interface EffectAssets {
+    /** The person mask of the frame at source second [sourceTime]; null when there is none yet, or none can be made. */
+    fun person(sourceTime: Double): PersonFrame? = null
+
     /** The palette analysed from the footage for [effect] at source second [sourceTime], before its own choices; null when there is none. */
     fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? = null
 
@@ -46,18 +53,36 @@ interface EffectAssets {
 }
 
 /**
+ * A person mask as it was stored ([PersonMaskChunks.Mask], in the decoded frame's coordinates), with what lays it
+ * on the movie's frame: the clockwise [rotation] that stands the recording upright and its [upright] size.
+ */
+class PersonFrame(val mask: PersonMaskChunks.Mask, val rotation: Int, val upright: GeometrySize)
+
+/**
  * The assets of [clip] from its recording [source] and the project [folder]
- * where picked pictures are kept. With [wait] a palette not yet analysed is
- * analysed there and then, as the export needs; without, it is analysed in
- * the background and [ready] called once it is, as the preview needs.
+ * where picked pictures are kept. With [wait] a palette or a person mask not
+ * yet analysed is analysed there and then, as the export needs; without, in
+ * the background, and [ready] called once it is, as the preview needs. The
+ * person masks need the recording's [media] and a [context].
  */
 class SourceAssets(
     private val source: File?,
     private val folder: File?,
     private val clip: TimelineClip,
     private val wait: Boolean = true,
+    private val context: Context? = null,
+    private val media: SourceMedia? = null,
     private val ready: () -> Unit = {},
 ) : EffectAssets {
+    private val people: PersonFrames? by lazy {
+        val file = source ?: return@lazy null
+        val recording = media ?: return@lazy null
+        val app = context?.applicationContext ?: return@lazy null
+        if (!PersonMasks.available()) null else PersonFrames(app, recording, file)
+    }
+
+    override fun person(sourceTime: Double): PersonFrame? = people?.frame(sourceTime, wait, ready)
+
     override fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? {
         val file = source ?: return null
         val track = if (wait) ScenePalettes.track(file, clip, effect) else ScenePalettes.cached(file, clip, effect, ready)
@@ -68,6 +93,53 @@ class SourceAssets(
         val name = (effect.value("media", 0.0) as? EffectValue.Media)?.file ?: return null
         val file = File(folder ?: return null, name)
         return EffectPictures.get(file)
+    }
+}
+
+/**
+ * The person masks of one recording, read by source time from the chunks [PersonMasks] makes in the
+ * recording's project folder. A chunk not made yet is made then and there ([wait]), or in the background
+ * with [ready] called once it is there.
+ */
+internal class PersonFrames(private val context: Context, private val media: SourceMedia, private val file: File) {
+    private val reader = PersonMasks.reader(context, media, file.parentFile ?: File("."))
+    private val rotation = PersonMasks.rotation(file)
+    private val upright = displaySize(file)?.let { GeometrySize(it.first.toDouble(), it.second.toDouble()) }
+
+    fun frame(sourceTime: Double, wait: Boolean, ready: () -> Unit): PersonFrame? {
+        val size = upright ?: return null
+        val mask = synchronized(reader) { reader.mask(sourceTime) } ?: run {
+            val chunk = PersonMaskChunks.chunk(sourceTime)
+            if (wait) {
+                analyse(chunk)
+                synchronized(reader) { reader.mask(sourceTime) }
+            } else {
+                if (asked.add("${reader.directory.path}#$chunk")) {
+                    background.execute {
+                        analyse(chunk)
+                        ready()
+                    }
+                }
+                null
+            }
+        } ?: return null
+        return PersonFrame(mask, rotation, size)
+    }
+
+    private fun analyse(chunk: Int) {
+        val span = PersonMaskChunks.span(chunk, media.duration)
+        try {
+            PersonMasks.analyse(context, media, file.parentFile ?: return, from = span.start, to = span.start)
+        } catch (problem: Exception) {
+            if (problem is java.util.concurrent.CancellationException) throw problem
+            android.util.Log.w("Takes", "person masks of ${media.filename} at ${span.start} s", problem)
+        }
+    }
+
+    private companion object {
+        /** One analysis at a time for the preview, as the original's single segmentation queue. */
+        val background = Executors.newSingleThreadExecutor { Thread(it, "Person masks").apply { isDaemon = true } }
+        val asked: MutableSet<String> = ConcurrentHashMap.newKeySet()
     }
 }
 

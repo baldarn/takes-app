@@ -218,6 +218,157 @@ internal object EffectPassShaders {
         }
     """
 
+    /**
+     * The person mask [uTex] (its value in the first channel, rows from the bottom as Media3's)
+     * laid on the movie's frame: [uToMask] takes a pixel's centre on the frame to a position
+     * 0…1 on the mask, from the top left; no person outside it.
+     */
+    val MASK_PLACE = """
+        $HEAD
+        uniform mat3 uToMask;
+        void main() {
+            vec2 m = (uToMask * vec3(pixel() + 0.5, 1.0)).xy;
+            float a = m.x < 0.0 || m.x > 1.0 || m.y < 0.0 || m.y > 1.0 ? 0.0 : texture2D(uTex, vec2(m.x, 1.0 - m.y)).r;
+            gl_FragColor = vec4(vec3(a), 1.0);
+        }
+    """
+
+    /**
+     * `ve_guidedStats` ([app.takes.core.MaskRefinement.guidedStats]): over the square of
+     * `2r + 1` output pixels, the means of the guide's perceptual luma (the sRGB encoding of
+     * [uTex]'s linear luma) and of the mask [uMask], of their squares and product, both read
+     * between pixels; `a` and `b` in the first two channels.
+     */
+    val GUIDED_STATS = """
+        $HEAD
+        uniform sampler2D uMask;
+        uniform float uRadius;
+        float perceptual(vec2 uv) { return srgb(vec3(luma(read(uv)))).x; }
+        void main() {
+            vec2 q = pixel();
+            float si = 0.0;
+            float sp = 0.0;
+            float sii = 0.0;
+            float sip = 0.0;
+            float n = 0.0;
+            for (int y = -6; y <= 6; y++) {
+                if (abs(float(y)) > uRadius) continue;
+                for (int x = -6; x <= 6; x++) {
+                    if (abs(float(x)) > uRadius) continue;
+                    vec2 uv = (q + vec2(float(x), float(y)) + 0.5) / uOut;
+                    float i = perceptual(uv);
+                    float p = texture2D(uMask, vec2(uv.x, 1.0 - uv.y)).r;
+                    si += i;
+                    sp += p;
+                    sii += i * i;
+                    sip += i * p;
+                    n += 1.0;
+                }
+            }
+            si /= n;
+            sp /= n;
+            sii /= n;
+            sip /= n;
+            float a = (sip - si * sp) / (max(0.0, sii - si * si) + 0.001);
+            gl_FragColor = vec4(a, sp - a * si, 0.0, 1.0);
+        }
+    """
+
+    /**
+     * `ve_guidedApply` and, for a person, `ve_personCoverage`: `clamp(a · i + b, 0, 1)` with the
+     * coefficients [uCoefficients] read between their pixels, then `smoothstep(black, white, m)`
+     * when [uCoverage].z is 1. [app.takes.core.MaskRefinement.guidedApply], `personCoverage`.
+     */
+    val GUIDED_APPLY = """
+        $HEAD
+        uniform sampler2D uCoefficients;
+        uniform vec3 uCoverage;
+        void main() {
+            vec2 uv = (pixel() + 0.5) / uOut;
+            vec2 ab = texture2D(uCoefficients, vec2(uv.x, 1.0 - uv.y)).rg;
+            float m = clamp(ab.x * srgb(vec3(luma(read(uv)))).x + ab.y, 0.0, 1.0);
+            if (uCoverage.z > 0.5) m = smoothstep(uCoverage.x, uCoverage.y, m);
+            gl_FragColor = vec4(vec3(m), 1.0);
+        }
+    """
+
+    /**
+     * Chroma Key's person hint on its matte [uTex] (`ve_keyAlpha`, Metal:474-479,
+     * [app.takes.core.VideoEffectFormulasC.hinted]): cleared where the grown person [uDilated] is
+     * under 0.005, made whole where the shrunk person [uEroded] passes 0.995 and the key keeps
+     * more than 0.2.
+     */
+    val HINT = """
+        $HEAD
+        uniform sampler2D uDilated;
+        uniform sampler2D uEroded;
+        void main() {
+            vec2 uv = (pixel() + 0.5) / uOut;
+            float a = read(uv).r;
+            vec2 t = vec2(uv.x, 1.0 - uv.y);
+            if (texture2D(uDilated, t).r < 0.005) a = 0.0;
+            if (texture2D(uEroded, t).r > 0.995 && a > 0.2) a = 1.0;
+            gl_FragColor = vec4(vec3(a), 1.0);
+        }
+    """
+
+    /**
+     * `ve_bgWeight` (Metal:491-501, [app.takes.core.AutoBackgroundFormulas.backgroundWeight]):
+     * what is known of the background at this smaller size, the picture [uTex] times one minus
+     * the person [uMask], or with [uWeightOnly] that weight alone.
+     */
+    val BACKGROUND_WEIGHT = """
+        $HEAD
+        uniform sampler2D uMask;
+        uniform float uWeightOnly;
+        void main() {
+            vec2 uv = (pixel() + 0.5) / uOut;
+            float w = 1.0 - texture2D(uMask, vec2(uv.x, 1.0 - uv.y)).r;
+            gl_FragColor = vec4(uWeightOnly > 0.5 ? vec3(w) : read(uv) * w, 1.0);
+        }
+    """
+
+    /**
+     * `ve_bgNormalize` ([app.takes.core.AutoBackgroundFormulas.normalize]): the blurred known
+     * background [uTex] over its blurred weight [uWeight] where that passes 0.001, else the
+     * picture [uFallback] (the chain's, sRGB-encoded) there.
+     */
+    val BACKGROUND_NORMALIZE = """
+        $HEAD
+        uniform sampler2D uWeight;
+        uniform sampler2D uFallback;
+        void main() {
+            vec2 uv = (pixel() + 0.5) / uOut;
+            vec2 t = vec2(uv.x, 1.0 - uv.y);
+            float a = texture2D(uWeight, t).r;
+            gl_FragColor = vec4(a > 0.001 ? read(uv) / a : lin(clamp(texture2D(uFallback, t).rgb, 0.0, 1.0)), 1.0);
+        }
+    """
+
+    /**
+     * Studio and, with [uWindow], Window ([app.takes.core.AutoBackgroundFormulas.studioBackground],
+     * Assets:604-613): a radial light at 30 % across and 30 % down falling to the dark at 80 % of
+     * the width, in linear light; Window's two panes. The colours come linear.
+     */
+    val STUDIO = """
+        $HEAD
+        uniform vec3 uLight;
+        uniform vec3 uDark;
+        uniform vec3 uPane;
+        uniform float uWindow;
+        void main() {
+            vec2 q = pixel();
+            float w = uOut.x;
+            float h = uOut.y;
+            float x = q.x + 0.5;
+            float y = h - (q.y + 0.5);
+            bool pane = uWindow > 0.5 && y >= h * 0.18 && y < h * 0.18 + h * 0.65 &&
+                ((x >= w * 0.64 && x < w * 0.64 + w * 0.1) || (x >= w * 0.80 && x < w * 0.80 + w * 0.1));
+            float t = clamp(length(vec2(x - w * 0.3, y - h * 0.7)) / (w * 0.8), 0.0, 1.0);
+            gl_FragColor = vec4(pane ? uPane : mix(uLight, uDark, t), 1.0);
+        }
+    """
+
     /** An Image background: the picture [uTex] scaled by [uPlace].x, its top left at [uPlace].yz pixels, black outside it. */
     val PLACE = """
         $HEAD
@@ -405,7 +556,8 @@ internal class EffectGpu {
         val program = program(fragment)
         GlUtil.focusFramebufferUsingCurrentContext(framebuffer, width, height)
         program.use()
-        program.setSamplerTexIdUniform("uTex", source.texture, 0)
+        // A pass that draws without reading a picture (Studio, Window) has no uTex once compiled.
+        if (program.getUniformLocation("uTex") != -1) program.setSamplerTexIdUniform("uTex", source.texture, 0)
         program.setFloatsUniformIfPresent("uEncoded", floatArrayOf(if (source.encoded) 1f else 0f))
         program.setFloatsUniformIfPresent("uIn", floatArrayOf(source.width.toFloat(), source.height.toFloat()))
         program.setFloatsUniformIfPresent("uOut", floatArrayOf(width.toFloat(), height.toFloat()))
@@ -504,6 +656,80 @@ internal class EffectGpu {
     /** An Image background: [picture] (sRGB-encoded) placed on a picture of [width] × [height] by [scale] with its top left at [left], [top], into [key]. */
     fun place(picture: EffectSource, key: String, width: Int, height: Int, scale: Double, left: Double, top: Double): EffectTarget =
         draw(EffectPassShaders.PLACE, picture, key, width, height, { p -> p.setFloatsUniform("uPlace", floatArrayOf(scale.toFloat(), left.toFloat(), top.toFloat())) })
+
+    /**
+     * The person [mask] laid on a picture of [width] × [height], into [key]: [toMask] takes a
+     * pixel of that picture to a position 0…1 on the mask (rows of the matrix: x, y).
+     */
+    fun placeMask(mask: EffectSource, key: String, width: Int, height: Int, toMask: app.takes.core.Affine): EffectTarget =
+        draw(EffectPassShaders.MASK_PLACE, mask, key, width, height, { p ->
+            // Column-major, as GL takes a mat3: the columns are (a, b, 0), (c, d, 0), (tx, ty, 1) for x' = a·x + c·y + tx.
+            p.setFloatsUniform("uToMask", floatArrayOf(
+                toMask.a.toFloat(), toMask.b.toFloat(), 0f,
+                toMask.c.toFloat(), toMask.d.toFloat(), 0f,
+                toMask.tx.toFloat(), toMask.ty.toFloat(), 1f,
+            ))
+        })
+
+    /**
+     * The original's `refinedMask` ([app.takes.core.MaskRefinement.refinedMask]) of [mask], at
+     * [guide]'s size, on [guide] (the chain's picture): the guided filter's coefficients at the
+     * plan's size, blurred, applied at the guide's size, the coverage clip for a [person], then
+     * grown or shrunk by [grow] pixels at 1080. Into [key].
+     */
+    fun refined(mask: EffectSource, guide: EffectSource, key: String, softness: Double, grow: Double = 0.0, person: Boolean = false, lite: Boolean = false): EffectTarget {
+        val plan = app.takes.core.MaskRefinement.plan(guide.width, guide.height, softness, lite, person)
+        val stats = draw(EffectPassShaders.GUIDED_STATS, guide, "$key.stats", plan.width, plan.height, { p ->
+            p.setSamplerTexIdUniform("uMask", mask.texture, 1)
+            p.setFloatsUniform("uRadius", floatArrayOf(minOf(plan.radius, app.takes.core.MaskRefinement.GUIDED_RADIUS_LIMIT).toFloat()))
+        })
+        val smooth = blur(EffectSource(stats), "$key.smooth", plan.sigma)
+        val applied = draw(EffectPassShaders.GUIDED_APPLY, guide, if (grow != 0.0) "$key.applied" else key, guide.width, guide.height, { p ->
+            p.setSamplerTexIdUniform("uCoefficients", smooth.texture, 1)
+            p.setFloatsUniform("uCoverage", floatArrayOf(plan.black.toFloat(), plan.white.toFloat(), if (person) 1f else 0f))
+        })
+        if (grow == 0.0) return applied
+        return morph(EffectSource(applied), key, grow * minOf(guide.width, guide.height) / 1080)
+    }
+
+    /** Chroma Key's [matte] bounded by the person: grown [dilated] and shrunk [eroded] masks. Into [key]. */
+    fun hint(matte: EffectSource, dilated: EffectSource, eroded: EffectSource, key: String): EffectTarget =
+        draw(EffectPassShaders.HINT, matte, key, matte.width, matte.height, { p ->
+            p.setSamplerTexIdUniform("uDilated", dilated.texture, 1)
+            p.setSamplerTexIdUniform("uEroded", eroded.texture, 2)
+        })
+
+    /**
+     * The original's `backgroundEstimate` without fill ([app.takes.core.AutoBackgroundFormulas.backgroundEstimate]):
+     * the background known around the person [mask] in [source], blurred by 4 pixels at 1080 at a quarter of the
+     * size, over its blurred weight; the picture itself where nothing of the background is known. Into [key].
+     */
+    fun backgroundEstimate(source: EffectSource, mask: EffectSource, key: String): EffectTarget {
+        val width = VideoEffectPasses.quarter(source.width)
+        val height = VideoEffectPasses.quarter(source.height)
+        fun weight(only: Boolean, into: String) = draw(EffectPassShaders.BACKGROUND_WEIGHT, source, into, width, height, { p ->
+            p.setSamplerTexIdUniform("uMask", mask.texture, 1)
+            p.setFloatsUniform("uWeightOnly", floatArrayOf(if (only) 1f else 0f))
+        })
+        val sigma = 4.0 * minOf(source.width, source.height) / 1080
+        val color = blur(EffectSource(weight(false, "$key.color")), "$key.color.blur", sigma)
+        val known = blur(EffectSource(weight(true, "$key.weight")), "$key.weight.blur", sigma)
+        return draw(EffectPassShaders.BACKGROUND_NORMALIZE, EffectSource(color), key, width, height, { p ->
+            p.setSamplerTexIdUniform("uWeight", known.texture, 1)
+            p.setSamplerTexIdUniform("uFallback", source.texture, 2)
+        })
+    }
+
+    /** Studio, or with [window] Window, at [width] × [height]. Into [key]. */
+    fun studio(source: EffectSource, key: String, width: Int, height: Int, window: Boolean): EffectTarget {
+        fun linear(c: app.takes.core.EffectRGB) = app.takes.core.EffectColorMath.linear(c).let { floatArrayOf(it.x.toFloat(), it.y.toFloat(), it.z.toFloat()) }
+        return draw(EffectPassShaders.STUDIO, source, key, width, height, { p ->
+            p.setFloatsUniform("uLight", linear(app.takes.core.AutoBackgroundFormulas.STUDIO_LIGHT))
+            p.setFloatsUniform("uDark", linear(app.takes.core.AutoBackgroundFormulas.STUDIO_DARK))
+            p.setFloatsUniform("uPane", linear(app.takes.core.AutoBackgroundFormulas.WINDOW_PANE))
+            p.setFloatsUniform("uWindow", floatArrayOf(if (window) 1f else 0f))
+        })
+    }
 
     /** The 64 colours on the border of [source] that `ve_screenReference` reads, in its order, linear. */
     fun border(source: EffectSource): List<EffectVector> {

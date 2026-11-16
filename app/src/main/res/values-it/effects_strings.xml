@@ -152,8 +152,11 @@
     <string name="effect_quantization_history">La posterizzazione riduce i toni continui a bande piatte, ricordando le serigrafie fotografiche degli anni Sessanta.</string>
     <string name="effect_chroma_key">Chroma Key</string>
     <string name="effect_chroma_key_summary">Rimuovi uno sfondo verde o blu e scegline uno nuovo.</string>
-    <string name="effect_chroma_key_help">Usa uno sfondo verde o blu dietro il soggetto. Colore dello sfondo indica il colore da rimuovere; Sfondo lo sostituisce con un colore pieno, un’immagine dal telefono o una copia sfocata dell’originale. La vista Maschera mostra ciò che resta. Despill rimuove le frange colorate.</string>
+    <string name="effect_chroma_key_help">Usa uno sfondo verde o blu dietro il soggetto. Colore dello sfondo indica il colore da rimuovere; Sfondo lo sostituisce con un colore pieno, un’immagine dal telefono, una copia sfocata dell’originale, Studio o Finestra. La vista Maschera mostra ciò che resta. Despill rimuove le frange colorate.</string>
     <string name="effect_chroma_key_history">I mascherini in movimento per differenza di colore separano un soggetto ripreso davanti a un fondale blu o verde.</string>
+    <string name="effect_auto_background">Sfondo automatico</string>
+    <string name="effect_auto_background_summary">Tieni le persone e sfoca o sostituisci lo sfondo.</string>
+    <string name="effect_auto_background_help">Tieni le persone e sostituisci o sfoca ciò che c’è dietro. Se non si vede nessuno, tutta l’immagine diventa sfondo. Morbidezza dei bordi e Restringi / allarga rifiniscono il contorno; Avvolgimento della luce lo fonde con il nuovo sfondo. Capelli e movimenti veloci possono richiedere qualche ritocco. La persona viene trovata la prima volta che la clip è mostrata o esportata, e servono alcuni secondi.</string>
     <string name="effect_night_fix">Recupero notturno</string>
     <string name="effect_night_fix_summary">Schiarisci le riprese scure e pulisci il rumore. Solo nell’editor.</string>
     <string name="effect_night_fix_help">Schiarisci le riprese scure e riduci il rumore dopo la registrazione, con una pulizia rapida fotogramma per fotogramma. Aumenta il recupero gradualmente: impostazioni forti possono ammorbidire i dettagli o far emergere macchie di colore.</string>
@@ -248,6 +251,7 @@
     <string name="effect_control_despill">Despill</string>
     <string name="effect_control_light_wrap">Avvolgimento della luce</string>
     <string name="effect_control_person_hint">Usa la sagoma della persona</string>
+    <string name="effect_control_portrait_blur">Sfocatura ritratto</string>
     <string name="effect_control_clean_plate">Fondale vuoto</string>
     <string name="effect_control_view">Vista</string>
     <string name="effect_control_background">Sfondo</string>
@@ -305,6 +309,8 @@
     <string name="effect_choice_solid">Colore pieno</string>
     <string name="effect_choice_image">Immagine</string>
     <string name="effect_choice_blur_original">Originale sfocato</string>
+    <string name="effect_choice_studio">Studio</string>
+    <string name="effect_choice_window">Finestra</string>
     <string name="effect_choice_fill">Riempi</string>
     <string name="effect_choice_fit">Adatta</string>
     <string name="effect_choice_fast">Rapida</string>

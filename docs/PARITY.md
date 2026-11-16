@@ -25,10 +25,10 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 120 |
-| PARTIAL | 42 |
-| CORE ONLY | 8 |
-| MISSING | 33 |
+| DONE | 123 |
+| PARTIAL | 41 |
+| CORE ONLY | 7 |
+| MISSING | 32 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -45,7 +45,7 @@ Per area:
 | 7. Titles and fonts | 9 | 0 | 1 | 0 | 0 |
 | 8. Audio | 3 | 6 | 0 | 12 | 0 |
 | 9. Subtitles | 10 | 1 | 0 | 2 | 0 |
-| 10. Video effects | 4 | 7 | 1 | 2 | 1 |
+| 10. Video effects | 7 | 6 | 0 | 1 | 1 |
 | 11. Export | 9 | 1 | 0 | 2 | 0 |
 | 12. Settings, credits, localisation, accessibility | 3 | 1 | 0 | 1 | 2 |
 
@@ -289,7 +289,7 @@ Not a departure any more: with Auto the port used to force the language of the f
 
 ## 10. Video effects
 
-The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:34-37`, definitions at `O/VideoEffects/VideoEffectCatalog.swift:189-390`), drawn by one Metal file shared by preview and export. The port has the model, the catalogue, the keyframes and each effect's reference formulas in `core` (C/VideoEffectModel.kt, C/VideoEffectCatalog.kt, C/VideoEffectFormulas.kt, C/VideoEffectFormulasB.kt, C/VideoEffectFormulasC.kt, C/VideoEffectFrame.kt, C/VideoEffectPasses.kt, C/VideoEffectTiming.kt), and draws three batches of them: the export by OpenGL passes over Media3 (A/EffectRendering.kt, A/EffectPasses.kt, A/EffectNightFix.kt), the preview by one AGSL shader a pass on each deck from Android 13 (A/EffectRendering.kt `EffectPreview`), with no grain and with stand-ins for the blurs and mattes the export draws before a pass. The editor offers what is drawn (A/EffectsWork.kt `AndroidVideoEffects`: batch A, B and C) and says so of an effect it does not draw.
+The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:34-37`, definitions at `O/VideoEffects/VideoEffectCatalog.swift:189-390`), drawn by one Metal file shared by preview and export. The port has the model, the catalogue, the keyframes and each effect's reference formulas in `core` (C/VideoEffectModel.kt, C/VideoEffectCatalog.kt, C/VideoEffectFormulas.kt, C/VideoEffectFormulasB.kt, C/VideoEffectFormulasC.kt, C/VideoEffectFrame.kt, C/VideoEffectPasses.kt, C/VideoEffectTiming.kt), and draws three batches of them: the export by OpenGL passes over Media3 (A/EffectRendering.kt, A/EffectPasses.kt, A/EffectNightFix.kt), the preview by one AGSL shader a pass on each deck from Android 13 (A/EffectRendering.kt `EffectPreview`), with no grain and with stand-ins for the blurs and mattes the export draws before a pass. The editor offers what is drawn (A/EffectsWork.kt `AndroidVideoEffects`: batch A, B and C, the time effects, and where LiteRT runs the person batch) and says so of an effect it does not draw. The person mask is the one departure the platform forces: MediaPipe's selfie segmenter on LiteRT stands in for Vision (docs/SEGMENTATION-PROBE.md), 256 × 256 where Vision accurate gives up to 1024 pixels, analysed in ten-second chunks as the original's editor does (A/PersonMasks.kt, C/PersonMaskChunks.kt) and laid on the frame through the same framing (C/PersonMaskPlacement.kt); everything after the mask follows the original (C/MaskRefinement.kt, C/AutoBackgroundFormulas.kt, C/PersonMaskSmoother.kt, C/VideoEffectTemporalWindow.kt).
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
@@ -299,11 +299,11 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 | Kaleidoscope with on-preview guide | O/VideoEffects/VideoEffectCatalog.swift:287, O/VideoEffects/KaleidoscopeGuide.swift:41-300 | PARTIAL | Batch A, its mapping from C/VideoEffectFormulas.kt `kaleidoscope` | The guide on the picture | M | Yes |
 | Crash Zoom | O/VideoEffects/VideoEffectCatalog.swift:276, O/VideoEffects/VideoEffectMath.swift:224 | PARTIAL | Batch B (A/EffectsWork.kt:29-36), its move, map and radial blur | The target follows a face in the original; here it is set by hand | M | Yes |
 | Widescreen 1953 (bars, blur fill, flares) | O/VideoEffects/VideoEffectCatalog.swift:296 | DONE | Batch B, bars, flares and blur fill (the preview's flares and fill simplified) | Oval bokeh needs Cinematic depth: N/A | | |
-| Film texture: Halation, 16mm, Super 8 | O/VideoEffects/VideoEffectCatalog.swift:321-335 | PARTIAL | Batch B, multi-pass with grain and weave in the export (A/EffectPasses.kt); simplified in the preview, without grain | Super 8's cadence, which changes what plays when (the playback map's) | M | Yes |
-| Quantization (palettes, dithering, "from scene" palette, saved palette) | O/VideoEffects/VideoEffectCatalog.swift:259, O/VideoEffects/VideoEffectMath.swift:81-163 | PARTIAL | Batch C (A/EffectsWork.kt:38-46), the palette from the scene by the core's k-means (C/VideoEffectPalette.kt), smoothing and dithering | Face detail, which needs a person mask | M | Yes |
-| Time effects: Freeze Frame, Step Printing, Undercranking | O/VideoEffects/VideoEffectCatalog.swift:303-314, O/VideoEffects/VideoEffectTiming.swift:18-68 | CORE ONLY | C/VideoEffectTiming.kt (spans, blended frames, held frame, freeze), C/PlaybackSpan.kt | Retiming in player and export | L | Yes |
-| Chroma Key with background (solid, image, video, blur, studio, window), clean plate, eyedropper | O/VideoEffects/VideoEffectCatalog.swift:343 | PARTIAL | Batch C: the spatial keyer on a solid colour, a picture from the phone or the picture blurred | The other backgrounds, the clean plate, the person hint and the match colour (hidden, A/EffectsWork.kt:62), the eyedropper | L | Yes |
-| Auto Background, Color Isolation "The subject", person hints (person segmentation) | O/VideoEffects/VideoEffectCatalog.swift:371, O/VideoEffects/VideoEffectAssets.swift:346-353 | MISSING | — | Segmentation model (for example ML Kit selfie segmentation), temporal matte | L | Phone |
+| Film texture: Halation, 16mm, Super 8 | O/VideoEffects/VideoEffectCatalog.swift:321-335 | DONE | Batch B, multi-pass with grain and weave in the export (A/EffectPasses.kt); Super 8's cadence held by the movie's clock (A/TimeEffectRendering.kt); simplified in the preview, without grain | — | | |
+| Quantization (palettes, dithering, "from scene" palette, saved palette) | O/VideoEffects/VideoEffectCatalog.swift:259, O/VideoEffects/VideoEffectMath.swift:81-163 | DONE | Batch C (A/EffectsWork.kt), the palette from the scene by the core's k-means (C/VideoEffectPalette.kt), smoothing and dithering; face detail on the person mask in the export (A/EffectRendering.kt), where LiteRT runs | The preview draws no face detail | | |
+| Time effects: Freeze Frame, Step Printing, Undercranking | O/VideoEffects/VideoEffectCatalog.swift:303-314, O/VideoEffects/VideoEffectTiming.swift:18-68 | DONE | C/VideoEffectTiming.kt, C/PlaybackSpan.kt; played through the playback map, the held frames and Step Printing's blends drawn in the export (A/TimeEffectRendering.kt) | The preview simplifies the cadence, the blends and Print's grain | | |
+| Chroma Key with background (solid, image, video, blur, studio, window), clean plate, eyedropper | O/VideoEffects/VideoEffectCatalog.swift:343 | PARTIAL | Batch C: the spatial keyer on a solid colour, a picture from the phone, the picture blurred, Studio and Window; the person hint where LiteRT runs | The video background, the clean plate, the match colour (hidden, A/EffectsWork.kt `HIDDEN`), the eyedropper, the temporal matte (algorithm 2) | L | Yes |
+| Auto Background, Color Isolation "The subject", person hints (person segmentation) | O/VideoEffects/VideoEffectCatalog.swift:371, O/VideoEffects/VideoEffectAssets.swift:346-353 | PARTIAL | A/PersonMasks.kt (MediaPipe's selfie segmenter on LiteRT 1.4.2, the masks in ten-second chunks under the project's Cache/masks), A/EffectRendering.kt and A/EffectPasses.kt (the mask laid on the frame, the guided filter and coverage, the background estimate, Studio and Window); Auto Background, Color Isolation's subject, Chroma Key's person hint and Quantization's face detail in the export; hidden where LiteRT has no native library | The model's mask (256 × 256, docs/SEGMENTATION-PROBE.md); Auto Background's smoothed mask stream (C/PersonMaskSmoother.kt is ported, not yet run on the analysis), its video background and match colour; the temporal matte (algorithm 2) for Color Isolation; the preview leaves the picture as it is for these | M | Phone |
 | Dolly Zoom | O/VideoEffects/VideoEffectCatalog.swift:268 | MISSING | — | Person/depth layers and warp | L | Phone |
 | Night fix (Fast / Medium / Precise multi-frame denoise) | O/VideoEffects/NightFix.swift:51-297, O/VideoEffects/VideoEffectCatalog.swift:203 | PARTIAL | Fast on the raw frame before its colour, in the export (A/EffectNightFix.kt) and the preview (A/EffectRendering.kt `nightFix`), C/VideoEffectNightFix.kt | Medium and Precise need optical flow and are drawn Fast | L | Phone |
 | Effects from Cinematic-mode depth (oval bokeh, depth dolly) | README:272-275 | N/A | — | Apple Cinematic depth tracks | | |

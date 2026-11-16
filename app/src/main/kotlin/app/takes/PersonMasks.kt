@@ -67,6 +67,23 @@ object PersonMasks {
         }
     }
 
+    private val rotations = ConcurrentHashMap<String, Int>()
+
+    /** Clockwise degrees that turn the frames of [file] upright, as a stored mask is turned: 0, 90, 180 or 270. */
+    fun rotation(file: File): Int = rotations.getOrPut("${file.path}:${file.lastModified()}") {
+        android.media.MediaMetadataRetriever().run {
+            try {
+                setDataSource(file.path)
+                val degrees = extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                ((degrees / 90.0).roundToInt() * 90 % 360 + 360) % 360
+            } catch (_: Exception) {
+                0
+            } finally {
+                release()
+            }
+        }
+    }
+
     /** The masks found or made: the [chunks] of [directory] that hold masks; [complete] when every one asked for does. */
     class Analysis(val directory: File, val chunks: List<Int>, val complete: Boolean)
 

@@ -65,6 +65,9 @@ object EffectShader {
         // time effects: Freeze Frame's push-in and Print, Undercranking's flicker and weave (TimeEffectRendering.kt holds
         // their frames and blends Step Printing's).
         VideoEffectID.Quantization, VideoEffectID.ChromaKey, VideoEffectID.FreezeFrame, VideoEffectID.Undercranking,
+        // Those that read the person in the frame (PersonMasks.kt): Auto Background; Color Isolation's subject, Chroma
+        // Key's person hint and Quantization's face detail are parts of effects above.
+        VideoEffectID.AutoBackground,
     )
 
     /** How many parameter slots the shader takes. */
@@ -226,9 +229,10 @@ object EffectShader {
             if (uP2.x > 0.5) o = mix(o, vec3(y * exp2(-0.7 * darkness)), smoothstep(0.94, 0.99, y) * 0.7);
             return o * (1.0 - 0.15 * smoothstep(0.2, 0.75, length(uv - 0.5)));
         }
-        // Metal:333-335, by hue only: a matte of the subject does not exist here, and the picture is left as it is.
-        vec3 colorIsolation(vec3 c, float y) {
-            if (uP0.x > 0.5) return c;
+        // Metal:333-335, :351-353. The subject: auxAt the person's refined mask, when uX0.x says the frame has one
+        // (else the picture as it is); a colour: by hue.
+        vec3 colorIsolation(vec3 c, float y, vec2 uv) {
+            if (uP0.x > 0.5) return uX0.x > 0.5 ? mix(vec3(y), c, auxAt(uv).r) : c;
             vec3 h = hsv(srgb(c));
             vec3 target = hsv(srgb(uP1.xyz));
             float r = uP2.x / 360.0;
@@ -379,12 +383,16 @@ object EffectShader {
             }
             return (value + 0.5) / (size * size);
         }
-        // Metal:313-316, :357-365, without face detail: the palette (Oklab) and luma steps of the frame; auxAt the smoothed picture.
+        // Metal:313-316, :357-365: the palette (Oklab) and luma steps of the frame; auxAt the smoothed picture. Face detail
+        // (Metal:359), when uX0.x says so and there are at most four colours: sharpened against backAt (the frame blurred)
+        // where moreAt (the person's raw mask) is.
         vec3 quantization(vec3 original, vec2 uv, vec2 q) {
             if (uCount < 1.5) return original;
             vec3 c = uP3.x > 0.0 ? auxAt(uv) : original;
             float l0 = luma(c);
-            vec3 v = lab(clamp(c + 0.2 * (l0 * l0 * (3.0 - 2.0 * l0) - l0), 0.0, 1.0));
+            vec3 contrasted = c + 0.2 * (l0 * l0 * (3.0 - 2.0 * l0) - l0);
+            if (uX0.x > 0.5 && uCount < 4.5) contrasted += (contrasted - backAt(uv)) * (0.4 * moreAt(uv).r);
+            vec3 v = lab(clamp(contrasted, 0.0, 1.0));
             float dithering = uP4.x;
             if (dithering > 0.5) {
                 float spread = 0.0;
@@ -442,6 +450,23 @@ object EffectShader {
             if (uP13.x > 0.5) return vec3(a);
             return o;
         }
+        // Metal:400-415: auxAt the person's refined mask, moreAt the local background behind it (the estimate), backAt
+        // the new background and extraAt its light wrap, each times uX0.w (its brightness), or uX1.xyz a solid colour
+        // when uX1.w is 1; uX0.x the light wrap, uX0.y the view (Result, Matte, Original), uX0.z 1 when the frame has a
+        // person mask (else the picture as it is).
+        vec3 autoBackground(vec3 c, vec2 uv) {
+            if (uX0.z < 0.5) return c;
+            float a = auxAt(uv).r;
+            bool solid = uX1.w > 0.5;
+            vec3 background = solid ? uX1.xyz : backAt(uv) * uX0.w;
+            vec3 wrapped = solid ? uX1.xyz : extraAt(uv) * uX0.w;
+            vec3 straight = clamp((c - moreAt(uv) * (1.0 - a)) / max(a, 0.0001), 0.0, 1.0);
+            vec3 o = straight * a + background * (1.0 - a);
+            o += wrapped * (a * (1.0 - a) * 4.0 * uX0.x * 0.25);
+            if (uX0.y > 1.5) return c;
+            if (uX0.y > 0.5) return vec3(a);
+            return o;
+        }
         // Metal:96, :386-387: the held frame magnified about the centre by the push-in, uHead.z the hold's clock; Print's grey,
         // vignette and colour grain.
         vec3 freezeFrame(vec2 uv, vec2 q, float pixelScale) {
@@ -467,7 +492,7 @@ object EffectShader {
         1 to "o = threeStrip(c);",
         2 to "o = bleachBypass(c, y);",
         3 to "o = dayForNight(c, y, uv);",
-        4 to "o = colorIsolation(c, y);",
+        4 to "o = colorIsolation(c, y, uv);",
         5 to "o = noir(c, q, pixelScale);",
         6 to "o = expressionism(c, y, uv);",
         15 to "o = halation(c, y, uv);",
@@ -477,6 +502,7 @@ object EffectShader {
         9 to "o = crashZoom(uv);",
         7 to "o = quantization(c, uv, q);",
         18 to "o = chromaKey(c, uv);",
+        19 to "o = autoBackground(c, uv);",
         12 to "o = freezeFrame(uv, q, pixelScale);",
         14 to "o = undercranking(uv);",
     )
@@ -531,7 +557,9 @@ object EffectShader {
         uniform sampler2D uAux;
         uniform sampler2D uBack;
         uniform sampler2D uExtra;
+        uniform sampler2D uMore;
         vec3 auxAt(vec2 uv) { return texture2D(uAux, vec2(uv.x, 1.0 - uv.y)).rgb; }
+        vec3 moreAt(vec2 uv) { return texture2D(uMore, vec2(uv.x, 1.0 - uv.y)).rgb; }
         vec3 backAt(vec2 uv) { return texture2D(uBack, vec2(uv.x, 1.0 - uv.y)).rgb; }
         vec3 extraAt(vec2 uv) { return texture2D(uExtra, vec2(uv.x, 1.0 - uv.y)).rgb; }
         vec3 keyScreen() { return uX0.xyz; }
@@ -634,6 +662,7 @@ object EffectShader {
         vec3 auxAt(vec2 uv) { return $aux; }
         vec3 backAt(vec2 uv) { return $back; }
         vec3 extraAt(vec2 uv) { return $extra; }
+        vec3 moreAt(vec2 uv) { return vec3(0.0); }
         """
     }
 
@@ -854,7 +883,7 @@ class VideoEffectChain(
     }
 
     /** The pictures a pass reads besides its input, 0 for none, and the numbers worked out with them, which replace [EffectShader.extras]. */
-    private class Auxiliary(val aux: Int = 0, val back: Int = 0, val extra: Int = 0, val extras: FloatArray? = null)
+    private class Auxiliary(val aux: Int = 0, val back: Int = 0, val extra: Int = 0, val extras: FloatArray? = null, val more: Int = 0)
 
     private inner class Program : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
         private var program: GlProgram? = null
@@ -901,6 +930,7 @@ class VideoEffectChain(
             program.setSamplerTexIdUniform("uAux", auxiliary.aux.takeIf { it != 0 } ?: texture, 2)
             program.setSamplerTexIdUniform("uBack", auxiliary.back.takeIf { it != 0 } ?: texture, 3)
             program.setSamplerTexIdUniform("uExtra", auxiliary.extra.takeIf { it != 0 } ?: texture, 4)
+            program.setSamplerTexIdUniform("uMore", auxiliary.more.takeIf { it != 0 } ?: texture, 5)
             program.setFloatsUniformIfPresent("uCount", floatArrayOf(if (pass == null) 0f else EffectShader.count(pass)))
             program.bindAttributesAndUniforms()
             // Arrays after the program's own binding, which knows only their first element.
@@ -925,6 +955,11 @@ class VideoEffectChain(
             val shown = if (holdsFrames(clip)) VideoEffectTiming.shown(clip, movieFrameOffset(presentationTimeUs, begins, clip, frameRate), sourceFPS, clock)
             else app.takes.core.VideoEffectShown(clip.sourceTime(offset))
             val sourceTime = shown.sourceTime
+            frameOffset = offset
+            frameSourceTime = sourceTime
+            personFrame = null
+            personLooked = false
+            placed.clear()
             val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime), shown.holdTime)
             if (passes.isEmpty()) {
                 // The picture as it is, pixel for pixel: read without filtering, which some GPUs let a hair of a
@@ -981,10 +1016,30 @@ class VideoEffectChain(
                 }
                 VideoEffectID.SixteenMM -> if (pass.number("softness") > 0) Auxiliary(aux = gpu.blur(source, "aux", 1.5 * scale).texture) else Auxiliary()
                 VideoEffectID.SuperEight -> Auxiliary(aux = gpu.blur(source, "aux", 2 * scale).texture)
-                VideoEffectID.Quantization -> pass.number("smoothing").takeIf { it > 0 }?.let { smoothing ->
-                    Auxiliary(aux = gpu.bilateral(source, "aux", VideoEffectQuantization.smoothingPlan(width, height, smoothing)).texture)
-                } ?: Auxiliary()
+                VideoEffectID.Quantization -> {
+                    val smoothed = pass.number("smoothing").takeIf { it > 0 }?.let { smoothing ->
+                        gpu.bilateral(source, "aux", VideoEffectQuantization.smoothingPlan(width, height, smoothing)).texture
+                    } ?: 0
+                    // Face detail: the frame blurred by 8 pixels at 1080 at half its size, and the raw person mask (Renderer:459-461).
+                    val person = if (pass.number("faceDetail") > .5 && pass.number("colors") <= 4) person(width, height) else null
+                    if (person == null) {
+                        Auxiliary(aux = smoothed)
+                    } else {
+                        val blurred = gpu.blur(source, "face", 8 * scale, VideoEffectPasses.half(width), VideoEffectPasses.half(height))
+                        Auxiliary(aux = smoothed, back = blurred.texture, more = person.texture, extras = floatArrayOf(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f))
+                    }
+                }
+                // The subject: the person's mask refined on the picture with the effect's softness (Renderer:483-491).
+                VideoEffectID.ColorIsolation -> if (pass.number("mode") > .5) {
+                    person(width, height)?.let { person ->
+                        val refined = gpu.refined(EffectSource(person), source, "isolation", pass.number("softness"), person = true)
+                        Auxiliary(aux = refined.texture, extras = floatArrayOf(1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f))
+                    } ?: Auxiliary()
+                } else {
+                    Auxiliary()
+                }
                 VideoEffectID.ChromaKey -> chromaKey(pass, source)
+                VideoEffectID.AutoBackground -> autoBackground(pass, source)
                 else -> Auxiliary()
             }
         }
@@ -1004,25 +1059,23 @@ class VideoEffectChain(
                 source, "matte", screen, VideoEffectFormulasC.blueScreen(screen, type),
                 pass.number("strength"), pass.number("balance"), pass.number("blackClip"), pass.number("whiteClip"),
             )
+            // The person hint, at a quarter of the size: the garbage matte outside the grown person and the holdout inside
+            // the shrunk one (Renderer:513-519, Metal:474-479).
+            if (pass.number("personHint") > .5) {
+                val w = maxOf(2, width / 4)
+                val h = maxOf(2, height / 4)
+                person(w, h)?.let { person ->
+                    val dilated = gpu.morph(EffectSource(person), "hint.dilated", h * .04)
+                    val eroded = gpu.morph(EffectSource(person), "hint.eroded", -h * .03)
+                    matte = gpu.hint(EffectSource(matte), EffectSource(dilated), EffectSource(eroded), "matte.hinted")
+                }
+            }
             val grow = pass.number("grow") * scale
             if (grow != 0.0) matte = gpu.morph(EffectSource(matte), "matte.grown", grow)
             val softness = pass.number("softness")
             if (softness > 0) matte = gpu.blur(EffectSource(matte), "matte.soft", softness * 1.5 * scale)
             val gain = 2.0.pow(pass.number("backgroundBrightness"))
-            val blur = pass.number("backgroundBlur")
-            val settings = clip.videoEffects.orEmpty().firstOrNull { it.id == pass.id }
-            val background: EffectTarget? = when (EffectShader.background(pass)) {
-                "Image" -> settings?.let(assets::picture)?.let { picture ->
-                    val image = pictureSource(picture)
-                    val fill = pass.number("fit") < .5
-                    val zoom = pass.number("backgroundZoom")
-                    val fit = (if (fill) maxOf(width.toDouble() / image.width, height.toDouble() / image.height) else minOf(width.toDouble() / image.width, height.toDouble() / image.height)) * zoom
-                    val placed = gpu.place(image, "background", width, height, fit, (width - image.width * fit) * pass.number("backgroundX"), (height - image.height * fit) * pass.number("backgroundY"))
-                    if (blur > 0) gpu.blur(EffectSource(placed), "background.blur", blur * scale) else placed
-                }
-                "Blur original" -> gpu.blur(source, "background", 20 * scale).let { if (blur > 0) gpu.blur(EffectSource(it), "background.blur", blur * scale) else it }
-                else -> null
-            }
+            val background = replaced(pass, source, 20.0)
             val extras = floatArrayOf(screen.x.toFloat(), screen.y.toFloat(), screen.z.toFloat(), gain.toFloat(), 0f, 0f, 0f, 0f)
             if (background == null) {
                 // A solid colour, or black for a picture not there.
@@ -1035,6 +1088,104 @@ class VideoEffectChain(
             }
             val wrap = if (pass.number("wrap") > 0) gpu.blur(EffectSource(background), "wrap", width * 0.02, VideoEffectPasses.quarter(width), VideoEffectPasses.quarter(height)) else background
             return Auxiliary(aux = matte.texture, back = background.texture, extra = wrap.texture, extras = extras)
+        }
+
+        /**
+         * The new background of a Chroma Key or an Auto Background, as `AutoBackgroundFormulas.background` makes it
+         * (Assets:587-627) but for its brightness, which the pass applies: the picked picture placed, the frame blurred by
+         * [blurOriginal] pixels at 1080, or Studio or Window; then blurred by "backgroundBlur". Null for a solid colour, or
+         * for a picture not there.
+         */
+        private fun replaced(pass: EffectUniforms, source: EffectSource, blurOriginal: Double): EffectTarget? {
+            val width = source.width
+            val height = source.height
+            val scale = VideoEffectPasses.pixelScale(width, height)
+            val blur = pass.number("backgroundBlur")
+            fun blurred(target: EffectTarget) = if (blur > 0) gpu.blur(EffectSource(target), "background.blur", blur * scale) else target
+            val settings = clip.videoEffects.orEmpty().firstOrNull { it.id == pass.id }
+            return when (EffectShader.background(pass)) {
+                "Image" -> settings?.let(assets::picture)?.let { picture ->
+                    val image = pictureSource(picture)
+                    val fill = pass.number("fit") < .5
+                    val zoom = pass.number("backgroundZoom")
+                    val fit = (if (fill) maxOf(width.toDouble() / image.width, height.toDouble() / image.height) else minOf(width.toDouble() / image.width, height.toDouble() / image.height)) * zoom
+                    blurred(gpu.place(image, "background", width, height, fit, (width - image.width * fit) * pass.number("backgroundX"), (height - image.height * fit) * pass.number("backgroundY")))
+                }
+                // A radius of 0 is no blur in Core Image: the frame as it is, in linear light.
+                "Blur original" -> blurred(if (blurOriginal > 0) gpu.blur(source, "background", blurOriginal * scale) else gpu.reduce(source, "background", width, height))
+                "Studio", "Window" -> blurred(gpu.studio(source, "background", width, height, EffectShader.background(pass) == "Window"))
+                else -> null
+            }
+        }
+
+        /**
+         * Auto Background's pictures, as `AutoBackgroundFormulas.pictures` makes them (Renderer:500-505): the person's
+         * mask refined with the edge softness and grown, the background estimated behind it, the new background and its
+         * light wrap. Without a person mask the pass leaves the picture as it is.
+         */
+        private fun autoBackground(pass: EffectUniforms, source: EffectSource): Auxiliary {
+            val width = source.width
+            val height = source.height
+            val person = person(width, height) ?: return Auxiliary(extras = FloatArray(8))
+            val mask = gpu.refined(EffectSource(person), source, "auto", pass.number("softness"), pass.number("grow"), person = true)
+            val estimate = gpu.backgroundEstimate(source, EffectSource(mask), "estimate")
+            val gain = 2.0.pow(pass.number("backgroundBrightness"))
+            val wrap = pass.number("wrap")
+            val extras = floatArrayOf(wrap.toFloat(), pass.number("view").toFloat(), 1f, gain.toFloat(), 0f, 0f, 0f, 0f)
+            val background = replaced(pass, source, pass.number("portraitBlur"))
+            if (background == null) {
+                val solid = if (EffectShader.background(pass) == "Solid") pass.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
+                extras[4] = solid.x.toFloat()
+                extras[5] = solid.y.toFloat()
+                extras[6] = solid.z.toFloat()
+                extras[7] = 1f
+                return Auxiliary(aux = mask.texture, more = estimate.texture, extras = extras)
+            }
+            val wrapped = if (wrap > 0) gpu.blur(EffectSource(background), "wrap", width * 0.02, VideoEffectPasses.quarter(width), VideoEffectPasses.quarter(height)) else background
+            return Auxiliary(aux = mask.texture, back = background.texture, extra = wrapped.texture, more = estimate.texture, extras = extras)
+        }
+
+        // The person in the frame being drawn: its mask, asked for once a frame, uploaded once, laid on the frame at each size asked.
+        private var frameOffset = 0.0
+        private var frameSourceTime = 0.0
+        private var personFrame: PersonFrame? = null
+        private var personLooked = false
+        private var personTexture = 0
+        private var personUploaded: app.takes.core.PersonMaskChunks.Mask? = null
+        private val placed = HashMap<Pair<Int, Int>, EffectTarget>()
+
+        /** The person mask of the frame laid on a picture of [width] × [height], as the picture is framed; null without one. */
+        private fun person(width: Int, height: Int): EffectTarget? {
+            if (!personLooked) {
+                personLooked = true
+                personFrame = assets.person(frameSourceTime)
+            }
+            val frame = personFrame ?: return null
+            return placed.getOrPut(width to height) {
+                val toMask = app.takes.core.PersonMaskPlacement.toMask(clip, frameOffset, frame.upright, EffectSize(width.toDouble(), height.toDouble()), frame.rotation)
+                gpu.placeMask(personSource(frame.mask), "person.${width}x$height", width, height, toMask)
+            }
+        }
+
+        // A stored mask uploaded as a texture: its value in every channel, rows from the bottom as the chain's textures.
+        private fun personSource(mask: app.takes.core.PersonMaskChunks.Mask): EffectSource {
+            if (mask !== personUploaded || personTexture == 0) {
+                if (personTexture == 0) personTexture = IntArray(1).also { GLES20.glGenTextures(1, it, 0) }[0]
+                val bytes = ByteBuffer.allocateDirect(mask.width * mask.height * 4)
+                for (row in mask.height - 1 downTo 0) for (x in 0 until mask.width) {
+                    val a = mask.rows[row * mask.width + x]
+                    bytes.put(a).put(a).put(a).put(0xff.toByte())
+                }
+                bytes.flip()
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, personTexture)
+                for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
+                for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, mask.width, mask.height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bytes)
+                GlUtil.checkGlError()
+                personUploaded = mask
+            }
+            return EffectSource(personTexture, mask.width, mask.height, encoded = false)
         }
 
         // The picked picture of a background, uploaded once: rows from the bottom, as the chain's textures.
@@ -1116,6 +1267,7 @@ class VideoEffectChain(
             gpu.release()
             for (lattice in lattices.values) GLES20.glDeleteTextures(1, intArrayOf(lattice.texture), 0)
             if (pictureTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(pictureTexture), 0)
+            if (personTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(personTexture), 0)
             program?.delete()
         }
     }

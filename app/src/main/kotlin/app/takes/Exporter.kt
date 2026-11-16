@@ -533,6 +533,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 sizes = used.associateWith { files[it]?.let(::displaySize) }, // the upright size of each recording; a crop is measured in its pixels
                 rates = used.associateWith { files[it]?.let(::frameRate) },
                 black = blackStill(context), luts = folder,
+                media = project.sources.associateBy { it.id },
             )
         }
         finish(project, movie, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
