@@ -803,4 +803,8 @@
         <item quantity="other">%1$d originals were saved to the gallery.</item>
     </plurals>
     <string name="originals_save_failed">%1$d of %2$d originals could not be saved to the gallery.</string>
+    <string name="sound_past_picture_title">Sound after the last clip</string>
+    <string name="sound_past_picture_message">%1$s of sound play after the last clip. The movie now goes on until the sound ends, black after the picture, as it is exported. Keep that sound, or end the movie with the picture?</string>
+    <string name="sound_past_picture_keep">Keep the sound</string>
+    <string name="sound_past_picture_trim">End with the picture</string>
 </resources>

@@ -516,7 +516,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val sound = prepareSound(project, files)
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
         // The movie lasts as long as its longest item, as in the original: past the last clip it goes on in black under the sound.
-        val duration = sound.duration(asked.duration)
+        val duration = sound.duration(asked.duration, store.soundLength(project))
         val plan = if (duration > asked.duration) asked.copy(duration = duration) else asked
         val movie = withContext(Dispatchers.IO) {
             val used = plan.pictures.map { it.sourceID }.distinct()

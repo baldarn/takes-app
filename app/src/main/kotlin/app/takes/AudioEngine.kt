@@ -10,6 +10,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.UnstableApi
+import app.takes.core.AudioLevels
 import app.takes.core.LiveAudioGain
 import app.takes.core.TrackMixEngine
 import app.takes.core.TrackMixPiece
@@ -306,19 +307,28 @@ class MixResult(val peak: Float, val complete: Boolean)
  * [checkpoint] runs between blocks and may throw to stop. The peak is
  * measured before the samples are stopped.
  */
-fun writeMix(engine: TrackMixEngine, target: File, failures: List<String>, checkpoint: () -> Unit = {}, progress: (Double) -> Unit = {}): MixResult {
+fun writeMix(
+    engine: TrackMixEngine, target: File, failures: List<String>, checkpoint: () -> Unit = {}, progress: (Double) -> Unit = {}, fadeEnd: Boolean = false,
+): MixResult {
     val channels = engine.channels
     val block = 4096
     val mix = FloatArray(block * channels)
     val bytes = ByteBuffer.allocate(block * channels * 2).order(ByteOrder.LITTLE_ENDIAN)
     var peak = 0f
+    // A mix cut short of its sound ends with the fade of a cut, not a click.
+    val fading = if (fadeEnd) maxOf(1L, Math.round(engine.sampleRate * AudioLevels.CUT_FADE)) else 0L
     engine.seek(0)
     BufferedOutputStream(FileOutputStream(target), 1 shl 16).use { output ->
         output.write(ByteArray(44))
         while (true) {
             checkpoint()
+            val from = engine.position
             val done = engine.render(mix, block)
             if (done == 0) break
+            for (frame in 0 until done) {
+                val left = engine.frames - (from + frame)
+                if (left <= fading) for (c in 0 until channels) mix[frame * channels + c] *= ((left - 1).toFloat() / fading).coerceAtLeast(0f)
+            }
             bytes.clear()
             for (index in 0 until done * channels) {
                 val value = mix[index]
@@ -356,14 +366,17 @@ fun TrackMixEngine.frames(from: Double, until: Double): LongRange =
 class MovieSound(val plan: TrackMixPlan, private val files: Map<String, File>) {
     /**
      * How long the movie is, its picture lasting [picture] seconds: as long as its longest item, as in the
-     * original. A mix within a millisecond of the picture is the picture's length, which its frames decide.
+     * original, when [withSound]; else, for a project not yet shown that length ([app.takes.core.MovieLength]),
+     * the picture's. A mix within a millisecond of the picture is the picture's length, which its frames decide.
      */
-    fun duration(picture: Double): Double = plan.duration.seconds.takeIf { it > picture + 0.001 } ?: picture
+    fun duration(picture: Double, withSound: Boolean = true): Double =
+        plan.duration.seconds.takeIf { withSound && it > picture + app.takes.core.MovieLength.MARGIN } ?: picture
 
     /** Writes the mix of the movie, [duration] seconds of it, to [target] ([writeMix]). */
     fun write(duration: Double, target: File, checkpoint: () -> Unit, progress: (Double) -> Unit): MixResult {
         val failures = ArrayList<String>()
         val whole = plan.copy(duration = app.takes.core.EditTime.of(duration))
-        return audioEngine(whole, files, Denoiser.input(files), failures = failures).use { writeMix(it, target, failures, checkpoint, progress) }
+        val cut = whole.duration < plan.duration
+        return audioEngine(whole, files, Denoiser.input(files), failures = failures).use { writeMix(it, target, failures, checkpoint, progress, fadeEnd = cut) }
     }
 }
