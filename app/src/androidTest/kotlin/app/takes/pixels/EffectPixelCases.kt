@@ -294,10 +294,14 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
             } else {
                 stage.frame(input, (time * 1e6).roundToLong())
             }
+            // The export draws a frame a cadence holds (Super 8's) as it looks at the second held, decided at the movie's frame; the preview holds none.
+            val clip = app.takes.core.TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 10.0, videoEffects = effects)
+            val drawnAt = if (preview || !app.takes.holdsFrames(clip)) time
+            else app.takes.core.VideoEffectTiming.shown(clip, app.takes.movieFrameOffset((time * 1e6).roundToLong(), 0.0, clip, EffectStage.RATE), EffectStage.RATE, app.takes.core.VideoEffectSequenceClock.of(clip)).sourceTime
             val want = when {
                 identity -> input
                 nightFix -> nightFixed(input, effects.first(), time)
-                else -> expected(effects, time, input, assets)
+                else -> expected(effects, drawnAt, input, assets)
             }
             var worst = 0
             var worstAt = 0
