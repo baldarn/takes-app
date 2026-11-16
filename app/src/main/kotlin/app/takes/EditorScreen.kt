@@ -17,20 +17,13 @@ import androidx.compose.ui.semantics.Role
 import java.util.Date
 import java.text.DateFormat
 import app.takes.core.UnusedTakes
-import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.filled.OpenInFull
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material3.FilterChip
@@ -89,6 +82,10 @@ import app.takes.core.PlacementSpots
 import app.takes.core.SequenceOnly
 import app.takes.core.TrackEditState
 import app.takes.core.TrackComponents
+import app.takes.core.TrackEditorEdits
+import app.takes.core.VideoInsertionSite
+import app.takes.core.InsertionSites
+import androidx.compose.ui.platform.LocalResources
 import app.takes.core.TimelineLinkError
 import app.takes.core.TimelineLinkOutcome
 import app.takes.core.TrackMoveSession
@@ -132,7 +129,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -149,6 +145,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import app.takes.core.EditScope
+import app.takes.core.EditTime
 import app.takes.core.EditState
 import app.takes.core.EditTargets
 import app.takes.core.Project
@@ -230,6 +227,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // Move: the session while it is on, and the draft the preview shows, made again when a drag ends (EditorView.swift:1216-1223).
     var moving by remember { mutableStateOf<TrackMoveSession?>(null) }
     var moveShown by remember { mutableStateOf<EditState?>(null) }
+    // The boundary picker of Move, and the stops a tap on one dashed line could mean (EditorView.swift:288-302, :709-731).
+    val picker = remember { MovePicker() }
     // The Placement tool, and the draft the preview shows, made again when the fingers lift.
     var placementWork by remember { mutableStateOf<Placing?>(null) }
     var placementShown by remember { mutableStateOf<EditState?>(null) }
@@ -496,6 +495,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     var pacing by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
+    // The add button of the timeline the panel was opened from; null for the Add video tool, which adds at the playhead.
+    var addSite by remember { mutableStateOf<VideoInsertionSite?>(null) }
     val unusedFailed = stringResource(R.string.unused_failed)
     // The unused takes chosen so far, in the order they will play; null while the list is closed.
     var choosing by remember { mutableStateOf<List<String>?>(null) }
@@ -647,10 +648,24 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             },
         )
     }
-    // Videos and photos from the phone go in at the playhead, in the order picked, as the original's add panel (AddVideoPanel.swift:45-49).
-    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
-        if (uris.isNotEmpty()) store.insertMedia(project.id, uris, playhead) { start -> jump(start) }
+    // New footage selected, the playhead where it begins (EditorView.swift:885-889).
+    val resources = LocalResources.current
+    val footageAdded = { made: TrackEditorEdits.Made, count: Int ->
+        jump(made.position)
+        marks = RangeMarks(selected = TrackComponents.targets(made.edit, made.selection))
+        feedback = resources.getQuantityString(R.plurals.footage_inserted, count, count)
     }
+    // Videos and photos from the phone go in at the playhead, or at the add button they were chosen from, in the
+    // order picked, as the original's add panel (AddVideoPanel.swift:45-49).
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        val site = addSite
+        val at = InsertionSites.time(edit, playhead, site) ?: playhead
+        if (uris.isNotEmpty()) store.insertMedia(project.id, uris, at, site) { made -> footageAdded(made, uris.size) }
+    }
+    // Bookmarks anywhere: on the picture in front or the one selected, on a selected sound, or in empty time and at the
+    // end (EditorView.swift:1259-1295). Made on the saved edit, so a draft on the screen is never committed with one.
+    val bookmarks = rememberBookmarks(edit, saved, playhead, marks.selected, editable = moving == null, commit = commit, said = { feedback = it })
+    var bookmarksOpen by remember { mutableStateOf(false) }
     val soundName = stringResource(R.string.editor_sound_default_name)
     val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
 
@@ -802,10 +817,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     togglePlay = togglePlay, seek = jump, setSpeed = chooseReviewSpeed,
                     change = { forward -> navigation.destination(playhead, forward) != null },
                     toChange = { forward, effectsOnly -> navigation.destination(playhead, forward, effectsOnly)?.let(jump) },
-                    previousBookmark = TimelineEditing.previousBookmark(clips, playhead), nextBookmark = TimelineEditing.nextBookmark(clips, playhead),
-                    bookmarkUnder = location?.let { TimelineEditing.bookmarkAt(clips, it.index, sourceTime) } != null,
-                    toggleBookmark = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
-                    bookmarks = TimelineEditing.bookmarkTimes(clips), close = { fullPreview = false },
+                    previousBookmark = bookmarks.previous, nextBookmark = bookmarks.next,
+                    bookmarkUnder = bookmarks.under != null, toggleBookmark = bookmarks.toggle,
+                    bookmarks = bookmarks.times, close = { fullPreview = false },
                 ) {
                     pictures()
                     Canvas(Modifier.fillMaxSize()) {
@@ -922,13 +936,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // next change, which a tap takes to the nearest cut or change of treatment and a hold to the nearest change only.
             val toChange = { forward: Boolean, effectsOnly: Boolean -> navigation.destination(playhead, forward, effectsOnly)?.let(jump); Unit }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val under = location?.let { TimelineEditing.bookmarkAt(clips, it.index, sourceTime) }
-                BookmarksMenu(
-                    under = under != null, canToggle = location != null,
-                    toggle = { location?.let { commit(TimelineEditing.toggleBookmark(edit, it.index, sourceTime), playhead) } },
-                    previous = TimelineEditing.previousBookmark(clips, playhead), next = TimelineEditing.nextBookmark(clips, playhead),
-                    times = TimelineEditing.bookmarkTimes(clips), label = ::preciseLabel, go = jump,
-                )
+                EditorBookmarks(bookmarks, playhead, bookmarksOpen, open = { editor.pause(); bookmarksOpen = it }, go = jump)
                 ChangeButton(forward = false, enabled = navigation.destination(playhead, false) != null) { toChange(false, it) }
             }
             val reviewLabel = stringResource(R.string.editor_quick_review)
@@ -1025,9 +1033,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val soundRows = remember(drawnEdit) { TrackComponents.soundRows(drawnEdit) }
         val soundless = remember(drawnEdit) { TrackComponents.soundless(drawnEdit.toTimeline()) }
         val movingSounds = remember(drawnEdit, session?.moving) { session?.let { TrackComponents.targets(drawnEdit, it.moving).audio }.orEmpty() }
+        // The picked material's start put on a stop, the playhead with it (EditorView.swift:1184-1198).
+        // A change of scope, a nudge, a stop or the end of a drag: the draft is the preview's at once.
+        val updateMove = { next: TrackMoveSession? -> if (next != null) { moving = next; moveShown = next.draft.toEdit(saved.captureBase) } }
+        val placeStop = { time: EditTime ->
+            moving?.placed(time)?.let { next ->
+                updateMove(next)
+                picker.picking = false
+                jump(time.seconds.coerceIn(0.0, maxOf(duration, next.viewportDuration.seconds)))
+            }
+            Unit
+        }
         val snapFeedback = { before: TrackMoveSession, after: TrackMoveSession ->
             if (after.snap != null && after.snap != before.snap) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         }
+        val addSites = remember(edit) { AddSite.of(edit) }
         Timeline(
             live?.clips ?: leveled?.shown(shown) ?: shown, files, leveled?.takeIf { live == null }?.shownSounds(soundRows.items) ?: soundRows.items, names,
             // A tap picks one item, or lets go of it when it is all that is picked; a long press adds it or takes it out.
@@ -1082,12 +1102,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             pinch = { factor -> if (factor == null) pinchStart = scale.toDouble() else zoomTo(TimelineZoom.pinched(pinchStart, factor.toDouble(), timelineWidth, duration)) },
             rows = rows,
             soundRows = soundRows.count, syncOffsets = soundRows.offsets, soundless = soundless, movingSounds = movingSounds,
-            length = duration,
-            moveDrag = session?.let {
+            // While moving, to the end of the draft or of a stop chosen beyond it (EditorTimeline.swift:24).
+            length = maxOf(duration, session?.viewportDuration?.seconds ?: 0.0),
+            boundaries = session?.takeIf { picker.picking }?.boundaries?.times,
+            // The add buttons, while nothing else is under way (EditorTimeline.swift:318-320).
+            addSites = addSites.takeIf { subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null && auditioning == null },
+            addVideo = { site -> cancelPendingPlay(); editor.pause(); addSite = site; adding = true },
+            bookmarks = bookmarks.times, openBookmarks = { editor.pause(); bookmarksOpen = true },
+            pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
+            moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },
-                    end = { moving?.dragEnded()?.let { next -> moving = next; moveShown = next.draft.toEdit(saved.captureBase) } },
-                    cancel = { moving?.dragCancelled()?.let { next -> moving = next.dragEnded(); moveShown = next.draft.toEdit(saved.captureBase) } },
+                    end = { updateMove(moving?.dragEnded()) },
+                    cancel = { updateMove(moving?.dragCancelled()?.dragEnded()) },
                 )
             },
         )
@@ -1104,9 +1131,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             moving?.let { now ->
                 moving = null
                 moveShown = null
+                picker.reset()
                 val outcome = if (applying) now.done(saved.toTimeline()) else null
                 when (outcome) {
-                    is TrackMoveSession.Outcome.Moved -> { commit(outcome.timeline.toEdit(saved.captureBase), now.playhead); marks = marks.cleared(); feedback = movedDone }
+                    // The playhead stays where the stops and the edge scrolling took it, which the timeline shows.
+                    is TrackMoveSession.Outcome.Moved -> { commit(outcome.timeline.toEdit(saved.captureBase), playhead); marks = marks.cleared(); feedback = movedDone }
                     TrackMoveSession.Outcome.Unchanged -> feedback = null
                     TrackMoveSession.Outcome.Stale -> feedback = moveStale
                     null -> { scale = now.scale.toFloat(); jump(now.playhead); feedback = moveCancelled }
@@ -1117,7 +1146,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         // The project changed under the session (it cannot be undone meanwhile, but a take may arrive): it ends, as in the original.
         LaunchedEffect(saved) { moving?.let { if (!it.isCurrent(saved.toTimeline())) { moving = null; moveShown = null; feedback = moveStale } } }
         if (session != null) {
-            MoveBar(session, cancel = { endMove(false) }, done = { endMove(true) })
+            MoveControls(session, picker, update = updateMove, place = placeStop, pause = { cancelPendingPlay(); editor.pause() }, end = endMove)
         } else if (placed != null) {
             val applied = stringResource(R.string.placement_applied)
             val removedNote = stringResource(R.string.placement_removed)
@@ -1298,12 +1327,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val cleared = stringResource(R.string.selection_cleared)
             val deleted = stringResource(R.string.selection_deleted)
             val nothingToDelete = stringResource(R.string.selection_nothing_to_delete)
-            val copied = stringResource(R.string.clipboard_copied)
-            val cutDone = stringResource(R.string.clipboard_cut_done)
-            val pasteDone = stringResource(R.string.clipboard_pasted)
-            val noRoom = stringResource(R.string.clipboard_paste_no_room)
-            val clipboard = store.clipboards[project.id]
-            val resources = LocalResources.current
+            val clipboard = rememberClipboard(
+                store, project.id, edit, saved, marks, playhead, editor.playing, pause = { editor.pause() }, commit = commit,
+                select = { marks = it }, said = { feedback = it },
+            )
             val open = marks.range != null || marks.start != null
             // The transitions offered beside Mark, as the original offers them (EditorView.swift:633-674, 803-826): with the
             // playhead on a join (Transitions.swift:254-257) that has room for a frame, a new one or the one that is there;
@@ -1331,17 +1358,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val unlinkedNote = stringResource(R.string.link_unlinked, heldCount)
             val linkedNote = stringResource(R.string.link_linked)
             val clearRange = stringResource(R.string.link_clear_range)
-            val linkErrors = TimelineLinkError.entries.associateWith { error ->
-                stringResource(
-                    when (error) {
-                        TimelineLinkError.TooFew -> R.string.link_too_few
-                        TimelineLinkError.NonContiguous -> R.string.link_non_contiguous
-                        TimelineLinkError.NoIntersection -> R.string.link_no_intersection
-                        TimelineLinkError.ConfirmationRequired -> R.string.link_intersection_title
-                        TimelineLinkError.TransitionBoundary -> R.string.link_transition_boundary
-                    },
-                )
-            }
+            val linkErrors = linkErrorTexts()
             val linking = remember(edit, marks) { !open && !marks.selected.isEmpty && TrackComponents.isLinked(edit, marks.selected) }
             val applyLink = { base: EditState, targets: EditTargets, intersection: Boolean ->
                 when (val joined = TrackComponents.linking(base, targets, intersection)) {
@@ -1428,43 +1445,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         TrackComponents.restoringSync(edit, off.audio)?.let { next -> commit(next, playhead); feedback = syncRestored }
                     }
                 },
+                // Copy, Cut and Paste of the track model, on a row of clips and on rows alike (EditorView.swift:839-869).
                 canCopy = marks.canCopy,
-                unavailable = TrackEditState.unavailable(edit, SequenceOnly.Clipboard)?.text(),
-                explain = { store.error = it },
-                copy = {
-                    RangeEditing.copy(edit, marks.scope)?.let {
-                        editor.pause()
-                        store.clipboards[project.id] = it
-                        marks = marks.cleared()
-                        feedback = copied
-                    }
-                },
-                // Copy and delete as one Undo step. The clipboard takes the piece once the edit is saved.
-                cut = {
-                    RangeEditing.cut(edit, marks.scope, playhead)?.let { lifted ->
-                        commit(lifted.state, lifted.position ?: playhead)
-                        if (store.selected?.edit?.clips == lifted.state.clips) {
-                            store.clipboards[project.id] = lifted.fragment
-                            marks = marks.cleared()
-                            feedback = cutDone
-                        }
-                    }
-                },
-                // At the playhead: picture opens room for itself, sound is laid on a free track. What was pasted is selected.
-                paste = clipboard?.let { fragment ->
-                    {
-                        val pasted = RangeEditing.paste(edit, fragment, playhead)
-                        if (pasted == null) store.error = noRoom else {
-                            commit(pasted.state, pasted.start)
-                            marks = RangeMarks(selected = EditTargets(pasted.clips.toSet(), pasted.audio.toSet()))
-                            feedback = pasteDone
-                            if (pasted.skippedAudio > 0) store.error = resources.getQuantityString(R.plurals.clipboard_pasted_skipped, pasted.skippedAudio, pasted.skippedAudio)
-                        }
-                    }
-                },
-                canPaste = !editor.playing,
-                replacesTransition = clipboard?.insertsTime == true &&
-                    (RangeEditing.transitionAt(clips, playhead) != null || TimelineEditing.layout(clips).all.any { it.transition != null && abs(it.time - playhead) < RangeEditing.EPSILON }),
+                copy = clipboard.copy, cut = clipboard.cut,
+                paste = clipboard.held?.let { clipboard.paste }, pasteTargets = clipboard.choices,
+                canPaste = !editor.playing, replacesTransition = clipboard.replacesTransition,
                 clearClipboard = { store.clipboards.remove(project.id) },
                 // A sound on an audio track is opened from here once it is the one thing selected.
                 editSound = marks.selected.audio.singleOrNull()?.takeIf { !open && marks.selected.clips.isEmpty() }?.let { id -> { editor.pause(); chosenSound = id } },
@@ -1558,30 +1543,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 )
             }
             if (adding) {
-                val unused = UnusedTakes.of(project)
-                AlertDialog(
-                    onDismissRequest = { adding = false },
-                    title = { Text(stringResource(R.string.add_video_title, timeLabel(playhead))) },
-                    text = {
-                        Column {
-                            TextButton(onClick = { adding = false; store.recordHere(project.id, playhead); record() }) {
-                                Icon(Icons.Filled.FiberManualRecord, null, Modifier.size(18.dp), tint = RecordRed)
-                                Text(stringResource(R.string.editor_record_here), Modifier.padding(start = 8.dp))
-                            }
-                            TextButton(onClick = {
-                                adding = false
-                                pickMedia.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageAndVideo).setOrderedSelection(true).build())
-                            }) {
-                                Icon(Icons.Outlined.PhotoLibrary, null, Modifier.size(18.dp))
-                                Text(stringResource(R.string.add_media_phone), Modifier.padding(start = 8.dp))
-                            }
-                            if (unused.isNotEmpty()) TextButton(onClick = { adding = false; choosing = emptyList() }) {
-                                Icon(Icons.Outlined.VideoLibrary, null, Modifier.size(18.dp))
-                                Text(stringResource(R.string.add_video_unused, unused.size), Modifier.padding(start = 8.dp))
-                            }
-                        }
+                val site = addSite
+                AddVideoDialog(
+                    site, timeLabel(playhead), UnusedTakes.of(project).size,
+                    // From an add button, the clipboard goes there too (AddVideoPanel.swift:51-58).
+                    pasteHere = if (site != null && clipboard.held != null) ({ adding = false; clipboard.pasteAt(site) }) else null,
+                    recordHere = { adding = false; store.recordHere(project.id, InsertionSites.time(edit, playhead, site) ?: playhead); record() },
+                    phone = {
+                        adding = false
+                        pickMedia.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageAndVideo).setOrderedSelection(true).build())
                     },
-                    confirmButton = { TextButton(onClick = { adding = false }) { Text(stringResource(R.string.common_cancel)) } },
+                    unused = { adding = false; choosing = emptyList() },
+                    dismiss = { adding = false },
                 )
             }
             choosing?.let { chosen ->
@@ -1617,7 +1590,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         TextButton(enabled = chosen.isNotEmpty(), onClick = {
                             val takes = chosen.mapNotNull { id -> unused.firstOrNull { it.id == id } }
                             choosing = null
-                            store.addUnused(project.id, takes, playhead)?.let { start -> playhead = start; editor.seek(start) }
+                            store.addUnused(project.id, takes, InsertionSites.time(edit, playhead, addSite) ?: playhead, addSite)?.let { made -> footageAdded(made, takes.size) }
                                 ?: run { store.error = unusedFailed }
                         }) { Text(if (chosen.isEmpty()) stringResource(R.string.unused_insert) else stringResource(R.string.unused_insert_count, chosen.size)) }
                     },
@@ -1640,51 +1613,29 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     pacing = false
                 })
             }
-            Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), Arrangement.SpaceEvenly) {
-                val reorder = TrackEditState.unavailable(edit, SequenceOnly.Reorder)?.text()
-                for ((label, step) in listOf(stringResource(R.string.editor_move_earlier) to -1, stringResource(R.string.editor_move_later) to 1)) {
-                    val description = stringResource(if (step < 0) R.string.editor_move_clip_earlier else R.string.editor_move_clip_later)
-                    val target = location?.let { it.index + step }
-                    ReasonedButton(
-                        reorder, explain = { store.error = it },
-                        onClick = {
-                            val next = TimelineEditing.move(edit, location!!.index, target!!)
-                            commit(next, next?.let { TimelineEditing.clipStart(it.clips, target) + location.offset } ?: playhead)
-                        },
-                        modifier = compact.semantics { contentDescription = description },
-                        enabled = target != null && target in clips.indices, content = { Text(label) },
-                    )
-                }
+            val nothingToMove = stringResource(R.string.move_nothing)
+            ArrangeTools(
+                TrackEditState.unavailable(edit, SequenceOnly.Reorder)?.text(), explain = { store.error = it },
+                reorderable = { step -> location?.let { it.index + step in clips.indices } == true },
+                reorder = { step ->
+                    location?.let { at ->
+                        val target = at.index + step
+                        val next = TimelineEditing.move(edit, at.index, target)
+                        commit(next, next?.let { TimelineEditing.clipStart(it.clips, target) + at.offset } ?: playhead)
+                    }
+                },
                 // Move: the selection dragged along the timeline, one Undo step on Done (EditorView.swift:950).
-                val moveDescription = stringResource(R.string.move_button_description)
-                val nothingToMove = stringResource(R.string.move_nothing)
-                TextButton(
-                    onClick = {
-                        cancelPendingPlay()
-                        editor.pause()
-                        val begun = beginMove(edit, marks, playhead, scale.toDouble())
-                        if (begun == null) feedback = nothingToMove else { moving = begun; moveShown = null }
-                    },
-                    compact.semantics { contentDescription = moveDescription },
-                    enabled = marks.canDelete && marks.start == null && clips.isNotEmpty(), contentPadding = tight,
-                ) {
-                    Icon(Icons.Filled.SwapHoriz, null, Modifier.size(18.dp))
-                    Text(stringResource(R.string.move_button), Modifier.padding(start = 2.dp))
-                }
-                // Unlink or Link, the stable slot beside Move (EditorView.swift:949).
-                val linkDescription = stringResource(if (linking) R.string.link_unlink_description else R.string.link_link_description)
-                TextButton(
-                    onClick = toggleLink, compact.semantics { contentDescription = linkDescription },
-                    enabled = marks.canDelete && clips.isNotEmpty(), contentPadding = tight,
-                ) {
-                    Icon(if (linking) Icons.Filled.LinkOff else Icons.Filled.Link, null, Modifier.size(18.dp))
-                    Text(stringResource(if (linking) R.string.link_unlink else R.string.link_link), Modifier.padding(start = 2.dp))
-                }
-                // New takes go in at the playhead; Stop in the recorder ends the run.
-                TextButton(onClick = { editor.pause(); adding = true }, compact, contentPadding = tight) { Text(stringResource(R.string.editor_add_video)) }
-                TextButton(onClick = { location?.let { commit(TimelineEditing.delete(edit, it.index), clipStart(edit, it.index)) } }, compact,
-                    enabled = location != null, contentPadding = tight) { Icon(Icons.Outlined.Delete, stringResource(R.string.common_delete), tint = if (location != null) RecordRed else LocalContentColor.current) }
-            }
+                canMove = marks.canDelete && marks.start == null && clips.isNotEmpty(),
+                move = {
+                    cancelPendingPlay()
+                    editor.pause()
+                    val begun = beginMove(edit, marks, playhead, scale.toDouble())
+                    if (begun == null) feedback = nothingToMove else { moving = begun; moveShown = null }
+                },
+                linking = linking, canLink = marks.canDelete && clips.isNotEmpty(), link = toggleLink,
+                addVideo = { editor.pause(); addSite = null; adding = true },
+                canDelete = location != null, delete = { location?.let { commit(TimelineEditing.delete(edit, it.index), clipStart(edit, it.index)) } },
+            )
         }
     }
 
@@ -1989,3 +1940,17 @@ private data class PendingLink(val base: EditState, val targets: EditTargets, va
 /** How far the playhead moves before the chains are processed for the next stretch, and how far past it they are, in seconds. */
 private const val LISTEN_STEP = 10.0
 private const val LISTEN_AHEAD = 30.0
+
+/** What each refusal of Link says, in the user's language. */
+@Composable
+private fun linkErrorTexts(): Map<TimelineLinkError, String> = TimelineLinkError.entries.associateWith { error ->
+    stringResource(
+        when (error) {
+            TimelineLinkError.TooFew -> R.string.link_too_few
+            TimelineLinkError.NonContiguous -> R.string.link_non_contiguous
+            TimelineLinkError.NoIntersection -> R.string.link_no_intersection
+            TimelineLinkError.ConfirmationRequired -> R.string.link_intersection_title
+            TimelineLinkError.TransitionBoundary -> R.string.link_transition_boundary
+        },
+    )
+}

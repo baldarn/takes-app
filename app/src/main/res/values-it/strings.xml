@@ -658,12 +658,7 @@
     <string name="clipboard_cut_done">Tagliato negli appunti</string>
     <string name="clipboard_pasted">Incollato · Puoi annullare</string>
     <string name="clipboard_replaces_transition">Sostituisce la transizione</string>
-    <plurals name="clipboard_pasted_skipped">
-        <item quantity="one">Incollato, ma %1$d audio è rimasto fuori: lì le due tracce audio sono già occupate.</item>
-        <item quantity="many">Incollato, ma %1$d audio sono rimasti fuori: lì le due tracce audio sono già occupate.</item>
-        <item quantity="other">Incollato, ma %1$d audio sono rimasti fuori: lì le due tracce audio sono già occupate.</item>
-    </plurals>
-    <string name="clipboard_paste_no_room">Non è stato incollato niente: qui le due tracce audio sono già occupate.</string>
+    <string name="clipboard_paste_nothing">Qui non è stato incollato niente.</string>
     <string name="selection_select">Seleziona</string>
     <string name="selection_toggle">Aggiungi o togli dalla selezione</string>
     <string name="project_error_newer_version">Questo progetto è stato salvato da una versione più recente di Takes. Aggiorna l\'app per aprirlo. I suoi file sono stati conservati.</string>

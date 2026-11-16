@@ -1,6 +1,8 @@
 package app.takes
 
 import app.takes.core.EditState
+import app.takes.core.InsertionSites
+import app.takes.core.VideoInsertionSite
 import app.takes.core.TimeRange
 import app.takes.core.TimelineClip
 import app.takes.core.TrackEditState
@@ -89,6 +91,29 @@ internal class TimelineRows(
                 moving.orEmpty(), ghost,
                 state.clips.map { lanes[it.id]?.trimsLeft ?: true }, state.clips.map { lanes[it.id]?.trimsRight ?: true }, markers,
             )
+        }
+    }
+}
+
+/**
+ * An add button of the timeline (YouRec/EditorTimeline.swift:318-366): the
+ * start, left of where the timeline begins, or inside the time without
+ * picture before the first one, from [from] to [to], when that is off the
+ * screen; the end, right of where the last picture ends; or a gap from
+ * [from] to [to], the button inside it.
+ */
+internal class AddSite(val site: VideoInsertionSite, val from: Double, val to: Double) {
+    companion object {
+        /** The add buttons of [state], one for each of its [InsertionSites.sites]. */
+        fun of(state: EditState): List<AddSite> {
+            val coverage = InsertionSites.coverage(state)
+            return InsertionSites.sites(state).map { site ->
+                when (site) {
+                    VideoInsertionSite.Start -> AddSite(site, 0.0, coverage.firstOrNull()?.start ?: 0.0)
+                    VideoInsertionSite.End -> (coverage.lastOrNull()?.end ?: 0.0).let { AddSite(site, it, it) }
+                    is VideoInsertionSite.Gap -> AddSite(site, site.after, coverage.firstOrNull { it.start > site.after }?.start ?: site.after)
+                }
+            }
         }
     }
 }

@@ -138,7 +138,7 @@ internal fun FullPreview(
                         }
                         BookmarksMenu(
                             under = bookmarkUnder, canToggle = true, toggle = { toggleBookmark(); shown() },
-                            previous = previousBookmark, next = nextBookmark, times = bookmarks, label = ::preciseLabel, go = { seek(it); shown() },
+                            previous = previousBookmark, next = nextBookmark, marks = bookmarks.map { it to "" }, label = ::preciseLabel, go = { seek(it); shown() },
                         )
                     }
                 }

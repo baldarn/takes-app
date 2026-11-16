@@ -11,6 +11,31 @@
     <string name="move_cancelled">Move cancelled</string>
     <string name="move_stale">Timeline changed. Select the clips again.</string>
     <string name="move_nothing">Select a clip to move it.</string>
+    <string name="move_scope_selected">Selected only</string>
+    <string name="move_scope_left">With left</string>
+    <string name="move_scope_right">With right</string>
+    <string name="move_scope_both">Both sides</string>
+    <string name="move_scope_selected_hint">Move the selected parts and anything linked to them.</string>
+    <string name="move_scope_left_hint">Include adjoining clips to the left, up to the first gap.</string>
+    <string name="move_scope_right_hint">Include adjoining clips to the right, up to the first gap.</string>
+    <string name="move_scope_both_hint">Include adjoining clips in both directions, up to the first gap on each side.</string>
+    <string name="move_previous">Move to previous cut</string>
+    <string name="move_next">Move to next cut</string>
+    <string name="move_choose">Move to a boundary</string>
+    <string name="move_pick_title">Tap a dashed cyan line on the timeline</string>
+    <string name="move_pick_note">Your selection will start there.</string>
+    <string name="move_pick_back">Back</string>
+    <string name="move_pick_back_description">Back to Move</string>
+    <string name="move_boundary_description">Boundary at %1$s</string>
+    <plurals name="move_boundaries_description">
+        <item quantity="one">Choose between %1$d nearby boundaries</item>
+        <item quantity="other">Choose among %1$d nearby boundaries</item>
+    </plurals>
+    <string name="move_choose_start">Choose a start time</string>
+    <string name="move_nudge_earlier">One frame earlier</string>
+    <string name="move_nudge_later">One frame later</string>
+    <string name="move_nudge_earlier_short">◀ 1 frame</string>
+    <string name="move_nudge_later_short">1 frame ▶</string>
 
     <!-- Gaps -->
     <string name="gap_label">Gap</string>
@@ -49,4 +74,33 @@
     <string name="placement_audio_note">Audio from overlapping clips mixes. Select an audio item in the timeline to change its volume.</string>
     <string name="placement_applied">Placement saved · Undo available</string>
     <string name="placement_removed">Placement reset · Undo available</string>
+
+    <!-- Paste targets (the original's TimelinePaste.swift:38-52) -->
+    <string name="paste_target_start">Start</string>
+    <string name="paste_target_end">End</string>
+    <string name="paste_target_gap">Gap</string>
+    <string name="paste_target_video">Video · %1$s | %2$s</string>
+    <string name="paste_target_audio">Audio · %1$s | %2$s</string>
+
+    <!-- Add buttons on the timeline (the original's EditorTimeline.swift:318-366, AddVideoPanel.swift) -->
+    <string name="add_site_start">Add video or photo at start</string>
+    <string name="add_site_gap">Add video or photo in gap</string>
+    <string name="add_site_end">Add video or photo at end</string>
+    <string name="paste_here">Paste here</string>
+    <plurals name="footage_inserted">
+        <item quantity="one">Clip inserted · Undo available</item>
+        <item quantity="other">%1$d clips inserted · Undo available</item>
+    </plurals>
+
+    <!-- Bookmarks anywhere (the original's EditorView.swift:1259-1295) -->
+    <string name="bookmarks_all">All bookmarks</string>
+    <string name="bookmarks_add_at">Add at %1$s</string>
+    <string name="bookmarks_none">No bookmarks yet.</string>
+    <string name="bookmark_default">Bookmark</string>
+    <string name="bookmark_rename">Rename bookmark</string>
+    <string name="bookmark_delete">Delete bookmark</string>
+    <string name="bookmark_label_title">Bookmark label</string>
+    <string name="bookmark_label">Label</string>
+    <string name="bookmark_added">Bookmark added</string>
+    <string name="bookmark_removed">Bookmark removed · Undo available</string>
 </resources>

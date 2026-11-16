@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -83,17 +85,18 @@ internal fun ChangeButton(forward: Boolean, enabled: Boolean, jump: (effectsOnly
 }
 
 /**
- * The bookmarks, in one menu as the original's Bookmarks button has them: set
- * or clear one at the playhead, step to the one before or after, or go to any
- * of them by its time.
+ * The bookmarks, in one menu as the original's Bookmarks button has them
+ * (TrackEditors.swift:59): add one at the playhead, or remove the one there,
+ * step to the one before or after, go to any of them by its time and label,
+ * or open the list of them to rename and delete.
  *
  * @param under whether a bookmark lies under the playhead, which the first entry then removes.
- * @param times every bookmark of the movie, in timeline seconds.
+ * @param marks every bookmark of the movie, its time in timeline seconds and its label, in time order.
  */
 @Composable
 internal fun BookmarksMenu(
-    under: Boolean, canToggle: Boolean, toggle: () -> Unit, previous: Double?, next: Double?, times: List<Double>,
-    label: (Double) -> String, go: (Double) -> Unit,
+    under: Boolean, canToggle: Boolean, toggle: () -> Unit, previous: Double?, next: Double?, marks: List<Pair<Double, String>>,
+    label: (Double) -> String, go: (Double) -> Unit, manage: (() -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     val name = stringResource(R.string.editor_bookmarks)
@@ -116,8 +119,20 @@ internal fun BookmarksMenu(
                 text = { Text(stringResource(R.string.editor_bookmark_next)) }, onClick = { open = false; next?.let(go) }, enabled = next != null,
                 leadingIcon = { Icon(Icons.Filled.SkipNext, null) },
             )
-            if (times.isNotEmpty()) HorizontalDivider()
-            for (time in times) DropdownMenuItem(text = { Text(label(time)) }, onClick = { open = false; go(time) })
+            if (marks.isNotEmpty()) {
+                HorizontalDivider()
+                for ((time, text) in marks) DropdownMenuItem(
+                    text = { Text(if (text.isEmpty()) label(time) else label(time) + " · " + text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    onClick = { open = false; go(time) },
+                )
+            }
+            if (manage != null) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.bookmarks_all)) }, onClick = { open = false; manage() },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.List, null) },
+                )
+            }
         }
     }
 }
