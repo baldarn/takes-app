@@ -17,10 +17,16 @@ class DecodedFormat(val sampleRate: Int, val channels: Int, val durationUs: Long
  * block and its presentation time. [checkpoint] runs between blocks and may
  * throw to stop.
  *
+ * With [from] it starts at the sync sample at or before that second, and it
+ * stops once a block begins past [until] seconds, which counts as the end.
+ *
  * Returns true when the track was decoded to its end, false when the file has
  * no sound, and null when its sound cannot be decoded this way.
  */
-fun decodeAudio(file: File, checkpoint: () -> Unit = {}, begin: (DecodedFormat) -> Unit, samples: (ShortBuffer, Long) -> Unit): Boolean? {
+fun decodeAudio(
+    file: File, checkpoint: () -> Unit = {}, begin: (DecodedFormat) -> Unit, from: Double = 0.0, until: Double = Double.POSITIVE_INFINITY,
+    samples: (ShortBuffer, Long) -> Unit,
+): Boolean? {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
     try {
@@ -31,6 +37,7 @@ fun decodeAudio(file: File, checkpoint: () -> Unit = {}, begin: (DecodedFormat) 
         val format = extractor.getTrackFormat(track)
         val duration = if (format.containsKey(MediaFormat.KEY_DURATION)) format.getLong(MediaFormat.KEY_DURATION) else 0L
         extractor.selectTrack(track)
+        if (from > 0) extractor.seekTo((from * 1e6).toLong(), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
         val decoder = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
         codec = decoder
         decoder.configure(format, null, null, 0)
@@ -66,6 +73,10 @@ fun decodeAudio(file: File, checkpoint: () -> Unit = {}, begin: (DecodedFormat) 
                 }
             } else if (output >= 0) {
                 idle = 0
+                if (info.size > 0 && begun && info.presentationTimeUs > until * 1e6) {
+                    decoder.releaseOutputBuffer(output, false)
+                    return true
+                }
                 if (info.size > 0 && begun) {
                     val buffer = decoder.getOutputBuffer(output)!!
                     buffer.position(info.offset).limit(info.offset + info.size)

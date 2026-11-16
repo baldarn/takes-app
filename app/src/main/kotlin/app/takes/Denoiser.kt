@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -65,8 +66,78 @@ object Denoiser {
     /** The cleaned sound of a clip at [amount], if it has already been made. */
     fun ready(file: File, amount: Double): File? = ready(file, noiseReduction(amount))
 
-    /** What a piece of the mix plays, of the recordings in [files]: its chain's processed sound when made, null for the recording. */
-    fun input(files: Map<String, File>): (TrackMixPiece) -> File? = { piece -> files[piece.sourceID]?.let { ready(it, piece.chain) } }
+    /**
+     * What a piece of the mix plays, of the recordings in [files]: its chain's processed sound when made, else a
+     * stretch of it processed for listening ([processWindow]) that holds the whole piece; null for the recording.
+     */
+    fun input(files: Map<String, File>): (TrackMixPiece) -> ProcessedSound? = { piece ->
+        files[piece.sourceID]?.let { file ->
+            ready(file, piece.chain)?.let { ProcessedSound(it) } ?: run {
+                val from = piece.runs.minOf { minOf(it.sourceStart, it.sourceEnd) }
+                val to = piece.runs.maxOf { maxOf(it.sourceStart, it.sourceEnd) }
+                windows(file, piece.chain).firstOrNull { it.covers(from, to) }?.let { ProcessedSound(it.file, it.offset) }
+            }
+        }
+    }
+
+    /** A stretch of a recording processed for listening: its file, the source second its frame 0 is, and the end. */
+    class Window(val file: File, val offset: Double, val end: Double) {
+        /** Whether it holds source seconds [from] to [to], past the start a model needs to settle. */
+        fun covers(from: Double, to: Double): Boolean = from >= offset + SETTLE - 0.001 && to <= end + 0.001
+    }
+
+    /** The stretches of [file] through [effects] processed so far. */
+    fun windows(file: File, effects: List<AudioEffect>): List<Window> {
+        if (AudioChain.active(effects).isEmpty()) return emptyList()
+        val prefix = cached(file, effects).name.removeSuffix(".wav") + ".window-"
+        return folder(file).listFiles().orEmpty().mapNotNull { candidate ->
+            if (!candidate.name.startsWith(prefix) || !candidate.name.endsWith(".wav")) return@mapNotNull null
+            val (start, end) = candidate.name.removePrefix(prefix).removeSuffix(".wav").split("-").mapNotNull { it.toLongOrNull() }.takeIf { it.size == 2 } ?: return@mapNotNull null
+            Window(candidate, start / 1e6, end / 1e6)
+        }
+    }
+
+    /**
+     * Processes only [span] of [file] through [effects], for listening to a stretch of a long take without
+     * processing all of it (YouRec/SourceMediaCache.swift:296-319, [app.takes.core.TrackAudioRegions.windowRequests]):
+     * from [SETTLE] seconds before it, so a model has settled where the span begins. Null when it cannot be made.
+     */
+    suspend fun processWindow(file: File, effects: List<AudioEffect>, span: app.takes.core.SourceInterval): Window? = withContext(working) {
+        val active = AudioChain.active(effects)
+        if (active.isEmpty() || !playable(active)) return@withContext null
+        windows(file, active).firstOrNull { it.covers(span.start, span.end) }?.let { return@withContext it }
+        val base = cached(file, active)
+        base.parentFile?.mkdirs()
+        val partial = File(base.parentFile, ".${base.name}.window.tmp")
+        try {
+            val context = coroutineContext
+            var first = -1L
+            val made = render(file, active, partial, {}, { context.ensureActive() }, maxOf(0.0, span.start - SETTLE), span.end) { if (first < 0) first = it }
+            if (!made || first < 0) return@withContext null
+            val end = first / 1e6 + frames(partial) / Channel48k.RATE.toDouble()
+            val target = File(base.parentFile, base.name.removeSuffix(".wav") + ".window-$first-${(end * 1e6).toLong()}.wav")
+            if (partial.renameTo(target)) Window(target, first / 1e6, end) else null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } catch (_: LinkageError) {
+            null
+        } finally {
+            partial.delete()
+        }
+    }
+
+    /** How long a model takes to settle at the start of a stretch it processes, in seconds. */
+    const val SETTLE = 1.0
+
+    /** The frames of a 16-bit WAV written here. */
+    private fun frames(file: File): Long {
+        val header = ByteArray(44)
+        RandomAccessFile(file, "r").use { it.readFully(header) }
+        val channels = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN).getShort(22).toInt()
+        return (file.length() - 44) / (2L * maxOf(1, channels))
+    }
 
     /** Makes the cleaned sound of a clip at [amount] if needed. */
     suspend fun process(file: File, amount: Double, progress: (Float) -> Unit = {}): File? = process(file, noiseReduction(amount), progress)
@@ -86,7 +157,7 @@ object Denoiser {
         val partial = File(output.parentFile, ".${output.name}.tmp")
         try {
             val context = coroutineContext
-            if (render(file, active, partial, progress) { context.ensureActive() } && partial.renameTo(output)) output else null
+            if (render(file, active, partial, progress, { context.ensureActive() }) && partial.renameTo(output)) output else null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -143,7 +214,10 @@ object Denoiser {
         override fun close() { for (step in steps) if (step is Neural) runCatching { step.denoiser.close() } }
     }
 
-    private fun render(file: File, stages: List<AudioEffect>, target: File, progress: (Float) -> Unit, checkpoint: () -> Unit): Boolean {
+    private fun render(
+        file: File, stages: List<AudioEffect>, target: File, progress: (Float) -> Unit, checkpoint: () -> Unit,
+        from: Double = 0.0, until: Double = Double.POSITIVE_INFINITY, first: (Long) -> Unit = {},
+    ): Boolean {
         var chains = emptyList<ChannelChain>()
         val output = BufferedOutputStream(FileOutputStream(target), 1 shl 16)
         try {
@@ -181,7 +255,9 @@ object Denoiser {
                     // Each channel has its own state, as in the original.
                     chains = List(format.channels) { ChannelChain(stages, pending[it]) }
                 },
+                from = from, until = until,
                 samples = { block, time ->
+                    first(time)
                     for (channel in inputs.indices) {
                         val count = inputs[channel].read(block)
                         chains[channel].write(inputs[channel].samples, count)

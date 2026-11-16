@@ -72,7 +72,7 @@ internal class MixPlayback {
     private val thread = Thread(::run, "Preview mix").apply { priority = Thread.MAX_PRIORITY; start() }
 
     /** Takes the mix [plan] to play, read from [files] or the processed sound [processed] gives; playing, it goes on from where it is heard. */
-    fun load(plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> File?) {
+    fun load(plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> ProcessedSound?) {
         synchronized(lock) {
             // Only the levels changed, as when one is tried while the movie plays: the mix takes them where it is.
             if (engine != null && loaded?.let { same(it, plan) } == true && files == loadedFiles) {
