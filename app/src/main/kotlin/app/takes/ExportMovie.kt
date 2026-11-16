@@ -51,6 +51,18 @@ class SectionFramesEffect(private val first: Int, private val count: Int, privat
     }
 }
 
+/** What an export renders a movie from: its frame rate, the picture of any section of it, and the sound of all of it. */
+interface MovieRender {
+    /** The movie's frames a second. */
+    val rate: Int
+
+    /** The picture of [section], without sound: exactly its frames, the first at zero. */
+    fun picture(section: ExportSections.Section): Composition
+
+    /** The sound of the whole movie, without picture. */
+    fun sound(): Composition
+}
+
 /**
  * One movie as the export renders it: the sound of all of it in one pass, and the picture of any twelve
  * seconds of it. What every stretch is made from is the movie's [RenderPlan], so that a section holds exactly
@@ -79,7 +91,7 @@ class ExportMovie(
     private val context: Context, private val plan: RenderPlan, ceiling: Int, private val files: Map<String, File>, val canvas: Pair<Int, Int>,
     private val sizes: Map<String, Pair<Int, Int>?>, rates: Map<String, Double?>, private val voiced: Map<String, Boolean>,
     private val clean: Map<Int, File>, private val black: File, private val luts: File,
-) {
+) : MovieRender {
     private val decks = plan.sequences.size
 
     /** The movie's length in seconds. */
@@ -89,7 +101,7 @@ class ExportMovie(
      * The movie's frames a second: the rate of its fastest footage under the ceiling of the settings
      * ([RenderPlan.frameRate]). A flash cut counts its frames in it.
      */
-    val rate = plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling)
+    override val rate = plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling)
 
     /** The frames of the whole movie. */
     val frames = ExportSections.pictures(total, rate)
@@ -134,7 +146,7 @@ class ExportMovie(
      * ([SectionFramesEffect]). Every effect is told the movie's own time, so a transition, a title or a moving
      * crop does in a section what it does in the whole movie.
      */
-    fun picture(section: ExportSections.Section): Composition {
+    override fun picture(section: ExportSections.Section): Composition {
         val drawing = plan.section((section.startTicks / ExportSections.frameTicks(rate)).toInt(), frames(section), rate)
         val opens = drawing.opens
         // The clock holds a whole number of frames, so the last frame of a movie may begin where its clips have ended.
@@ -188,7 +200,7 @@ class ExportMovie(
      * each other overlap, so chains alternate ([RenderPlan.voices]). Every run follows its own level and fades
      * and any transition at its ends, sample by sample, and fades for a few milliseconds at every cut.
      */
-    fun sound(): Composition {
+    override fun sound(): Composition {
         fun sequence(entries: List<RenderPlan.Entry>): EditedMediaItemSequence = EditedMediaItemSequence.Builder(setOf(C.TRACK_TYPE_AUDIO)).apply {
             for (entry in entries) when (entry) {
                 is RenderPlan.Entry.Gap -> addGap(entry.micros)

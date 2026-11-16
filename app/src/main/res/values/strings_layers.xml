@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="layers_too_many">Too many videos overlap from %1$s to %2$s: %3$d, and this device shows at most %4$d at once. Move one so that fewer overlap.</string>
+    <string name="export_layers_too_large">The videos of this movie cannot be drawn over one another at %1$d × %2$d on this device. Choose a smaller export size.</string>
+</resources>
