@@ -167,11 +167,6 @@ private val Muted = Color(0xFFA0A4AB)
 internal val TitleColor = Color(0xFFFFD54A)
 internal val BookmarkColor = Color(0xFFFF7A45)
 
-/** The Color Correction a development build puts on a clip to compare the preview with the export. */
-private fun triedCorrection(): VideoEffectSettings =
-    mapOf("exposure" to 0.3, "contrast" to 1.25, "shadows" to 0.2, "temperature" to 0.5, "saturation" to 1.5, "hue" to 12.0)
-        .entries.fold(VideoEffectSettings(VideoEffectID.ColorCorrection)) { effect, (id, value) -> effect.with(id, EffectValue.Number(value)) }
-
 internal fun preciseLabel(seconds: Double): String {
     val tenths = (seconds.coerceAtLeast(0.0) * 10).toLong()
     return "%d:%02d.%d".format(tenths / 600, tenths / 10 % 60, tenths % 10)
@@ -571,7 +566,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val shaded = deckClips[deck]?.let { index ->
                         val clip = plan.clips[index]
                         val offset = (playhead - plan.pictures[index].start).coerceIn(0.0, clip.duration)
-                        val passes = EffectShader.passes(clip.videoEffects, clip.sourceTime(offset), movieRate)
+                        // While the Video effects tool is open, its draft (or nothing, comparing with the original).
+                        val work = effecting
+                        val shown = if (work != null) work.shown(clip, clip.sourceTime(offset), playhead) else clip.videoEffects
+                        val passes = EffectShader.passes(shown, clip.sourceTime(offset), movieRate)
                         previewBounds?.takeIf { passes.isNotEmpty() }?.let { effectPreviews?.get(deck)?.effect(passes, it.width, it.height) }
                     }
                     (if (shaded != null && grade != null) android.graphics.RenderEffect.createChainEffect(shaded, grade) else shaded ?: grade)?.asComposeRenderEffect()
@@ -1070,13 +1068,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val scopeHasClips = toolScope == null || toolSubject != null
                 TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = location != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
                 TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = location != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
-                // Development builds only, until the editor has video effects: a fixed Color Correction on the clip under the playhead, or none again.
-                if (debuggable) TextButton(onClick = {
-                    location?.let { at ->
-                        val tried = if (clips[at.index].videoEffects.isNullOrEmpty()) listOf(triedCorrection()) else null
-                        commit(TimelineEditing.setVideoEffects(edit, at.index, tried), playhead)
-                    }
-                }, compact, enabled = location != null, contentPadding = tight) { Text("FX") }
                 TextButton(onClick = {
                     editor.pause()
                     // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.
