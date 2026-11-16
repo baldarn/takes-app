@@ -40,6 +40,14 @@ private val WORDS: Map<VideoEffectID, EffectWords> = mapOf(
     VideoEffectID.RgbOffset to EffectWords(R.string.effect_rgb_offset, R.string.effect_rgb_offset_summary, R.string.effect_rgb_offset_help, R.string.effect_rgb_offset_history),
     VideoEffectID.NegativeStrobe to EffectWords(R.string.effect_negative_strobe, R.string.effect_negative_strobe_summary, R.string.effect_negative_strobe_help, R.string.effect_negative_strobe_history),
     VideoEffectID.Kaleidoscope to EffectWords(R.string.effect_kaleidoscope, R.string.effect_kaleidoscope_summary, R.string.effect_kaleidoscope_help, R.string.effect_kaleidoscope_history),
+    VideoEffectID.Halation to EffectWords(R.string.effect_halation, R.string.effect_halation_summary, R.string.effect_halation_help, R.string.effect_halation_history),
+    VideoEffectID.SixteenMM to EffectWords(R.string.effect_sixteen_mm, R.string.effect_sixteen_mm_summary, R.string.effect_sixteen_mm_help, R.string.effect_sixteen_mm_history),
+    VideoEffectID.SuperEight to EffectWords(R.string.effect_super_eight, R.string.effect_super_eight_summary, R.string.effect_super_eight_help, R.string.effect_super_eight_history),
+    VideoEffectID.Widescreen to EffectWords(R.string.effect_widescreen, R.string.effect_widescreen_summary, R.string.effect_widescreen_help, R.string.effect_widescreen_history),
+    VideoEffectID.CrashZoom to EffectWords(R.string.effect_crash_zoom, R.string.effect_crash_zoom_summary, R.string.effect_crash_zoom_help, R.string.effect_crash_zoom_history),
+    VideoEffectID.Quantization to EffectWords(R.string.effect_quantization, R.string.effect_quantization_summary, R.string.effect_quantization_help, R.string.effect_quantization_history),
+    VideoEffectID.ChromaKey to EffectWords(R.string.effect_chroma_key, R.string.effect_chroma_key_summary, R.string.effect_chroma_key_help, R.string.effect_chroma_key_history),
+    VideoEffectID.NightFix to EffectWords(R.string.effect_night_fix, R.string.effect_night_fix_summary, R.string.effect_night_fix_help, null),
 )
 
 @Composable
@@ -71,16 +79,22 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "tint" -> if (kind == VideoEffectID.ColorCorrection) R.string.effect_control_tint else R.string.effect_control_film_tint
     "saturation" -> R.string.effect_control_saturation
     "vibrance" -> R.string.effect_control_vibrance
-    "hue", "color" -> R.string.effect_control_hue
-    "mode" -> if (kind == VideoEffectID.SilentTint) R.string.effect_control_process else if (kind == VideoEffectID.ColorIsolation) R.string.effect_control_keep else null
+    "hue" -> R.string.effect_control_hue
+    "color" -> if (kind == VideoEffectID.SixteenMM) R.string.effect_control_film_color else R.string.effect_control_hue
+    "mode" -> when (kind) {
+        VideoEffectID.SilentTint -> R.string.effect_control_process
+        VideoEffectID.ColorIsolation -> R.string.effect_control_keep
+        VideoEffectID.NightFix -> R.string.effect_control_night_mode
+        else -> null
+    }
     "redDepth" -> R.string.effect_control_red_depth
     "warmth" -> R.string.effect_control_warmth
-    "strength" -> R.string.effect_control_strength
+    "strength" -> if (kind == VideoEffectID.ChromaKey) R.string.effect_control_key_strength else R.string.effect_control_strength
     "darkness" -> R.string.effect_control_darkness
     "blue" -> R.string.effect_control_blue
     "moonlight" -> R.string.effect_control_moonlight
     "range" -> R.string.effect_control_hue_range
-    "softness" -> R.string.effect_control_softness
+    "softness" -> if (kind == VideoEffectID.ChromaKey) R.string.effect_control_edge_softness else R.string.effect_control_softness
     "crush" -> R.string.effect_control_black_crush
     "grain" -> R.string.effect_control_grain
     "shadowColor" -> R.string.effect_control_blue_shadows
@@ -102,6 +116,71 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "sourcePanX" -> R.string.effect_control_source_pan_x
     "sourcePanY" -> R.string.effect_control_source_pan_y
     "sourceAngle" -> R.string.effect_control_source_angle
+    // Halation.
+    "glow" -> R.string.effect_control_glow
+    "red" -> R.string.effect_control_halation_red
+    "flash" -> R.string.effect_control_shadow_lift
+    "flashColor" -> R.string.effect_control_flash_color
+    // 16mm and Super 8.
+    "grainSize" -> R.string.effect_control_grain_size
+    "weave" -> if (kind == VideoEffectID.SuperEight) R.string.effect_control_weave else R.string.effect_control_gate_weave
+    "frameEdge" -> R.string.effect_control_frame_edge
+    "fade" -> R.string.effect_control_fade
+    "fps" -> R.string.effect_control_frame_rate
+    "leaks" -> R.string.effect_control_light_leaks
+    "border" -> R.string.effect_control_frame_border
+    // Widescreen 1953.
+    "ratio" -> R.string.effect_control_ratio
+    "bars" -> R.string.effect_control_bars
+    "flares" -> R.string.effect_control_flares
+    "flareColor" -> R.string.effect_control_flare_color
+    "ovalBokeh" -> R.string.effect_control_oval_bokeh
+    // Crash Zoom.
+    "zoom" -> R.string.effect_control_zoom_amount
+    "speed" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_push_duration else null
+    "hold" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_hold else null
+    "return" -> R.string.effect_control_return
+    "motionBlur" -> R.string.effect_control_motion_blur
+    "targetX" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_target_x else null
+    "targetY" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_target_y else null
+    "trackFace" -> R.string.effect_control_follow_face
+    // Quantization.
+    "colors" -> R.string.effect_control_colors
+    "monochrome" -> R.string.effect_control_monochrome
+    "palette" -> R.string.effect_control_palette
+    "smoothing" -> R.string.effect_control_smoothing
+    "dithering" -> R.string.effect_control_dithering
+    "faceDetail" -> R.string.effect_control_face_detail
+    "lockPalette" -> R.string.effect_control_lock_palette
+    // Chroma Key and its background.
+    "screenColor" -> R.string.effect_control_screen_color
+    "screenType" -> R.string.effect_control_screen_type
+    "autoScreen" -> R.string.effect_control_auto_screen
+    "balance" -> R.string.effect_control_balance
+    "blackClip" -> R.string.effect_control_black_clip
+    "whiteClip" -> R.string.effect_control_white_clip
+    "grow" -> R.string.effect_control_grow
+    "despill" -> R.string.effect_control_despill
+    "wrap" -> R.string.effect_control_light_wrap
+    "personHint" -> R.string.effect_control_person_hint
+    "cleanPlate" -> R.string.effect_control_clean_plate
+    "view" -> R.string.effect_control_view
+    "background" -> R.string.effect_control_background
+    "backgroundColor" -> R.string.effect_control_background_color
+    "media" -> R.string.effect_control_background_media
+    "fit" -> R.string.effect_control_framing
+    "backgroundX" -> R.string.effect_control_background_x
+    "backgroundY" -> R.string.effect_control_background_y
+    "backgroundZoom" -> R.string.effect_control_background_zoom
+    "backgroundBlur" -> R.string.effect_control_background_blur
+    "backgroundBrightness" -> R.string.effect_control_background_brightness
+    "backgroundAudio" -> R.string.effect_control_background_audio
+    "matchColor" -> R.string.effect_control_match_color
+    "matchStrength" -> R.string.effect_control_match_strength
+    // Night fix.
+    "brightness" -> R.string.effect_control_shadow_brightness
+    "reduction" -> R.string.effect_control_noise_reduction
+    "detail" -> R.string.effect_control_preserve_detail
     else -> null
 }
 
@@ -116,6 +195,14 @@ private val CHOICES: Map<String, Int> = mapOf(
     "Tint" to R.string.effect_choice_tint, "Tone" to R.string.effect_choice_tone,
     "Oval" to R.string.effect_choice_oval, "Circle" to R.string.effect_choice_circle,
     "A color" to R.string.effect_choice_a_color, "The subject" to R.string.effect_choice_the_subject,
+    "Neutral" to R.string.effect_choice_neutral, "Warm" to R.string.effect_choice_warm, "Cool" to R.string.effect_choice_cool, "Fine" to R.string.effect_choice_fine,
+    "Medium" to R.string.effect_choice_medium, "Coarse" to R.string.effect_choice_coarse, "Color" to R.string.effect_choice_color, "B&W" to R.string.effect_choice_bw,
+    "Black" to R.string.effect_choice_black, "Blur fill" to R.string.effect_choice_blur_fill, "Blue" to R.string.effect_choice_blue, "Off" to R.string.effect_choice_off,
+    "Ordered 4x4" to R.string.effect_choice_ordered_4, "Ordered 8x8" to R.string.effect_choice_ordered_8, "From scene" to R.string.effect_choice_from_scene, "Pop 1" to R.string.effect_choice_pop_1,
+    "Pop 2" to R.string.effect_choice_pop_2, "Pop 3" to R.string.effect_choice_pop_3, "Saved" to R.string.effect_choice_saved, "Auto" to R.string.effect_choice_auto,
+    "Green" to R.string.effect_choice_green, "Result" to R.string.effect_choice_result, "Matte" to R.string.effect_choice_matte, "Original" to R.string.effect_choice_original,
+    "Solid" to R.string.effect_choice_solid, "Image" to R.string.effect_choice_image, "Blur original" to R.string.effect_choice_blur_original, "Fill" to R.string.effect_choice_fill,
+    "Fit" to R.string.effect_choice_fit, "Fast" to R.string.effect_choice_fast,
 )
 
 /** A choice of a picker as it is shown; the saved value stays the original's English. */

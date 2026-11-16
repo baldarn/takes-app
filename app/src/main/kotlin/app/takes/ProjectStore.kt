@@ -296,6 +296,33 @@ class ProjectStore(context: Context) {
      * its content so the same LUT is stored once. Null, with a message for
      * the person, when the file is not a usable LUT.
      */
+    /**
+     * A picture picked for a video effect's background, kept in the project
+     * folder under a name made from its contents: its file name, or null when
+     * it is not a picture that can be read.
+     */
+    suspend fun importEffectPicture(projectID: String, uri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+            val extension = when (bounds.outMimeType) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                "image/heif", "image/heic" -> "heic"
+                else -> "jpg"
+            }
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            val folder = disk.folder(projectID).apply { mkdirs() }
+            val file = File(folder, "effect-picture-${hash.take(32)}.$extension")
+            if (!file.isFile) ProjectDisk.writeAtomically(bytes, file)
+            file.name
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     suspend fun importLut(projectID: String, uri: Uri): ImportedLUT? = withContext(Dispatchers.IO) {
         try {
             val bytes = resolver.openInputStream(uri)?.use { input ->

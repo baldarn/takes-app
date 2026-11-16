@@ -617,6 +617,27 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) store.importAudio(project.id, uri, playhead)
     }
+    // A picture for a video effect's background, kept in the project; [pictureFor] takes its file name.
+    var pictureFor by remember { mutableStateOf<((String?) -> Unit)?>(null) }
+    val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val picked = pictureFor
+        pictureFor = null
+        if (uri == null || picked == null) return@rememberLauncherForActivityResult
+        scope.launch { picked(store.importEffectPicture(project.id, uri)) }
+    }
+    val seekTo by rememberUpdatedState(jump)
+    val effectTools = remember(project.id) {
+        EffectTools(
+            seek = { seekTo(it) },
+            pickPicture = { picked ->
+                pictureFor = picked
+                pickPicture.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly).build())
+            },
+            samplePalette = { sourceID, time, count ->
+                files[sourceID]?.let { file -> withContext(Dispatchers.IO) { runCatching { ScenePalettes.sample(file, time, count) }.getOrNull() } }
+            },
+        )
+    }
     // Videos and photos from the phone go in at the playhead, in the order picked, as the original's add panel (AddVideoPanel.swift:45-49).
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
         if (uris.isNotEmpty()) store.insertMedia(project.id, uris, playhead) { start -> jump(start) }
@@ -719,18 +740,29 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
                 // The video effects after the color, as the export draws them: at the source second the deck shows.
                 val effectPreviews = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) List(EditRendering.LANES) { EffectPreview() } else null }
+                // A palette from the scene is analysed in the background the first time it is shown, and drawn once it is.
+                var palettesReady by remember { mutableIntStateOf(0) }
                 val effects = List(EditRendering.LANES) { deck ->
                     val grade = grades[deck]
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List grade?.asComposeRenderEffect()
+                    var restored: android.graphics.RenderEffect? = null
                     val shaded = shownClips[deck]?.let { (clip, start) ->
                         val offset = (playhead - start).coerceIn(0.0, clip.duration)
                         // While the Video effects tool is open, its draft (or nothing, comparing with the original).
                         val work = effecting
-                        val shown = if (work != null) work.shown(clip, clip.sourceTime(offset), playhead) else clip.videoEffects
-                        val passes = EffectShader.passes(shown, clip.sourceTime(offset), movieRate)
-                        previewBounds?.takeIf { passes.isNotEmpty() }?.let { effectPreviews?.get(deck)?.effect(passes, it.width, it.height) }
+                        val sourceTime = clip.sourceTime(offset)
+                        val shown = if (work != null) work.shown(clip, sourceTime, playhead) else clip.videoEffects
+                        val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false) { palettesReady++ }
+                        palettesReady.let { } // read, so that the picture is drawn again once a palette is ready
+                        restored = effectPreviews?.get(deck)?.nightFix(shown, sourceTime)
+                        val passes = EffectShader.passes(shown, sourceTime, movieRate, EffectAssets.inputs(assets, shown, sourceTime))
+                        previewBounds?.takeIf { passes.isNotEmpty() }?.let { bounds ->
+                            effectPreviews?.get(deck)?.effect(passes, bounds.width, bounds.height) { id -> shown?.firstOrNull { it.id == id }?.let(assets::picture) }
+                        }
                     }
-                    (if (shaded != null && grade != null) android.graphics.RenderEffect.createChainEffect(shaded, grade) else shaded ?: grade)?.asComposeRenderEffect()
+                    // Night fix on the raw picture, then its color, then the other effects.
+                    val graded = if (restored != null && grade != null) android.graphics.RenderEffect.createChainEffect(grade, restored) else grade ?: restored
+                    (if (shaded != null && graded != null) android.graphics.RenderEffect.createChainEffect(shaded, graded) else shaded ?: graded)?.asComposeRenderEffect()
                 }
                 // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
                 val content = { index: Int, frame: FrameSize -> RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = cropOf(index).first != null) }
@@ -1100,7 +1132,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     effectsWork.on.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
                 },
                 cancel = { effecting = null },
-                modifier = Modifier.weight(1f), appliesTo = toolScopeLabel,
+                modifier = Modifier.weight(1f), appliesTo = toolScopeLabel, tools = effectTools,
             )
         } else if (framing != null) {
             val shape = canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) }
