@@ -168,6 +168,10 @@ import app.takes.core.TrackRenderPlan
 import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMix
 import app.takes.core.MovieLength
+import app.takes.core.TrackSequenceView
+import app.takes.core.EditInterval
+import app.takes.core.TimelineSelection
+import app.takes.core.TrackCaptions
 import app.takes.core.EditRender
 import app.takes.core.TimelineTransition
 import app.takes.core.EffectValue
@@ -1260,6 +1264,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         } else if (subtitling != null) {
             SubtitlesPanel(
                 saved = edit, draft = subtitling ?: edit, change = { subtitling = it },
+                // What a transcription listens to: the marked range, the span of what is selected, or the whole timeline.
+                listened = TrackCaptions.scope(timeline, marks.range?.let { TimelineSelection(range = EditInterval.of(it.start, it.end)) }
+                    ?: marks.selected.takeIf { !it.isEmpty }?.let { TimelineSelection(it.clips, it.audio.mapTo(LinkedHashSet()) { id -> TrackSequenceView.soundID(edit, id) }) }),
                 files = files, layout = captionLayout, playhead = playhead, playing = editor.playing,
                 seek = jump, working = { subtitleWork = it },
                 // One undo step for everything done in the tool.

@@ -150,7 +150,7 @@ internal object TrackParityKinds {
             effect = "A voice-over gets captions; music is sent to the recogniser as well. A sound item with words cannot be saved as a sequence.",
             rule = "YouRec/Subtitles.swift:205-246",
             aspects = none(SequenceObstacle.Words) + setOf("answer: stretches"),
-            functions = functions("SubtitleEditing.stretches", "SubtitleEditing.install"),
+            functions = functions("SubtitleEditing.install"),
             tags = setOf(Tag.SOUND_ITEMS),
             plan = "N10",
         ),

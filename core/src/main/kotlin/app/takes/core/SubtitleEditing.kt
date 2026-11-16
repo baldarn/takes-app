@@ -1,6 +1,6 @@
 package app.takes.core
 
-/** A stretch of one recording's sound that the edit plays: what a transcription has to listen to. Source seconds. */
+/** A stretch of sound a transcription listens to, for its checkpoint ([SubtitleCheckpoint]): the mix of a range, named by what it is ([TrackSubtitles.fingerprint]). Seconds. */
 data class SubtitleStretch(val sourceID: String, val start: Double, val end: Double)
 
 /**
@@ -49,33 +49,25 @@ object SubtitleEditing {
         }.joinToString("\n").toByteArray(),
     )
 
-    /** False once the footage changed after transcription: the words per caption can then no longer be changed. Undo restores it. */
-    fun groupingAvailable(state: EditState): Boolean =
-        if (!state.isSequence) TrackSubtitles.groupingAvailable(state.toTimeline()) else state.subtitles != null && state.subtitles.timingFingerprint == fingerprint(state.clips)
+    /**
+     * False once the footage changed after transcription: the words per caption can then no longer be changed.
+     * Undo restores it. What the captions were timed for is the timeline's ([TrackCaptions.stale]); a sequence
+     * transcribed before the mix was says it by the formula of [fingerprint] and is read as it was saved.
+     */
+    fun groupingAvailable(state: EditState): Boolean {
+        if (!state.isSequence) return TrackSubtitles.groupingAvailable(state.toTimeline())
+        val settings = state.subtitles ?: return false
+        return settings.timingFingerprint == fingerprint(state.clips) || !TrackCaptions.stale(state.toTimeline())
+    }
 
     /**
-     * What has to be transcribed: for each recording, the parts that clips
-     * with sound play, merged where they touch or overlap, so footage used
-     * twice or split in two is listened to once and in one piece.
+     * Installs what the recognizer heard in the mix of [range] ([TrackCaptions.installing]): [words] in seconds
+     * from the range's start, each put on the loudest sound playing at its middle, the words heard before in the
+     * range replaced and those outside it kept. Words on a sound that is no clip's, such as a voice-over, make the
+     * edit one that is not a sequence, saved as its timeline.
      */
-    fun stretches(clips: List<TimelineClip>): List<SubtitleStretch> {
-        val order = mutableListOf<String>()
-        val ranges = mutableMapOf<String, MutableList<SourceInterval>>()
-        for (clip in clips) {
-            if (!speaks(clip)) continue
-            if (clip.sourceID !in ranges) order += clip.sourceID
-            ranges.getOrPut(clip.sourceID) { mutableListOf() } += SourceInterval(clip.start, clip.end)
-        }
-        return order.flatMap { source ->
-            val merged = mutableListOf<SourceInterval>()
-            for (range in ranges.getValue(source).sortedBy { it.start }) {
-                val last = merged.lastOrNull()
-                if (last != null && range.start <= last.end + 0.001) merged[merged.lastIndex] = SourceInterval(last.start, maxOf(last.end, range.end))
-                else merged += range
-            }
-            merged.map { SubtitleStretch(source, it.start, it.end) }
-        }
-    }
+    fun installHeard(state: EditState, words: List<SubtitleWord>, range: EditInterval, language: String): EditState =
+        TrackEditState.edit(TrackCaptions.installing(state.toTimeline(), words, range, language), state.captureBase)
 
     /**
      * Replaces every caption with a new transcription. [words] are the words

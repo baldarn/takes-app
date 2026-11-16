@@ -189,20 +189,6 @@ class SubtitleEditingTest {
 
     // MARK: Transcription
 
-    @Test fun footageIsListenedToOnceAndInOnePiece() {
-        val a = TimelineClip(sourceID = "A", start = 0.0, end = 5.0)
-        val clips = listOf(
-            TimelineClip(sourceID = "B", start = 1.0, end = 3.0), a, a.copy(id = newID(), start = 5.0, end = 9.0),   // a split
-            a.copy(id = newID(), start = 2.0, end = 4.0),                                                            // the same footage again
-            a.copy(id = newID(), start = 12.0, end = 15.0), a.copy(id = newID(), start = 16.0, end = 18.0, audio = ClipAudio(muted = true)),
-        )
-        assertEquals(
-            listOf(SubtitleStretch("B", 1.0, 3.0), SubtitleStretch("A", 0.0, 9.0), SubtitleStretch("A", 12.0, 15.0)),
-            SubtitleEditing.stretches(clips),
-        )
-        assertTrue(SubtitleEditing.stretches(emptyList()).isEmpty())
-    }
-
     @Test fun eachClipOwnsTheWordsItPlays() {
         val first = TimelineEditing.split(project.edit, 1.8)!!                       // through "morning" (1.5–2.2): its middle is in the second piece
         val state = first.copy(clips = first.clips + first.clips[0].copy(id = newID()))   // and the first piece once more

@@ -198,19 +198,6 @@ class TrackSubtitlesTest {
     // MARK: Transcribing recordings
 
     @Test
-    fun theStretchesToTranscribeAreWhatUnmutedSoundsPlayOfEachSource() {
-        val state = TrackFixtures.plain()
-        val timeline = state.toTimeline()
-        assertEquals(SubtitleEditing.stretches(state.clips), TrackSubtitles.stretches(timeline))
-        // A cut does not divide what is listened to, and a muted sound is not listened to.
-        val cut = timeline.split(ticks(3.0), TrackLinking.entireSelection(timeline)).timeline
-        assertEquals(TrackSubtitles.stretches(timeline), TrackSubtitles.stretches(cut))
-        val quiet = TrackAudio.settingVolume(timeline, 0.0, true, TimelineSelection(audio = setOf(timeline.audio[1].id)))
-        assertEquals(setOf(TrackFixtures.take.id), TrackSubtitles.stretches(quiet).map { it.sourceID }.toSet())
-        assertEquals(TrackSubtitles.stretches(quiet), TrackSubtitles.stretches(timeline, setOf(timeline.audio[0].id, timeline.audio[2].id)))
-    }
-
-    @Test
     fun wordsHeardInARecordingAreInstalledOnEverySoundThatPlaysThem() {
         val heard = mapOf(source.id to words)
         val installed = TrackSubtitles.installingSourceWords(bare, heard, "English")

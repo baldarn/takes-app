@@ -22,7 +22,7 @@ Ids made during the call, the track of a sound item, the order of a clip's bookm
 - **different**: both give a sequence, and the two differ.
 - **not expressible**: the result is a valid timeline that no sequence of clips with two sound tracks plays. No function answers one while a project saves a sequence.
 
-The edits: 18 small ones made for one situation each, 128 steps of the histories of the golden projects (all but the long one), and 300 made by 30 seeded sequences of the functions as they were. 91755 calls.
+The edits: 18 small ones made for one situation each, 128 steps of the histories of the golden projects (all but the long one), and 300 made by 30 seeded sequences of the functions as they were. 91309 calls.
 
 ## By function
 
@@ -54,7 +54,6 @@ The edits: 18 small ones made for one situation each, 128 steps of the histories
 | `SubtitleEditing.cues` | 446 | 446 | 0 | 0 |  |
 | `SubtitleEditing.transcript` | 446 | 446 | 0 | 0 |  |
 | `SubtitleEditing.groupingAvailable` | 446 | 446 | 0 | 0 |  |
-| `SubtitleEditing.stretches` | 446 | 446 | 0 | 0 |  |
 | `AudioUnlinking.unlink` | 612 | 612 | 0 | 0 |  |
 | `AudioUnlinking.relink` | 612 | 612 | 0 | 0 |  |
 | `AudioUnlinking.restoreSync` | 612 | 612 | 0 | 0 |  |
@@ -74,7 +73,7 @@ The edits: 18 small ones made for one situation each, 128 steps of the histories
 | `SubtitleEditing.correct` | 93 | 93 | 0 | 0 |  |
 | `SubtitleEditing.delete` | 93 | 93 | 0 | 0 |  |
 | `TimelineEditing.removeText` | 14 | 14 | 0 | 0 |  |
-| **all** | 91755 | 91558 | 197 | 0 | |
+| **all** | 91309 | 91112 | 197 | 0 | |
 
 ## The kinds of difference
 
@@ -257,7 +256,7 @@ In 72279 calls both sides answer an edit. In 72092 of them the two edits are the
 ## The sample
 
 What the tests check when nothing is set in the environment: the calls on 68 of the edits (the 18 small ones, every 8th step of the golden projects, every 9th seeded edit), the same calls the whole suite makes on them.
-15035 calls: 15007 identical, 28 different, 0 not expressible, 0 with something not explained.
+14967 calls: 14939 identical, 28 different, 0 not expressible, 0 with something not explained.
 
 | Kind | Calls in the sample |
 |---|---:|

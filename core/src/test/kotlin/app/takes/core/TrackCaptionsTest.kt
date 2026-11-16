@@ -59,6 +59,21 @@ class TrackCaptionsTest {
 
     // MARK: Installing
 
+    /** What the app does with a transcription of the mix: a sequence stays one, its clips owning the words, and they can be regrouped. */
+    @Test
+    fun aSequenceTranscribedFromTheMixKeepsItsWordsOnItsClips() {
+        val state = EditState(listOf(clip))
+        val installed = SubtitleEditing.installHeard(state, SubtitleTiming.estimate(text, speech), whole, "English")
+        assertTrue(installed.isSequence)
+        assertEquals(TrackSubtitles.transcript(original), SubtitleEditing.transcript(installed))
+        assertTrue(SubtitleEditing.groupingAvailable(installed))
+        // A range replaces only its own words.
+        val again = SubtitleEditing.installHeard(installed, listOf(SubtitleWord(text = "Hello", start = 0.1, end = 0.5)), EditInterval.of(4.0, 7.0), "English")
+        val words = SubtitleEditing.transcript(again)
+        assertTrue(words, words.startsWith("Here is the first") && "Hello" in words && "another" !in words && words.endsWith("Finally we finish."))
+        assertFalse(SubtitleEditing.groupingAvailable(TimelineEditing.split(again, 5.0)!!))
+    }
+
     /** Tests/SubtitleTests.swift:52-55: "Partial re-transcription preserves phrase identity outside the selection". */
     @Test
     fun aRangeReplacesOnlyItsOwnWords() {

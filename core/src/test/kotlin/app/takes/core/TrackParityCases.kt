@@ -531,11 +531,6 @@ internal object TrackParityCases {
         add("SubtitleEditing.cues", "the captions", tags, { value("captions", LegacySubtitleEditing.cues(state).map { listOf(it.text, it.start, it.end) }) }, { value("captions", SubtitleEditing.cues(state).map { listOf(it.text, it.start, it.end) }) })
         add("SubtitleEditing.transcript", "the text", tags, { value("transcript", LegacySubtitleEditing.transcript(state)) }, { value("transcript", SubtitleEditing.transcript(state)) })
         add("SubtitleEditing.groupingAvailable", "whether regrouping is allowed", tags, { value("allowed", LegacySubtitleEditing.groupingAvailable(state)) }, { value("allowed", SubtitleEditing.groupingAvailable(state)) })
-        add(
-            "SubtitleEditing.stretches", "what a transcription listens to", tags,
-            { value("stretches", LegacySubtitleEditing.stretches(clips).map { listOf(it.sourceID, it.start, it.end) }) },
-            { value("stretches", SubtitleEditing.stretches(clips).map { listOf(it.sourceID, it.start, it.end) }) },
-        )
         if (state.subtitles == null) return
         add("SubtitleEditing.remove", "every caption", tags, { today(LegacySubtitleEditing.remove(state)) }, { wrapped(SubtitleEditing.remove(state)) })
         val restyled = state.subtitles.copy(style = SubtitleSettings.Style.Bold, size = 0.07)
