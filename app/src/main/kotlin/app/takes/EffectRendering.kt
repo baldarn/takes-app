@@ -640,6 +640,29 @@ object EffectShader {
             float a = 1.0 - clamp(uP3.x * d / max(ds, 0.0001), 0.0, 1.0);
             return clamp((a - uP5.x) / max(0.0001, uP6.x - uP5.x), 0.0, 1.0);
         }
+        // The person mask (its alpha): uPersonX and uPersonY take a deck pixel to a pixel of the stored mask, uPerson.x is 1
+        // when the frame has one and uPerson.yz is the mask's size. No person outside it.
+        uniform shader person;
+        uniform vec4 uPerson;
+        uniform vec3 uPersonX;
+        uniform vec3 uPersonY;
+        float personAt(vec2 uv) {
+            if (uPerson.x < 0.5) return 0.0;
+            vec3 p = vec3(uv * uSize, 1.0);
+            vec2 m = vec2(dot(uPersonX, p), dot(uPersonY, p));
+            if (m.x < 0.0 || m.y < 0.0 || m.x > uPerson.y || m.y > uPerson.z) return 0.0;
+            return person.eval(m).a;
+        }
+        // Studio, or Window when w is 2: AutoBackgroundFormulas.studioBackground, in linear light.
+        vec3 studio(vec2 uv, float w) {
+            vec2 p = vec2(uv.x * uSize.x, uSize.y - uv.y * uSize.y);
+            vec3 light = lin(vec3(0.65, 0.58, 0.48));
+            vec3 dark = lin(vec3(0.08, 0.10, 0.14));
+            bool pane = w > 1.5 && p.y >= uSize.y * 0.18 && p.y < uSize.y * 0.83 &&
+                ((p.x >= uSize.x * 0.64 && p.x < uSize.x * 0.74) || (p.x >= uSize.x * 0.80 && p.x < uSize.x * 0.90));
+            if (pane) return lin(vec3(0.62, 0.73, 0.83));
+            return mix(light, dark, clamp(length(p - vec2(uSize.x * 0.3, uSize.y * 0.7)) / (uSize.x * 0.8), 0.0, 1.0));
+        }
         // An Image background: the picture at uPlace (its scale, its top left in the deck's pixels), black outside it.
         vec3 placed(vec2 uv) {
             vec2 p = (uv * uSize - uPlace.yz) / uPlace.x;
@@ -654,15 +677,30 @@ object EffectShader {
             15 -> Triple("blurred(uv, uBlur.x, 1.0)", "blurred(uv, uBlur.y, 1.0)", "blurred(uv, uBlur.z, 1.0)")
             11 -> Triple("across(uv, uBlur.x, 2.0)", "blurred(uv, uBlur.y, 0.0)", "vec3(0.0)")
             16, 17 -> Triple("blurred(uv, uBlur.x, 0.0)", "vec3(0.0)", "vec3(0.0)")
-            7 -> Triple("spot(uv, 0.0)", "vec3(0.0)", "vec3(0.0)")
+            // The smoothed picture stands in as the picture itself; face detail sharpens against the picture blurred.
+            7 -> Triple("spot(uv, 0.0)", "blurred(uv, uBlur.y, 0.0)", "vec3(0.0)")
             18 -> Triple("vec3(keyAlpha(spot(uv, 0.0), keyScreen()))", "uPlace.x > 0.0 ? placed(uv) : blurred(uv, uBlur.y, 0.0)", "backAt(uv)")
+            // The person's mask as it is, without the guided filter.
+            4 -> Triple("vec3(personAt(uv))", "vec3(0.0)", "vec3(0.0)")
+            // The mask as it is; the new background (a picture, Studio or Window, or the picture blurred), its light wrap as itself.
+            19 -> Triple(
+                "vec3(personAt(uv))",
+                "uPlace.x > 0.0 ? placed(uv) : uBlur.w > 0.5 ? studio(uv, uBlur.w) : blurred(uv, uBlur.y, 0.0)",
+                "backAt(uv)",
+            )
             else -> Triple("vec3(0.0)", "vec3(0.0)", "vec3(0.0)")
+        }
+        // The raw person mask for face detail; the picture itself as the background behind the person (the estimate).
+        val more = when (kind) {
+            7 -> "vec3(personAt(uv))"
+            19 -> "src(uv)"
+            else -> "vec3(0.0)"
         }
         return """
         vec3 auxAt(vec2 uv) { return $aux; }
         vec3 backAt(vec2 uv) { return $back; }
         vec3 extraAt(vec2 uv) { return $extra; }
-        vec3 moreAt(vec2 uv) { return vec3(0.0); }
+        vec3 moreAt(vec2 uv) { return $more; }
         """
     }
 
@@ -800,6 +838,22 @@ object EffectShader {
                 out[0] = state.zoom.toFloat()
                 out[1] = VideoEffectFormulasB.crashZoomBlur(state.velocity, u.p[4].x).toFloat()
             }
+            // The light wrap, the view and the brightness; a solid colour, or black for a picture not there. Whether the
+            // frame has a person mask (uX0.z) is set where there is one.
+            VideoEffectID.AutoBackground -> {
+                val gain = 2.0.pow(u.number("backgroundBrightness"))
+                out[0] = u.number("wrap").toFloat()
+                out[1] = u.number("view").toFloat()
+                out[3] = gain.toFloat()
+                val background = background(u)
+                if (background == "Solid" || background == "Video") {
+                    val solid = if (background == "Solid") u.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
+                    out[4] = solid.x.toFloat()
+                    out[5] = solid.y.toFloat()
+                    out[6] = solid.z.toFloat()
+                    out[7] = 1f
+                }
+            }
             // The screen set by hand and the background's brightness; a solid colour, or black for a background not drawn.
             VideoEffectID.ChromaKey -> {
                 val screen = u.vector("screenColor")
@@ -844,6 +898,12 @@ object EffectShader {
             VideoEffectID.SixteenMM -> floatArrayOf(1.5f * scale, 0f, 0f, 0f)
             VideoEffectID.SuperEight -> floatArrayOf(2f * scale, 0f, 0f, 0f)
             VideoEffectID.ChromaKey -> floatArrayOf(0f, 20f * scale, 0f, if (u.number("autoScreen") > .5) 1f else 0f)
+            VideoEffectID.Quantization -> floatArrayOf(0f, 8f * scale, 0f, 0f)
+            // The portrait blur and the background's own blur, as one; w: 1 Studio, 2 Window.
+            VideoEffectID.AutoBackground -> floatArrayOf(
+                0f, (u.number("portraitBlur") + u.number("backgroundBlur")).toFloat() * scale, 0f,
+                when (background(u)) { "Studio" -> 1f; "Window" -> 2f; else -> 0f },
+            )
             else -> FloatArray(4)
         }
     }
@@ -1298,7 +1358,11 @@ class EffectPreview {
      * null when there are none. [picture] gives a Chroma Key's Image
      * background by the effect's id.
      */
-    fun effect(passes: List<EffectUniforms>, width: Float, height: Float, picture: (String) -> Bitmap? = { null }): RenderEffect? {
+    fun effect(
+        passes: List<EffectUniforms>, width: Float, height: Float, picture: (String) -> Bitmap? = { null },
+        /** The person mask of the frame, raw or (true) Auto Background's smoothed stream; null without one. */
+        person: (Boolean) -> PersonFrame? = { null },
+    ): RenderEffect? {
         var effect: RenderEffect? = null
         passes.forEachIndexed { index, pass ->
             if (shaders.size <= index) shaders += Pair(pass.kind, RuntimeShader(EffectShader.preview(pass.kind)))
@@ -1309,6 +1373,16 @@ class EffectPreview {
             shader.setFloatUniform("uSize", width, height)
             for (slot in 0 until EffectShader.SLOTS) shader.setFloatUniform("uP$slot", EffectShader.slot(pass, slot))
             val extras = EffectShader.extras(pass, width.roundToInt(), height.roundToInt())
+            val frame = when {
+                pass.effect == VideoEffectID.AutoBackground -> person(true)
+                pass.effect == VideoEffectID.ColorIsolation && pass.number("mode") > .5 -> person(false)
+                pass.effect == VideoEffectID.Quantization && pass.number("faceDetail") > .5 && pass.number("colors") <= 4 -> person(false)
+                else -> null
+            }
+            personInput(shader, frame, width, height)
+            if (frame != null) {
+                if (pass.effect == VideoEffectID.AutoBackground) extras[2] = 1f else extras[0] = 1f
+            }
             shader.setFloatUniform("uX0", extras.copyOfRange(0, 4))
             shader.setFloatUniform("uX1", extras.copyOfRange(4, 8))
             shader.setFloatUniform("uGrainSize", 1f)
@@ -1316,19 +1390,51 @@ class EffectPreview {
             shader.setFloatUniform("uPalette", EffectShader.palette(pass))
             shader.setFloatUniform("uThresholds", EffectShader.thresholds(pass))
             shader.setFloatUniform("uCount", EffectShader.count(pass))
-            backdrop(shader, pass, width, height, if (pass.effect == VideoEffectID.ChromaKey && EffectShader.background(pass) == "Image") picture(pass.id) else null)
+            backdrop(shader, pass, width, height, if (pictured(pass)) picture(pass.id) else null)
             val drawn = RenderEffect.createRuntimeShaderEffect(shader, "content")
             effect = effect?.let { RenderEffect.createChainEffect(drawn, it) } ?: drawn
         }
         return effect
     }
 
-    /** A Chroma Key's Image background placed as the export places it, or nothing. */
+    /** Whether [pass] is a Chroma Key or an Auto Background with an Image background. */
+    private fun pictured(pass: EffectUniforms): Boolean =
+        (pass.effect == VideoEffectID.ChromaKey || pass.effect == VideoEffectID.AutoBackground) && EffectShader.background(pass) == "Image"
+
+    private var personShown: Pair<app.takes.core.PersonMaskChunks.Mask, BitmapShader>? = null
+
+    /**
+     * The person mask as the pass's `person` input, laid on the deck as the deck shows the clip: upright, fitted,
+     * before its crop and mirror, which the deck's view applies after the effects.
+     */
+    private fun personInput(shader: RuntimeShader, frame: PersonFrame?, width: Float, height: Float) {
+        if (frame == null) {
+            shader.setInputShader("person", none)
+            shader.setFloatUniform("uPerson", 0f, 1f, 1f, 0f)
+            shader.setFloatUniform("uPersonX", 0f, 0f, 0f)
+            shader.setFloatUniform("uPersonY", 0f, 0f, 0f)
+            return
+        }
+        val mask = frame.mask
+        val kept = personShown?.takeIf { it.first === mask } ?: run {
+            val bitmap = Bitmap.createBitmap(mask.width, mask.height, Bitmap.Config.ALPHA_8)
+            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(mask.rows))
+            Pair(mask, BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { filterMode = BitmapShader.FILTER_MODE_LINEAR })
+        }.also { personShown = it }
+        shader.setInputShader("person", kept.second)
+        val deck = EffectSize(width.toDouble(), height.toDouble())
+        val toMask = app.takes.core.PersonMaskPlacement.toMask(app.takes.core.PictureFraming.fit(frame.upright, deck), frame.upright, frame.rotation)
+            .concatenating(app.takes.core.Affine.scale(mask.width.toDouble(), mask.height.toDouble()))
+        shader.setFloatUniform("uPerson", 1f, mask.width.toFloat(), mask.height.toFloat(), 0f)
+        shader.setFloatUniform("uPersonX", toMask.a.toFloat(), toMask.c.toFloat(), toMask.tx.toFloat())
+        shader.setFloatUniform("uPersonY", toMask.b.toFloat(), toMask.d.toFloat(), toMask.ty.toFloat())
+    }
+
+    /** A Chroma Key's or an Auto Background's Image background placed as the export places it, or nothing. */
     private fun backdrop(shader: RuntimeShader, pass: EffectUniforms, width: Float, height: Float, bitmap: Bitmap?) {
         if (bitmap == null) {
             shader.setInputShader("backdrop", none)
-            val image = pass.effect == VideoEffectID.ChromaKey && EffectShader.background(pass) == "Image"
-            shader.setFloatUniform("uPlace", if (image) 1f else 0f, 0f, 0f, 0f)
+            shader.setFloatUniform("uPlace", if (pictured(pass)) 1f else 0f, 0f, 0f, 0f)
             shader.setFloatUniform("uBackdrop", 0f, 0f)
             return
         }

@@ -791,12 +791,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         val sourceTime = clip.sourceTime(offset)
                         val shown = if (work != null) work.shown(clip, sourceTime, playhead) else clip.videoEffects
                         val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false, context = context, media = project.sources.firstOrNull { it.id == clip.sourceID }) { palettesReady++ }
-                        palettesReady.let { } // read, so that the picture is drawn again once a palette is ready
+                        palettesReady.let { } // read, so that the picture is drawn again once a palette or a person mask is ready
                         restored = effectPreviews?.get(deck)?.nightFix(shown, sourceTime)
                         // A held frame pushes in on the hold's clock; a cadence's held frames and Step Printing's blends the preview does not draw.
                         val passes = EffectShader.passes(shown, sourceTime, movieRate, EffectAssets.inputs(assets, shown, sourceTime), clip.frozenFrame?.let { it.offset + offset })
                         previewBounds?.takeIf { passes.isNotEmpty() }?.let { bounds ->
-                            effectPreviews?.get(deck)?.effect(passes, bounds.width, bounds.height) { id -> shown?.firstOrNull { it.id == id }?.let(assets::picture) }
+                            effectPreviews?.get(deck)?.effect(
+                                passes, bounds.width, bounds.height,
+                                picture = { id -> shown?.firstOrNull { it.id == id }?.let(assets::picture) },
+                                person = { smoothed -> assets.person(sourceTime, smoothed) },
+                            )
                         }
                     }
                     // Night fix on the raw picture, then its color, then the other effects.

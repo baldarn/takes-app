@@ -1,5 +1,8 @@
 package app.takes.pixels
 
+import android.os.Build
+import androidx.annotation.RequiresApi
+
 import app.takes.EffectAssets
 import app.takes.EffectShader
 import app.takes.PersonFrame
@@ -279,7 +282,91 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
         case("Person: Auto Background, Window, grown, soft", auto(mapOf("background" to "Window", "grow" to 3.0, "softness" to 0.8, "wrap" to 1.0)), ALLOWED),
         case("Person: Auto Background, the matte", auto(mapOf("view" to "Matte")), ALLOWED),
         case("Person: Auto Background, the matte, turned 90° and mirrored", auto(mapOf("view" to "Matte")), ALLOWED, rotation = 90, mirrored = true),
-    )
+    ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) previews() else emptyList()
+
+    /**
+     * The preview's side (Android 13 and later), simplified as the editor says: the person's mask as it is, without
+     * the guided filter. Auto Background's matte must be that mask laid on the deck, and each effect must draw the
+     * person apart from the rest: its shaders compile and read the mask where it lies.
+     */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun previews(): List<Case> {
+        fun drawn(effects: List<VideoEffectSettings>, source: Picture = portrait, rotation: Int = 0): Pair<Picture, EffectMask> {
+            val mask = stored(rotation)
+            val linear by lazy { linear(source) }
+            val assets = Assets(PersonFrame(mask, rotation, Size(width.toDouble(), height.toDouble())), { linear })
+            val inputs = EffectAssets.inputs(assets, effects, 1.0)
+            val passes = EffectShader.passes(effects, 1.0, EffectStage.RATE, inputs)
+            return PreviewStage.frame(source, passes, person = assets.person(1.0, true)) to person(mask, rotation, false).frame
+        }
+        fun inside(person: EffectMask, i: Int) = person.data[i] > .99
+        fun outside(person: EffectMask, i: Int) = person.data[i] < .01
+        return listOf(
+            Case("Person preview: Auto Background, the matte is the mask") {
+                for (rotation in listOf(0, 90)) {
+                    val (picture, person) = drawn(auto(mapOf("view" to "Matte")), rotation = rotation)
+                    var worst = 0
+                    var over = 0
+                    for (i in picture.pixels.indices) {
+                        val level = (EffectColorMath.encoded(person.data[i].toDouble()).coerceIn(0.0, 1.0) * 255).roundToInt()
+                        val d = distance(picture.pixels[i], rgb(level, level, level))
+                        worst = maxOf(worst, d)
+                        if (d > ALLOWED) over++
+                    }
+                    note("turned $rotation: worst $worst levels, $over pixels over $ALLOWED")
+                    check(over <= OUTLIERS && worst <= OUTLIER_LEVELS) { "The preview's matte is not the mask laid on the deck: $over pixels over, the worst $worst" }
+                }
+            },
+            Case("Person preview: each effect draws the person apart") {
+                val looks = listOf(
+                    "Color Isolation, the subject" to listOf(settings(VideoEffectID.ColorIsolation, mapOf("mode" to "The subject"))),
+                    "Quantization, face detail" to listOf(settings(VideoEffectID.Quantization, mapOf("colors" to 4.0, "palette" to "Pop 1", "smoothing" to 0.0))),
+                    "Auto Background, solid" to auto(mapOf("background" to "Solid")),
+                    "Auto Background, blur original" to auto(emptyMap()),
+                    "Auto Background, Studio" to auto(mapOf("background" to "Studio")),
+                    "Auto Background, Window" to auto(mapOf("background" to "Window")),
+                )
+                for ((name, effects) in looks) {
+                    val (picture, person) = drawn(effects)
+                    val kept = picture.pixels.indices.filter { inside(person, it) }
+                    val changedInside = kept.count { distance(picture.pixels[it], portrait.pixels[it]) > ALLOWED }
+                    val away = picture.pixels.indices.filter { outside(person, it) }
+                    val changedOutside = away.count { distance(picture.pixels[it], portrait.pixels[it]) > ALLOWED }
+                    note("$name: ${kept.size} pixels of the person, $changedInside changed; ${away.size} of the rest, $changedOutside changed")
+                    when {
+                        // The person keeps its colour; the rest goes grey, or behind the new background.
+                        name.startsWith("Color Isolation") || name.startsWith("Auto Background") -> {
+                            check(changedInside <= kept.size / 50) { "$name changes the person" }
+                            // Blurring this picture's smooth background changes it only near its bars and the card.
+                            val least = if (name.endsWith("blur original")) away.size / 5 else away.size / 2
+                            check(changedOutside >= least) { "$name leaves the rest as it was" }
+                        }
+                        // Face detail sharpens the person only; the palette changes the rest alike, so compare with face detail off.
+                        else -> {
+                            val off = drawn(listOf(settings(VideoEffectID.Quantization, mapOf("colors" to 4.0, "palette" to "Pop 1", "smoothing" to 0.0, "faceDetail" to false)))).first
+                            val detailInside = kept.count { distance(picture.pixels[it], off.pixels[it]) > ALLOWED }
+                            val detailOutside = away.count { distance(picture.pixels[it], off.pixels[it]) > ALLOWED }
+                            note("$name against face detail off: $detailInside of the person changed, $detailOutside of the rest")
+                            // The export's own difference on the same picture, for scale.
+                            val mask = stored(0)
+                            val assets = Assets(PersonFrame(mask, 0, Size(width.toDouble(), height.toDouble())), { linear(portrait) })
+                            fun export(detail: Boolean): Picture {
+                                val stage = EffectStage(bench, listOf(settings(VideoEffectID.Quantization, mapOf("colors" to 4.0, "palette" to "Pop 1", "smoothing" to 0.0, "faceDetail" to detail))), width, height, assets)
+                                try { return stage.frame(portrait, 1_000_000) } finally { stage.release() }
+                            }
+                            val on = export(true)
+                            val offExport = export(false)
+                            val exported = kept.count { distance(on.pixels[it], offExport.pixels[it]) > ALLOWED }
+                            note("the export against face detail off: $exported of the person changed")
+                            // On this picture the sharpening crosses few palette boundaries; the preview, simplified, as many as the export or so.
+                            check(kotlin.math.abs(detailInside - exported) <= maxOf(50, exported / 2)) { "$name sharpens the person unlike the export: $detailInside against $exported" }
+                            check(detailOutside == 0) { "$name changes the rest" }
+                        }
+                    }
+                }
+            },
+        )
+    }
 
     private companion object {
         /** Eight bits in, a single-precision shader, eight bits out: a level of rounding each way. */

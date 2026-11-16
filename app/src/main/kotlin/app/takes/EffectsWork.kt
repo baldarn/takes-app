@@ -101,7 +101,7 @@ internal object AndroidVideoEffects {
         VideoEffectID.SixteenMM -> effect.number("softness", at) > 0
         VideoEffectID.Widescreen -> effect.number("flares", at) > 0 || effect.choice("bars", at) == "Blur fill"
         VideoEffectID.Quantization -> effect.number("smoothing", at) > 0 || (people && effect.toggle("faceDetail", at) && effect.number("colors", at) <= 4)
-        // The person's mask is drawn by the export; the preview leaves the picture as it is.
+        // The preview reads the person's mask as it is, without the guided filter, and the picture as the background behind it.
         VideoEffectID.AutoBackground -> true
         VideoEffectID.ColorIsolation -> effect.choice("mode", at) == "The subject"
         else -> false

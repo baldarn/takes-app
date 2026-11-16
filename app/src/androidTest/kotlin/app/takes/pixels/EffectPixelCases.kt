@@ -120,7 +120,7 @@ class EffectStage(
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 object PreviewStage {
-    fun frame(input: Picture, passes: List<app.takes.core.EffectUniforms>, picture: Bitmap? = null): Picture {
+    fun frame(input: Picture, passes: List<app.takes.core.EffectUniforms>, picture: Bitmap? = null, person: app.takes.PersonFrame? = null): Picture {
         val width = input.width
         val height = input.height
         val bitmap = Bitmap.createBitmap(IntArray(input.pixels.size) { input.pixels[it] or (0xff shl 24) }, width, height, Bitmap.Config.ARGB_8888)
@@ -129,7 +129,7 @@ object PreviewStage {
             setPosition(0, 0, width, height)
             beginRecording().drawBitmap(bitmap, 0f, 0f, null)
             endRecording()
-            setRenderEffect(EffectPreview().effect(passes, width.toFloat(), height.toFloat()) { picture })
+            setRenderEffect(EffectPreview().effect(passes, width.toFloat(), height.toFloat(), picture = { picture }, person = { person }))
         }
         val root = RenderNode("root").apply {
             setPosition(0, 0, width, height)
