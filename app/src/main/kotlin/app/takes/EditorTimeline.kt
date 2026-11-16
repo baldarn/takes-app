@@ -71,6 +71,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
 
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -139,6 +143,10 @@ private fun rowWave(rows: TimelineRows?) = if (rows == null || rows.count <= 1) 
 private fun rowPitch(rows: TimelineRows?) = rowTile(rows) + rowWave(rows) + if (rows == null || rows.count <= 1) 0.dp else 2.dp
 private fun stripHeight(rows: TimelineRows?) = if (rows == null || rows.count <= 1) TileSize + WaveHeight else rowPitch(rows) * rows.count
 private val GhostColor = Color(0xFF64D2FF)
+// The original's systemYellow (grips), systemOrange (transitions) and a badge filled with white at 0.1.
+private val GripColor = Color(0xFFFFD60A)
+private val TransitionColor = Color(0xFFFF9F0A)
+private val BadgeFill = Color(0xFF1A1A1A)
 private val SyncColor = Color(0xFFFF453A)
 
 @Composable
@@ -147,7 +155,7 @@ internal fun Timeline(
     select: (clip: String?, audio: String?) -> Unit, toggle: (clip: String?, audio: String?) -> Unit, seek: (time: Double, deselect: Boolean) -> Unit,
     openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
-    touched: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
+    touched: () -> Unit, focusTransition: (time: Double) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
     marked: MarkedView? = null, level: LevelGesture? = null,
     pinch: (factor: Float?) -> Unit = {},
     rows: TimelineRows? = null, moveDrag: MoveDrag? = null,
@@ -176,20 +184,29 @@ internal fun Timeline(
     val haptics = LocalHapticFeedback.current
     val pitch = rowPitch(rows)
     val strip = stripHeight(rows)
-    // Where a touch grabs a trim handle of the current clip instead of scrolling. Off a single row, on the current clip's own row.
+    // The transitions as the timeline marks them: from the rows off a single row, else from the clips.
+    val markers = remember(rows, clips) { rows?.markers ?: TransitionMarker.of(clips) }
+    val latestMarkers by rememberUpdatedState(markers)
+    // Where a touch grabs a trim handle of the current clip instead of scrolling, as in the original
+    // (EditorTimeline.swift:583-601): within 22 dp of an edge that is the edge of its footage, within 22 dp of the
+    // middle of the clip's row, on a card at least 44 dp wide, and not on the badge of a transition.
     val handle by rememberUpdatedState { x: Float, y: Float, half: Float ->
         current?.takeIf { it in clips.indices && moveDrag == null }?.let { index ->
             val row = rows?.rows?.getOrNull(index) ?: 0
-            val top = with(density) { StripTop.toPx() + row * pitch.toPx() }
-            if (rows != null && (y < top || y > top + with(density) { (rowTile(rows) + rowWave(rows)).toPx() })) return@let null
+            val (reach, least) = with(density) { 22.dp.toPx() to 44.dp.toPx() }
+            val middle = with(density) { StripTop.toPx() + row * pitch.toPx() + (rowTile(rows) + rowWave(rows)).toPx() / 2 }
+            if (abs(y - middle) > reach) return@let null
             val start = rows?.starts?.getOrNull(index) ?: TimelineEditing.clipStart(clips, index)
             val left = half + (start * pixelsPerSecond).toFloat() + shift - scroll.value
             val right = left + (clips[index].duration * pixelsPerSecond).toFloat()
-            // Just the visible grip and a little around it; the rest of the clip scrolls.
-            val (outside, inside) = with(density) { 6.dp.toPx() to 14.dp.toPx() }
+            if (right - left < least) return@let null
+            // A touch on a transition's badge is the badge's.
+            if (latestMarkers.any { it.row == row && abs(x - (half + (it.time * pixelsPerSecond).toFloat() - scroll.value)) < reach }) return@let null
             // An edge under a transition that plays two clips at once is no trim edge, as in the original.
-            val leading = x in (left - outside)..(left + inside) && (rows != null || TimelineEditing.overlap(clips, index - 1) <= 0)
-            val trailing = x in (right - inside)..(right + outside) && (rows != null || TimelineEditing.overlap(clips, index) <= 0)
+            val trimsLeft = rows?.trimsLeft?.getOrNull(index) ?: (TimelineEditing.overlap(clips, index - 1) <= 0)
+            val trimsRight = rows?.trimsRight?.getOrNull(index) ?: (TimelineEditing.overlap(clips, index) <= 0)
+            val leading = abs(x - left) <= reach && (trimsLeft || trim?.leading == true)
+            val trailing = abs(x - right) <= reach && (trimsRight || trim?.leading == false)
             when {
                 leading && trailing -> abs(x - left) < abs(x - right)
                 leading -> true
@@ -300,7 +317,7 @@ internal fun Timeline(
                 clips, files, rows, current, trim, pixelsPerSecond, viewport, scroll, marked, Modifier.width(width).height(strip),
                 openTitle = openTitle, select = { onSelect(it, null) },
                 toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(it, null) },
-                focusTransition = focusTransition, soundless = soundless,
+                focusTransition = focusTransition, soundless = soundless, markers = markers,
             )
             // Clips sit at their timeline position; a dissolve draws the incoming clip over the end of the previous one.
             else Box(Modifier.width(width).height(TileSize + WaveHeight).offset { IntOffset(shift.roundToInt(), 0) }, Alignment.CenterStart) {
@@ -309,19 +326,17 @@ internal fun Timeline(
                     key(clip.id) {
                         ClipStrip(
                             clip, files.getValue(clip.sourceID), index == current,
-                            // The transition into the clip where it begins, when it is the clip's own opening or plays over the clip before;
-                            // the one out of it where it ends, when it is the clip's own close or the next clip only follows.
-                            entering = TimelineEditing.entering(clips, index)?.takeIf { it.edge == -1 || it.timing.overlap > 0 },
-                            leaving = TimelineEditing.leaving(clips, index)?.takeIf { it.edge == 1 || it.timing.overlap <= 0 },
                             dissolve = (TimelineEditing.overlap(clips, index - 1) * pixelsPerSecond).toFloat(),
                             // The edge being dragged keeps its grip while the draft changes around it.
+                            trimsStart = trim?.leading == true || TimelineEditing.overlap(clips, index - 1) <= 0,
                             trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
-                            offset, pixelsPerSecond, viewport, scroll, openTitle = { openTitle(index, it) },
+                            offset = offset, pixelsPerSecond = pixelsPerSecond, viewport = viewport, scroll = scroll, openTitle = { openTitle(index, it) },
                             select = { onSelect(clip.id, null) }, toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(clip.id, null) },
-                            focusTransition = focusTransition, soundless = clip.id in soundless,
+                            soundless = clip.id in soundless,
                         )
                     }
                 }
+                TransitionMarks(markers, pixelsPerSecond, scroll, { 0 }, TileSize + WaveHeight, focusTransition)
                 // What is marked: the part of each clip inside the range, or the clips selected whole.
                 if (marked != null) {
                     clips.forEachIndexed { index, clip ->
@@ -413,9 +428,9 @@ internal fun Timeline(
 
 @Composable
 internal fun ClipStrip(
-    clip: TimelineClip, file: File, current: Boolean, entering: TransitionLayout.Join?, leaving: TransitionLayout.Join?, dissolve: Float, trimsEnd: Boolean, offset: Float,
+    clip: TimelineClip, file: File, current: Boolean, dissolve: Float, trimsStart: Boolean, trimsEnd: Boolean, offset: Float,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
-    select: () -> Unit, toggle: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit,
+    select: () -> Unit, toggle: () -> Unit,
     top: Int = 0, tileHeight: Dp = TileSize, waveHeight: Dp = WaveHeight, outline: Color? = null,
     soundless: Boolean = false,
 ) {
@@ -520,28 +535,79 @@ internal fun ClipStrip(
             Box(Modifier.offset { IntOffset((clip.offset(mark.time) * pixelsPerSecond).roundToInt() - 1.dp.roundToPx(), 0) }
                 .width(3.dp).height(tileHeight + waveHeight).background(BookmarkColor))
         }
-        // The part of this clip that plays over the previous one, and the transitions at its two ends by name.
+        // The part of this clip that plays over the previous one.
         if (dissolve > 0) Box(Modifier.width(with(density) { dissolve.toDp() }).height(tileHeight + waveHeight).background(Color.White.copy(alpha = 0.35f)))
-        // A tap on the name goes to the join, where the transition is offered for editing; the touch reaches a little around the name.
-        val onFocus by rememberUpdatedState(focusTransition)
-        val focusLabel = stringResource(R.string.transition_tag_focus)
-        @Composable
-        fun tag(join: TransitionLayout.Join, modifier: Modifier, reach: PaddingValues) {
-            val style = join.transition?.style ?: return
-            Box(modifier.clickable(onClickLabel = focusLabel) { onFocus(join) }.padding(reach)) {
-                Text(
-                    stringResource(if (style == TransitionStyle.FadeColor) R.string.transition_tag_fade else style.label), color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                    modifier = Modifier.background(Color.White, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp),
-                )
-            }
+        // The trim grips of the current clip, as the original draws them (EditorTimeline.swift:928-935): yellow, 5 by 24,
+        // 3 in from each edge, on a card at least 44 wide; none on an edge that lies under a transition playing two
+        // clips at once, which is not the edge of the footage shown.
+        if (current && with(density) { width.toDp() } >= 44.dp) {
+            val middle = (tileHeight + waveHeight) / 2 - 12.dp
+            fun Modifier.grip() = size(5.dp, 24.dp).background(GripColor, RoundedCornerShape(1.dp))
+            if (trimsStart) Box(Modifier.align(Alignment.TopStart).offset(3.dp, middle).grip())
+            if (trimsEnd) Box(Modifier.align(Alignment.TopEnd).offset((-3).dp, middle).grip())
         }
-        entering?.let { tag(it, Modifier.align(Alignment.BottomStart).padding(start = 12.dp), PaddingValues(top = 14.dp, end = 12.dp)) }
-        leaving?.let { tag(it, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp), PaddingValues(top = 14.dp, start = 12.dp)) }
-        if (current) {
-            val grip = Modifier.width(minOf(10.dp, with(density) { (width / 2).toDp() })).height(tileHeight + waveHeight).background(Color.White, RoundedCornerShape(3.dp))
-            // No grip on an edge that lies under a transition playing two clips at once: it is not the edge of the footage shown.
-            if (dissolve <= 0) Box(grip.align(Alignment.CenterStart))
-            if (trimsEnd) Box(grip.align(Alignment.CenterEnd))
+    }
+}
+
+/**
+ * The transitions on the timeline, as the original marks them
+ * (YouRec/EditorTimeline.swift:110-140, :953-968): under each row a
+ * transition plays on, an orange bar 2 high, 3 above the row's bottom, over
+ * the time its picture effect runs; on its join, on the top of those rows,
+ * a badge 24 by 22 with two triangles pointing at the join, filled orange
+ * while the playhead is on the join. A touch of 44 by 44 around the badge
+ * puts the playhead on the join, where the row below offers the transition.
+ */
+@Composable
+private fun BoxScope.TransitionMarks(
+    markers: List<TransitionMarker>, pixelsPerSecond: Float, scroll: ScrollState, top: (row: Int) -> Int, cardHeight: Dp, focus: (time: Double) -> Unit,
+) {
+    if (markers.isEmpty()) return
+    // Placed from the top left of the rows, whatever the alignment of the box they are drawn in.
+    Box(Modifier.matchParentSize()) { Marks(markers, pixelsPerSecond, scroll, top, cardHeight, focus) }
+}
+
+@Composable
+private fun Marks(
+    markers: List<TransitionMarker>, pixelsPerSecond: Float, scroll: ScrollState, top: (row: Int) -> Int, cardHeight: Dp, focus: (time: Double) -> Unit,
+) {
+    val density = LocalDensity.current
+    val onFocus by rememberUpdatedState(focus)
+    val focusLabel = stringResource(R.string.transition_tag_focus)
+    val card = with(density) { cardHeight.toPx() }
+    Canvas(Modifier.fillMaxSize()) {
+        val bar = 2.dp.toPx()
+        for (marker in markers) for (row in marker.rows) {
+            val left = (marker.start * pixelsPerSecond).toFloat()
+            val right = (marker.end * pixelsPerSecond).toFloat()
+            drawRect(TransitionColor.copy(alpha = 0.85f), Offset(left, top(row) + card - 3.dp.toPx() - bar), Size(maxOf(right - left, 1f), bar))
+        }
+    }
+    for (marker in markers) key(marker.time, marker.row) {
+        val name = stringResource(if (marker.style == TransitionStyle.FadeColor) R.string.transition_tag_fade else marker.style.label)
+        val described = stringResource(R.string.transition_badge_description, name)
+        // The playhead is in the middle of the timeline; it is on the join when the two are within a pixel.
+        val active by remember(marker.time, pixelsPerSecond) { derivedStateOf { abs(scroll.value - marker.time * pixelsPerSecond) < 1.0 } }
+        Box(
+            Modifier.offset { IntOffset((marker.time * pixelsPerSecond).roundToInt() - 22.dp.roundToPx(), top(marker.row) + (card / 2).roundToInt() - 22.dp.roundToPx()) }
+                .size(44.dp).clickable(onClickLabel = focusLabel) { onFocus(marker.time) }.semantics { contentDescription = described },
+            Alignment.Center,
+        ) {
+            Canvas(Modifier.size(24.dp, 22.dp)) {
+                val corner = CornerRadius(5.dp.toPx())
+                drawRoundRect(if (active) TransitionColor else BadgeFill, cornerRadius = corner)
+                drawRoundRect(TransitionColor, cornerRadius = corner, style = Stroke(1.5.dp.toPx()))
+                val c = center
+                val ink = if (active) Color.Black else TransitionColor
+                fun triangle(side: Float) = Path().apply {
+                    moveTo(c.x + side * 7.dp.toPx(), c.y - 5.dp.toPx())
+                    lineTo(c.x + side * 1.dp.toPx(), c.y)
+                    lineTo(c.x + side * 7.dp.toPx(), c.y + 5.dp.toPx())
+                    close()
+                }
+                drawPath(triangle(-1f), ink)
+                drawPath(triangle(1f), ink)
+            }
         }
     }
 }
@@ -556,7 +622,7 @@ private fun PictureRows(
     clips: List<TimelineClip>, files: Map<String, File>, rows: TimelineRows, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, marked: MarkedView?, modifier: Modifier,
     openTitle: (index: Int, title: TextOverlay) -> Unit, select: (String) -> Unit, toggle: (String) -> Unit,
-    focusTransition: (TransitionLayout.Join) -> Unit, soundless: Set<String> = emptySet(),
+    focusTransition: (time: Double) -> Unit, soundless: Set<String> = emptySet(), markers: List<TransitionMarker> = emptyList(),
 ) {
     val density = LocalDensity.current
     val tile = rowTile(rows)
@@ -578,15 +644,17 @@ private fun PictureRows(
             key(clip.id) {
                 ClipStrip(
                     clip, file, index == current && trim?.index.let { it == null || it == index },
-                    entering = null, leaving = null, dissolve = 0f, trimsEnd = true,
-                    (rows.starts[index] * pixelsPerSecond).toFloat(), pixelsPerSecond, viewport, scroll,
+                    dissolve = 0f,
+                    trimsStart = trim?.leading == true || rows.trimsLeft.getOrElse(index) { true },
+                    trimsEnd = trim?.leading == false || rows.trimsRight.getOrElse(index) { true },
+                    offset = (rows.starts[index] * pixelsPerSecond).toFloat(), pixelsPerSecond = pixelsPerSecond, viewport = viewport, scroll = scroll,
                     openTitle = { openTitle(index, it) }, select = { select(clip.id) }, toggle = { toggle(clip.id) },
-                    focusTransition = focusTransition,
                     top = (rows.rows[index] * pitch).roundToInt(), tileHeight = tile, waveHeight = wave,
                     outline = GhostColor.takeIf { clip.id in rows.moving }, soundless = clip.id in soundless,
                 )
             }
         }
+        TransitionMarks(markers, pixelsPerSecond, scroll, { row -> (row * pitch).roundToInt() }, tile + wave, focusTransition)
         if (marked != null) {
             clips.forEachIndexed { index, clip ->
                 if (!marked.clip(clip.id)) return@forEachIndexed
