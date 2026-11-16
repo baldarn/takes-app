@@ -16,6 +16,7 @@ import app.takes.core.EditState
 import app.takes.core.EditTime
 import app.takes.core.LayerPlan
 import app.takes.core.PlacedPicture
+import app.takes.core.PlacementEdgeCrop
 import app.takes.core.PlacementLayout
 import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
@@ -271,6 +272,23 @@ class LayerPixelCases(private val bench: Bench) {
             val black = stage(plan).frame(gap)
             check(black.pixels.all { it == 0 }) { "The gap is not black" }
             matches(stage(plan), plan.duration - 1.0, "after the gap")
+        },
+        // YouRec Tests/TrackMediaTests.swift:401-435: "Cropping leaves exact interior pixels and reveals unaltered lower
+        // video on all four sides". The preview draws with the same LayerDrawing and shader body as this export effect.
+        layers("an edge crop clips the picture in front and reveals the one under it on all four sides") {
+            val cropped = VideoPlacement(order = 10, edgeCrop = PlacementEdgeCrop(left = 0.2, right = 0.15, top = 0.2, bottom = 0.1))
+            val plan = LayerPlan.planned(overlaid(EditState(listOf(clip("A", SECONDS))).toTimeline(), "O", 1.0, 3.0, cropped), 3)!!
+            val window = (plan.moment(2.0, canvas).layers.last() as LayerPlan.Layer.Whole).window
+            check(window != null && window.scale == 1.0) { "The picture in front keeps its size: $window" }
+            matches(stage(plan), 2.0, "cropped")
+            val frame = stage(plan).frame(2.0)
+            val want = DoubleArray(3)
+            // Inside the margins the picture in front, untouched; outside them on every side the one under it.
+            for ((x, y, front) in listOf(Triple(100, 60, true), Triple(20, 60, false), Triple(300, 60, false), Triple(100, 10, false), Triple(100, 175, false))) {
+                (if (front) quadsO else quadsA).encoded(x + 0.5, y + 0.5, want)
+                val off = (0..2).maxOf { c -> kotlin.math.abs(frame.channel(x, y, c) - want[c] * 255) }
+                check(off <= LEVELS + 0.5) { "($x, $y) should show ${if (front) "the cropped picture" else "the picture under it"}: $off steps off" }
+            }
         },
     )
 
