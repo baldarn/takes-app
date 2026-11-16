@@ -67,6 +67,8 @@ class Bench(val context: Context) {
 class Stage(
     private val bench: Bench, val clips: List<TimelineClip>, val width: Int, val height: Int,
     framesPerSecond: Double = 30.0, content: ((Int) -> Rect)? = null, titled: Boolean = false,
+    /** Whether the decks are an HDR movie's, HLG in BT.2020: the effect compiled for HDR, as [app.takes.ExportMovie] makes it. */
+    hdr: Boolean = false,
     private val picture: (clip: Int, time: Double) -> Picture,
 ) {
     val layout: TransitionLayout.Sequence = TimelineEditing.layout(clips)
@@ -75,7 +77,7 @@ class Stage(
     /** One sequence, or two when clips play at once or time lies between them: as the export decides it. */
     val decks: Int = if (TimelineEditing.chains(clips).size > 1) 2 else 1
 
-    private val program: GlShaderProgram = TransitionEffect(clips, Size(width, height), decks, { framesPerSecond }, content ?: { Rect(0.0, 0.0, width.toDouble(), height.toDouble()) }, titled)
+    private val program: GlShaderProgram = TransitionEffect(clips, Size(width, height), decks, { framesPerSecond }, content ?: { Rect(0.0, 0.0, width.toDouble(), height.toDouble()) }, titled, hdr)
         .toGlShaderProgram(bench.context, /* useHdr = */ false)
     private var output: GlTextureInfo? = null
     private var failure: VideoFrameProcessingException? = null

@@ -696,8 +696,8 @@ class TransitionEffect(
     private val hdr: Boolean = false,
 ) : GlEffect {
     /** The effect of [clips] by themselves, planned as an export plans them. */
-    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect, titled: Boolean = false) :
-        this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content, titled)
+    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect, titled: Boolean = false, hdr: Boolean = false) :
+        this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content, titled, hdr)
 
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program(context.assets)
 
