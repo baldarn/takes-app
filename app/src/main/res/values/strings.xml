@@ -151,6 +151,8 @@
     <string name="color_choose_another_lut">Choose another LUT</string>
     <string name="color_use_look">Use a look</string>
     <string name="color_strength">Strength</string>
+    <string name="color_highlights">Highlights</string>
+    <string name="color_highlights_help">Adjusts bright tones before the look. Move left to lower them.</string>
     <string name="color_exposure">Exposure</string>
     <string name="color_warmth">Warmth</string>
     <string name="color_tint">Tint</string>

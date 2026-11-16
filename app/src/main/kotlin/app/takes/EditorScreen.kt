@@ -1790,7 +1790,7 @@ internal fun <T> Choices(label: String, options: List<Pair<String, T>>, selected
     }
 }
 
-/** The clip's color: a look or an imported LUT at some strength, over exposure, warmth and tint. */
+/** The clip's color: a look or an imported LUT at some strength, over highlights, exposure, warmth and tint. */
 @Composable
 private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> ImportedLUT?, save: (ColorSettings) -> Unit, dismiss: () -> Unit, appliesTo: String? = null) {
     var color by remember { mutableStateOf(saved) }
@@ -1844,6 +1844,10 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
     )
 }
 
+                // Highlights sits above the balance, as in the original's colour controls (YouRec/ColorGradeControls.swift:52-66).
+                val highlights = color.highlights ?: 0.0
+                Level(stringResource(R.string.color_highlights), highlights, -1f..1f, "%+.0f".format(highlights * 100)) { color = color.copy(highlights = it.takeIf { it != 0.0 }) }
+                Text(stringResource(R.string.color_highlights_help), color = Muted, fontSize = 12.sp)
 /**
  * Finds the pauses in the clip under the playhead and offers to cut them out.
  * The threshold between speech and silence is estimated from the recording.
