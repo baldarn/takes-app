@@ -23,7 +23,7 @@ Nothing here was run on a device or an emulator. Section 5 lists what that leave
 | **Picture: dissolve, fade through color, wipe, split screen, Hitchcock, flash cut (30 fps), still** | matches | Same recipe, in linear light. Residual differences are subtle (F18). |
 | **Picture: whip pan, defocus** | differs | Fixed-tap approximations of `CIMotionBlur` and `CIBokehBlur` (F2, F3). |
 | **Picture: titles during a transition** | differs | Drawn once over the finished frame with an opacity, not through the transition with their clip (F1). |
-| **Picture: preview below Android 13** | differs, documented | Five styles are shown as cross-fades; the export is unaffected (F4). |
+| **Picture: preview below Android 13** | differs, documented | Four styles are shown as cross-fades and split screen's brief entry and exit are not dissolves; the export is unaffected (F4). |
 | **Sound: levels** | matches | Same ramps, same 8 ms minimum, same J/L cuts and split first/second, and preview and export read the same function. [R][P] |
 | **Sound: how the levels are applied** | differs, subtle | Preview sets the players' volume once per display frame (F16). |
 | **Layout: set, change, remove, split, delete, move, insert/paste, speed, undo** | matches | Within a timeline whose clips always follow one another. Checked against `docs/TRANSITIONS-FIT.md` and against the Swift. |
@@ -61,7 +61,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 - **Difference.** Offsets, direction, reverse, axis, easing of the slide and of the mix, and the linear rise and fall of the blur all match (`core/TransitionGeometry.kt:125-132`). The smear does not: at 1080p the radius peaks at 130 px, so samples are 8 px apart; at 4K, 259 px and 16 px apart. A vertical edge at the peak is 32 distinct copies. How `CIMotionBlur` weights its extent is not in the source of either side, so the box shape itself is an assumption.
 - **Fix.** As F2: blur a reduced copy, or raise the tap count with the radius.
 
-### F4. Below Android 13 the preview draws five styles as cross-fades — every use on those devices [R]
+### F4. Below Android 13 the preview draws four styles as cross-fades — every use on those devices [R]
 
 - **Android.** `shadedPreview` is `SDK_INT >= 33` (`app/TransitionPreview.kt:35`). Below it (`:102-126`, minimum SDK 26):
 
@@ -72,11 +72,12 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
   | Wipe, Hitchcock | a cross-fade by the eased progress |
   | Whip pan | a cross-fade by the eased progress, no slide, no blur |
   | Defocus | sharp first picture until 35 %, cross-fade to 65 %, sharp second picture |
-  | Split screen | an even double exposure of the two pictures for the whole transition (shares 1 and 1, normalised, `:110`) |
+  | Split screen | each clip in its half with its framing and the divider, exact; the brief entry and exit (the first and last 15 %) are not dissolves: the picture alone is shown whole with the other half and the line fading in over it until the pair outweighs it, then the pair alone (`core/SplitViews.kt`) |
 
 - **Export.** Does not look at the SDK level: `TransitionEffect` runs the GL shader on every version (`app/TransitionRendering.kt:295-437`, `app/Exporter.kt:297-336`). So the export truly differs from that preview, as the panel's note says (`app/TransitionPanel.kt:226`).
-- **Difference from the original.** The original's preview and export are one compositor. On these devices a split screen cannot be framed by eye: the gestures work (`app/EditorScreen.kt:748-778`) on a picture that shows neither half.
-- **Fix.** For split screen at least, draw the two halves with plain clipped and scaled views instead of the cross-fade; say in the note that framing is blind.
+- **Difference from the original.** The original's preview and export are one compositor. Wipe, Hitchcock, whip pan and defocus cannot be judged by eye on these devices.
+- **Fixed for split screen** (issue #34). The two decks' views are scaled about their top left corner, moved and clipped into their halves by the numbers of `TransitionFrame.Split` (`core/SplitViews.kt`, `app/TransitionPreview.kt`), so a split screen can be framed by eye and the panel no longer calls its preview simplified. One player shows one view, so the dissolve from the first picture into the pair and from the pair to the second (`YouRec/TransitionRenderer.swift:261-263`) is drawn as described in the table. A split screen inside a timeline of picture layers (`app/LayerPreview.kt`) is still cross-faded.
+- **Fix.** For the other styles, plain views cannot draw them; a shader is needed.
 
 ### F5. A still has no audio timing, and one inherited from another style previews wrongly — specific cases [R][P]
 
