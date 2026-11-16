@@ -23,6 +23,10 @@ import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Subtitles
@@ -539,6 +543,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var shapingSound by remember { mutableStateOf(false) }
     val pickSound = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) store.importAudio(project.id, uri, playhead)
+    }
+    // Videos and photos from the phone go in at the playhead, in the order picked, as the original's add panel (AddVideoPanel.swift:45-49).
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) store.insertMedia(project.id, uris, playhead) { start -> jump(start) }
     }
     val soundName = stringResource(R.string.editor_sound_default_name)
     val names = remember(project.sources, soundName) { project.sources.associate { it.id to (it.originalName ?: soundName) } }
@@ -1126,6 +1134,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             TextButton(onClick = { adding = false; store.recordHere(project.id, playhead); record() }) {
                                 Icon(Icons.Filled.FiberManualRecord, null, Modifier.size(18.dp), tint = RecordRed)
                                 Text(stringResource(R.string.editor_record_here), Modifier.padding(start = 8.dp))
+                            }
+                            TextButton(onClick = {
+                                adding = false
+                                pickMedia.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageAndVideo).setOrderedSelection(true).build())
+                            }) {
+                                Icon(Icons.Outlined.PhotoLibrary, null, Modifier.size(18.dp))
+                                Text(stringResource(R.string.add_media_phone), Modifier.padding(start = 8.dp))
                             }
                             if (unused.isNotEmpty()) TextButton(onClick = { adding = false; choosing = emptyList() }) {
                                 Icon(Icons.Outlined.VideoLibrary, null, Modifier.size(18.dp))

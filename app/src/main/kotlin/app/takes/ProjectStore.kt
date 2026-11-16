@@ -33,6 +33,7 @@ import app.takes.core.SourceMedia
 import app.takes.core.SubtitleScratch
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
+import app.takes.core.PhotoClip
 import app.takes.core.UnusedTakes
 import app.takes.core.newID
 import kotlinx.coroutines.Dispatchers
@@ -180,6 +181,52 @@ class ProjectStore(context: Context) {
                 error = if (uris.size == 1) context.getString(R.string.projects_import_failed_one)
                 else context.getString(R.string.projects_import_failed_some, failed, uris.size)
             }
+        }
+    }
+
+    /**
+     * Copies videos and photos picked from the device into the project and puts them into its timeline at second
+     * [at], in the order picked, as one Undo step, as the original's editor adds them (VideoBatchImport.swift:21-72).
+     * A photo becomes a movie of [PhotoClip.SECONDS] seconds. Nothing is added when one of them cannot be read.
+     * [done] is told where the first one begins.
+     */
+    fun insertMedia(projectID: String, uris: List<Uri>, at: Double, done: (Double) -> Unit = {}) {
+        if (uris.isEmpty() || importing != null) return
+        scope.launch {
+            val added = mutableListOf<SourceMedia>()
+            var failed = false
+            for ((index, uri) in uris.withIndex()) {
+                importing = context.getString(R.string.projects_importing_progress, index + 1, uris.size)
+                val source = if (resolver.getType(uri)?.startsWith("image/") == true) photoIn(projectID, uri) else withContext(Dispatchers.IO) { copyIn(projectID, uri) }
+                if (source == null) { failed = true; break }
+                added += source
+            }
+            importing = null
+            val project = projects.firstOrNull { it.id == projectID }
+            val placed = if (failed || project == null) null else UnusedTakes.add(added.fold(project) { it, source -> it.addSource(source) }, added, at)
+            if (placed == null || !update(placed.project)) {
+                project?.let { for (source in added) file(it, source).delete() }
+                error = if (uris.size == 1) context.getString(R.string.projects_import_failed_one) else context.getString(R.string.add_media_failed)
+            } else done(placed.start)
+        }
+    }
+
+    /** A photo picked from the device, as a movie in the project's folder. */
+    private suspend fun photoIn(projectID: String, uri: Uri): SourceMedia? {
+        val folder = disk.folder(projectID).apply { mkdirs() }
+        val id = newID()
+        val file = File(folder, "photo-${System.currentTimeMillis()}-$id.mp4")
+        val partial = File(folder, ".${file.name}.tmp.mp4")
+        return try {
+            if (!PhotoMovie.write(context, uri, partial)) return null
+            val duration = withContext(Dispatchers.IO) { mediaDuration(partial) } ?: return null
+            if (!partial.renameTo(file)) return null
+            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+            SourceMedia(id = id, filename = file.name, duration = duration, originalName = name?.take(255))
+        } finally {
+            partial.delete()
         }
     }
 
