@@ -80,7 +80,7 @@ object TrackConversion {
                     audio = null, bookmarks = null, subtitleWords = null,
                 ),
                 layer = index,
-                mapping = SourcePlaybackMap.single(EditTime(lengths[index]), clip.start, clip.end),
+                mapping = SourcePlaybackMap.of(clip, EditTime(lengths[index])),
             )
         }
 

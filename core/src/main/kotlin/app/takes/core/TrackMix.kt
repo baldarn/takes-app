@@ -217,12 +217,16 @@ object TrackMix {
                 if (b <= a) continue
                 val part = EditInterval(EditTime(a), EditTime(b))
                 val map = item.mapping.sliced(part)
-                if (map.runs.any { it.silent || it.isHold }) continue
+                if (map.runs.any { it.silent }) continue
+                // A hold that sounds is a held frame whose Freeze Frame plays the source on from the held second.
+                val hold = map.runs.singleOrNull()?.takeIf { it.isHold }
+                if (hold == null && map.runs.any { it.isHold }) continue
                 val chain = item.enhancements.firstOrNull { part.start in it.interval }?.let { AudioChain.active(it.effects) }.orEmpty()
                 val input = TrackMixInput(item.sourceID, chain.map { it.copy(id = "") })
                 val start = item.start + part.start
                 var at = start
-                val runs = map.runs.map { run -> TrackMixRun(at, run.duration, run.sourceStart, run.sourceEnd).also { at += run.duration } }
+                val runs = if (hold != null) listOf(TrackMixRun(at, hold.duration, hold.sourceStart, hold.sourceStart + hold.duration.seconds))
+                else map.runs.map { run -> TrackMixRun(at, run.duration, run.sourceStart, run.sourceEnd).also { at += run.duration } }
                 val first = runs.first()
                 val kind = format(input)
 
@@ -242,6 +246,8 @@ object TrackMix {
                     clipStart = item.start.seconds, clipEnd = item.end.seconds,
                     inRamp = inRamp, outRamp = outRamp, userFadeIn = item.fadeIn, userFadeOut = item.fadeOut,
                     owner = item.id, initialOwner = prior?.owner, initialVolume = prior?.envelope?.volume, volume = item.gain,
+                    // Fade out over hold: down to silence over the piece, each piece of a split hold on its own.
+                    endVolume = if (hold != null && fadesOverHold(follows?.let { pictures[it] })) 0.0 else null,
                 )
                 lane.pieces += TrackMixPiece(
                     item.id, item.sourceID, lane.index, start, item.start + part.end, runs, chain, input, envelope,
@@ -252,6 +258,13 @@ object TrackMix {
         }
         return TrackMixPlan(timeline.duration, lanes.map { TrackMixLane(it.index, it.pieces.toList()) })
     }
+}
+
+/** Whether [picture] is a held frame whose Freeze Frame fades its sound out over the hold. Renderer:502. */
+private fun fadesOverHold(picture: VideoTimelineItem?): Boolean {
+    val content = picture?.content ?: return false
+    if (content.frozenFrame == null) return false
+    return content.videoEffects.orEmpty().firstOrNull { it.kind == VideoEffectID.FreezeFrame }?.choice("audio", content.start) == "Fade out over hold"
 }
 
 /** The mix plan of the timeline ([TrackMix.plan]). */

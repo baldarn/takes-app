@@ -240,21 +240,48 @@ data class TimelineClip(
      */
     @Serializable(with = SupportedVideoEffects::class)
     val videoEffects: List<VideoEffectSettings>? = null,
+    /**
+     * A held frame: the clip shows one frame of its source for the hold's
+     * duration, as the original's Freeze Frame inserts it
+     * (YouRec/Project.swift:59). Null for footage that plays.
+     */
+    val frozenFrame: FrozenFrameSegment? = null,
 ) {
-    /** How fast the clip plays: 2 is twice as fast and takes half the time. */
+    /** How fast the clip plays by its own speed setting: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
 
-    /** Seconds the clip takes on the timeline. [start] and [end] are source seconds. */
-    val duration: Double get() = (end - start) / rate
+    /**
+     * Whether the clip's playback is more than one stretch at [rate]: a held
+     * frame, or an Undercranking or Step Printing that changes its speed.
+     */
+    val timed: Boolean get() = frozenFrame != null || VideoEffectTiming.retimes(videoEffects, start, end)
 
-    /** The source second showing [offset] timeline seconds into the clip. */
-    fun sourceTime(offset: Double): Double = start + offset * rate
+    /**
+     * What the clip plays, as source stretches each at one rate: the clip's
+     * speed times that of its Undercranking and Step Printing
+     * ([VideoEffectTiming.playbackSpans]). A held frame is one stretch from
+     * [start] to [end] taking the hold's duration.
+     */
+    val playbackSpans: List<EffectPlaybackSpan>
+        get() = frozenFrame?.let { listOf(EffectPlaybackSpan(start, end, (end - start) / it.duration)) }
+            ?: if (!timed) listOf(EffectPlaybackSpan(start, end, rate))
+            else VideoEffectTiming.playbackSpans(videoEffects.orEmpty(), start, end, speed, listOf(SourceInterval(start, end)))
+
+    /** Seconds the clip takes on the timeline. [start] and [end] are source seconds. */
+    val duration: Double get() = frozenFrame?.duration ?: if (!timed) (end - start) / rate else SpeedMapping.duration(playbackSpans)
+
+    /** The source second showing [offset] timeline seconds into the clip: the held one on a held frame. */
+    fun sourceTime(offset: Double): Double = frozenFrame?.sourceTime
+        ?: if (!timed) start + offset * rate else SpeedMapping.sourceTime(offset, playbackSpans, end)
 
     /** How far into the clip, in timeline seconds, a source second shows. */
-    fun offset(sourceTime: Double): Double = (sourceTime - start) / rate
+    fun offset(sourceTime: Double): Double = frozenFrame?.let { SpeedMapping.timelineTime(sourceTime, it) }
+        ?: if (!timed) (sourceTime - start) / rate else SpeedMapping.timelineTime(sourceTime, playbackSpans)
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        // Readers before 19 knew no held frame and played the time effects at the clip's own speed.
+        frozenFrame != null || videoEffects.orEmpty().any { it.kind in VideoEffectTiming.TIME_EFFECTS } -> TIME_EFFECTS_SCHEMA
         !videoEffects.isNullOrEmpty() -> 16
         audio?.reshaped(duration) == true -> 15
         crop?.reframed == true -> 14
@@ -269,6 +296,11 @@ data class TimelineClip(
         !bookmarks.isNullOrEmpty() -> 3
         transition != null || !texts.isNullOrEmpty() -> 2
         else -> 1
+    }
+
+    companion object {
+        /** The schema of a held frame and of the time effects that change how a clip plays. */
+        const val TIME_EFFECTS_SCHEMA = 19
     }
 }
 
@@ -358,8 +390,12 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
     /** The name of the history file that holds [data]: the hash of its bytes. */
     fun filename(): String = named ?: (sha256(data()) + ".json").also { named = it }
 
-    /** The schema number a project needs once it holds this step, when it is a committed one: a timeline's, or a layered timeline's. */
-    val schema: Int get() = if (state.layered != null) TrackTimeline.LAYERED_SCHEMA else TrackTimeline.SCHEMA
+    /** The schema number a project needs once it holds this step, when it is a committed one: a timeline's or a layered timeline's, or its clips' when higher. */
+    val schema: Int get() = maxOf(
+        if (state.layered != null) TrackTimeline.LAYERED_SCHEMA else TrackTimeline.SCHEMA,
+        // A held frame or a time effect on a clip ([TimelineClip.TIME_EFFECTS_SCHEMA]).
+        (timeline?.video?.map { it.content } ?: state.clips).maxOfOrNull { it.schema } ?: 0,
+    )
 
     companion object {
         /** A step that saves [timeline], with [state] the edit it is ([TrackEditState.edit]): the sequence it reads back as, or the timeline itself. */
@@ -545,7 +581,8 @@ data class Project(
         val step = EditSnapshot.committed(state, cursor, timeline)
         return copy(
             // Older readers must not silently drop what they do not know: from the first timeline step on, none of them reads the
-            // project, and from the first step that is no sequence, none that reads only sequences.
+            // project, from the first step that is no sequence, none that reads only sequences, and from the first held
+            // frame or time effect, none before those.
             schemaVersion = maxOf(schemaVersion, step.schema),
             snapshots = snapshots.take(historyCursor + 1) + step,
             historyCursor = historyCursor + 1,
@@ -682,7 +719,7 @@ data class Project(
                 val texts = clip.texts.orEmpty()
                 if (texts.map { it.id }.toSet().size != texts.size) invalid()
                 if (texts.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
-                if (clip.audio?.valid == false || clip.color?.valid == false || clip.crop?.valid == false || clip.speed?.valid == false) invalid()
+                if (clip.audio?.valid == false || clip.color?.valid == false || clip.crop?.valid == false || clip.speed?.valid == false || clip.frozenFrame?.valid == false) invalid()
                 val marks = clip.bookmarks.orEmpty()
                 if (marks.map { it.id }.toSet().size != marks.size) invalid()
                 if (marks.any { !it.valid || it.time > source.duration + 0.001 }) invalid()
@@ -703,7 +740,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = TrackTimeline.LAYERED_SCHEMA
+        const val LATEST_READABLE_SCHEMA = TimelineClip.TIME_EFFECTS_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

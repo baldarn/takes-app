@@ -78,7 +78,15 @@ data class LayerPlan(
         val content: TimelineClip,
         /** Until when it keeps its lane: its end, or the end of a still holding its last frame. */
         val occupied: EditTime,
+        /** The stretches of footage it plays, each at one rate ([PicturePlayback]); one at [rate] for a picture at one speed. */
+        val spans: List<EffectPlaybackSpan> = listOf(EffectPlaybackSpan(sourceStart, sourceEnd, rate)),
     ) {
+        /** Seconds of footage past [sourceStart], [offset] seconds into the picture. */
+        fun position(offset: Double): Double = PicturePlayback.position(spans, offset)
+
+        /** Seconds into the picture at [position] seconds of footage past [sourceStart]. */
+        fun offset(position: Double): Double = PicturePlayback.offset(spans, position)
+
         val start: Double get() = interval.start.seconds
         val duration: Double get() = interval.duration.seconds
         val end: Double get() = interval.end.seconds
@@ -334,8 +342,8 @@ data class LayerPlan(
                 val stops = minOf(ends, to)
                 if (stops - starts < RenderPlan.SHORTEST_PART) continue
                 black(starts)
-                val first = if (starts <= begins) picture.sourceStartUs else RenderPlan.cutMicros(picture.sourceStart + (starts - begins) * picture.rate)
-                val last = if (stops >= ends) picture.sourceEndUs else RenderPlan.cutMicros(picture.sourceStart + (stops - begins) * picture.rate)
+                val first = if (starts <= begins) picture.sourceStartUs else RenderPlan.cutMicros(picture.sourceStart + picture.position(starts - begins))
+                val last = if (stops >= ends) picture.sourceEndUs else RenderPlan.cutMicros(picture.sourceStart + picture.position(stops - begins))
                 parts[lane] += RenderPlan.Part.Footage(picture.index, starts, stops, first, maxOf(first + 1, last))
                 filled = stops
             }
@@ -418,11 +426,15 @@ data class LayerPlan(
 
             val pictures = video.mapIndexed { index, item ->
                 val runs = item.mapping.runs
-                val sourceStart = runs.firstOrNull()?.sourceStart ?: item.content.start
-                val sourceEnd = runs.lastOrNull()?.sourceEnd ?: item.content.end
+                val spans = PicturePlayback.spans(item.content, runs)
+                val sourceStart = spans.firstOrNull()?.start ?: item.content.start
+                val sourceEnd = spans.lastOrNull()?.end ?: item.content.end
+                val rate = if (runs.size == 1 && !runs[0].isHold && item.content.frozenFrame == null && !item.content.timed) item.content.rate
+                else PicturePlayback.steady(spans) ?: item.content.rate
                 Picture(
                     index, item.id, item.content.sourceID, lane[index], item.interval, sourceStart, sourceEnd,
-                    RenderPlan.cutMicros(sourceStart), RenderPlan.cutMicros(sourceEnd), item.content.rate, item.content, occupied[index],
+                    RenderPlan.cutMicros(sourceStart), RenderPlan.cutMicros(sourceEnd), rate, item.content, occupied[index],
+                    spans = if (spans.isEmpty() || (runs.size == 1 && rate == item.content.rate && !runs[0].isHold)) listOf(EffectPlaybackSpan(sourceStart, sourceEnd, rate)) else spans,
                 )
             }
             val freezes = held.entries.sortedWith(compareBy({ it.value.second.from }, { it.key })).map { (picture, pair) ->

@@ -234,7 +234,7 @@ class TrackEditStateTest {
     @Test
     fun aStepThatIsNoSequenceTakesSchema18() {
         assertEquals(18, TrackTimeline.LAYERED_SCHEMA)
-        assertEquals(18, Project.LATEST_READABLE_SCHEMA)
+        assertEquals(19, Project.LATEST_READABLE_SCHEMA) // held frames and time effects came after
         val base = project(original)
         val sequence = base.commit(TimelineEditing.move(base.edit, 0, 2)!!)
         assertTrue(sequence.edit.isSequence)
@@ -262,7 +262,7 @@ class TrackEditStateTest {
         // A reader of 17 is told the project is newer.
         val files = HashMap<String, ByteArray>()
         val manifest = moved.manifest { name, data -> files[name] = data }
-        assertTrue(Project.isNewer(manifest.decodeToString().replaceFirst("\"schemaVersion\":18", "\"schemaVersion\":19").toByteArray()))
+        assertTrue(Project.isNewer(manifest.decodeToString().replaceFirst("\"schemaVersion\":18", "\"schemaVersion\":20").toByteArray()))
         assertFalse(Project.isNewer(manifest))
     }
 

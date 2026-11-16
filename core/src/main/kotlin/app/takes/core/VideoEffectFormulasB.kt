@@ -396,6 +396,9 @@ class VideoEffectCadenceClock(effects: List<VideoEffectSettings>, rates: List<Ra
         segments = values
     }
 
+    /** Whether the cadence is active anywhere. */
+    val active: Boolean get() = segments.isNotEmpty()
+
     /** The frame shown at a source second, or null where no cadence is active. */
     fun hold(time: Double): Hold? {
         var a = 0
