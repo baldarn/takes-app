@@ -749,6 +749,12 @@
     <string name="editor_snap_on">On</string>
     <string name="editor_snap_off">Off</string>
     <string name="editor_snap_note">Snap aligns the playhead with nearby clip edges and bookmarks. Turn the magnet off for free positioning.</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_snap_hint">Align the playhead and selection marks with nearby clip boundaries.</string>
+    <string name="settings_snap_explanation">When you stop scrubbing near a clip boundary, the playhead snaps exactly to it. Selection marks also snap to nearby boundaries. Turn it off for free placement.\n\nThis applies to clip boundaries, not the cuts inside a Pauses effect.</string>
+    <string name="settings_fonts_hint">Import and remove fonts for text and subtitles.</string>
+    <string name="settings_hold_note">Touch and hold a setting for an explanation.</string>
+    <string name="settings_got_it">Got it</string>
     <string name="crop_shape">Video shape</string>
     <string name="crop_shape_whole">Whole project</string>
     <string name="crop_shape_original">Original</string>

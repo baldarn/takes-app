@@ -824,6 +824,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
             SnapToggle(snap.on, snap::toggle) { store.error = snapNote }
+            EditorSettingsButton(snap, enabled = subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null)
             Button(onClick = { editor.pause(); choosingExport = true }, modifier = Modifier.padding(start = 4.dp), enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Text(stringResource(R.string.editor_export)) }
         }
         Box(Modifier.layoutId(EditorSlot.Preview).background(Color.Black), Alignment.Center) {

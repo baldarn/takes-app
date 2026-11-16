@@ -758,6 +758,12 @@
     <string name="editor_snap_on">Attivo</string>
     <string name="editor_snap_off">Non attivo</string>
     <string name="editor_snap_note">L\'aggancio allinea il cursore ai bordi delle clip e ai segnalibri vicini. Spegni la calamita per posizionarlo liberamente.</string>
+    <string name="settings_title">Impostazioni</string>
+    <string name="settings_snap_hint">Allinea il cursore e i segni della selezione ai confini vicini delle clip.</string>
+    <string name="settings_snap_explanation">Quando smetti di scorrere vicino al confine di una clip, il cursore vi si aggancia esattamente. Anche i segni della selezione si agganciano ai confini vicini. Disattivalo per posizionare liberamente.\n\nVale per i confini delle clip, non per i tagli dentro un effetto Pause.</string>
+    <string name="settings_fonts_hint">Importa e rimuovi i font per testi e sottotitoli.</string>
+    <string name="settings_hold_note">Tieni premuta un\'impostazione per una spiegazione.</string>
+    <string name="settings_got_it">Ho capito</string>
     <string name="crop_shape">Formato del video</string>
     <string name="crop_shape_whole">Tutto il progetto</string>
     <string name="crop_shape_original">Originale</string>
