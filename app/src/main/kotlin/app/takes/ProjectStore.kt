@@ -101,6 +101,25 @@ class ProjectStore(context: Context) {
     var deleted by mutableStateOf(emptyList<DeletedProject>()); private set
     var unavailable by mutableStateOf(emptyMap<String, String>()); private set
     var selectedID by mutableStateOf(prefs.getString("selected", null)); private set
+
+    /**
+     * Since when a project's movie is as long as its longest item, sound past the last picture included
+     * ([app.takes.core.MovieLength]): the first start of a version that plays that sound. A project made before keeps the
+     * picture's length until the person has been shown the longer one and chosen ([adoptSoundLength]).
+     */
+    private val soundLengthSince = prefs.getLong("soundLengthSince", 0L).takeIf { it > 0 }
+        ?: System.currentTimeMillis().also { prefs.edit().putLong("soundLengthSince", it).apply() }
+    private var soundLengthAdopted by mutableStateOf(prefs.getStringSet("soundLengthAdopted", null).orEmpty().toSet())
+
+    /** Whether [project]'s movie lasts until its sound ends ([app.takes.core.MovieLength.of]). */
+    fun soundLength(project: Project): Boolean = project.createdAt >= soundLengthSince || project.id in soundLengthAdopted
+
+    /** Marks [projectID] as shown the length its sound gives it, so its movie takes that length from now on. */
+    fun adoptSoundLength(projectID: String) {
+        if (projectID in soundLengthAdopted) return
+        soundLengthAdopted = soundLengthAdopted + projectID
+        prefs.edit().putStringSet("soundLengthAdopted", soundLengthAdopted).apply()
+    }
     var error by mutableStateOf<String?>(null)
     /** What an import in progress is doing, for display. */
     var importing by mutableStateOf<String?>(null); private set

@@ -814,4 +814,8 @@
         <item quantity="other">%1$d originali sono stati salvati nella galleria.</item>
     </plurals>
     <string name="originals_save_failed">%1$d originali su %2$d non sono stati salvati nella galleria.</string>
+    <string name="sound_past_picture_title">Audio dopo l\'ultima clip</string>
+    <string name="sound_past_picture_message">%1$s di audio continuano dopo l\'ultima clip. Ora il filmato va avanti fino alla fine dell\'audio, nero dopo l\'immagine, anche quando è esportato. Tenere quell\'audio o far finire il filmato con l\'immagine?</string>
+    <string name="sound_past_picture_keep">Tieni l\'audio</string>
+    <string name="sound_past_picture_trim">Finisci con l\'immagine</string>
 </resources>

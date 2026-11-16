@@ -167,6 +167,7 @@ import app.takes.core.TitleMotionRanges
 import app.takes.core.TrackRenderPlan
 import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMix
+import app.takes.core.MovieLength
 import app.takes.core.EditRender
 import app.takes.core.TimelineTransition
 import app.takes.core.EffectValue
@@ -231,7 +232,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         moveShown ?: placementShown ?: auditioning?.state ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved
     }
     val clips = edit.clips
-    val duration = edit.duration
+    // The movie lasts until its sound ends, past the last picture in black, once the project takes that length ([MovieLength]).
+    val withSound = store.soundLength(project)
+    val duration = MovieLength.of(edit, withSound)
     val files = remember(project.sources) { project.sources.associate { it.id to store.file(project, it) } }
     val editor = remember { EditorPlayer(context) }
     var playhead by remember { mutableDoubleStateOf(0.0) }
@@ -271,7 +274,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val layers = (render as? EditRender.Layers)?.plan
     val refusal = (render as? EditRender.TooManyLayers)?.let { EditRendering.tooMany(context, it) }
     val asked = remember(render) { (render as? EditRender.Sequence)?.plan ?: RenderPlan.of(EditState(audio = edit.audio)) }
-    val plan = asked
+    // A sequence whose sound runs past its last picture plays on over black to the end of the movie, as the export does.
+    val plan = remember(asked, duration) { if (render is EditRender.Sequence && duration > asked.duration) asked.copy(duration = duration) else asked }
     // The sound is the audio engine's: the mix plan of the edit's timeline, as the export mixes it. The chains of
     // Enhance audio are processed in the background, one at a time; until one is ready its pieces play the recording,
     // then the mix is loaded again.
@@ -299,7 +303,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     LaunchedEffect(mixPlan, cleaned) { mixPlan?.let { editor.loadSound(it, files, Denoiser.input(files)) } }
     // While an edit drawn by layers exports, its players let go of their decoders: the export needs one a lane as well.
     val exporting = exporter.progress != null
-    LaunchedEffect(clips, sounds, layers, refusal != null, exporting && layers != null) {
+    LaunchedEffect(clips, sounds, layers, plan.duration, refusal != null, exporting && layers != null) {
         playhead = playhead.coerceIn(0.0, duration)
         when {
             layers != null && exporting -> editor.unload()
@@ -773,7 +777,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             )
                         }
                         refusal != null -> LayersRefused(refusal)
-                        else -> DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                        else -> Box {
+                            DeckPictures(editor.decks, effects, deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures)
+                            // Past the last picture the movie is black under its sound, as it is exported.
+                            if (playhead >= asked.duration + MovieLength.MARGIN) Box(Modifier.matchParentSize().background(Color.Black))
+                        }
                     }
                 }
                 // Full screen the decks are drawn there alone, with the titles and subtitles over them.
@@ -1511,6 +1519,22 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 TextButton(onClick = { editor.pause(); subtitling = edit }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) {
                     Icon(Icons.Outlined.Subtitles, stringResource(R.string.editor_subtitles), tint = if (edit.subtitles != null) TitleColor else LocalContentColor.current)
                 }
+            }
+            // A project made before the movie took its sound's length is shown the longer one once, and chooses.
+            val pastPicture = if (withSound) 0.0 else MovieLength.pastPicture(saved)
+            if (pastPicture > 0) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text(stringResource(R.string.sound_past_picture_title)) },
+                    text = { Text(stringResource(R.string.sound_past_picture_message, timeLabel(pastPicture))) },
+                    confirmButton = { TextButton(onClick = { store.adoptSoundLength(project.id) }) { Text(stringResource(R.string.sound_past_picture_keep)) } },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            MovieLength.trimmed(saved)?.let { commit(it, playhead.coerceAtMost(saved.duration)) }
+                            store.adoptSoundLength(project.id)
+                        }) { Text(stringResource(R.string.sound_past_picture_trim)) }
+                    },
+                )
             }
             if (adding) {
                 val unused = UnusedTakes.of(project)
