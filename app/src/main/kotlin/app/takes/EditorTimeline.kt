@@ -71,6 +71,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
+import app.takes.core.TimelineZoom
+import androidx.compose.ui.graphics.nativeCanvas
 import app.takes.core.TransitionLayout
 import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.Dispatchers
@@ -126,6 +128,7 @@ internal fun Timeline(
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
     touched: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
     marked: MarkedView? = null, level: LevelGesture? = null,
+    pinch: (factor: Float?) -> Unit = {},
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -140,6 +143,7 @@ internal fun Timeline(
     val onSelect by rememberUpdatedState(select)
     val onToggle by rememberUpdatedState(toggle)
     val onSeek by rememberUpdatedState(seek)
+    val onPinch by rememberUpdatedState(pinch)
     val scale by rememberUpdatedState(pixelsPerSecond)
     val haptics = LocalHapticFeedback.current
     // Where a touch grabs a trim handle of the current clip instead of scrolling.
@@ -164,6 +168,22 @@ internal fun Timeline(
         // Clips at a fixed height from the top; audio tracks appear under them when there is sound.
         Modifier.fillMaxWidth().height(120.dp + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel)
             .onGloballyPositioned { windowTop = it.positionInWindow().y }.pointerInput(Unit) {
+            // Two fingers zoom, as the original's pinch (EditorTimeline.swift:577-582): null as they land, then how many
+            // times as far apart they are. Meanwhile nothing scrolls, trims or levels.
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var from = 0f
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val pressed = event.changes.filter { it.pressed }
+                    if (pressed.size >= 2) {
+                        val apart = (pressed[0].position - pressed[1].position).getDistance()
+                        if (from == 0f) { from = apart.coerceAtLeast(1f); onPinch(null) } else onPinch(apart / from)
+                    }
+                    if (from > 0f) event.changes.forEach { it.consume() }
+                } while (event.changes.any { it.pressed })
+            }
+        }.pointerInput(Unit) {
             // The handles move under the finger, so the drag is tracked here,
             // in a coordinate space that stays still.
             awaitEachGesture {
@@ -271,12 +291,33 @@ internal fun Timeline(
                 }
             }
         }
+        // The ruler along the top, its marks at least 44 dp apart, as in the original (EditorTimeline.swift:998-1001).
+        val rulerPaint = remember(density) {
+            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.rgb(0xA0, 0xA4, 0xAB)
+                textSize = with(density) { 10.sp.toPx() }
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+                fontFeatureSettings = "tnum"
+            }
+        }
+        Canvas(Modifier.fillMaxWidth().height(StripTop)) {
+            val half = size.width / 2
+            val step = TimelineZoom.rulerStep((pixelsPerSecond / density.density).toDouble())
+            val total = TimelineEditing.duration(clips)
+            val start = ((scroll.value - half) / pixelsPerSecond).toDouble().coerceAtLeast(0.0)
+            val end = ((scroll.value + half) / pixelsPerSecond).toDouble().coerceAtMost(total)
+            for (time in TimelineZoom.rulerMarks(start, end, step)) {
+                val x = half + (time * pixelsPerSecond).toFloat() - scroll.value
+                drawLine(Muted, Offset(x, size.height - 4.dp.toPx()), Offset(x, size.height), 1.dp.toPx())
+                drawContext.canvas.nativeCanvas.drawText(TimelineZoom.rulerLabel(time), x + 3.dp.toPx(), 11.dp.toPx(), rulerPaint)
+            }
+        }
         Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
         level?.readout?.let { LevelReadoutLabel(it, viewport.toFloat()) }
         if (clips.isNotEmpty()) {
             val label = trim?.let { stringResource(R.string.editor_clip_duration, it.index + 1, preciseLabel(it.clip.duration)) }
                 ?: stringResource(R.string.editor_clip_position, (current ?: 0) + 1, clips.size)
-            Text(label, color = if (trim != null) Color.White else Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp))
+            Text(label, color = if (trim != null) Color.White else Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.TopStart).background(Panel).padding(start = 8.dp, end = 4.dp))
         }
     }
 }

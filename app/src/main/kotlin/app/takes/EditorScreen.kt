@@ -148,6 +148,8 @@ import app.takes.core.SubtitleEditing
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TimelineNavigation
+import app.takes.core.TimelineZoom
+import androidx.compose.ui.platform.LocalConfiguration
 import app.takes.core.TimelineSnapping
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TrackRenderPlan
@@ -210,6 +212,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val editor = remember { EditorPlayer(context) }
     var playhead by remember { mutableDoubleStateOf(0.0) }
     var scale by remember { mutableFloatStateOf(48f) } // dp of timeline per second
+    // From the whole project to 720 dp a second, as the original's viewport (C/TimelineZoom.kt).
+    val timelineWidth = LocalConfiguration.current.screenWidthDp.toDouble()
+    val zoomTo = { next: Double -> scale = TimelineZoom.clamped(next, timelineWidth, edit.duration).toFloat() }
+    var pinchStart by remember { mutableDoubleStateOf(48.0) }
     val pixelsPerSecond = with(LocalDensity.current) { scale.dp.toPx() }
     val scroll = rememberScrollState()
 
@@ -782,7 +788,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text("${preciseLabel(playhead)} / ${preciseLabel(duration)}", color = Color.White, fontSize = 14.sp)
             val tight = PaddingValues(horizontal = 6.dp)
-            val small = Modifier.defaultMinSize(minWidth = 40.dp)
             // As the original's transport: the bookmarks in one menu, and on either side of Play the previous and the
             // next change, which a tap takes to the nearest cut or change of treatment and a hold to the nearest change only.
             val toChange = { forward: Boolean, effectsOnly: Boolean -> navigation.destination(playhead, forward, effectsOnly)?.let(jump); Unit }
@@ -807,10 +812,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ChangeButton(forward = true, enabled = navigation.destination(playhead, true) != null) { toChange(true, it) }
-                val zoomOutLabel = stringResource(R.string.editor_zoom_timeline_out)
-                val zoomInLabel = stringResource(R.string.editor_zoom_timeline_in)
-                TextButton(onClick = { scale = (scale / 1.5f).coerceAtLeast(6f) }, small, contentPadding = tight) { Text("−", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = zoomOutLabel }) }
-                TextButton(onClick = { scale = (scale * 1.5f).coerceAtMost(480f) }, small, contentPadding = tight) { Text("+", fontSize = 20.sp, modifier = Modifier.semantics { contentDescription = zoomInLabel }) }
+                // The original's span menu, with a step in and out for those who cannot pinch.
+                ZoomMenu(
+                    TimelineZoom.span(scale.toDouble(), timelineWidth, duration),
+                    choose = { zoomTo(TimelineZoom.scale(it, timelineWidth, duration)) },
+                    step = { by -> zoomTo(scale * if (by > 0) 1.5 else 1 / 1.5) },
+                )
             }
         }
         cleaningProgress?.let {
@@ -925,6 +932,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
             marked = if (transitioning == null && trim == null && auditioning == null) MarkedView.of(marks, playhead) else null,
             level = levelGesture,
+            pinch = { factor -> if (factor == null) pinchStart = scale.toDouble() else zoomTo(TimelineZoom.pinched(pinchStart, factor.toDouble(), timelineWidth, duration)) },
         )
         val framing = cropping
         val effectsWork = effecting

@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.BookmarkAdd
@@ -46,6 +50,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import app.takes.core.TimelineZoom
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Row
@@ -185,6 +190,42 @@ internal fun ReviewSpeed(speed: Double, open: Boolean, modifier: Modifier, toggl
 
 /** The review speeds the original offers (EditorController.swift:304). */
 private val REVIEW_SPEEDS = listOf(1.0, 1.5, 2.0, 2.5, 3.0)
+
+/**
+ * The timeline's span, as the original's menu (EditorTimeline.swift:186-191): the whole project, five minutes,
+ * a minute, ten seconds or a second across the width, the one it is at checked; and a step in or out.
+ *
+ * @param span the span the timeline is at, null for one a pinch or a step left between them.
+ */
+@Composable
+internal fun ZoomMenu(span: TimelineZoom.Span?, choose: (TimelineZoom.Span) -> Unit, step: (by: Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val name = stringResource(R.string.editor_timeline_span)
+    val value = span?.let { stringResource(it.label) } ?: stringResource(R.string.editor_span_custom)
+    Box {
+        TextButton(
+            onClick = { open = true }, Modifier.defaultMinSize(minWidth = 40.dp).semantics { contentDescription = name; stateDescription = value },
+            contentPadding = PaddingValues(horizontal = 6.dp),
+        ) { Icon(Icons.Filled.SwapHoriz, null, tint = Color.White) }
+        DropdownMenu(open, onDismissRequest = { open = false }) {
+            for (choice in TimelineZoom.Span.entries) DropdownMenuItem(
+                text = { Text(stringResource(choice.label)) }, onClick = { open = false; choose(choice) },
+                leadingIcon = { if (choice == span) Icon(Icons.Filled.Check, null) },
+            )
+            HorizontalDivider()
+            DropdownMenuItem(text = { Text(stringResource(R.string.editor_zoom_timeline_in)) }, onClick = { step(1) }, leadingIcon = { Icon(Icons.Filled.ZoomIn, null) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.editor_zoom_timeline_out)) }, onClick = { step(-1) }, leadingIcon = { Icon(Icons.Filled.ZoomOut, null) })
+        }
+    }
+}
+
+private val TimelineZoom.Span.label: Int get() = when (this) {
+    TimelineZoom.Span.Whole -> R.string.editor_span_whole
+    TimelineZoom.Span.FiveMinutes -> R.string.editor_span_five_minutes
+    TimelineZoom.Span.OneMinute -> R.string.editor_span_minute
+    TimelineZoom.Span.TenSeconds -> R.string.editor_span_ten_seconds
+    TimelineZoom.Span.OneSecond -> R.string.editor_span_second
+}
 
 /** Whether the playhead snaps, kept across launches as the original keeps it; on until turned off. */
 internal class SnapSetting(context: Context) {

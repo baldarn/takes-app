@@ -114,6 +114,13 @@
     <string name="editor_review_at">Rivedi a %1$s</string>
     <string name="editor_zoom_timeline_out">Riduci la timeline</string>
     <string name="editor_zoom_timeline_in">Ingrandisci la timeline</string>
+    <string name="editor_timeline_span">Ampiezza della timeline</string>
+    <string name="editor_span_custom">Personalizzata</string>
+    <string name="editor_span_whole">Tutto il progetto</string>
+    <string name="editor_span_five_minutes">5 minuti</string>
+    <string name="editor_span_minute">1 minuto</string>
+    <string name="editor_span_ten_seconds">10 secondi</string>
+    <string name="editor_span_second">1 secondo</string>
     <string name="editor_reducing_noise">Riduzione del rumore… %1$d%%</string>
     <string name="editor_split">Dividi</string>
     <string name="editor_sound">Audio</string>
@@ -618,7 +625,7 @@
     <string name="range_too_short">Scegli una fine ad almeno un fotogramma di distanza</string>
     <string name="range_aligned_to_join">Selezione allineata alla giunzione della transizione</string>
     <string name="range_preview_cut">Anteprima del taglio</string>
-    <string name="range_hint">Scorri per muoverti · − e + per lo zoom</string>
+    <string name="range_hint">Scorri per muoverti · pizzica per lo zoom</string>
     <string name="selection_actions">Azioni sulla selezione: %1$s</string>
     <string name="selection_video">Video</string>
     <string name="selection_audio">Audio</string>
