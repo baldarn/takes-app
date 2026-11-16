@@ -97,6 +97,17 @@ class TrackMixTest {
         assertArrayEquals(mix(TrackMix.plan(TrackTimeline(audio = listOf(sound(5, music, 0.0, 1.0), sound(1, voice, 0.0, 4.0)))), sources), mix(lanes, sources), 0f)
     }
 
+    /** The two pieces of a clip split at four times the speed, their lengths rounded to ticks and their source cut at the clip's second: rates a hair apart, and still one sound. */
+    @Test fun aSplitOfARetimedSoundCarriesOn() {
+        val cut = 2.457772835039137
+        val first = sound(1, voice, 0.0, 1.0).copy(mapping = SourcePlaybackMap.single(EditTime(147_466), 0.0, cut))
+        val second = sound(2, voice, 0.0, 1.0).copy(start = EditTime(147_466), mapping = SourcePlaybackMap.single(EditTime(212_534), cut, 6.0))
+        val pieces = TrackMix.plan(TrackTimeline(audio = listOf(sound(5, music, 0.0, 0.1), first, second))).pieces.filter { it.sourceID == voice }
+        assertTrue(abs(pieces[0].runs.single().rate - pieces[1].runs.single().rate) > TrackMix.SAME_SOURCE)
+        assertEquals(pieces[0].lane, pieces[1].lane)
+        assertTrue(pieces[1].continues)
+    }
+
     @Test fun aCutBetweenTwoSoundsFadesOverEightMilliseconds() {
         val plan = TrackMix.plan(TrackTimeline(audio = listOf(sound(1, voice, 0.0, 2.0), sound(2, music, 2.0, 2.0))))
         assertEquals(1, plan.lanes.size)

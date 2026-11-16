@@ -20,8 +20,21 @@ data class TrackMixRun(val start: EditTime, val duration: EditTime, val sourceSt
      */
     val atSpeed: Boolean get() = abs((sourceEnd - sourceStart) - duration.seconds) <= 2.0 / EditTime.SCALE
 
-    /** Whether [other] goes through its source as fast as this run: both at speed, or at rates that agree. */
-    fun sameRate(other: TrackMixRun): Boolean = (atSpeed && other.atSpeed) || abs(rate - other.rate) < TrackMix.SAME_SOURCE
+    /**
+     * Whether [other] goes through its source as fast as this run: both at
+     * speed, or at rates that agree to within what rounding each run's
+     * length to a tick moves a rate by. The two pieces of a split clip at
+     * four times the speed are at rates a few millionths apart.
+     */
+    fun sameRate(other: TrackMixRun): Boolean {
+        if (atSpeed && other.atSpeed) return true
+        val rounding = 1.5 / EditTime.SCALE * (abs(rate) / maxOf(duration.seconds, TICK) + abs(other.rate) / maxOf(other.duration.seconds, TICK))
+        return abs(rate - other.rate) < TrackMix.SAME_SOURCE + rounding
+    }
+
+    private companion object {
+        const val TICK = 1.0 / EditTime.SCALE
+    }
 }
 
 /**
