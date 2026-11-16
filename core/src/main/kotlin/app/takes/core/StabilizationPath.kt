@@ -1,0 +1,269 @@
+package app.takes.core
+
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+
+/**
+ * Video stabilisation of a clip from its measured camera motion, as the
+ * original's `YouRec/StabilizationPath.swift:4-196`: the levels with their
+ * smoothing and crop limits, the pose algebra, the zoom a correction needs so
+ * no corner shows black, and the path made from an analysis, with one crop for
+ * the whole analysed range. Measuring the motion is the app's (the original
+ * does it in plain C++, `YouRec/StabilizationMotion.cpp`); this is what turns
+ * it into a transform per frame.
+ */
+enum class StabilizationLevel(
+    /** Seconds of the Gaussian that smooths the camera's path. */
+    val sigma: Double,
+    /** The largest crop zoom the level may use. */
+    val maximumZoom: Double,
+    val detail: String,
+) {
+    Off(0.0, 1.0, "Keep the original camera movement."),
+    Light(0.12, 1.045, "Soften small shakes. Keep more of the frame."),
+    Standard(0.28, 1.10, "Smooth handheld movement with a balanced crop."),
+    Strong(0.5, 1.18, "Steadier movement with a tighter crop."),
+    ;
+
+    /** The original's raw value, as saved. */
+    val id: String get() = name.lowercase()
+}
+
+/**
+ * A clip's stabilisation. The reference range is the analysed range of the
+ * take, kept through splits and ripple cuts so the pieces share one path and
+ * one crop, with no new analysis and no jump in framing.
+ */
+data class StabilizationSettings(
+    val level: StabilizationLevel,
+    val version: Int = 1,
+    val id: String? = null,
+    val referenceStart: Double? = null,
+    val referenceEnd: Double? = null,
+) {
+    companion object {
+        /** The start of the range to analyse for a clip from [start] to [end] with [current] settings. */
+        fun rangeStart(start: Double, current: StabilizationSettings?): Double = min(start, current?.referenceStart ?: start)
+
+        fun rangeEnd(end: Double, current: StabilizationSettings?): Double = max(end, current?.referenceEnd ?: end)
+
+        /** The settings a clip from [start] to [end] gets for [level], keeping its reference range. */
+        fun stabilizing(level: StabilizationLevel, start: Double, end: Double, current: StabilizationSettings?) =
+            StabilizationSettings(level, referenceStart = rangeStart(start, current), referenceEnd = rangeEnd(end, current))
+    }
+}
+
+/** A similarity about the centre of the encoded (unrotated) frame. */
+data class StabilizationPose(val x: Double = 0.0, val y: Double = 0.0, val angle: Double = 0.0, val logScale: Double = 0.0) {
+    val scale: Double get() = exp(logScale)
+
+    /** [other] first, then this. */
+    fun applying(other: StabilizationPose): StabilizationPose {
+        val a = scale * cos(angle)
+        val b = scale * sin(angle)
+        return StabilizationPose(a * other.x - b * other.y + x, b * other.x + a * other.y + y, angle + other.angle, logScale + other.logScale)
+    }
+
+    val inverse: StabilizationPose
+        get() {
+            val a = cos(angle) / scale
+            val b = sin(angle) / scale
+            return StabilizationPose(-a * x - b * y, b * x - a * y, -angle, -logScale)
+        }
+
+    fun attenuated(amount: Double) = StabilizationPose(x * amount, y * amount, angle * amount, logScale * amount)
+
+    fun transform(size: Size, zoom: Double = 1.0): Affine {
+        val a = scale * cos(angle) * zoom
+        val b = scale * sin(angle) * zoom
+        val cx = size.width / 2
+        val cy = size.height / 2
+        return Affine(a, b, -b, a, cx - a * cx + b * cy + x * zoom, cy - b * cx - a * cy + y * zoom)
+    }
+
+    /**
+     * The zoom that keeps every corner of the output inside the corrected
+     * picture: exact corner inclusion, stronger than a bounding box, which can
+     * leave black triangles. Infinite when no zoom can.
+     */
+    fun requiredZoom(size: Size): Double {
+        val c = cos(angle)
+        val s = sin(angle)
+        val hw = size.width / 2
+        val hh = size.height / 2
+        val dx = scale * hw - abs(c * x + s * y)
+        val dy = scale * hh - abs(-s * x + c * y)
+        if (dx <= 0 || dy <= 0) return Double.POSITIVE_INFINITY
+        return maxOf(1.0, (abs(c) * hw + abs(s) * hh) / dx, (abs(s) * hw + abs(c) * hh) / dy)
+    }
+
+    val valid: Boolean get() = listOf(x, y, angle, logScale).all { it.isFinite() } && abs(logScale) < 8
+
+    companion object {
+        val IDENTITY = StabilizationPose()
+    }
+}
+
+/** The camera's pose at a time of the source; a new [segment] starts at a cut or a tracking reset. */
+data class StabilizationSample(val time: Double, val pose: StabilizationPose, val segment: Int)
+
+data class StabilizationAnalysis(
+    val width: Int,
+    val height: Int,
+    val duration: Double,
+    val samples: List<StabilizationSample>,
+    val trackedFrames: Int,
+) {
+    val trackingFraction: Double get() = trackedFrames.toDouble() / max(1, samples.size - 1)
+
+    val valid: Boolean
+        get() = width > 0 && height > 0 && duration.isFinite() && duration > 0 && samples.isNotEmpty() &&
+            samples.all { it.time.isFinite() && it.time >= 0 && it.time < duration + 0.001 && it.pose.valid } &&
+            samples.zipWithNext().all { (a, b) -> a.time < b.time && a.segment <= b.segment }
+
+    companion object {
+        const val VERSION = "yourec-stabilization-2"
+    }
+}
+
+data class StabilizationPlan(
+    val size: Size,
+    val samples: List<StabilizationSample>,
+    val zoom: Double,
+    /** Whether a large bump made the correction weaker somewhere. */
+    val strengthLimited: Boolean,
+    val trackingFraction: Double,
+) {
+    val cropPercent: Int get() = roundedAwayFromZero((1 - 1 / zoom) * 100).toInt()
+
+    /**
+     * The transform of the source frame shown at [time]: the frame whose time
+     * precedes it, as the player holds it, not an interpolated frame that does
+     * not exist.
+     */
+    fun transform(time: Double): Affine {
+        val first = samples.firstOrNull() ?: return Affine.IDENTITY
+        if (time <= first.time) return first.pose.transform(size, zoom)
+        var low = 0
+        var high = samples.size
+        while (low < high) {
+            val middle = (low + high) / 2
+            if (samples[middle].time <= time + 0.000001) low = middle + 1 else high = middle
+        }
+        return samples[max(0, low - 1)].pose.transform(size, zoom)
+    }
+}
+
+object StabilizationPath {
+    private const val FADE_SECONDS = 0.3
+    private const val BUMP_SECONDS = 0.7
+
+    /** [checkCancelled] is called now and then and may throw to stop. */
+    fun make(analysis: StabilizationAnalysis, level: StabilizationLevel, checkCancelled: () -> Unit = {}): StabilizationPlan {
+        val size = Size(analysis.width.toDouble(), analysis.height.toDouble())
+        if (level == StabilizationLevel.Off) {
+            return StabilizationPlan(size, emptyList(), 1.0, false, analysis.trackingFraction)
+        }
+        val source = analysis.samples
+        val sigma = level.sigma
+        val radius = sigma * 3
+        val corrections = ArrayList<StabilizationSample>(source.size)
+        // Gaussian local-linear regression keeps deliberate constant-speed
+        // pans, also at the ends of a clip.
+        var left = 0
+        var right = 0
+        var segmentStart = 0
+        var segmentEnd = 0
+        val sums = DoubleArray(4)
+        val timeSums = DoubleArray(4)
+        for (i in source.indices) {
+            if (i % 128 == 0) checkCancelled()
+            val current = source[i]
+            if (i == 0 || source[i - 1].segment != current.segment) {
+                segmentStart = i
+                segmentEnd = i + 1
+                while (segmentEnd < source.size && source[segmentEnd].segment == current.segment) segmentEnd++
+            }
+            while (left < i && (source[left].time < current.time - radius || source[left].segment != current.segment)) left++
+            right = max(i + 1, right)
+            while (right < source.size && source[right].segment == current.segment && source[right].time <= current.time + radius) right++
+            var sw = 0.0
+            var st = 0.0
+            var stt = 0.0
+            sums.fill(0.0)
+            timeSums.fill(0.0)
+            for (j in left until right) {
+                // A segment change can leave the old right edge behind: never
+                // borrow the first frame of the next shot.
+                if (source[j].segment != current.segment) continue
+                val dt = source[j].time - current.time
+                val w = exp(-0.5 * (dt / sigma) * (dt / sigma))
+                sw += w; st += w * dt; stt += w * dt * dt
+                // Smooth the camera's position in the reference coordinates,
+                // not the displacement in a zooming image.
+                val p = source[j].pose.inverse
+                val values = doubleArrayOf(p.x, p.y, p.angle, p.logScale)
+                for (k in 0 until 4) {
+                    sums[k] += w * values[k]
+                    timeSums[k] += w * dt * values[k]
+                }
+            }
+            val determinant = sw * stt - st * st
+            val values = DoubleArray(4) { k ->
+                if (determinant > 1e-10) (sums[k] * stt - timeSums[k] * st) / determinant else sums[k] / max(sw, 1e-10)
+            }
+            // A recorded zoom is deliberate: correct translation and rotation only.
+            val smooth = StabilizationPose(values[0], values[1], values[2], current.pose.inverse.logScale).inverse
+            var confidence = 1.0
+            if (segmentStart > 0) confidence = min(confidence, fade(current.time - source[segmentStart].time))
+            if (segmentEnd < source.size) confidence = min(confidence, fade(source[segmentEnd - 1].time - current.time))
+            val correction = smooth.applying(current.pose.inverse).attenuated(confidence)
+            corrections.add(StabilizationSample(current.time, correction, current.segment))
+        }
+        // One crop for the whole reference range, weakened smoothly around
+        // large bumps, so one outlier cannot weaken a whole take.
+        val pixelMargin = 1 + 3.0 / min(analysis.width, analysis.height)
+        val allowed = corrections.map { sample ->
+            if (sample.pose.requiredZoom(size) * pixelMargin <= level.maximumZoom) return@map 1.0
+            var low = 0.0
+            var high = 1.0
+            repeat(24) {
+                val middle = (low + high) / 2
+                if (sample.pose.attenuated(middle).requiredZoom(size) * pixelMargin <= level.maximumZoom) low = middle else high = middle
+            }
+            low
+        }
+        var strengthLimited = false
+        var zoom = 1.0
+        left = 0
+        right = 0
+        for (i in corrections.indices) {
+            checkCancelled()
+            val t = corrections[i].time
+            while (left < i && corrections[left].time < t - BUMP_SECONDS) left++
+            right = max(i + 1, right)
+            while (right < corrections.size && corrections[right].time <= t + BUMP_SECONDS) right++
+            var strength = allowed[i]
+            for (j in left until right) {
+                if (allowed[j] >= 1 || corrections[j].segment != corrections[i].segment) continue
+                val d = min(1.0, abs(t - corrections[j].time) / BUMP_SECONDS)
+                strength = min(strength, allowed[j] + (1 - allowed[j]) * d * d * (3 - 2 * d))
+            }
+            strengthLimited = strengthLimited || strength < 0.97
+            corrections[i] = corrections[i].copy(pose = corrections[i].pose.attenuated(strength))
+            zoom = max(zoom, corrections[i].pose.requiredZoom(size))
+        }
+        // No pointless crop on a still or untrackable clip.
+        if (zoom > 1.00001) zoom = min(level.maximumZoom, zoom * pixelMargin)
+        return StabilizationPlan(size, corrections, zoom, strengthLimited, analysis.trackingFraction)
+    }
+
+    private fun fade(seconds: Double): Double {
+        val x = min(1.0, max(0.0, seconds / FADE_SECONDS))
+        return x * x * (3 - 2 * x)
+    }
+}
