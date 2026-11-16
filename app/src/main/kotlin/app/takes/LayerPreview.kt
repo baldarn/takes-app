@@ -42,7 +42,6 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import app.takes.core.LayerPlan
 import app.takes.core.PictureFrame
-import app.takes.core.Point
 import app.takes.core.Rect
 import app.takes.core.Size as FrameSize
 import app.takes.core.TitleMotionRanges
@@ -77,16 +76,12 @@ internal fun LayerPictures(
                 renderEffect = effects.getOrNull(index)
                 // As a deck of a sequence: the view enlarged, turned and shifted so the footage lies where its crop puts it.
                 frames.getOrNull(index)?.let { framing ->
-                    val frame = framing(FrameSize(size.width.toDouble(), size.height.toDouble()))
-                    val source = frame.source
-                    val fitted = minOf(size.width / source.width, size.height / source.height)
-                    val enlarge = (frame.scale / fitted).toFloat()
-                    val middle = Point(source.width / 2, source.height / 2).applying(frame.transform)
-                    scaleX = enlarge
-                    scaleY = enlarge
-                    rotationZ = frame.rotation.toFloat()
-                    translationX = (middle.x - size.width / 2).toFloat()
-                    translationY = (middle.y - size.height / 2).toFloat()
+                    val layer = framing(FrameSize(size.width.toDouble(), size.height.toDouble())).layer
+                    scaleX = layer.scaleX.toFloat()
+                    scaleY = layer.scaleY.toFloat()
+                    rotationZ = layer.rotation.toFloat()
+                    translationX = layer.translationX.toFloat()
+                    translationY = layer.translationY.toFloat()
                 }
             }
             AndroidView({ (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = lanes[index] } }, placed)

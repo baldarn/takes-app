@@ -680,6 +680,17 @@
     <string name="editor_snap_on">Attivo</string>
     <string name="editor_snap_off">Non attivo</string>
     <string name="editor_snap_note">L\'aggancio allinea il cursore ai bordi delle clip e ai segnalibri vicini. Spegni la calamita per posizionarlo liberamente.</string>
+    <string name="crop_shape">Formato del video</string>
+    <string name="crop_shape_whole">Tutto il progetto</string>
+    <string name="crop_shape_original">Originale</string>
+    <string name="crop_shape_landscape">16:9</string>
+    <string name="crop_shape_portrait">9:16</string>
+    <string name="crop_shape_square">1:1</string>
+    <string name="crop_shape_feed">4:5</string>
+    <string name="crop_shape_custom">Personalizzato</string>
+    <string name="crop_flip_horizontal">Capovolgi in orizzontale</string>
+    <string name="crop_flip_vertical">Capovolgi in verticale</string>
+    <string name="crop_flip_note">Capovolge le riprese. I titoli mantengono il loro orientamento.</string>
     <string name="crop_rotation">Rotazione</string>
     <string name="crop_apply">Applica</string>
     <string name="crop_hint">Pizzica per ritagliare · trascina per inquadrare</string>

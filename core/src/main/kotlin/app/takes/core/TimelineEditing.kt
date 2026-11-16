@@ -983,6 +983,18 @@ object TimelineEditing {
         return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(crop = crop) })
     }
 
+    /**
+     * Flips the clip at [index] in the movie's frame. One that flips neither
+     * way is no mirror and is stored as none, as in the original
+     * (YouRec/EditorTools.swift:713).
+     */
+    fun setMirror(state: EditState, index: Int, mirror: MirrorSettings?): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        val next = mirror?.takeIf { it.horizontal || it.vertical }
+        if (next == clip.mirror) return null
+        return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(mirror = next) })
+    }
+
     // MARK: Speed
 
     /**

@@ -483,6 +483,7 @@ object TrackEditing {
                 speed = original.speed?.let { it.copy(id = fresh(it.id)) },
                 color = original.color?.let { it.copy(id = fresh(it.id)) },
                 crop = original.crop?.let { it.copy(id = fresh(it.id)) },
+                mirror = original.mirror?.let { it.copy(id = fresh(it.id)) },
                 texts = original.texts?.map { it.copy(id = fresh(it.id)) },
                 bookmarks = original.bookmarks?.map { it.copy(id = newID()) },
                 subtitleWords = original.subtitleWords?.map { it.copy(id = fresh(it.id), phraseID = fresh(it.phraseID)) },

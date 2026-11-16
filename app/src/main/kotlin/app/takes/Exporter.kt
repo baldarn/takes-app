@@ -39,6 +39,7 @@ import androidx.media3.common.GlTextureInfo
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
 import androidx.media3.effect.PassthroughShaderProgram
+import app.takes.core.EditState
 import app.takes.core.FrameCeiling
 import app.takes.core.PictureFraming
 import app.takes.core.matrixValues
@@ -181,8 +182,8 @@ class FrameTimeEffect(private val retimed: (Long) -> Long) : GlEffect {
 }
 
 /**
- * A cropped clip's picture in the export: the footage zoomed, turned and
- * moved into the movie's frame, which it fills. The framing is worked out
+ * A cropped or flipped clip's picture in the export: the footage zoomed, turned,
+ * moved and flipped into the movie's frame, which a crop fills. The framing is worked out
  * for each frame by [PictureFraming.frame], the function the preview draws
  * from, so a crop that moves between two poses moves here as it does there.
  *
@@ -222,6 +223,13 @@ fun still(file: File, micros: Long, framesPerSecond: Int, effects: List<Effect>)
         .setFrameRate(framesPerSecond)
         .setEffects(Effects(emptyList(), effects))
         .build()
+
+/**
+ * The size of the movie's frame: the one the Crop tool fixed (YouRec/MediaRenderer.swift:509-511),
+ * else the upright size of [first], the first picture's recording.
+ */
+fun movieShape(edit: EditState, first: File?): Pair<Int, Int>? =
+    edit.outputSize?.let { Math.round(it.width).toInt() to Math.round(it.height).toInt() } ?: first?.let(::displaySize)
 
 /** Upright picture size with even dimensions, or null when the file has no readable video. */
 fun displaySize(file: File): Pair<Int, Int>? {
@@ -492,8 +500,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val asked = (render as EditRender.Sequence).plan
         val settings = project.exportSettings
         val files = project.sources.associate { it.id to store.file(project, it) }
-        // The first clip gives the picture its shape; the settings give it its size.
-        val canvas = withContext(Dispatchers.IO) { files[asked.pictures.first().sourceID]?.let(::displaySize) }
+        // The Crop tool's fixed frame, else the first clip, gives the picture its shape; the settings give it its size.
+        val canvas = withContext(Dispatchers.IO) { movieShape(project.edit, files[asked.pictures.first().sourceID]) }
             ?.let { settings.resolution.size(it.first, it.second) }
         if (canvas == null || asked.pictures.any { files[it.sourceID]?.isFile != true } || asked.sounds.any { files[it.sourceID]?.isFile != true }) {
             throw Refusal(context.getString(R.string.export_source_missing))
@@ -559,7 +567,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val sounds = edit.audio.orEmpty()
         // The first picture in time gives the picture its shape, as for a sequence; the settings give it its size.
         val first = edit.clips.firstOrNull()?.sourceID ?: plan.pictures.firstOrNull()?.sourceID
-        val canvas = withContext(Dispatchers.IO) { first?.let { files[it] }?.let(::displaySize) }?.let { settings.resolution.size(it.first, it.second) }
+        val canvas = withContext(Dispatchers.IO) { movieShape(edit, first?.let { files[it] }) }?.let { settings.resolution.size(it.first, it.second) }
         if (canvas == null || plan.pictures.any { files[it.sourceID]?.isFile != true } || sounds.any { files[it.sourceID]?.isFile != true }) {
             throw Refusal(context.getString(R.string.export_source_missing))
         }

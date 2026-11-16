@@ -471,9 +471,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
 
     // What the playhead shows on top of the picture: titles and the fade of a transition.
-    val canvas by produceState<Pair<Int, Int>?>(null, clips.firstOrNull()?.sourceID) {
+    val firstShape by produceState<Pair<Int, Int>?>(null, clips.firstOrNull()?.sourceID) {
         value = clips.firstOrNull()?.let { files[it.sourceID] }?.let { withContext(Dispatchers.IO) { displaySize(it) } }
     }
+    // The movie's frame: the size the Crop tool fixed, or the one it frames into while open, else the first picture's shape.
+    val originalShape = firstShape?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) }
+    val canvas: Pair<Int, Int>? = (originalShape?.let { cropping?.canvas(it) } ?: saved.outputSize ?: originalShape)
+        ?.let { it.width.roundToInt() to it.height.roundToInt() }
     // The upright size of each recording, for framing.
     val sizes by produceState(emptyMap<String, FrameSize>(), project.sources) {
         value = withContext(Dispatchers.IO) {
@@ -542,8 +546,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val deckFrames = shownClips.map { shown ->
         val size = shown?.let { sizes[it.first.sourceID] }
         val (crop, shows) = shown?.let { cropFor(it.first, it.second) } ?: (null to 0.0)
-        if (crop == null || size == null) null else {
-            val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame) }
+        // The flip too, the one being worked on while the Crop tool is open.
+        val tool = cropping
+        val mirror = shown?.let { (clip, start) -> if (tool == null) clip.mirror else tool.mirrorShown(clip, shows, start + (playhead - start).coerceIn(0.0, clip.duration)) }
+        if ((crop == null && mirror == null) || size == null) null else {
+            val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame, mirror) }
             framing
         }
     }
@@ -893,7 +900,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             val (known, shape) = sized
                             val source = framed?.on?.active(playhead)?.let { known[it.clip.sourceID] }
                             if (source == null || shape == null) null
-                            else CropViewport(FrameSize(size.width.toDouble(), size.height.toDouble()), source, FrameSize(shape.first.toDouble(), shape.second.toDouble()), inset = 0.0)
+                            else CropViewport(FrameSize(size.width.toDouble(), size.height.toDouble()), source, FrameSize(shape.first.toDouble(), shape.second.toDouble()), framed?.activeMirror(playhead), inset = 0.0)
                         },
                         crop = { framed?.draft?.crop ?: CropSettings() },
                         change = { next -> framed?.let { cropping = it.copy(draft = it.draft.adjusted(next)) } },
@@ -1228,12 +1235,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 framing, source = framing.on.active(playhead)?.let { sizes[it.clip.sourceID] }, canvas = shape,
                 whole = framing.on.start <= 0.0005 && framing.on.end >= duration - 0.0005,
                 change = { cropping = framing.copy(draft = it) },
+                reshape = { cropping = framing.reshaped(it) },
+                flip = { cropping = framing.flipped(it) },
                 apply = { removing ->
-                    val next = shape?.let { framing.applied(sizes, it, removing) }
+                    val next = originalShape?.let { framing.applied(sizes, it, removing) }
                     editor.pause()
                     auditionEnd = null
                     cropping = null
-                    framing.on.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
+                    if (next != null) {
+                        // One Undo step for the framing, the flip and the movie's shape (CropEditor.swift:212-237).
+                        if (next.state != framing.on.base) framing.on.scoped?.let { scoped -> marks.rangeTargets?.let { marks = marks.copy(rangeTargets = it.copy(clips = it.clips + scoped.clips)) } }
+                        store.commit(project.id, next.state, next.outputSize)
+                    }
                 },
                 cancel = { editor.pause(); auditionEnd = null; cropping = null },
                 modifier = Modifier.weight(1f), appliesTo = toolScopeLabel,
@@ -1831,6 +1844,10 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
                 }
                 Level(stringResource(R.string.color_strength), color.amount, 0f..1f, "${(color.amount * 100).roundToInt()}%") { color = color.copy(amount = it) }
                 // A correction left at zero is stored as nothing, as in the original.
+                // Highlights sits above the balance, as in the original's colour controls (YouRec/ColorGradeControls.swift:52-66).
+                val highlights = color.highlights ?: 0.0
+                Level(stringResource(R.string.color_highlights), highlights, -1f..1f, "%+.0f".format(highlights * 100)) { color = color.copy(highlights = it.takeIf { it != 0.0 }) }
+                Text(stringResource(R.string.color_highlights_help), color = Muted, fontSize = 12.sp)
                 val exposure = color.exposure ?: 0.0
                 val warmth = color.warmth ?: 0.0
                 val tint = color.tint ?: 0.0
@@ -1849,10 +1866,6 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
     )
 }
 
-                // Highlights sits above the balance, as in the original's colour controls (YouRec/ColorGradeControls.swift:52-66).
-                val highlights = color.highlights ?: 0.0
-                Level(stringResource(R.string.color_highlights), highlights, -1f..1f, "%+.0f".format(highlights * 100)) { color = color.copy(highlights = it.takeIf { it != 0.0 }) }
-                Text(stringResource(R.string.color_highlights_help), color = Muted, fontSize = 12.sp)
 /**
  * Finds the pauses in the clip under the playhead and offers to cut them out.
  * The threshold between speech and silence is estimated from the recording.

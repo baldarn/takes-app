@@ -36,7 +36,32 @@ data class PictureFrame(
     val transform: Affine,
     /** How far the motion is from A (0) to B (1); null when the framing does not move. */
     val fraction: Double?,
+    /** The flips in [transform], after the framing. */
+    val mirror: MirrorSettings? = null,
 ) {
+    /**
+     * The same picture as a view that fits the whole source inside a box the
+     * size of [canvas] shows it once enlarged, turned, flipped and moved by
+     * these numbers about its middle: what the preview gives a graphics
+     * layer. Scaling comes before the turn there, so a single flip turns the
+     * other way.
+     */
+    val layer: ViewLayer
+        get() {
+            val fitted = minOf(canvas.width / source.width, canvas.height / source.height)
+            val enlarge = if (fitted > 0) scale / fitted else 1.0
+            val middle = Point(source.width / 2, source.height / 2).applying(transform)
+            val acrossFlip = mirror?.horizontal == true
+            val downFlip = mirror?.vertical == true
+            return ViewLayer(
+                scaleX = if (acrossFlip) -enlarge else enlarge,
+                scaleY = if (downFlip) -enlarge else enlarge,
+                rotation = if (acrossFlip != downFlip) -rotation else rotation,
+                translationX = middle.x - canvas.width / 2,
+                translationY = middle.y - canvas.height / 2,
+            )
+        }
+
     /** The source points shown at the canvas's top left, top right, bottom left and bottom right. */
     val corners: List<Point>
         get() {
@@ -48,6 +73,9 @@ data class PictureFrame(
     /** Whether the frame is filled edge to edge. Only an uncropped clip of another shape leaves bars. */
     val fills: Boolean get() = crop != null || abs(source.width * canvas.height - source.height * canvas.width) < 0.000001 * source.height * canvas.height
 }
+
+/** A graphics layer's scale, clockwise turn in degrees and move, in the pixels of the view; see [PictureFrame.layer]. */
+data class ViewLayer(val scaleX: Double, val scaleY: Double, val rotation: Double, val translationX: Double, val translationY: Double)
 
 object PictureFraming {
     /**
@@ -91,13 +119,13 @@ object PictureFraming {
     /** A held frame shows one source second, but its motions keep running over the hold. */
     fun motionTime(hold: FrozenFrameSegment, elapsed: Double): Double = hold.sourceTime + hold.offset + maxOf(0.0, elapsed)
 
-    /** The frame of a clip [offset] timeline seconds into it. */
+    /** The frame of a clip [offset] timeline seconds into it, flipped as the clip is unless [mirror] says otherwise. */
     fun frame(
         clip: TimelineClip,
         offset: Double,
         source: Size,
         canvas: Size,
-        mirror: MirrorSettings? = null,
+        mirror: MirrorSettings? = clip.mirror,
         cuts: List<SourceInterval> = emptyList(),
     ): PictureFrame = frame(clip.crop, motionTime(clip, offset, cuts), source, canvas, mirror)
 
@@ -107,7 +135,7 @@ object PictureFraming {
         if (crop == null) {
             val whole = Rect(0.0, 0.0, source.width, source.height)
             val scale = if (source.width > 0 && source.height > 0) minOf(canvas.width / source.width, canvas.height / source.height) else 1.0
-            return PictureFrame(sourceTime, null, source, canvas, whole, whole, 0.0, scale, fit(source, canvas).concatenating(flip), null)
+            return PictureFrame(sourceTime, null, source, canvas, whole, whole, 0.0, scale, fit(source, canvas).concatenating(flip), null, mirror)
         }
         val shown = crop.at(sourceTime)
         val window = shown.rect(source, canvas)
@@ -122,6 +150,7 @@ object PictureFraming {
             scale = if (window.width > 0) canvas.width / window.width else 1.0,
             transform = shown.transform(source, canvas).concatenating(flip),
             fraction = crop.motion?.fraction(sourceTime),
+            mirror = mirror,
         )
     }
 }

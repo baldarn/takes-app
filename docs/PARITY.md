@@ -25,9 +25,9 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 117 |
-| PARTIAL | 41 |
-| CORE ONLY | 12 |
+| DONE | 120 |
+| PARTIAL | 42 |
+| CORE ONLY | 8 |
 | MISSING | 33 |
 | N/A | 6 |
 | Total | 209 |
@@ -40,7 +40,7 @@ Per area:
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 6 | 1 | 2 | 3 |
 | 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
-| 5. Editor: picture tools | 4 | 3 | 7 | 4 | 0 |
+| 5. Editor: picture tools | 7 | 4 | 3 | 4 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 9 | 0 | 1 | 0 | 0 |
 | 8. Audio | 3 | 6 | 0 | 12 | 0 |
@@ -185,14 +185,14 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Crop: zoom and position | O/CropEditor.swift:345-477, 628-660 | PARTIAL | A/CropPanel.kt (`CropPanel`, `cropGestures`, `cropGuides`), C/CropEditing.kt: zoom 1…8, Reset framing, source area, Position sliders, drag and pinch on the picture, border and thirds, on every clip of a range or selection; drawn by A/TransitionPreview.kt and A/Exporter.kt (`FramingEffect`) from C/PictureFrame.kt | The tool stays in the editor instead of a workspace of its own: no Frame/Preview switch, no dimmed footage around the frame, no clip stepper; VoiceOver zoom steps. The pinch could not be driven on the emulator | S | Phone for the pinch |
 | Crop rotation (−180…180, 90° button) | O/CropEditor.swift:195-198, 440-454, O/VideoTools.swift:6-63 | DONE | A/CropPanel.kt (slider in steps of 0.1 snapping to upright, angle to tap, quarter turn), preview and export from `PictureFraming.frame`; a turned crop saves as schema 14 (C/Project.kt, C/Crop.kt `reframed`) | — | | |
 | Animated crop (A/B with curves) | O/EffectAnimationControls.swift:14-130, O/EffectAnimation.swift:8-254, O/CropEditor.swift:34-72 | DONE | A/CropPanel.kt (`AnimationControls`: Animate, Edit A/B, curve, ramp, rise and return, Hold B), `Cropping` over C/CropEditing.kt `CropDraft`; sampled per frame in the preview (A/EditorScreen.kt `cropOf`) and the export (`FramingEffect`); schema 14 | The controls are in the Crop tool only; no other tool moves yet | | |
-| Video shape for the project (Original, 16:9, 9:16, 1:1, 4:5) | O/CropEditor.swift:93, 189-194, 232-236, 418-436, O/VideoTools.swift:100-112 | CORE ONLY | C/Crop.kt (`OutputShape`), C/CropEditing.kt (`CropShape`) | `EditState.outputSize` with its validation and schema step, the canvas rule in A/Exporter.kt and A/EditorScreen.kt (both take the first clip's shape), and the menu in the Crop tool. Until then applying a crop does not pin the movie's shape as the original does | M | Yes |
-| Mirror (flip horizontally / vertically) | O/EditorTools.swift:1319-1322 | CORE ONLY | C/Crop.kt:108 (`MirrorSettings`) | Clip field, UI, preview and export | S | Yes |
+| Video shape for the project (Original, 16:9, 9:16, 1:1, 4:5) | O/CropEditor.swift:93, 189-194, 232-236, 418-436, O/VideoTools.swift:100-112 | DONE | The "Video shape" menu of A/CropPanel.kt (`Cropping.reshaped`, `applied`: a crop or a chosen shape pins the frame, Original with no crop frees it); `EditState.outputSize` saved beside the step's timeline as `[width, height]`, checked even and 2…16384, schema 21 (C/Project.kt); the canvas of the preview (A/EditorScreen.kt) and the export (A/Exporter.kt `movieShape`) | `canvasReference` is not kept: without a fixed size the frame always takes the first picture's shape. An edit made from a timeline does not carry the size, so `Project.commit` keeps the one the project has unless the Crop tool names one | | |
+| Mirror (flip horizontally / vertically) | O/EditorTools.swift:1319-1322 | DONE | Two switches in A/CropPanel.kt rather than a Mirror tool of their own; `TimelineClip.mirror` (schema 20, C/Project.kt), C/TimelineEditing.kt `setMirror`; the export through `FramingEffect` and the preview through `PictureFrame.layer` | No Mirror badge of its own on the timeline | | |
 | Colour: 14 looks with strength | O/ColorGradeControls.swift:15-154, O/VideoToolCompositor.swift:456-529 | DONE | A/EditorScreen.kt:1206-1255, A/ColorLuts.kt, C/ColorGrade.kt | Preview needs Android 13 (A/EditorScreen.kt:621); look thumbnails | | |
 | Imported `.cube` LUT | O/ColorGrading.swift:39-128 | PARTIAL | A/ProjectStore.kt:196, C/CubeLUT.kt (3D and 1D) | LUT library (Imported / Favorites tabs), "LUT expects" input choice (`LUTInput`, C/ColorSettings.kt:28; what a log LUT is given is C/LogColor.kt `lutInput`) | M | Yes |
 | Exposure, warmth, tint | O/ColorGradeControls.swift | PARTIAL | A/EditorScreen.kt:1242-1244 (exposure ±2) | Exposure range ±4 | S | Yes |
 | Highlights slider | O/ColorGradeControls.swift:52-66 | DONE | The slider of the colour dialog (A/EditorScreen.kt `ColorDialog`, −1…1, above the balance as in the original), applied in C/ColorGrade.kt `balance` by the original's curve (C/LogColor.kt `highlights`); the export's LUT and the preview's shader checked against it in A/androidTest `PictureToolPixelCases` | Steps of 0.1 rather than 0.01, as the other sliders of the dialog | | |
 | Local highlight recovery for Log footage | O/ColorGradeControls.swift, README:136-139 | MISSING | Field only (C/ColorSettings.kt:52) | Spatial filter; only meaningful with Log sources | L | Yes |
-| Log-to-display conversion of Log footage | O/LogColor.swift:61-191, O/VideoToolCompositor.swift:505-529 | PARTIAL | C/ColorGrade.kt `applyLog` (decode, balance and Highlights on the light, the viewing transform, then the look or a LUT on what it expects) in the one colour table of the preview and the export (A/ColorLuts.kt); A/LogFootage.kt tells a recording by the `AppleLog`/`AppleLog2` name in its movie header, since Android's MediaFormat has no log transfer | The detection is not checked on a real Apple Log file; the table is 33 points on 8-bit code values, not the original's float pipeline; the recording is decoded as Media3 decodes it (no HDR path) | S | Phone footage |
+| Log-to-display conversion of Log footage | O/LogColor.swift:61-191, O/VideoToolCompositor.swift:505-529 | PARTIAL | C/ColorGrade.kt `applyLog` (decode, balance and Highlights on the light, the viewing transform, then the look or a LUT on what it expects) in the one colour table of the preview and the export (A/ColorLuts.kt); A/LogFootage.kt tells a recording by the `AppleLog`/`AppleLog2` name in its movie header, since Android's MediaFormat has no log transfer | The detection is not checked on a real Apple Log file; the table is 33 points on 8-bit code values, not the original's float pipeline: within a level on average, up to about 100 levels off on a few colours near black or out of gamut; the recording is decoded as Media3 decodes it (no HDR path) | S | Phone footage |
 | Saved named grades | O/ColorGradeControls.swift (`color.saveGrade`) | MISSING | — | | M | Yes |
 | Animated grade (A/B) | O/EffectAnimation.swift | CORE ONLY | C/ColorSettings.kt:55 (`motion`), `pose`/`applying` | UI; a per-frame LUT in preview and export | L | Yes |
 | Colour Correction (exposure, contrast, tonal ranges, white balance, saturation, vibrance, hue; Light/Color tabs; keyframes) | O/VideoEffects/VideoEffectCatalog.swift:209, O/VideoEffects/VideoEffectsEditor.swift:1344-1419 | MISSING | — | Part of video effects; could be folded into the LUT pipeline | M | Yes |
@@ -359,7 +359,7 @@ Each was a new `C/<Name>.kt` plus `core/src/test/.../<Name>Test.kt`, porting the
 15. **ListeningLevels and WaveformTiles** — DONE: C/AudioListeningLevels.kt (`O/OfflineAudioPipeline.swift:202-304`), C/WaveformTiles.kt (`O/WaveformDetail.swift:4-66`, `O/EditorTimeline.swift:778-796, 840-846`).
 16. **TrackTimeline** — DONE: C/TrackTimeline.kt and the `Track…` files beside it, adopted by the app (`docs/TRACKS-PLAN.md`).
 
-Already in `core` and waiting only for app work (no core package needed): audio unlinking, mirror, output shape, image overlay, pause Cut/Keep candidates, bookmark labels, the cover frame pool, stabilisation, Log colour and the Highlights slider, the level horizon, face follow, the two-camera layouts, recording gain, the detailed waveform tiles and the recovery rules.
+Already in `core` and waiting only for app work (no core package needed): audio unlinking, image overlay, pause Cut/Keep candidates, bookmark labels, the cover frame pool, stabilisation, the level horizon, face follow, the two-camera layouts, recording gain, the detailed waveform tiles and the recovery rules.
 
 ## Not classified with confidence
 
