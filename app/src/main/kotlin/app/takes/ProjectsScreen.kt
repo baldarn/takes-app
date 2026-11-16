@@ -1,8 +1,5 @@
 package app.takes
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,7 +9,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,13 +56,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import app.takes.core.Project
 import app.takes.core.ProjectException
 import kotlinx.coroutines.Dispatchers
@@ -80,16 +74,6 @@ private val Muted = Color(0xFFA0A4AB)
 private val SelectedGreen = Color(0xFF34C759)
 
 private fun dateLabel(time: Long) = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(time))
-
-private fun play(context: Context, file: File, report: (String) -> Unit) {
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/mp4").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        report(context.getString(R.string.projects_play_failed))
-    }
-}
 
 /** [open] receives the chosen project and the destination tab: 0 recorder, 2 editor. */
 @Composable
@@ -211,10 +195,10 @@ private fun summary(project: Project): String {
 
 @Composable
 private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit, zip: () -> Unit) {
-    val context = LocalContext.current
-    var expanded by remember { mutableStateOf(false) }
+    var originals by remember { mutableStateOf(false) }
     var unfinished by remember { mutableStateOf(false) }
     if (unfinished) UnfinishedRecordings(project, store) { unfinished = false }
+    if (originals) OriginalRecordings(project, store) { originals = false }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Thumbnail(project.recordings.firstOrNull()?.let { store.file(project, it) })
@@ -245,29 +229,13 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                     DropdownMenuItem({ Text(stringResource(R.string.projects_rename)) }, { choose(rename) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.projects_duplicate)) }, { choose { store.duplicate(project) } }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) })
                     if (project.sources.isNotEmpty()) DropdownMenuItem(
-                        { Text(stringResource(if (expanded) R.string.projects_hide_originals else R.string.projects_originals)) }, { choose { expanded = !expanded } },
+                        { Text(stringResource(R.string.projects_originals)) }, { choose { originals = true } },
                         leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.projects_add_videos)) }, { choose(addVideos) }, leadingIcon = { Icon(Icons.Filled.Add, null) })
                     if (project.sources.isNotEmpty()) DropdownMenuItem({ Text(stringResource(R.string.projects_zip)) }, { choose(zip) }, leadingIcon = { Icon(Icons.Outlined.Inventory2, null) })
                     if (store.unfinishedRecordings(project).isNotEmpty()) DropdownMenuItem(
                         { Text(stringResource(R.string.recorder_unfinished_title)) }, { choose { unfinished = true } }, leadingIcon = { Icon(Icons.Outlined.VideocamOff, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.common_delete), color = RecordRed) }, { choose { store.delete(project) } }, leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = RecordRed) })
-                }
-            }
-        }
-        if (expanded) {
-            val playLabel = stringResource(R.string.common_play)
-            project.sources.forEachIndexed { index, source ->
-                Row(
-                    Modifier.fillMaxWidth().clickable(onClickLabel = playLabel) {
-                        play(context, store.file(project, source)) { store.error = it }
-                    }.padding(horizontal = 12.dp, vertical = 10.dp),
-                    Arrangement.SpaceBetween,
-                ) {
-                    val switches = source.events.orEmpty().count { it.kind == "camera" }
-                    Text("${index + 1}.  ${source.originalName ?: dateLabel(source.recordedAt)}" + if (switches > 0) "  ·  " + pluralStringResource(R.plurals.projects_camera_switches, switches, switches) else "",
-                        color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(timeLabel(source.duration), color = Muted, fontSize = 14.sp, modifier = Modifier.padding(start = 12.dp))
                 }
             }
         }

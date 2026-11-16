@@ -1,6 +1,10 @@
 package app.takes
 
 import android.app.Application
+import android.content.ContentValues
+import android.os.Build
+import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -27,6 +31,7 @@ import app.takes.core.ProjectRestore
 import app.takes.core.ProjectRestoreException
 import app.takes.core.SourceMedia
 import app.takes.core.SubtitleScratch
+import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.UnusedTakes
 import app.takes.core.newID
@@ -410,6 +415,54 @@ class ProjectStore(context: Context) {
         val project = projects.firstOrNull { it.id == projectID } ?: return null
         val added = UnusedTakes.add(project, takes, at) ?: return null
         return if (update(added.project)) added.start else null
+    }
+
+    /**
+     * Puts seconds [start] to [end] of the take [source] back at the end of the timeline, as one
+     * Undo step, as the original's "Add range to end of timeline". False when the range is not
+     * one of the take.
+     */
+    fun addOriginal(projectID: String, source: SourceMedia, start: Double, end: Double): Boolean {
+        val project = projects.firstOrNull { it.id == projectID } ?: return false
+        val take = project.recordings.firstOrNull { it.id == source.id }
+        if (take == null || !file(project, take).isFile || start < 0 || end - start < TimelineEditing.MINIMUM_CLIP / 2 || end > take.duration + 0.001) return false
+        val clip = TimelineClip(sourceID = take.id, start = start, end = end.coerceAtMost(take.duration))
+        val edit = TimelineEditing.insert(project.edit, listOf(clip), project.edit.duration) ?: return false
+        return update(project.commit(edit))
+    }
+
+    /** Copies originals of [project] to the device's Movies and Music collections. The files themselves stay. */
+    fun saveOriginals(project: Project, sources: List<SourceMedia>) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        scope.launch {
+            val failed = withContext(Dispatchers.IO) { sources.count { !saveToCollection(file(project, it), it.audioOnly == true) } }
+            error = when {
+                failed == 0 -> context.resources.getQuantityString(R.plurals.originals_saved, sources.size, sources.size)
+                else -> context.getString(R.string.originals_save_failed, failed, sources.size)
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun saveToCollection(file: File, audioOnly: Boolean): Boolean {
+        if (!file.isFile) return false
+        val collection = if (audioOnly) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        else MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mediaType(file, audioOnly))
+            put(MediaStore.MediaColumns.RELATIVE_PATH, if (audioOnly) "Music/Takes" else "Movies/Takes")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(collection, values) ?: return false
+        return try {
+            resolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out, 1 shl 16) } }
+            resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+            true
+        } catch (_: Exception) {
+            resolver.delete(uri, null, null)
+            false
+        }
     }
 
     fun undo(projectID: String) = change(projectID) { it.undo() }

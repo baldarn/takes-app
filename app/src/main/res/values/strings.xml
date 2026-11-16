@@ -57,7 +57,6 @@
     <string name="projects_continue_recording">Continue recording</string>
     <string name="projects_edit">Edit</string>
     <string name="projects_originals">Originals</string>
-    <string name="projects_hide_originals">Hide originals</string>
     <string name="projects_add_videos">Add videos</string>
     <string name="projects_zip">Zip project</string>
     <string name="projects_zip_fallback_name">Project</string>
@@ -65,7 +64,6 @@
         <item quantity="one">%1$d camera switch</item>
         <item quantity="other">%1$d camera switches</item>
     </plurals>
-    <string name="projects_play_failed">No app on this device can play the recording.</string>
     <string name="projects_default_name">Recording %1$s</string>
     <string name="projects_importing_progress">Importing %1$d of %2$d…</string>
     <string name="projects_import_failed_one">The video could not be imported. It may not be a playable movie.</string>
@@ -754,4 +752,24 @@
     <string name="export_problem_saved_section_unreadable">A saved section of the export cannot be read.</string>
     <string name="export_problem_sections_not_whole">The saved sections of the export do not hold the whole movie.</string>
     <string name="export_problem_paused_not_removed">The paused export could not be removed.</string>
+    <string name="originals_title">Original recordings</string>
+    <string name="originals_none">No original media files found.</string>
+    <string name="originals_review">Review original</string>
+    <string name="originals_recorded">%1$s recorded</string>
+    <string name="originals_sound_length">Sound file · %1$s</string>
+    <string name="originals_share_one">Share original %1$s</string>
+    <string name="originals_share_all">Share all originals</string>
+    <string name="originals_save_all">Save all originals to the gallery</string>
+    <string name="originals_share">Share original</string>
+    <string name="originals_save">Save original to the gallery</string>
+    <string name="originals_note">The originals stay in the project as they were recorded or imported; edits never change them.</string>
+    <string name="originals_missing">The file of this original is missing.</string>
+    <string name="originals_range_start">Original start</string>
+    <string name="originals_range_end">Original end</string>
+    <string name="originals_add_range">Add range to end of timeline</string>
+    <plurals name="originals_saved">
+        <item quantity="one">The original was saved to the gallery.</item>
+        <item quantity="other">%1$d originals were saved to the gallery.</item>
+    </plurals>
+    <string name="originals_save_failed">%1$d of %2$d originals could not be saved to the gallery.</string>
 </resources>
