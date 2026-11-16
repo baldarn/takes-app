@@ -187,4 +187,24 @@ class PersonMaskSmootherTest {
         assertEquals(MaskStorage.half(mixed), next.state.alpha[5, 7])
         assertEquals(MaskStorage.r8(MaskStorage.half(mixed)), next.output[5, 7])
     }
+
+    /** The rounding on the bits gives the nearest half, ties to even, for every value it takes: checked against the arithmetic. */
+    @Test
+    fun halfOnTheBitsIsTheNearestHalf() {
+        fun nearest(value: Float): Float {
+            val a = kotlin.math.abs(value.toDouble())
+            if (a >= 65520.0) return if (value > 0) Float.POSITIVE_INFINITY else Float.NEGATIVE_INFINITY
+            val step = if (a < 6.103515625E-5) -24 else Math.getExponent(a) - 10
+            val rounded = Math.scalb(Math.rint(Math.scalb(a, -step)), step)
+            return (if (value < 0) -rounded else rounded).toFloat()
+        }
+        val random = java.util.Random(7)
+        val values = (0 until 200_000).map { java.lang.Float.intBitsToFloat(random.nextInt()) }.filter { it.isFinite() && it != 0f } +
+            (0 until 100_000).map { random.nextFloat() } + listOf(1f, .5f, 65504f, 65519.99f, 65520f, 6.1035156E-5f, 6.1035152E-5f, -0.3f) +
+            // Halfway between two halves near 1: ties go to the even one.
+            listOf(1f + 1f / 2048, 1f + 3f / 2048)
+        for (v in values) assertEquals("at $v", nearest(v), MaskStorage.half(v))
+        assertEquals(1f, MaskStorage.half(1f + 1f / 2048))
+        assertEquals(1f + 4f / 2048, MaskStorage.half(1f + 3f / 2048))
+    }
 }

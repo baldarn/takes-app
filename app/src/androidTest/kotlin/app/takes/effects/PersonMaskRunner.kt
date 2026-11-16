@@ -21,7 +21,10 @@ import java.io.File
  *
  * It reports whether LiteRT loads, frames a second, the chunks' sizes on disk, and that a second analysis finds
  * every chunk made and the reader gives a mask for every frame. `-e keep true` leaves the masks for a look;
- * `-e warm true` segments each chunk's two-second warm-up too.
+ * `-e warm true` segments each chunk's two-second warm-up too. `-e look 2,5,8` draws the export's chain with the
+ * four effects that read the person on the frames at those seconds (under 10), with these masks, and saves each
+ * as `look-<second>.png` beside the clip: the frame, Auto Background (Blur original, then Studio), its matte,
+ * Color Isolation's subject, Quantization's face detail.
  */
 class PersonMaskRunner : Instrumentation() {
     override fun onCreate(arguments: Bundle?) {
@@ -44,6 +47,8 @@ class PersonMaskRunner : Instrumentation() {
             say("LiteRT available: ${PersonMasks.available()} (${System.getProperty("os.arch")})")
             val folder = File(targetContext.filesDir, "person-masks")
             val clip = File(folder, arguments.getString("clip") ?: error("-e clip <name in files/person-masks>"))
+            // A build that is not debuggable has no run-as: the clip is taken from /data/local/tmp then.
+            if (!clip.isFile) File("/data/local/tmp", clip.name).takeIf { it.canRead() }?.copyTo(clip.also { folder.mkdirs() })
             val duration = MediaMetadataRetriever().run {
                 try {
                     setDataSource(clip.path)
@@ -98,6 +103,7 @@ class PersonMaskRunner : Instrumentation() {
             }
             say("reader: $missing of ${(duration / 0.1).toInt()} times without a mask")
             if (missing > 0) failed++
+            arguments.getString("look")?.split(",")?.map { it.trim().toDouble() }?.let { seconds -> look(clip, folder, source, seconds, ::say) }
             if (arguments.getString("keep") != "true") File(folder, "Cache").deleteRecursively()
         } catch (problem: Throwable) {
             failed++
@@ -107,6 +113,48 @@ class PersonMaskRunner : Instrumentation() {
         finish(if (failed == 0) Activity.RESULT_OK else Activity.RESULT_CANCELED, Bundle().apply {
             putString(Instrumentation.REPORT_KEY_STREAMRESULT, report.toString() + "\n")
         })
+    }
+
+    /** The four effects on real frames, through the export's chain, with the masks just made. */
+    private fun look(clip: File, folder: File, source: SourceMedia, seconds: List<Double>, say: (String) -> Unit) {
+        val retriever = MediaMetadataRetriever().apply { setDataSource(clip.path) }
+        val bench = app.takes.pixels.Bench(targetContext)
+        fun effect(kind: app.takes.core.VideoEffectID, vararg values: Pair<String, app.takes.core.EffectValue>): app.takes.core.VideoEffectSettings =
+            values.fold(app.takes.core.VideoEffectSettings(kind, 0.0, 10.0)) { e, (id, v) -> e.with(id, v) }
+        val choice = { v: String -> app.takes.core.EffectValue.Choice(v) }
+        val looks = listOf(
+            effect(app.takes.core.VideoEffectID.AutoBackground),
+            effect(app.takes.core.VideoEffectID.AutoBackground, "background" to choice("Studio")),
+            effect(app.takes.core.VideoEffectID.AutoBackground, "view" to choice("Matte")),
+            effect(app.takes.core.VideoEffectID.ColorIsolation, "mode" to choice("The subject")),
+            effect(app.takes.core.VideoEffectID.Quantization, "colors" to app.takes.core.EffectValue.Number(4.0), "palette" to choice("Pop 1")),
+        )
+        try {
+            for (second in seconds) {
+                val frame = retriever.getScaledFrameAtTime((second * 1e6).toLong(), MediaMetadataRetriever.OPTION_CLOSEST, 540, 960)!!
+                val width = frame.width
+                val height = frame.height
+                val input = app.takes.pixels.Picture(width, height) { x, y -> frame.getPixel(x, y) }
+                val sheet = android.graphics.Bitmap.createBitmap(width * (looks.size + 1), height, android.graphics.Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(sheet)
+                canvas.drawBitmap(frame, 0f, 0f, null)
+                looks.forEachIndexed { i, settings ->
+                    val clipOf = app.takes.core.TimelineClip(id = "C", sourceID = "S", start = 0.0, end = 10.0, videoEffects = listOf(settings))
+                    val assets = app.takes.SourceAssets(clip, folder, clipOf, wait = true, context = targetContext, media = source)
+                    val stage = app.takes.pixels.EffectStage(bench, listOf(settings), width, height, assets)
+                    val started = SystemClock.elapsedRealtime()
+                    val out = stage.frame(input, (second * 1e6).toLong())
+                    val took = SystemClock.elapsedRealtime() - started
+                    stage.release()
+                    canvas.drawBitmap(android.graphics.Bitmap.createBitmap(IntArray(out.pixels.size) { out.pixels[it] or 0xff000000.toInt() }, width, height, android.graphics.Bitmap.Config.ARGB_8888), (width * (i + 1)).toFloat(), 0f, null)
+                    say("look %.1f s %s: %d ms".format(second, settings.kind, took))
+                }
+                File(folder, "look-${second}.png").outputStream().use { sheet.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            }
+        } finally {
+            bench.release()
+            retriever.release()
+        }
     }
 
     private companion object {

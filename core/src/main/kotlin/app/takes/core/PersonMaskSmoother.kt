@@ -80,12 +80,22 @@ object MaskStorage {
      * Above the largest half the value becomes infinite.
      */
     fun half(value: Float): Float {
+        // A normal half from a float: the same exponent, the mantissa rounded to its top 10 bits, ties to even, done
+        // on the bits (the analysis rounds every pixel of every frame several times). A carry into the exponent is the
+        // right result; past the largest half it is infinite.
+        val bits = java.lang.Float.floatToRawIntBits(value)
+        val magnitude = bits and 0x7fffffff
+        if (magnitude in SMALLEST_NORMAL_HALF_BITS until INFINITE_HALF_BITS) {
+            val rounded = (magnitude + 0xfff + ((magnitude ushr 13) and 1)) and 0x1fff.inv()
+            return java.lang.Float.intBitsToFloat((bits and Int.MIN_VALUE) or rounded)
+        }
         if (!value.isFinite() || value == 0f) return value
         val a = abs(value.toDouble())
         if (a >= 65520.0) return if (value > 0) Float.POSITIVE_INFINITY else Float.NEGATIVE_INFINITY
-        // Subnormal halves are multiples of 2^-24; normal ones have 10 bits after the point.
-        val quantum = if (a < 2.0.pow(-14)) 2.0.pow(-24) else 2.0.pow(Math.getExponent(a) - 10)
-        val rounded = Math.rint(a / quantum) * quantum
+        // Subnormal halves are multiples of 2^-24; normal ones have 10 bits after the point. Scaling by a power of
+        // two is exact, and much cheaper than pow, which the analysis did for every pixel of every frame.
+        val step = if (a < SMALLEST_NORMAL_HALF) -24 else Math.getExponent(a) - 10
+        val rounded = Math.scalb(Math.rint(Math.scalb(a, -step)), step)
         return (if (value < 0) -rounded else rounded).toFloat()
     }
 
@@ -93,6 +103,10 @@ object MaskStorage {
     fun r8(value: Float): Float = (Math.rint(value.coerceIn(0f, 1f) * 255.0) / 255.0).toFloat()
 
     fun half(plane: MaskPlane): MaskPlane = plane.map(::half)
+
+    private const val SMALLEST_NORMAL_HALF = 6.103515625E-5 // 2^-14
+    private const val SMALLEST_NORMAL_HALF_BITS = 0x38800000 // 2^-14 as a float
+    private const val INFINITE_HALF_BITS = 0x477ff000 // 65520: from here a half is infinite
 
     fun r8(plane: MaskPlane): MaskPlane = plane.map(::r8)
 }
