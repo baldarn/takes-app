@@ -64,7 +64,7 @@ internal class EditorPlayer(private val context: Context) {
     private val mix = MixPlayback()
 
     /** Takes the mix [plan] of the edit to hear, its recordings in [files], the processed sound of a chain from [processed]. */
-    fun loadSound(plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> File?) = mix.load(plan, files, processed)
+    fun loadSound(plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> ProcessedSound?) = mix.load(plan, files, processed)
 
     var playing by mutableStateOf(false); private set
 

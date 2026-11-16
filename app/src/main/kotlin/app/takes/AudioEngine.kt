@@ -35,12 +35,13 @@ import kotlin.math.roundToInt
  * A file's sound read forwards as a [TrackMixSource]: decoded from a little
  * before [from] seconds, converted to [rate] and [channels] (one channel
  * given to both, or the first two of more; for one channel, the average of
- * all), frame 0 at second 0 of the file as its decoder times it.
+ * all), frame 0 at second 0 of the file as its decoder times it, or [offset]
+ * seconds earlier for a file that holds a stretch of its source from there.
  *
  * A file with no sound, or one whose sound cannot be decoded, reads as
  * silence; [failed] tells the second apart.
  */
-class DecodedSource(file: File, private val rate: Int, private val channels: Int, from: Double) : TrackMixSource {
+class DecodedSource(file: File, private val rate: Int, private val channels: Int, from: Double, private val offset: Double = 0.0) : TrackMixSource {
     private val extractor = MediaExtractor()
     private var codec: MediaCodec? = null
     private val info = MediaCodec.BufferInfo()
@@ -71,7 +72,7 @@ class DecodedSource(file: File, private val rate: Int, private val channels: Int
                 val format = extractor.getTrackFormat(track)
                 extractor.selectTrack(track)
                 // A little early: the first frames a decoder gives after a jump are not yet at their level.
-                extractor.seekTo(maxOf(0L, ((from - LEAD) * 1e6).toLong()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                extractor.seekTo(maxOf(0L, ((from - offset - LEAD) * 1e6).toLong()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
                 val decoder = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
                 decoder.configure(format, null, null, 0)
                 decoder.start()
@@ -178,7 +179,7 @@ class DecodedSource(file: File, private val rate: Int, private val channels: Int
         val width = if (float) 4 else 2
         val frames = bytes.remaining() / (width * sourceChannels)
         // The first block says where the sound begins; the rest follow it frame by frame.
-        if (base == Long.MIN_VALUE) base = Math.round(time / 1e6 * sourceRate)
+        if (base == Long.MIN_VALUE) base = Math.round((time / 1e6 + offset) * sourceRate)
         if (held.size < (size + frames) * channels) held = held.copyOf(maxOf(held.size * 2, (size + frames) * channels))
         val shorts = if (float) null else bytes.asShortBuffer()
         val floats = if (float) bytes.asFloatBuffer() else null
@@ -284,16 +285,19 @@ class SonicRetime : TrackMixRetime {
  * runs at another speed with their pitch kept.
  */
 fun audioEngine(
-    plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> File?, rate: Int = MIX_RATE, channels: Int = 2,
+    plan: TrackMixPlan, files: Map<String, File>, processed: (TrackMixPiece) -> ProcessedSound?, rate: Int = MIX_RATE, channels: Int = 2,
     live: LiveAudioGain? = null, failures: MutableList<String>? = null,
 ): TrackMixEngine = TrackMixEngine(
     plan, rate, channels,
     open = { piece ->
-        val file = (if (piece.chain.isEmpty()) null else processed(piece)) ?: files[piece.sourceID]
-        file?.let { DecodedSource(it, rate, channels, piece.runs.first().sourceStart).also { source -> if (source.failed) failures?.add(piece.sourceID) } }
+        val sound = (if (piece.chain.isEmpty()) null else processed(piece)) ?: files[piece.sourceID]?.let { ProcessedSound(it) }
+        sound?.let { DecodedSource(it.file, rate, channels, piece.runs.first().sourceStart, it.offset).also { source -> if (source.failed) failures?.add(piece.sourceID) } }
     },
     stretch = SonicRetime(), live = live,
 )
+
+/** The sound a piece plays: [file], whose frame 0 is second [offset] of the piece's source. */
+class ProcessedSound(val file: File, val offset: Double = 0.0)
 
 /** The rate the app mixes at: the rate of every chain's processed sound and of the export. */
 const val MIX_RATE = 48_000

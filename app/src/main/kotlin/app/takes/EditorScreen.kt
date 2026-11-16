@@ -168,6 +168,7 @@ import app.takes.core.TrackRenderPlan
 import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMix
 import app.takes.core.MovieLength
+import app.takes.core.AudioToolKind
 import app.takes.core.TrackSequenceView
 import app.takes.core.EditInterval
 import app.takes.core.TimelineSelection
@@ -281,20 +282,27 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // A sequence whose sound runs past its last picture plays on over black to the end of the movie, as the export does.
     val plan = remember(asked, duration) { if (render is EditRender.Sequence && duration > asked.duration) asked.copy(duration = duration) else asked }
     // The sound is the audio engine's: the mix plan of the edit's timeline, as the export mixes it. The chains of
-    // Enhance audio are processed in the background, one at a time; until one is ready its pieces play the recording,
-    // then the mix is loaded again.
+    // Enhance audio are processed for listening a stretch at a time, from the playhead to half a minute after it
+    // ([TrackAudioRegions.windowRequests]), so a short stretch of a long take never processes the take; until one is
+    // ready its pieces play the recording, then the mix takes it. The export processes every chain whole.
     val timeline = remember(edit) { edit.toTimeline() }
-    val chains = remember(timeline, files) {
-        TrackAudioRegions.requests(timeline).values.filter { Denoiser.playable(it.effects) }.mapNotNull { request -> files[request.sourceID]?.let { it to request.effects } }
-    }
     var cleaned by remember { mutableIntStateOf(0) }
     var cleaningProgress by remember { mutableStateOf<Float?>(null) }
-    LaunchedEffect(chains) {
+    // Enhance audio or Censor, open on what it acts on.
+    var audioTool by remember { mutableStateOf<Pair<AudioToolKind, AudioToolWork>?>(null) }
+    val listening = (playhead / LISTEN_STEP).toInt()
+    LaunchedEffect(timeline, listening, files) {
+        val from = listening * LISTEN_STEP
+        val requests = TrackAudioRegions.windowRequests(timeline, EditInterval.of(maxOf(0.0, from - LISTEN_STEP), from + LISTEN_AHEAD)).values
         try {
-            for ((file, effects) in chains) {
-                if (Denoiser.ready(file, effects) != null) continue
-                cleaningProgress = 0f
-                if (Denoiser.process(file, effects) { cleaningProgress = it } != null) cleaned++
+            for (request in requests) {
+                val file = files[request.sourceID] ?: continue
+                if (!Denoiser.playable(request.effects) || Denoiser.ready(file, request.effects) != null) continue
+                for (span in request.spans) {
+                    if (Denoiser.windows(file, request.effects).any { it.covers(span.start, span.end) }) continue
+                    cleaningProgress = 0f
+                    if (Denoiser.processWindow(file, request.effects, span) != null) cleaned++
+                }
             }
         } finally {
             cleaningProgress = null
@@ -1079,6 +1087,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 )
             },
         )
+        // The badges of Enhance audio and Censor, under the timeline and scrolling with it.
+        AudioToolBadges(timeline, scroll, pixelsPerSecond) { badge -> audioTool = badge.kind to AudioToolWork.of(edit, badge, soundSelection(edit, marks.selected.clips, marks.selected.audio, marks.range?.let { EditInterval.of(it.start, it.end) })) }
         val framing = cropping
         val effectsWork = effecting
         val placed = placementWork
@@ -1694,7 +1704,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         if (shapingSound) {
             val targets = soundTargets(edit, emptyList(), listOf(item.id), { "" }) { names[it.sourceID] ?: soundName }
             SoundDialog(
-                targets, canReduceNoise = false,
+                targets,
                 measure = { change -> Headroom.measure(withSound(edit, targets, change) ?: edit, files, setOf(item.id), item.start..item.end) },
                 save = { change -> commit(withSound(edit, targets, change), playhead); shapingSound = false; chosenSound = null },
                 dismiss = { shapingSound = false }, title = stringResource(R.string.sound_volume_and_fades),
@@ -1731,7 +1741,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val targets = soundTargets(base, toolScope?.clips ?: listOf(current.id), toolSounds, { clipName.format(it + 1) }) { names[it.sourceID] ?: soundName }
         SoundDialog(
             targets,
-            canReduceNoise = toolScope == null || toolSubject != null,
+            // Enhance audio and Censor act on the same sounds, in the marked range when there is one.
+            tools = { kind ->
+                val selection = soundSelection(edit, toolScope?.clips ?: listOf(current.id), toolSounds, marks.range?.let { EditInterval.of(it.start, it.end) })
+                editingAudio = false
+                audioTool = kind to AudioToolWork(edit, null, selection)
+            },
             measure = { change ->
                 if (targets.isEmpty()) null
                 else Headroom.measure(withSound(base, targets, change) ?: base, files, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end })
@@ -1747,6 +1762,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             dismiss = { editingAudio = false },
             appliesTo = toolScopeLabel,
         )
+    }
+    audioTool?.let { (kind, work) ->
+        val done = { next: EditState? -> commit(next, playhead); audioTool = null }
+        if (kind == AudioToolKind.Enhance) EnhanceDialog(work.chain, apply = { done(work.enhanced(it)) }, remove = work.region?.let { { done(work.removed()) } }, dismiss = { audioTool = null })
+        else CensorDialog(work.censor, apply = { done(work.censored(it)) }, remove = work.region?.let { { done(work.removed()) } }, dismiss = { audioTool = null })
     }
     ExportPanel(project, canvas, store, exporter, choosingExport) { choosingExport = false }
 }
@@ -1961,3 +1981,7 @@ internal fun speedLabel(rate: Double): String = (if (rate % 1.0 == 0.0) rate.toI
 
 /** Link of [targets] on [base] waiting for the question whether to link only the time from [start] to [end] that they share. */
 private data class PendingLink(val base: EditState, val targets: EditTargets, val start: Double, val end: Double)
+
+/** How far the playhead moves before the chains are processed for the next stretch, and how far past it they are, in seconds. */
+private const val LISTEN_STEP = 10.0
+private const val LISTEN_AHEAD = 30.0

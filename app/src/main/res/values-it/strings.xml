@@ -197,10 +197,6 @@
     <string name="sound_fade_in">Fade in</string>
     <string name="sound_fade_out">Fade out</string>
     <string name="sound_noise_reduction">Riduzione del rumore</string>
-    <string name="sound_noise_off">No</string>
-    <string name="sound_noise_light">Leggera</string>
-    <string name="sound_noise_full">Completa</string>
-    <string name="sound_noise_note">Attenua il rumore di fondo costante, soprattutto nelle pause del parlato.</string>
     <string name="sound_item_range">Da %1$s a %2$s · traccia %3$d</string>
     <string name="sound_volume_and_fades">Volume e fade</string>
     <string name="sound_move_to_playhead">Sposta l\'inizio sul cursore</string>
@@ -821,4 +817,26 @@
     <string name="subtitles_replace_range_title">Sostituire i sottotitoli in questo intervallo?</string>
     <string name="subtitles_no_sound_range">Questo intervallo non ha audio.</string>
     <string name="subtitles_range">%1$s–%2$s</string>
+    <string name="enhance_title">Migliora audio</string>
+    <string name="enhance_mixed">Questi suoni hanno catene diverse, o alcuni nessuna. Salvando, questa va su tutti.</string>
+    <string name="enhance_eq_frequency">Centro %1$d Hz</string>
+    <string name="enhance_note">Elaborato sul telefono. Finché non è pronto, l\'anteprima riproduce l\'audio registrato.</string>
+    <string name="enhance_low_cut">Taglio dei bassi</string>
+    <string name="enhance_voice_eq">EQ voce</string>
+    <string name="enhance_gain">Guadagno in uscita</string>
+    <string name="censor_title">Censura</string>
+    <string name="censor_frequency">Tono %1$d Hz</string>
+    <string name="censor_level">Livello %1$s</string>
+    <string name="censor_wave">Onda</string>
+    <string name="censor_sine">Sinusoide</string>
+    <string name="censor_triangle">Triangolare</string>
+    <string name="censor_square">Quadra</string>
+    <string name="censor_envelope">Bordi</string>
+    <string name="censor_short">Netti</string>
+    <string name="censor_soft">Morbidi</string>
+    <string name="censor_pulse">A impulsi</string>
+    <string name="enhance_badge">Migliora</string>
+    <string name="censor_badge">Censura</string>
+    <string name="sound_enhance">Migliora audio…</string>
+    <string name="sound_censor">Censura…</string>
 </resources>

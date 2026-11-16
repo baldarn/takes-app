@@ -193,10 +193,6 @@
     <string name="sound_fade_in">Fade in</string>
     <string name="sound_fade_out">Fade out</string>
     <string name="sound_noise_reduction">Noise reduction</string>
-    <string name="sound_noise_off">Off</string>
-    <string name="sound_noise_light">Light</string>
-    <string name="sound_noise_full">Full</string>
-    <string name="sound_noise_note">Quiets steady background noise, mostly in the pauses of speech.</string>
     <string name="sound_item_range">%1$s to %2$s · track %3$d</string>
     <string name="sound_volume_and_fades">Volume and fades</string>
     <string name="sound_move_to_playhead">Move to start at the playhead</string>
@@ -810,4 +806,26 @@
     <string name="subtitles_replace_range_title">Replace subtitles in this range?</string>
     <string name="subtitles_no_sound_range">This range has no audio.</string>
     <string name="subtitles_range">%1$s–%2$s</string>
+    <string name="enhance_title">Enhance audio</string>
+    <string name="enhance_mixed">These sounds have different chains, or some have none. Saving puts this one on all of them.</string>
+    <string name="enhance_eq_frequency">Centre %1$d Hz</string>
+    <string name="enhance_note">Processed on the phone. Until it is ready, the preview plays the recorded sound.</string>
+    <string name="enhance_low_cut">Low cut</string>
+    <string name="enhance_voice_eq">Voice EQ</string>
+    <string name="enhance_gain">Output gain</string>
+    <string name="censor_title">Censor</string>
+    <string name="censor_frequency">Tone %1$d Hz</string>
+    <string name="censor_level">Level %1$s</string>
+    <string name="censor_wave">Wave</string>
+    <string name="censor_sine">Sine</string>
+    <string name="censor_triangle">Triangle</string>
+    <string name="censor_square">Square</string>
+    <string name="censor_envelope">Edges</string>
+    <string name="censor_short">Short</string>
+    <string name="censor_soft">Soft</string>
+    <string name="censor_pulse">Pulse</string>
+    <string name="enhance_badge">Enhance</string>
+    <string name="censor_badge">Censor</string>
+    <string name="sound_enhance">Enhance audio…</string>
+    <string name="sound_censor">Censor…</string>
 </resources>

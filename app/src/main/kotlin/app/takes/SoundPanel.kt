@@ -57,6 +57,7 @@ import app.takes.core.AudioGainGrid
 import app.takes.core.AudioHeadroom
 import app.takes.core.AudioItem
 import app.takes.core.AudioLevels
+import app.takes.core.AudioToolKind
 import app.takes.core.ClipAudio
 import app.takes.core.EditInterval
 import app.takes.core.EditState
@@ -131,14 +132,15 @@ private fun seconds(value: Double): String = DecimalFormat("0.###", DecimalForma
  *
  * [measure] is given the sound the dialog would save, without the level, and
  * returns how far the level can go; null when it cannot be measured.
- * Noise reduction, which the original keeps in another tool, stays here for clips.
+ * [tools] opens Enhance audio or Censor on the same sounds, as the original's
+ * other tools (TrackEditors.swift:212-380); null leaves them out.
  */
 @Composable
 internal fun SoundDialog(
-    targets: List<SoundTarget>, canReduceNoise: Boolean,
+    targets: List<SoundTarget>,
     measure: suspend (change: (SoundTarget) -> ClipAudio) -> AudioHeadroom?,
     save: (change: (SoundTarget) -> ClipAudio) -> Unit, dismiss: () -> Unit, appliesTo: String? = null,
-    title: String = stringResource(R.string.sound_dialog_title),
+    title: String = stringResource(R.string.sound_dialog_title), tools: ((AudioToolKind) -> Unit)? = null,
 ) {
     val levels = remember(targets) { targets.map { it.audio.volumeDB } }
     val common = remember(levels) { AudioGainGrid.common(levels) }
@@ -155,12 +157,9 @@ internal fun SoundDialog(
         val places = targets.map { EditInterval.of(it.start, it.end) }
         AudioFadeEdge.entries.associateWith { edge -> edge.index(places) { true }?.let { targets[it] } }
     }
-    val denoised = remember(targets) { targets.filter { it.clip } }
-    var denoise by remember { mutableDoubleStateOf(denoised.firstOrNull()?.audio?.denoise ?: 0.0) }
-    var denoiseChosen by remember { mutableStateOf(false) }
 
     // What the dialog would save for a target, as things stand when it is asked.
-    fun changed(target: SoundTarget, level: Boolean, fades: Map<AudioFadeEdge, Double>, silent: Boolean?, clean: Double?): ClipAudio {
+    fun changed(target: SoundTarget, level: Boolean, fades: Map<AudioFadeEdge, Double>, silent: Boolean?): ClipAudio {
         var audio = target.audio
         if (level) audio = audio.copy(volumeDB = volume)
         if (silent != null) audio = audio.copy(muted = silent)
@@ -169,7 +168,6 @@ internal fun SoundDialog(
             val fade = AudioEdgeFade.of(length, EditTime.of(target.length))
             audio = audio.withFades(if (edge == AudioFadeEdge.FadeIn) audio.fades.copy(fadeIn = fade) else audio.fades.copy(fadeOut = fade))
         }
-        if (clean != null && target.clip) audio = audio.copy(denoise = clean)
         return audio
     }
 
@@ -182,7 +180,7 @@ internal fun SoundDialog(
         delay(250) // a fade being dragged is measured once it rests
         val fades = fadeEdits
         val silent = muted.takeIf { muteChosen }
-        val result = try { measure { changed(it, level = false, fades, silent, null) } } catch (stopped: CancellationException) { throw stopped } catch (problem: Exception) { null }
+        val result = try { measure { changed(it, level = false, fades, silent) } } catch (stopped: CancellationException) { throw stopped } catch (problem: Exception) { null }
         headroom = result
         headroomNote = if (result == null) R.string.sound_headroom_unavailable else if (result.silent) R.string.sound_headroom_silent else null
     }
@@ -242,24 +240,26 @@ internal fun SoundDialog(
                         },
                     )
                 }
-                if (canReduceNoise && denoised.isNotEmpty()) {
+                if (tools != null && targets.isNotEmpty()) {
                     HorizontalDivider(Modifier.padding(top = 4.dp))
-                    Choices(stringResource(R.string.sound_noise_reduction), listOf(stringResource(R.string.sound_noise_off) to 0.0, stringResource(R.string.sound_noise_light) to 0.5, stringResource(R.string.sound_noise_full) to 1.0), denoise) { denoise = it; denoiseChosen = true }
-                    Text(stringResource(R.string.sound_noise_note), color = Quiet, fontSize = 13.sp)
+                    Row {
+                        TextButton(onClick = { tools(AudioToolKind.Enhance) }) { Text(stringResource(R.string.sound_enhance)) }
+                        TextButton(onClick = { tools(AudioToolKind.Censor) }) { Text(stringResource(R.string.sound_censor)) }
+                    }
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val (level, fades, silent, clean) = Chosen(volumeChosen, fadeEdits, muted.takeIf { muteChosen }, denoise.takeIf { denoiseChosen })
-                save { changed(it, level, fades, silent, clean) }
+                val (level, fades, silent) = Chosen(volumeChosen, fadeEdits, muted.takeIf { muteChosen })
+                save { changed(it, level, fades, silent) }
             }) { Text(stringResource(R.string.common_save)) }
         },
         dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 
-private data class Chosen(val level: Boolean, val fades: Map<AudioFadeEdge, Double>, val silent: Boolean?, val clean: Double?)
+private data class Chosen(val level: Boolean, val fades: Map<AudioFadeEdge, Double>, val silent: Boolean?)
 
 /**
  * One fade (TrackEditors.swift:88-150): whose it is, its length as a button
