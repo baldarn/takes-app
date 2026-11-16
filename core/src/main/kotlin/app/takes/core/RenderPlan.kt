@@ -53,7 +53,20 @@ data class RenderPlan(
     val captions: List<SubtitleCue>,
     val soundtracks: List<Sequence>,
     val cleaned: List<Sequence>,
+    /**
+     * The frame rate on whose grid a still finds the frame it holds ([freezes]): the preview's 30
+     * (YouRec/EditorController.swift:521), and the movie's own rate in an export ([atFrameRate]).
+     */
+    val framesPerSecond: Double = TransitionScene.FRAMES_PER_SECOND,
 ) {
+    /**
+     * This plan with the frame a still holds found on the grid of [framesPerSecond], the frame rate of the
+     * movie, as the original's export finds it (YouRec/TrackRenderer.swift:112, YouRec/TransitionRenderer.swift:133).
+     */
+    fun atFrameRate(framesPerSecond: Double): RenderPlan =
+        if (framesPerSecond == this.framesPerSecond) this
+        else copy(freezes = freezes(clips, deckOf, framesPerSecond), framesPerSecond = framesPerSecond)
+
     /** One clip as something to play. Times of the movie are in seconds; the cuts in the footage also in the microseconds a player is given. */
     data class Picture(
         val index: Int,
@@ -180,14 +193,14 @@ data class RenderPlan(
     fun moment(
         time: Double, canvas: Size = Size(1920.0, 1080.0),
         frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND },
-    ): TransitionScene.Moment = TransitionScene.moment(clips, time, canvas, deckOf, frames)
+    ): TransitionScene.Moment = TransitionScene.moment(clips, time, canvas, deckOf, framesPerSecond, frames)
 
     /** The frames per second of the movie, which are the same during every transition ([TransitionScene.frameRate]). */
     fun frameRate(setting: Int): Int = TransitionScene.frameRate(setting)
 
     /** The titles showing at [time], each with its opacity. */
     fun titlesAt(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Pair<TextOverlay, Double>> =
-        TimelineEditing.titlesAt(clips, time, frames)
+        TransitionScene.titles(clips, moment(time, frames = frames))
 
     /** The captions showing at [time]. */
     fun captionsAt(time: Double): List<SubtitleCue> = SubtitleEditing.active(captions, time)
@@ -199,7 +212,7 @@ data class RenderPlan(
 
     /** The titles to draw at [time], each once, with its opacity and the pose its motion gives it ([TitleMotionRanges.shown]). */
     fun titlesShown(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<TitleMotionRanges.Shown> =
-        titleRuns.shown(clips, time, frames)
+        titleRuns.shown(titlesAt(time, frames), time)
 
     /** Where the titles of [moment], the moment at timeline second [time], are drawn: into its sides, or over a split screen ([TitleMotionRanges.sides]). */
     fun titleSides(moment: TransitionScene.Moment, time: Double): TitleMotionRanges.Sides = titleRuns.sides(clips, moment, time)
@@ -419,6 +432,22 @@ data class RenderPlan(
             return entries
         }
 
+        /** The frames the stills of [clips] hold, each found on the grid of [framesPerSecond] ([TransitionPicture.heldFrame]). */
+        private fun freezes(clips: List<TimelineClip>, deckOf: List<Int>, framesPerSecond: Double): List<Freeze> {
+            val layout = TimelineEditing.layout(clips)
+            val joins = layout.all.filter { it.transition != null && TransitionLayout.longEnough(it.timing) }
+            return joins.mapNotNull { join ->
+                // The picture it leads out of, taken by the relation and not by the join's number.
+                val placement = TransitionScene.related(clips, join).first?.let { layout.placements[it] } ?: return@mapNotNull null
+                TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, framesPerSecond)?.let { held ->
+                    Freeze(
+                        join.index, placement.index, deckOf[placement.index], held.from, held.until, held.shown, held.offset,
+                        clips[placement.index].sourceTime(held.offset), sounding = placement.end > held.from + 0.001,
+                    )
+                }
+            }
+        }
+
         /**
          * The plan of [state]. [cleaned] are the clips whose cleaned sound is
          * at hand; null takes every clip that asks for noise reduction. A
@@ -468,17 +497,7 @@ data class RenderPlan(
                 }
             }
 
-            val joins = layout.all.filter { it.transition != null && TransitionLayout.longEnough(it.timing) }
-            val freezes = joins.mapNotNull { join ->
-                // The picture it leads out of, taken by the relation and not by the join's number.
-                val placement = TransitionScene.related(clips, join).first?.let { layout.placements[it] } ?: return@mapNotNull null
-                TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, TransitionScene.FRAMES_PER_SECOND)?.let { held ->
-                    Freeze(
-                        join.index, placement.index, deckOf[placement.index], held.from, held.until, held.shown, held.offset,
-                        clips[placement.index].sourceTime(held.offset), sounding = placement.end > held.from + 0.001,
-                    )
-                }
-            }
+            val freezes = freezes(clips, deckOf, TransitionScene.FRAMES_PER_SECOND)
             val endings = chains.mapIndexed { index, chain -> Ending(index % DECKS, chain.end) }
 
             val titles = clips.flatMapIndexed { index, clip ->

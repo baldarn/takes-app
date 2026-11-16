@@ -58,7 +58,30 @@ data class LayerPlan(
     /** How the captions look; null when the movie has none. */
     val subtitles: SubtitleSettings?,
     val captions: List<SubtitleCue>,
+    /**
+     * The frame rate on whose grid a still finds the frame it holds ([freezes]): the preview's 30
+     * (YouRec/EditorController.swift:521), and the movie's own rate in an export ([atFrameRate]).
+     */
+    val framesPerSecond: Double = TransitionScene.FRAMES_PER_SECOND,
 ) {
+    /**
+     * This plan with the frame a still holds found on the grid of [framesPerSecond], the frame rate of the
+     * movie, as the original's export finds it (YouRec/TrackRenderer.swift:112). Only the frame changes: where
+     * the still holds it and the lane it keeps do not depend on the rate.
+     */
+    fun atFrameRate(framesPerSecond: Double): LayerPlan {
+        if (framesPerSecond == this.framesPerSecond) return this
+        return copy(
+            framesPerSecond = framesPerSecond,
+            freezes = freezes.map { freeze ->
+                val relation = timeline.transitions.first { it.id == freeze.transition }
+                val item = timeline.video[freeze.picture]
+                val frame = heldFrame(relation, item, framesPerSecond) ?: return@map freeze
+                freeze.copy(shown = frame.shown, offset = frame.offset, sourceTime = item.content.sourceTime(frame.offset))
+            },
+        )
+    }
+
     /**
      * One picture as something to decode: where it plays in the movie, the
      * footage it plays with the cuts a player is given ([RenderPlan.cutMicros]),
@@ -380,6 +403,10 @@ data class LayerPlan(
         /** A run of pictures on a lane goes on where the next begins this close to where the last ends, in seconds, as [TimelineEditing.chains] has it. */
         private const val RUN_SLACK = 2 * TransitionLayout.TICK
 
+        /** The frame [item] holds for the still [relation] leads out of it with, on the grid of [framesPerSecond]. */
+        private fun heldFrame(relation: TimelineTransition, item: VideoTimelineItem, framesPerSecond: Double): TransitionPicture.HeldFrame? =
+            TransitionPicture.heldFrame(relation.timing, relation.origin.seconds, item.start.seconds, item.mapping.duration.seconds, framesPerSecond)
+
         /** The plan of [timeline], or null when more than [limit] pictures play at once. */
         fun planned(timeline: TrackTimeline, limit: Int): LayerPlan? = (of(timeline, limit) as? Outcome.Planned)?.plan
 
@@ -402,7 +429,7 @@ data class LayerPlan(
                 val picture = relation.outgoing?.let { byID[it] } ?: continue
                 if (picture in held) continue
                 val item = video[picture]
-                val frame = TransitionPicture.heldFrame(relation.timing, relation.origin.seconds, item.start.seconds, item.mapping.duration.seconds, TransitionScene.FRAMES_PER_SECOND) ?: continue
+                val frame = heldFrame(relation, item, TransitionScene.FRAMES_PER_SECOND) ?: continue
                 held[picture] = relation to frame
                 occupied[picture] = maxOf(item.end, relation.origin + EditTime.of(relation.timing.videoDuration))
             }

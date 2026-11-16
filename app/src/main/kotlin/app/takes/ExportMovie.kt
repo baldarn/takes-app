@@ -105,13 +105,16 @@ fun mixedSound(mix: File): Composition = Composition.Builder(
  * color tables are kept in.
  */
 class ExportMovie(
-    private val context: Context, private val plan: RenderPlan, ceiling: Int, private val files: Map<String, File>, val canvas: Pair<Int, Int>,
+    private val context: Context, planned: RenderPlan, ceiling: Int, private val files: Map<String, File>, val canvas: Pair<Int, Int>,
     private val sizes: Map<String, Pair<Int, Int>?>, private val rates: Map<String, Double?>, private val black: File, private val luts: File,
     /** The recordings, by id: the person masks are kept by them. */
     private val media: Map<String, app.takes.core.SourceMedia> = emptyMap(),
     /** The HDR transfer of each recording that is HDR ([HdrMovie.transfer]): any makes the movie HDR. */
     private val transfers: Map<String, Int> = emptyMap(),
 ) : MovieRender {
+    // The frame a still holds is found on the movie's grid, as the original's export finds it (RenderPlan.atFrameRate).
+    private val plan = planned.atFrameRate(planned.frameRate(ceiling).toDouble())
+
     override val hdr = plan.pictures.any { it.sourceID in transfers }
 
     private val decks = plan.sequences.size

@@ -109,6 +109,31 @@ class RenderPlanTest {
         assertTrue(under.freezes.single().sounding)
     }
 
+    @Test fun anExportFindsTheHeldFrameOnTheGridOfTheMoviesRate() {
+        // The original's export takes the last frame shown before the freeze on the grid of its framesPerSecond
+        // (YouRec/TrackRenderer.swift:112, YouRec/TransitionRenderer.swift:133), its preview on a grid of 30
+        // (YouRec/EditorController.swift:521). A ends at 3.99, on no grid.
+        val state = joined(EditState(listOf(a.copy(end = 3.99), c)), 1, TransitionSettings(id = "T", style = TransitionStyle.Still, duration = 1.0))
+        val preview = RenderPlan.of(state)
+        assertEquals(30.0, preview.framesPerSecond, tiny)
+        assertEquals(119.0 / 30, preview.freezes.single().shown, tiny)
+        for ((rate, last) in listOf(24 to 95.0 / 24, 25 to 99.0 / 25, 30 to 119.0 / 30, 50 to 199.0 / 50, 60 to 239.0 / 60)) {
+            val export = preview.atFrameRate(rate.toDouble())
+            val freeze = export.freezes.single()
+            assertEquals("$rate", last, freeze.shown, tiny)
+            assertEquals("$rate", last, freeze.offset, tiny)
+            assertEquals("$rate", last, freeze.sourceTime, tiny)
+            // Where and how long it holds does not depend on the rate.
+            assertEquals("$rate", 3.99 to 4.99, freeze.from to freeze.until)
+            // The picture of a moment holds the same frame, and the titles are those of that frame.
+            val held = export.moment(4.5).first as TransitionScene.Source.Held
+            assertEquals("$rate", last, held.offset, tiny)
+            assertEquals("$rate", TransitionScene.titles(state.clips, TransitionScene.moment(state.clips, 4.5, held = rate.toDouble())), export.titlesAt(4.5))
+            assertEquals("$rate", export.copy(freezes = preview.freezes, framesPerSecond = 30.0), preview)
+        }
+        assertTrue(preview.atFrameRate(30.0) === preview)
+    }
+
     @Test fun cutsAreNeverLaterThanTheSecondTheyStandFor() {
         assertEquals(1_999_999L, RenderPlan.cutMicros(1.9999999))
         assertEquals(300_000L, RenderPlan.cutMicros(0.1 + 0.2))

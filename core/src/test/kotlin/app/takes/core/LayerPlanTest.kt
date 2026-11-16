@@ -277,6 +277,28 @@ class LayerPlanTest {
         }
     }
 
+    @Test fun anExportFindsTheHeldFrameOnTheGridOfTheMoviesRate() {
+        // As RenderPlan.atFrameRate: the export's grid is its framesPerSecond (YouRec/TrackRenderer.swift:112), the preview's 30
+        // (YouRec/EditorController.swift:521). The first picture ends at 3.99, on no grid.
+        val a = TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 3.99)
+        val c = TimelineClip(id = "C", sourceID = "S", start = 1.0, end = 5.0)
+        val state = TimelineEditing.setJoin(EditState(listOf(a, c)), 1, TransitionSettings(id = "T", style = TransitionStyle.Still, duration = 1.0))!!
+        val preview = planned(state.toTimeline())
+        assertEquals(119.0 / 30, preview.freezes.single().shown, 1e-9)
+        for (rate in listOf(24, 25, 30, 50, 60)) {
+            val export = preview.atFrameRate(rate.toDouble())
+            val freeze = export.freezes.single()
+            val sequence = RenderPlan.of(state).atFrameRate(rate.toDouble()).freezes.single()
+            near("$rate: shown", sequence.shown, freeze.shown, 2 * tick)
+            near("$rate: source", sequence.sourceTime, freeze.sourceTime, 2 * tick)
+            assertEquals("$rate", preview.freezes.single().held, freeze.held)
+            assertEquals("$rate", preview.stretches, export.stretches)
+            val held = export.moment(4.5).layers.filterIsInstance<LayerPlan.Layer.Mixed>().single().first as TransitionScene.Source.Held
+            near("$rate: held", sequence.offset, held.offset, 2 * tick)
+        }
+        assertTrue(preview.atFrameRate(30.0) === preview)
+    }
+
     @Test fun anOverlayCoversItsBaseOnALaneOfItsOwn() {
         val base = TrackFixtures.plain().toTimeline()
         val plan = planned(overlaid(base, "O", 2.0, 3.0), limit = 2)

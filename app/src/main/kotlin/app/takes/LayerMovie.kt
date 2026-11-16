@@ -48,12 +48,15 @@ fun clippedItem(picture: LayerPlan.Picture, file: File, startUs: Long = picture.
  * The sound is the audio engine's mix of the timeline ([mixedSound]).
  */
 class LayerMovie(
-    private val context: Context, private val plan: LayerPlan, ceiling: Int, private val files: Map<String, File>,
+    private val context: Context, planned: LayerPlan, ceiling: Int, private val files: Map<String, File>,
     val canvas: Pair<Int, Int>, private val columns: Int, private val sizes: Map<String, Pair<Int, Int>?>, private val rates: Map<String, Double?>,
     private val black: File, private val luts: File,
     /** The HDR transfer of each recording that is HDR ([HdrMovie.transfer]): any makes the movie HDR. */
     private val transfers: Map<String, Int> = emptyMap(),
 ) : MovieRender {
+    // The frame a still holds is found on the movie's grid, as the original's export finds it (LayerPlan.atFrameRate).
+    private val plan = planned.atFrameRate(TransitionScene.frameRate(ceiling).toDouble())
+
     private val lanes = plan.lanes
 
     override val hdr = plan.pictures.any { it.sourceID in transfers }

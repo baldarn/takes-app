@@ -55,7 +55,8 @@ object TransitionScene {
     /**
      * The frame rate taken for footage whose own is not known, the one a
      * flash cut counts in where no movie is in sight, and the one a still's
-     * held frame is counted in.
+     * held frame is counted in by the preview (an export counts it in the
+     * movie's, [RenderPlan.atFrameRate]).
      */
     const val FRAMES_PER_SECOND = 30.0
 
@@ -102,10 +103,13 @@ object TransitionScene {
      * picture in pixels; the geometry of a wipe, a split screen, a whip pan
      * and a defocus is given in it. [frames] is the frame rate of the movie
      * ([frameRate]), asked for the join it is needed at; a flash cut counts in it.
+     * [held] is the frame rate on whose grid a still finds the frame it holds:
+     * the preview's 30 (YouRec/EditorController.swift:521), the movie's in an
+     * export (YouRec/TrackRenderer.swift:112, YouRec/TransitionRenderer.swift:133).
      */
     fun moment(
         clips: List<TimelineClip>, time: Double, canvas: Size = Size(1920.0, 1080.0), decks: List<Int> = decks(clips),
-        frames: (TransitionLayout.Join) -> Double = { FRAMES_PER_SECOND },
+        held: Double = FRAMES_PER_SECOND, frames: (TransitionLayout.Join) -> Double = { FRAMES_PER_SECOND },
     ): Moment {
         val black = Source.Fill(TransitionColor.BLACK)
         if (clips.isEmpty() || !time.isFinite()) return Moment(black, black, TransitionFrame.First, 0.0, 0.0)
@@ -130,8 +134,8 @@ object TransitionScene {
         val (outgoing, incoming) = related(clips, join)
         val first: Source = if (outgoing == null) fill else {
             val placement = layout.placements[outgoing]
-            val held = TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, FRAMES_PER_SECOND)
-            if (held != null && at >= held.from) Source.Held(placement.index, decks[placement.index], held.offset, held.from) else running(placement.index)
+            val kept = TransitionPicture.heldFrame(join.timing, join.origin, placement.start, placement.duration, held)
+            if (kept != null && at >= kept.from) Source.Held(placement.index, decks[placement.index], kept.offset, kept.from) else running(placement.index)
         }
         val second: Source = if (incoming == null) fill else running(incoming)
         val (firstShare, secondShare) = shares(frame, progress)
