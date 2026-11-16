@@ -64,6 +64,14 @@ class MaskPlane(val width: Int, val height: Int, val data: FloatArray = FloatArr
     }
 }
 
+/**
+ * The same values as the effects' [EffectMask], which reads them as doubles: the smoother and the
+ * temporal window work in single precision as the GPU does, the effects' formulas in double.
+ */
+fun MaskPlane.toEffectMask(): EffectMask = EffectMask(width, height, data.copyOf())
+
+fun EffectMask.toMaskPlane(): MaskPlane = MaskPlane(width, height, data.copyOf())
+
 /** The roundings of the original's texture formats. */
 object MaskStorage {
     /**
