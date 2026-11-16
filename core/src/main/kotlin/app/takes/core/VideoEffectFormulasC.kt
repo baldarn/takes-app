@@ -63,19 +63,19 @@ object VideoEffectFormulasC {
      * type, or by which are more on Auto) give the median of each channel; with
      * fewer than four, the manual [screenColor]. Metal:526-547.
      */
-    fun screenReference(input: EffectImage, screenColor: EffectVector, screenType: Int = 0): EffectVector {
-        val samples = mutableListOf<EffectVector>()
-        var greens = 0
-        var blues = 0
-        for (i in 0 until 16) {
-            val t = (i + .5) / 16
-            for (location in listOf(Point(t, .02), Point(t, .98), Point(.02, t), Point(.98, t))) {
-                val c = input.sample(location)
-                samples += c
-                if (c.y - maxOf(c.x, c.z) > .02) greens++
-                if (c.z - maxOf(c.x, c.y) > .02) blues++
-            }
-        }
+    fun screenReference(input: EffectImage, screenColor: EffectVector, screenType: Int = 0): EffectVector =
+        screenReference(borderSamples(input), screenColor, screenType)
+
+    /** The 64 points the screen reference reads, in its order: for each of 16 steps along the edges, top, bottom, left, right. */
+    fun borderSamples(input: EffectImage): List<EffectVector> = (0 until 16).flatMap { i ->
+        val t = (i + .5) / 16
+        listOf(Point(t, .02), Point(t, .98), Point(.02, t), Point(.98, t)).map { input.sample(it) }
+    }
+
+    /** [screenReference] from the border's samples, as [borderSamples] reads them. */
+    fun screenReference(samples: List<EffectVector>, screenColor: EffectVector, screenType: Int = 0): EffectVector {
+        val greens = samples.count { c -> c.y - maxOf(c.x, c.z) > .02 }
+        val blues = samples.count { c -> c.z - maxOf(c.x, c.y) > .02 }
         val blue = screenType > 1.5 || (screenType < .5 && blues > greens)
         val values = samples.filter { (if (blue) it.z - maxOf(it.x, it.y) else it.y - maxOf(it.x, it.z)) > .02 }
         if (values.size < 4) return screenColor

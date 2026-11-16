@@ -1,0 +1,199 @@
+package app.takes
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.media.MediaMetadataRetriever
+import android.os.Build
+import app.takes.core.EffectColorMath
+import app.takes.core.EffectFrameInputs
+import app.takes.core.EffectImage
+import app.takes.core.EffectPalette
+import app.takes.core.EffectPaletteAnalysis
+import app.takes.core.EffectPaletteTrack
+import app.takes.core.EffectValue
+import app.takes.core.EffectVector
+import app.takes.core.TimelineClip
+import app.takes.core.VideoEffectID
+import app.takes.core.VideoEffectSettings
+import app.takes.core.VideoEffectTime
+import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+
+/**
+ * What the effects of a clip read besides its frames: a Quantization's
+ * palette taken from the scene, and the picture a Chroma Key puts behind the
+ * subject. Asked for on the thread that draws.
+ */
+interface EffectAssets {
+    /** The palette analysed from the footage for [effect] at source second [sourceTime], before its own choices; null when there is none. */
+    fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? = null
+
+    /** The picture of a Chroma Key's Image background, upright and decoded; null without one. */
+    fun picture(effect: VideoEffectSettings): Bitmap? = null
+
+    companion object {
+        val NONE: EffectAssets = object : EffectAssets {}
+
+        /** The palettes of the frame at [sourceTime] for each Quantization of [effects], as its choices make them ([EffectPaletteAnalysis.displayPalette]). */
+        fun inputs(assets: EffectAssets, effects: List<VideoEffectSettings>?, sourceTime: Double): Map<String, EffectFrameInputs> =
+            effects.orEmpty().filter { it.kind == VideoEffectID.Quantization && it.enabled && sourceTime >= it.start && sourceTime < it.end }.mapNotNull { effect ->
+                EffectPaletteAnalysis.displayPalette(effect, sourceTime, assets.analysed(effect, sourceTime))?.let { effect.id to EffectFrameInputs(palette = it) }
+            }.toMap()
+    }
+}
+
+/**
+ * The assets of [clip] from its recording [source] and the project [folder]
+ * where picked pictures are kept. With [wait] a palette not yet analysed is
+ * analysed there and then, as the export needs; without, it is analysed in
+ * the background and [ready] called once it is, as the preview needs.
+ */
+class SourceAssets(
+    private val source: File?,
+    private val folder: File?,
+    private val clip: TimelineClip,
+    private val wait: Boolean = true,
+    private val ready: () -> Unit = {},
+) : EffectAssets {
+    override fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? {
+        val file = source ?: return null
+        val track = if (wait) ScenePalettes.track(file, clip, effect) else ScenePalettes.cached(file, clip, effect, ready)
+        return track?.palette(sourceTime)
+    }
+
+    override fun picture(effect: VideoEffectSettings): Bitmap? {
+        val name = (effect.value("media", 0.0) as? EffectValue.Media)?.file ?: return null
+        val file = File(folder ?: return null, name)
+        return EffectPictures.get(file)
+    }
+}
+
+/** Pictures picked for backgrounds, decoded once and kept while they are used, at most 2048 pixels on their longer side. */
+internal object EffectPictures {
+    private val kept = ConcurrentHashMap<String, Bitmap>()
+
+    fun get(file: File): Bitmap? {
+        if (!file.isFile) return null
+        val key = "${file.path}:${file.lastModified()}"
+        kept[key]?.let { return it }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 2048) sample *= 2
+        val decoded = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888 }) ?: return null
+        // Upright, as the phone shows it.
+        val turn = when (runCatching { ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }.getOrNull()) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+        val bitmap = if (turn == 0f) decoded else Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, Matrix().apply { postRotate(turn) }, true)
+        if (kept.size > 4) kept.clear()
+        kept[key] = bitmap
+        return bitmap
+    }
+}
+
+/**
+ * The palettes Quantization takes from the scene, as the original's editor
+ * analyses them (`VideoEffectAssets.swift:183-209`): the clip's frames every
+ * 0.2 s and at each key of its colours or lock, each sampled on a 64 × 36 grid
+ * of the frame at 256 pixels on its longer side, the palette of each analysed
+ * from the one before ([EffectPaletteAnalysis.track]). Worked out on the CPU
+ * once for a source, an effect and the settings the analysis reads, and kept
+ * for the preview and the export.
+ *
+ * The original samples the frame as the effects before Quantization leave
+ * it; here it is the recording's own frame, before its colour, crop and those
+ * effects.
+ */
+object ScenePalettes {
+    private val tracks = ConcurrentHashMap<String, EffectPaletteTrack>()
+    private val working = ConcurrentHashMap.newKeySet<String>()
+    private val background = Executors.newSingleThreadExecutor { Thread(it, "Scene palettes").apply { isDaemon = true } }
+
+    private fun key(file: File, clip: TimelineClip, effect: VideoEffectSettings): String {
+        val read = effect.parameters.filter { it.id == "colors" || it.id == "lockPalette" }
+        return listOf(file.path, file.lastModified(), clip.start, clip.end, effect.id, effect.start, effect.end, read).joinToString("|")
+    }
+
+    /** The track of [effect] on [clip], analysed now when it is not kept: seconds of work, never on the main thread. */
+    fun track(file: File, clip: TimelineClip, effect: VideoEffectSettings): EffectPaletteTrack {
+        val key = key(file, clip, effect)
+        tracks[key]?.let { return it }
+        val made = analyse(file, clip, effect)
+        if (tracks.size > 32) tracks.clear()
+        tracks[key] = made
+        return made
+    }
+
+    /** The track when kept; else null, with the analysis started in the background and [ready] called when it is done. */
+    fun cached(file: File, clip: TimelineClip, effect: VideoEffectSettings, ready: () -> Unit): EffectPaletteTrack? {
+        val key = key(file, clip, effect)
+        tracks[key]?.let { return it }
+        if (working.add(key)) background.execute {
+            try {
+                track(file, clip, effect)
+            } catch (_: Exception) {
+            } finally {
+                working.remove(key)
+            }
+            ready()
+        }
+        return null
+    }
+
+    /**
+     * A palette of [count] colours from the one frame at source second
+     * [time]: what the original's "Save palette from this frame" and
+     * "Re-sample this frame" keep (`VideoEffectsEditor.swift:883-907`).
+     */
+    fun sample(file: File, time: Double, count: Int): EffectPalette? = Frames(file).use { frames ->
+        frames.samples(time)?.let { EffectPaletteAnalysis.analyze(it, count, seed = VideoEffectTime.frameIndex(time, 30.0).toULong()) }
+    }
+
+    private fun analyse(file: File, clip: TimelineClip, effect: VideoEffectSettings): EffectPaletteTrack = Frames(file).use { frames ->
+        val start = maxOf(effect.start, clip.start)
+        val end = minOf(effect.end, clip.end)
+        val keys = effect.parameters.filter { it.id == "colors" || it.id == "lockPalette" }.flatMap { p -> p.keyframes.map { it.time } }
+        val rate = frames.rate
+        val frameTimes = generateSequence(kotlin.math.floor(start * rate) / rate) { it + 1 / rate }.takeWhile { it < end }.toList()
+        val times = EffectPaletteAnalysis.analysisTimes(start, end, keys, frameTimes)
+        val empty = listOf(EffectVector.ZERO)
+        EffectPaletteAnalysis.track(effect, times) { time -> frames.samples(time) ?: empty }
+    }
+
+    /** The frames of a recording, read one at a time. */
+    private class Frames(file: File) : AutoCloseable {
+        private val retriever = MediaMetadataRetriever().apply { setDataSource(file.path) }
+
+        val rate: Double = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)?.toDoubleOrNull()?.takeIf { it in 1.0..240.0 }
+            ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)?.toDoubleOrNull()?.let { frames ->
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toDoubleOrNull()?.takeIf { it > 0 }?.let { frames / (it / 1000) }
+            }?.takeIf { it in 1.0..240.0 } ?: 30.0
+
+        /** The analysis's samples of the frame shown at [time], linear. */
+        fun samples(time: Double): List<EffectVector>? {
+            val us = (time * 1e6).toLong()
+            val frame = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) retriever.getScaledFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST, 256, 256)
+            else retriever.getFrameAtTime(us, MediaMetadataRetriever.OPTION_CLOSEST)) ?: return null
+            val scale = 256.0 / maxOf(frame.width, frame.height)
+            val small = if (scale < 1) Bitmap.createScaledBitmap(frame, maxOf(1, (frame.width * scale).toInt()), maxOf(1, (frame.height * scale).toInt()), true) else frame
+            val pixels = IntArray(small.width * small.height)
+            small.getPixels(pixels, 0, small.width, 0, 0, small.width, small.height)
+            val image = EffectImage.of(small.width, small.height) { x, y ->
+                val p = pixels[y * small.width + x]
+                EffectVector(EffectColorMath.linear((p shr 16 and 0xff) / 255.0), EffectColorMath.linear((p shr 8 and 0xff) / 255.0), EffectColorMath.linear((p and 0xff) / 255.0))
+            }
+            if (small !== frame) small.recycle()
+            frame.recycle()
+            return EffectPaletteAnalysis.samples(image)
+        }
+
+        override fun close() = retriever.release()
+    }
+}

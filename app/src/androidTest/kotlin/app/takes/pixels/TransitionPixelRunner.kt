@@ -40,9 +40,9 @@ class Case(val name: String, val body: Checks.() -> Unit)
  *
  *     adb shell am instrument -w app.takes.dev.test/app.takes.pixels.TransitionPixelRunner
  *
- * `-e only <text>` runs the cases whose name contains the text. Each case is
- * reported as an instrumentation status in the form test runners print, and
- * the closing report ends with `OK (n tests)` or `FAILURES!!!`.
+ * `-e only <text>` runs the cases whose name contains the text, or one of
+ * several texts between `|`. Each case is reported as an instrumentation
+ * status in the form test runners print, and the closing report ends with `OK (n tests)` or `FAILURES!!!`.
  */
 class TransitionPixelRunner : Instrumentation() {
     private var only: String? = null
@@ -65,7 +65,8 @@ class TransitionPixelRunner : Instrumentation() {
             val suite = TransitionPixelCases(bench)
             val effects = EffectPixelCases(bench)
             val layers = LayerPixelCases(bench)
-            val cases = (suite.all() + effects.all() + layers.all()).filter { only == null || it.name.contains(only!!) }
+            val cases = (suite.all() + effects.all() + EffectPixelCases(bench, 480, 270).batchB() + EffectPixelCases(bench, 320, 180).batchC() + layers.all())
+                .filter { case -> only?.split('|')?.any { case.name.contains(it) } ?: true }
             cases.forEachIndexed { index, case ->
                 val status = Bundle().apply {
                     putString("id", "TransitionPixelRunner")
