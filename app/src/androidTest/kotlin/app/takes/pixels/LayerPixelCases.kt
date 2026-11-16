@@ -48,7 +48,7 @@ class LayerStage(
 ) {
     private val lanes = plan.lanes
     private val rows = (lanes + columns - 1) / columns
-    private val program: GlShaderProgram = LayersEffect(plan, Size(width, height), lanes, columns, { framesPerSecond }) { Rect(0.0, 0.0, width.toDouble(), height.toDouble()) }
+    private val program: GlShaderProgram = LayersEffect(plan, Size(width, height), lanes, columns, { framesPerSecond }, { Rect(0.0, 0.0, width.toDouble(), height.toDouble()) })
         .toGlShaderProgram(bench.context, /* useHdr = */ false)
     private var output: GlTextureInfo? = null
     private var failure: VideoFrameProcessingException? = null
