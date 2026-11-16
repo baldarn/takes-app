@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The smoke build is the release as it ships, under another name: profileable from the shell, so that
+    simpleperf and the system's profilers can look at the speed of the real code (a debug build is interpreted).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <profileable android:shell="true" />
+    </application>
+</manifest>
