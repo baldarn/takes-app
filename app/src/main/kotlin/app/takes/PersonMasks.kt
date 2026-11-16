@@ -8,6 +8,7 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import app.takes.core.PersonMaskChunks
+import app.takes.core.PersonMaskSmoother
 import app.takes.core.SourceMedia
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.TensorFlowLite
@@ -28,8 +29,9 @@ import kotlin.math.roundToInt
  * Background, Color Isolation's subject, Chroma Key's person hint and Quantization's face detail.
  *
  * The frames are decoded in order with MediaCodec, a ten-second chunk of source time at a time, and each is given
- * upright to MediaPipe's selfie segmenter on LiteRT's CPU (docs/SEGMENTATION-PROBE.md). The raw masks are stored
- * by [PersonMaskChunks] in the project's `Cache/masks/<key>/` and read back by source time with [reader].
+ * upright to MediaPipe's selfie segmenter on LiteRT's CPU (docs/SEGMENTATION-PROBE.md). The raw masks, and beside
+ * them the motion-gated EMA of [PersonMaskSmoother] that Auto Background reads, are stored by [PersonMaskChunks] in
+ * the project's `Cache/masks/<key>/` and read back by source time with [reader].
  *
  * A mask is stored in the coordinates of the decoded frame, before its rotation, as the original's Vision provider
  * returns it (VideoEffectAssets.swift:270-276), so that it is laid on the frame as it comes from the decoder and the
@@ -49,6 +51,13 @@ object PersonMasks {
     const val COMPUTE = "litert-1.4.2-cpu-4"
 
     private const val THREADS = 4
+
+    // The sRGB transfer function undone (IEC 61966-2-1), as CoreImage does when it draws into linear sRGB.
+    private const val LINEAR_STEPS = 4096
+    private val LINEAR = FloatArray(LINEAR_STEPS + 1) {
+        val c = it.toDouble() / LINEAR_STEPS
+        (if (c <= 0.04045) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)).toFloat()
+    }
 
     /**
      * Whether this phone can make masks. LiteRT's native library is not there for every processor the app installs
@@ -114,12 +123,14 @@ object PersonMasks {
     /**
      * Makes the masks of [source] (in the project folder [folder]) from [from] to [to] seconds, the whole recording
      * by default, chunk by chunk; chunks already on disk are kept. Blocks: call it off the main thread. With
-     * [generate] false nothing is made, and the result says which chunks are there (:311-397).
+     * [generate] false nothing is made, and the result says which chunks are there (:321-396).
+     *
+     * Every frame of a chunk, from two seconds before it (:336), is segmented and pushed through a smoother that
+     * starts afresh there (:358, :369); the frames of the chunk keep their raw mask and the smoothed one (:370-371).
      *
      * [progress] goes from 0 to 1. [cancel] is asked at every frame; when it says so the work stops with a
-     * [CancellationException] and the chunk being made is not written. [frame] sees every mask made, the
-     * warm-up's too (its second argument false): the frames of the two seconds before a chunk are segmented only
-     * when it is given, for a filter over time that needs them to settle (:325).
+     * [CancellationException] and the chunk being made is not written. [frame] sees every raw mask made, the
+     * warm-up's too (its second argument false).
      */
     fun analyse(
         context: Context, source: SourceMedia, folder: File, from: Double? = null, to: Double? = null, generate: Boolean = true,
@@ -147,7 +158,7 @@ object PersonMasks {
                     val opened = movie ?: Movie(File(folder, source.filename)).also { movie = it }
                     val model = segmenter ?: Segmenter(model(context).buffer).also { segmenter = it }
                     val span = PersonMaskChunks.span(index, source.duration)
-                    val writer = opened.read(span, frame != null, model, cancel, frame) { part -> progress((done + part) / wanted.count().toFloat()) }
+                    val writer = opened.read(span, model, cancel, frame) { part -> progress((done + part) / wanted.count().toFloat()) }
                     if (writer == null || writer.count == 0) throw IllegalStateException("no frames in ${span.start}…${span.end} s of ${source.filename}")
                     writer.write(file)
                     made += index
@@ -219,14 +230,16 @@ object PersonMasks {
         }
 
         /**
-         * Decodes the frames of [span], from its warm-up when [warm], segments each and keeps those of the chunk.
+         * Decodes the frames of [span] from its warm-up, segments and smooths each and keeps those of the chunk.
          * Null when the track has no frame there.
          */
         fun read(
-            span: PersonMaskChunks.Span, warm: Boolean, segmenter: Segmenter, cancel: () -> Boolean,
+            span: PersonMaskChunks.Span, segmenter: Segmenter, cancel: () -> Boolean,
             frame: ((PersonMaskChunks.Mask, Boolean) -> Unit)?, progress: (Float) -> Unit,
         ): PersonMaskChunks.Writer? {
-            val begin = if (warm) span.warm else span.start
+            val begin = span.warm
+            // A smoother of the chunk's own, from its warm-up: nothing is carried from another chunk (:358, :515-519).
+            val smoothing = PersonMaskChunks.Smoothing()
             val mime = format.getString(MediaFormat.KEY_MIME)!!
             val codec = MediaCodec.createDecoderByType(mime)
             var writer: PersonMaskChunks.Writer? = null
@@ -265,12 +278,14 @@ object PersonMasks {
                     if (info.size > 0 && !end && time + 0.000001 >= begin && time > last) {
                         val image = codec.getOutputImage(out)
                         if (image != null) {
+                            // The frame's shape and turn: another one starts the smoother afresh, as another file does in the original (:369).
+                            val geometry = "$rotation:${image.cropRect.width()}x${image.cropRect.height()}"
                             val rows = image.use { segment(it, segmenter) }
+                            val smoothed = smoothing.push(rows, SIDE, SIDE, luma, time, geometry)
                             val kept = span.keeps(time)
-                            val mask = PersonMaskChunks.Mask(time, SIDE, SIDE, rows)
-                            frame?.invoke(mask, kept)
+                            frame?.invoke(PersonMaskChunks.Mask(time, SIDE, SIDE, rows), kept)
                             if (kept) {
-                                (writer ?: PersonMaskChunks.Writer(span, SIDE, SIDE).also { writer = it }).append(time, rows)
+                                (writer ?: PersonMaskChunks.Writer(span, SIDE, SIDE).also { writer = it }).append(time, rows, smoothed)
                             }
                             last = time
                             progress(((time - span.start) / (span.end - span.start)).toFloat().coerceIn(0f, 1f))
@@ -337,19 +352,26 @@ object PersonMasks {
                     val c0 = lumaColumn[gx * 3]
                     val c1 = lumaColumn[gx * 3 + 1]
                     val c2 = lumaColumn[gx * 3 + 2]
-                    val luma = (yBytes[r0 + c0].toInt() and 255) + (yBytes[r0 + c1].toInt() and 255) + (yBytes[r0 + c2].toInt() and 255) +
+                    val taps = (yBytes[r0 + c0].toInt() and 255) + (yBytes[r0 + c1].toInt() and 255) + (yBytes[r0 + c2].toInt() and 255) +
                         (yBytes[r1 + c0].toInt() and 255) + (yBytes[r1 + c1].toInt() and 255) + (yBytes[r1 + c2].toInt() and 255) +
                         (yBytes[r2 + c0].toInt() and 255) + (yBytes[r2 + c1].toInt() and 255) + (yBytes[r2 + c2].toInt() and 255)
-                    val l = (luma / 9f - offset) * scale
+                    val l = (taps / 9f - offset) * scale
                     val pb = ((uBytes[ur + uColumn[gx]].toInt() and 255) - 128) * chroma
                     val pr = ((vBytes[vr + vColumn[gx]].toInt() and 255) - 128) * chroma
                     val r = l + 2 * (1 - kr) * pr
                     val b = l + 2 * (1 - kb) * pb
                     val g = (l - kr * r - kb * b) / kg
                     val at = 3 * (a + gx * dx + gy * dy)
-                    rgb[at] = r.coerceIn(0f, 1f)
-                    rgb[at + 1] = g.coerceIn(0f, 1f)
-                    rgb[at + 2] = b.coerceIn(0f, 1f)
+                    val red = r.coerceIn(0f, 1f)
+                    val green = g.coerceIn(0f, 1f)
+                    val blue = b.coerceIn(0f, 1f)
+                    rgb[at] = red
+                    rgb[at + 1] = green
+                    rgb[at + 2] = blue
+                    // The smoother's guide: the same picture's luma in linear light, as the original draws it into an
+                    // extended linear sRGB texture and weighs it (MetalVideoEffects.swift:110, :736-738; VideoEffects.metal:563-586),
+                    // at the stored frame's grid like the mask.
+                    luma[gy * SIDE + gx] = .2126f * linear(red) + .7152f * linear(green) + .0722f * linear(blue)
                 }
             }
             segmenter.input.rewind()
@@ -380,6 +402,17 @@ object PersonMasks {
         private val vRow = IntArray(SIDE)
         private val pixels = FloatArray(SIDE * SIDE * 3)
         private val planes = arrayOfNulls<ByteArray>(3)
+
+        /** The linear luma of the last frame [segment] read, at the mask's grid: the smoother's guide. */
+        val luma = FloatArray(SIDE * SIDE)
+
+        /** The sRGB decoding of a value in 0…1, from a table of 4096 steps read between its entries. */
+        private fun linear(value: Float): Float {
+            val x = value * LINEAR_STEPS
+            val i = x.toInt().coerceAtMost(LINEAR_STEPS - 1)
+            val f = x - i
+            return LINEAR[i] + (LINEAR[i + 1] - LINEAR[i]) * f
+        }
 
         /** The bytes of a plane, copied in one go: reading a direct buffer byte by byte is several times slower. */
         private fun copy(buffer: ByteBuffer, plane: Int): ByteArray {
