@@ -859,6 +859,37 @@
         <item quantity="other">%1$d originali sono stati salvati nella galleria.</item>
     </plurals>
     <string name="originals_save_failed">%1$d originali su %2$d non sono stati salvati nella galleria.</string>
+    <string name="originals_create_recovered">Crea un progetto recuperato</string>
+    <string name="originals_creating_recovered">Creazione del progetto recuperato…</string>
+    <string name="originals_cancel_copy">Annulla la copia</string>
+    <string name="originals_recover_footer">Crea un progetto separato con gli originali riproducibili. Il progetto attuale resta disponibile.</string>
+    <string name="originals_copy_space">Spazio stimato per la copia: %1$s</string>
+    <string name="originals_repair_space">Spazio stimato per la riparazione: %1$s</string>
+    <string name="originals_recover_one">Recupera questa registrazione in un nuovo progetto</string>
+    <string name="originals_recovering">Recupero…</string>
+    <string name="originals_unreadable">Puoi salvare questo file o provare a creare un progetto recuperato con le parti leggibili.</string>
+    <string name="originals_copying">Copia delle riprese originali…</string>
+    <string name="originals_copying_percent">Copia delle riprese originali… %1$d%%</string>
+    <string name="originals_copy_cancelled">Copia annullata. I tuoi originali sono disponibili.</string>
+    <string name="originals_no_media">Non è stato trovato nessun contenuto riproducibile. I file originali si possono salvare.</string>
+    <string name="originals_free_space">Libera circa %1$s di spazio in più per completare l\'operazione e lasciare spazio disponibile sul telefono.</string>
+    <!-- Aggiunto al titolo del progetto creato da un recupero: "Gita · Recuperato". -->
+    <string name="originals_recovered_suffix">" · Recuperato"</string>
+    <plurals name="originals_recovered">
+        <item quantity="one">Creato “%1$s” con %2$d registrazione.</item>
+        <item quantity="many">Creato “%1$s” con %2$d registrazioni.</item>
+        <item quantity="other">Creato “%1$s” con %2$d registrazioni.</item>
+    </plurals>
+    <plurals name="originals_recovered_partial">
+        <item quantity="one">Recuperate le parti leggibili di %1$d file.</item>
+        <item quantity="many">Recuperate le parti leggibili di %1$d file.</item>
+        <item quantity="other">Recuperate le parti leggibili di %1$d file.</item>
+    </plurals>
+    <plurals name="originals_recovered_skipped">
+        <item quantity="one">%1$d file illeggibile resta nel progetto originale.</item>
+        <item quantity="many">%1$d file illeggibili restano nel progetto originale.</item>
+        <item quantity="other">%1$d file illeggibili restano nel progetto originale.</item>
+    </plurals>
     <string name="sound_past_picture_title">Audio dopo l\'ultima clip</string>
     <string name="sound_past_picture_message">%1$s di audio continuano dopo l\'ultima clip. Ora il filmato va avanti fino alla fine dell\'audio, nero dopo l\'immagine, anche quando è esportato. Tenere quell\'audio o far finire il filmato con l\'immagine?</string>
     <string name="sound_past_picture_keep">Tieni l\'audio</string>

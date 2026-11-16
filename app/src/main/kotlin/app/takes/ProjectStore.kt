@@ -10,6 +10,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.text.format.Formatter
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +29,8 @@ import app.takes.core.ProjectDuplicate
 import app.takes.core.ProjectDuplicateException
 import app.takes.core.ProjectRestore
 import app.takes.core.ProjectRestoreException
+import app.takes.core.RecoveredProject
+import app.takes.core.RecoveryRules
 import app.takes.core.SourceMedia
 import app.takes.core.SubtitleScratch
 import app.takes.core.TimelineClip
@@ -46,7 +49,10 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
@@ -88,6 +94,9 @@ data class DeletedProject(val project: Project, val date: Long?)
 
 /** Thrown at the next step of a piece of work after the person tapped Cancel. */
 private class Cancelled : RuntimeException()
+
+/** No original recording could be read into a recovered project. */
+private class NoPlayableMedia : RuntimeException()
 
 /** The text shown for a project problem; the core module only has it in English. */
 val ProjectException.Reason.label: Int
@@ -592,14 +601,122 @@ class ProjectStore(context: Context) {
         return update(project.commit(edit))
     }
 
+    /**
+     * The original recordings of [project] as the original lists them (YouRec/RecordingSalvage.swift:13-46):
+     * its sources, the media of its folder it does not list, and what was set aside in its Recovery folder.
+     */
+    fun originals(project: Project): List<RecoveredProject.Original> {
+        recoveryChanges
+        return RecoveredProject.originals(project, disk.folder(project.id), disk.recoveryFiles(project))
+    }
+
+    /**
+     * Why [bytes] cannot be written into the library keeping the original's floor
+     * (YouRec/ProjectRecovery.swift:452-464), in the person's language; null when they can.
+     */
+    private fun shortOfSpace(bytes: Long): String? {
+        disk.root.mkdirs()
+        val more = RecoveryRules.spaceToFree(bytes, disk.root.usableSpace, disk.root.totalSpace) ?: return null
+        return context.getString(R.string.originals_free_space, Formatter.formatShortFileSize(context, more))
+    }
+
+    /** Room a copy of [files] may take ([RecoveredProject.estimate]). */
+    fun recoveryEstimate(files: List<File>): Long = RecoveredProject.estimate(files.map { it.length() })
+
+    /**
+     * Makes a separate project from the original recordings of [project], or from [only] of them, as the
+     * original's "Create recovered project" and "Recover this recording into a new project"
+     * (YouRec/ProjectStore.swift:747-805). What reads whole is copied as it is; what does not is salvaged
+     * as far as it can be read ([RecordingSalvage.repair]); what cannot be read at all stays where it is.
+     * [project] is not changed. [done] gets what happened, in the person's language.
+     */
+    fun recover(project: Project, only: File? = null, done: (String) -> Unit) {
+        if (importing != null) return
+        begin(cancellable = true)
+        importing = context.getString(R.string.originals_copying)
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { recovered(project, only) } }
+            end()
+            reload()
+            done(result.fold(::report) { failure ->
+                when (failure) {
+                    is Cancelled -> context.getString(R.string.originals_copy_cancelled)
+                    is NoPlayableMedia -> context.getString(R.string.originals_no_media)
+                    is Exception -> describe(failure)
+                    else -> throw failure
+                }
+            })
+        }
+    }
+
+    private fun report(outcome: RecoveredProject.Outcome): String {
+        val words = context.resources
+        return listOfNotNull(
+            words.getQuantityString(R.plurals.originals_recovered, outcome.recordings, outcome.title, outcome.recordings),
+            if (outcome.partial > 0) words.getQuantityString(R.plurals.originals_recovered_partial, outcome.partial, outcome.partial) else null,
+            if (outcome.skipped > 0) words.getQuantityString(R.plurals.originals_recovered_skipped, outcome.skipped, outcome.skipped) else null,
+        ).joinToString(" ")
+    }
+
+    private fun recovered(project: Project, only: File?): RecoveredProject.Outcome {
+        val folder = disk.folder(project.id)
+        // The original lists what is on the disk, so a source whose file is missing is not one to copy.
+        val items = RecoveredProject.chosen(originals(project), folder, only).filter { it.file.isFile }
+        if (items.isEmpty()) throw NoPlayableMedia()
+        // Put together beside the projects, hidden from the library, and moved in only once it is saved.
+        val staging = File(disk.root, ".recovery-" + project.id)
+        staging.deleteRecursively()
+        shortOfSpace(RecoveredProject.estimate(items.map { it.file.length() }))?.let { throw IOException(it) }
+        var recovered = Project(RecoveredProject.title(project.title, context.getString(R.string.originals_recovered_suffix)))
+        val staged = ProjectDisk(staging)
+        val directory = staged.folder(recovered.id)
+        if (!directory.mkdirs()) throw IOException("Cannot create ${directory.path}")
+        try {
+            var skipped = 0
+            var partial = 0
+            for ((index, item) in items.withIndex()) {
+                stopIfCancelled()
+                val id = newID()
+                val complete = try { RecordingSalvage.inspect(item.file) } catch (_: RecordingSalvage.Unreadable) { null }
+                val copy: File
+                val media = if (complete != null) {
+                    copy = File(directory, "$id.${item.file.extension.lowercase()}")
+                    item.file.inputStream().use { input -> copy.outputStream().use { output -> copyStopping(input, output); output.fd.sync() } }
+                    complete
+                } else {
+                    // The muxer writes MPEG-4, where the original's writer makes a QuickTime movie.
+                    copy = File(directory, "$id.mp4")
+                    try {
+                        RecordingSalvage.repair(item.file, copy, ::stopIfCancelled, ::shortOfSpace).also { partial++ }
+                    } catch (_: RecordingSalvage.Unreadable) {
+                        skipped++
+                        continue
+                    }
+                }
+                recovered = RecoveredProject.adding(recovered, RecoveredProject.source(item, id, copy.name, media.duration, media.audioOnly))
+                importing = context.getString(R.string.originals_copying_percent, (index + 1) * 100 / items.size)
+            }
+            if (recovered.sources.isEmpty()) throw NoPlayableMedia()
+            staged.save(recovered)
+            staged.read(directory)
+            Files.move(directory.toPath(), disk.folder(recovered.id).toPath(), StandardCopyOption.ATOMIC_MOVE)
+            return RecoveredProject.Outcome(recovered.title, recovered.sources.size, partial, skipped)
+        } finally {
+            staging.deleteRecursively()
+        }
+    }
+
     /** Copies originals of [project] to the device's Movies and Music collections. The files themselves stay. */
-    fun saveOriginals(project: Project, sources: List<SourceMedia>) {
+    fun saveOriginals(project: Project, sources: List<SourceMedia>) = saveOriginals(sources.map { file(project, it) to (it.audioOnly == true) })
+
+    /** Copies [files], each with whether it is sound only, to the device's Movies and Music collections. */
+    fun saveOriginals(files: List<Pair<File, Boolean>>) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         scope.launch {
-            val failed = withContext(Dispatchers.IO) { sources.count { !saveToCollection(file(project, it), it.audioOnly == true) } }
+            val failed = withContext(Dispatchers.IO) { files.count { (file, audioOnly) -> !saveToCollection(file, audioOnly) } }
             error = when {
-                failed == 0 -> context.resources.getQuantityString(R.plurals.originals_saved, sources.size, sources.size)
-                else -> context.getString(R.string.originals_save_failed, failed, sources.size)
+                failed == 0 -> context.resources.getQuantityString(R.plurals.originals_saved, files.size, files.size)
+                else -> context.getString(R.string.originals_save_failed, failed, files.size)
             }
         }
     }

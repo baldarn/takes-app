@@ -24,10 +24,13 @@ object RecoveryRules {
      * [total], keeping the floor; none when they can. The original's words,
      * with the amount to free formatted by [format] (the system's file size text).
      */
-    fun shortOfSpace(bytes: Long, free: Long, total: Long, format: (Long) -> String): String? {
+    fun shortOfSpace(bytes: Long, free: Long, total: Long, format: (Long) -> String): String? =
+        spaceToFree(bytes, free, total)?.let { "Free about " + format(it) + " more space to finish this operation and keep space available on the phone." }
+
+    /** How much more must be freed for [bytes] to be written keeping the floor, at least one; none when they fit. */
+    fun spaceToFree(bytes: Long, free: Long, total: Long): Long? {
         val room = free - floor(total)
-        if (bytes in 0..room) return null
-        return "Free about " + format(maxOf(1L, bytes - room)) + " more space to finish this operation and keep space available on the phone."
+        return if (bytes in 0..room) null else maxOf(1L, bytes - room)
     }
 
     // MARK: Salvage

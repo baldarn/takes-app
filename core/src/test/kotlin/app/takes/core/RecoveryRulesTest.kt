@@ -52,6 +52,9 @@ class RecoveryRulesTest {
         val message = RecoveryRules.shortOfSpace(free, free, total) { "$it B" }!!
         assertTrue(message, message.startsWith("Free about 1280000000 B more space"))
         assertTrue(RecoveryRules.shortOfSpace(-1, free, total) { "$it" } != null)
+        assertNull(RecoveryRules.spaceToFree(free - 1_280_000_000, free, total))
+        assertEquals(1_280_000_000L, RecoveryRules.spaceToFree(free, free, total))
+        assertEquals(1L, RecoveryRules.spaceToFree(free - 1_280_000_000 + 1, free, total))
     }
 
     /** TRANSLATED ProjectRecoveryTests.swift:136-144: a torn movie keeps the fragments that closed. */

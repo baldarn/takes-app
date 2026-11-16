@@ -232,7 +232,8 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem({ Text(stringResource(R.string.projects_rename)) }, { choose(rename) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.projects_duplicate)) }, { choose { store.duplicate(project) } }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) })
-                    if (project.sources.isNotEmpty()) DropdownMenuItem(
+                    // As in the original, what was set aside is among the originals too.
+                    if (project.sources.isNotEmpty() || store.unfinishedRecordings(project).isNotEmpty()) DropdownMenuItem(
                         { Text(stringResource(R.string.projects_originals)) }, { choose { originals = true } },
                         leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.projects_add_videos)) }, { choose(addVideos) }, leadingIcon = { Icon(Icons.Filled.Add, null) })

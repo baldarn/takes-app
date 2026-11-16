@@ -848,6 +848,34 @@
         <item quantity="other">%1$d originals were saved to the gallery.</item>
     </plurals>
     <string name="originals_save_failed">%1$d of %2$d originals could not be saved to the gallery.</string>
+    <string name="originals_create_recovered">Create recovered project</string>
+    <string name="originals_creating_recovered">Creating recovered project…</string>
+    <string name="originals_cancel_copy">Cancel copy</string>
+    <string name="originals_recover_footer">Creates a separate project from the playable originals. The existing project stays available.</string>
+    <string name="originals_copy_space">Estimated space for the copy: %1$s</string>
+    <string name="originals_repair_space">Estimated repair space: %1$s</string>
+    <string name="originals_recover_one">Recover this recording into a new project</string>
+    <string name="originals_recovering">Recovering…</string>
+    <string name="originals_unreadable">You can save this file or try creating a recovered project from its readable footage.</string>
+    <string name="originals_copying">Copying original recordings…</string>
+    <string name="originals_copying_percent">Copying original recordings… %1$d%%</string>
+    <string name="originals_copy_cancelled">Copy cancelled. Your originals are available.</string>
+    <string name="originals_no_media">No playable media was found. The original files are available to save.</string>
+    <string name="originals_free_space">Free about %1$s more space to finish this operation and keep space available on the phone.</string>
+    <!-- Added to the title of the project a recovery makes: "Trip · Recovered". -->
+    <string name="originals_recovered_suffix">" · Recovered"</string>
+    <plurals name="originals_recovered">
+        <item quantity="one">Created “%1$s” with %2$d recording.</item>
+        <item quantity="other">Created “%1$s” with %2$d recordings.</item>
+    </plurals>
+    <plurals name="originals_recovered_partial">
+        <item quantity="one">Recovered readable portions of %1$d file.</item>
+        <item quantity="other">Recovered readable portions of %1$d files.</item>
+    </plurals>
+    <plurals name="originals_recovered_skipped">
+        <item quantity="one">%1$d unreadable file remains with the original project.</item>
+        <item quantity="other">%1$d unreadable files remain with the original project.</item>
+    </plurals>
     <string name="sound_past_picture_title">Sound after the last clip</string>
     <string name="sound_past_picture_message">%1$s of sound play after the last clip. The movie now goes on until the sound ends, black after the picture, as it is exported. Keep that sound, or end the movie with the picture?</string>
     <string name="sound_past_picture_keep">Keep the sound</string>
