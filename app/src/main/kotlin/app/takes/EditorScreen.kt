@@ -978,7 +978,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         // The sounds of their own on rows of their own, from the timeline, and the pictures whose sound was unlinked into one of them.
         val drawnEdit = live ?: trimmed ?: edit
         val soundRows = remember(drawnEdit) { TrackComponents.soundRows(drawnEdit) }
-        val soundless = remember(drawnEdit) { drawnEdit.layered?.let(TrackComponents::soundless).orEmpty() }
+        val soundless = remember(drawnEdit) { TrackComponents.soundless(drawnEdit.toTimeline()) }
+        val movingSounds = remember(drawnEdit, session?.moving) { session?.let { TrackComponents.targets(drawnEdit, it.moving).audio }.orEmpty() }
         val snapFeedback = { before: TrackMoveSession, after: TrackMoveSession ->
             if (after.snap != null && after.snap != before.snap) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         }
@@ -1032,7 +1033,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             level = levelGesture,
             pinch = { factor -> if (factor == null) pinchStart = scale.toDouble() else zoomTo(TimelineZoom.pinched(pinchStart, factor.toDouble(), timelineWidth, duration)) },
             rows = rows,
-            soundRows = soundRows.count, syncOffsets = soundRows.offsets, soundless = soundless, movingSounds = session?.moving?.audio.orEmpty(),
+            soundRows = soundRows.count, syncOffsets = soundRows.offsets, soundless = soundless, movingSounds = movingSounds,
             moveDrag = session?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },

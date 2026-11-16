@@ -599,6 +599,8 @@ private fun PictureRows(
         // Where the moved pictures were when Move began: a dashed outline over their rows.
         rows.ghost?.let { ghost ->
             val movingRows = clips.indices.filter { clips[it].id in rows.moving }.map { rows.rows[it] }
+            // A sound moved alone has its own outline on its row; no picture moves.
+            if (movingRows.isEmpty()) return@let
             val first = movingRows.minOrNull() ?: 0
             val last = movingRows.maxOrNull() ?: 0
             Canvas(Modifier.matchParentSize()) {
