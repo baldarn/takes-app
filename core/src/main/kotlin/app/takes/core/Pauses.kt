@@ -48,7 +48,16 @@ data class PauseSettings(
     val candidates: List<DetectedPause>? = null,
     val analyzed: SourceInterval? = null,
     val levelMode: PauseLevelMode? = PauseLevelMode.Automatic,
-)
+) {
+    /** Whether a project may hold these settings on footage [sourceDuration] seconds long, as the original checks them (YouRec/Project.swift:493-499). */
+    fun valid(sourceDuration: Double): Boolean {
+        fun inside(interval: SourceInterval) = interval.start.isFinite() && interval.end.isFinite() && interval.start >= 0 &&
+            interval.end > interval.start && interval.end <= sourceDuration + 0.001
+        return thresholdDB.isFinite() && thresholdDB in -80.0..0.0 && minimum.isFinite() && minimum in 0.1..10.0 &&
+            before.isFinite() && before in 0.0..2.0 && after.isFinite() && after in 0.0..2.0 &&
+            cuts.all(::inside) && candidates.orEmpty().all { inside(it.raw) } && (analyzed?.let(::inside) ?: true)
+    }
+}
 
 /**
  * The saved shape of [PauseSettings]. Same fields, but an absent levelMode

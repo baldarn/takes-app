@@ -43,9 +43,6 @@ import app.takes.core.AudioItem
 import android.net.Uri
 import androidx.compose.runtime.mutableIntStateOf
 import app.takes.core.PauseDetector
-import app.takes.core.PauseSettings
-import app.takes.core.SourceInterval
-import app.takes.core.SourceWaveform
 import android.os.Build
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -103,7 +100,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -127,7 +123,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -233,8 +228,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The Placement tool, and the draft the preview shows, made again when the fingers lift.
     var placementWork by remember { mutableStateOf<Placing?>(null) }
     var placementShown by remember { mutableStateOf<EditState?>(null) }
-    val edit = remember(saved, transitioning?.join, transitioning?.shown, auditioning, moveShown, placementShown) {
-        moveShown ?: placementShown ?: auditioning?.state ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved
+    // The Pauses tool, and the edit it shows: its choices, or Before them (A/PausesPanel.kt).
+    var pausing by remember { mutableStateOf<Pausing?>(null) }
+    val pausingShown = pausing?.shown
+    val edit = remember(saved, transitioning?.join, transitioning?.shown, auditioning, moveShown, placementShown, pausingShown) {
+        moveShown ?: placementShown ?: auditioning?.state ?: pausingShown ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved
     }
     val clips = edit.clips
     // The movie lasts until its sound ends, past the last picture in black, once the project takes that length ([MovieLength]).
@@ -625,7 +623,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     var choosingExport by remember { mutableStateOf(false) }
-    var findingPauses by remember { mutableStateOf(false) }
     var editingColor by remember { mutableStateOf(false) }
     var editingAudio by remember { mutableStateOf(false) }
     var leveling by remember { mutableStateOf<Leveling?>(null) }
@@ -1344,6 +1341,41 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 cancel = { editor.pause(); auditionEnd = null; transitioning = null },
                 modifier = Modifier.weight(1.5f),
             )
+        } else if (pausing != null) {
+            val work = pausing!!
+            // An edit made meanwhile, such as a take that arrives, ends the tool.
+            LaunchedEffect(saved) { if (work.from != saved) pausing = null }
+            val done = { next: EditState ->
+                editor.pause()
+                auditionEnd = null
+                auditionReturn = null
+                pausing = null
+                val scoped = toolScope
+                // One undo step for the whole tool; the playhead stays where it is in the edit.
+                if (next != saved) {
+                    val time = playhead.coerceIn(0.0, next.duration)
+                    if (scoped != null && work.label != null) applyScoped(scoped, next, time) else commit(next, time)
+                }
+            }
+            PausesPanel(
+                work, files, playing = editor.playing,
+                seek = { jump(it.coerceIn(0.0, duration)) },
+                listen = { range ->
+                    editor.pause()
+                    auditionReturn = playhead
+                    auditionEnd = range.endInclusive
+                    playhead = range.start
+                    editor.play(range.start)
+                },
+                stop = {
+                    editor.pause()
+                    auditionEnd = null
+                    auditionReturn?.let { auditionReturn = null; jump(it) }
+                },
+                apply = done, remove = done,
+                cancel = { editor.pause(); auditionEnd = null; auditionReturn = null; pausing = null },
+                modifier = Modifier.weight(1.5f),
+            )
         } else if (subtitling != null) {
             SubtitlesPanel(
                 saved = edit, draft = subtitling ?: edit, change = { subtitling = it },
@@ -1560,7 +1592,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val joins = TimelineEditing.layout(clips).joins
                     joins.minByOrNull { abs(it.time - playhead) + if (it.edge == 0) 0.0 else 0.0001 }?.let { transitioning = Transitioning.at(edit, it.index, canvas) }
                 }, content = { Text(stringResource(R.string.editor_transition)) }, modifier = compact)
-                TextButton(onClick = { editor.pause(); findingPauses = true }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
+                TextButton(onClick = {
+                    editor.pause()
+                    // On the clips of the range or the selection, cut at the ends of a range, else on the clip under the playhead.
+                    if (current != null) pausing = toolScope?.let { Pausing(saved, it.state, it.clips, toolScopeLabel) } ?: Pausing(saved, edit, listOf(current.id), null)
+                }, compact, enabled = location != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
                 TextButton(onClick = { editor.pause(); addingAudio = playhead }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
                 TextButton(onClick = { editor.pause(); subtitling = edit }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) {
                     Icon(Icons.Outlined.Subtitles, stringResource(R.string.editor_subtitles), tint = if (edit.subtitles != null) TitleColor else LocalContentColor.current)
@@ -1725,16 +1761,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
-    if (findingPauses && location != null && current != null) {
-        PausesDialog(
-            files.getValue(current.sourceID), current,
-            remove = { cuts ->
-                commit(TimelineEditing.removeIntervals(edit, location.index, cuts), clipStart(edit, location.index))
-                findingPauses = false
-            },
-            dismiss = { findingPauses = false },
-        )
-    }
     if (editingAudio && location != null && current != null) {
         // The clip under the playhead; in a scope its clips, cut at the ends of a range, and the sounds on the audio tracks
         // selected with them, which have no noise reduction.
@@ -1871,51 +1897,6 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
                 TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) }
             }
         },
-    )
-}
-
-/**
- * Finds the pauses in the clip under the playhead and offers to cut them out.
- * The threshold between speech and silence is estimated from the recording.
- */
-@Composable
-private fun PausesDialog(file: File, clip: TimelineClip, remove: (List<SourceInterval>) -> Unit, dismiss: () -> Unit) {
-    var minimum by remember { mutableDoubleStateOf(0.6) }
-    var progress by remember { mutableFloatStateOf(0f) }
-    // null while measuring; then the measurements, or nothing when the clip has no usable sound.
-    val measured by produceState<Pair<SourceWaveform?, Boolean>>(null to false, file) {
-        value = PauseLevels.measure(file) { progress = it } to true
-    }
-    val wave = measured.first
-    val settings = PauseSettings(minimum = minimum)
-    val cuts = remember(wave, minimum, clip) { wave?.let { PauseDetector.detect(it, clip, settings) }.orEmpty() }
-    val shorter = clip.duration - PauseDetector.keptIntervals(clip, cuts).filter { it.duration >= TimelineEditing.MINIMUM_CLIP }.sumOf { it.duration }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(stringResource(R.string.pauses_title)) },
-        text = {
-            Column {
-                when {
-                    !measured.second -> {
-                        Text(stringResource(R.string.pauses_listening), color = Color.White)
-                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
-                    }
-                    wave == null -> Text(stringResource(R.string.pauses_no_sound), color = Color.White)
-                    else -> {
-                        Text(
-                            if (cuts.isEmpty()) stringResource(R.string.pauses_none_found)
-                            else pluralStringResource(R.plurals.pauses_found, cuts.size, cuts.size, preciseLabel(shorter)),
-                            color = Color.White,
-                        )
-                        Text(stringResource(R.string.pauses_silence_level, PauseDetector.levelDB(wave, settings).roundToInt()), color = Muted, fontSize = 13.sp)
-                        Choices(stringResource(R.string.pauses_shortest), listOf("0.4 s" to 0.4, "0.6 s" to 0.6, "1 s" to 1.0, "2 s" to 2.0), minimum) { minimum = it }
-                        Text(stringResource(R.string.pauses_note), color = Muted, fontSize = 13.sp)
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { remove(cuts) }, enabled = cuts.isNotEmpty() && shorter > 0) { Text(stringResource(R.string.common_remove)) } },
-        dismissButton = { TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
 

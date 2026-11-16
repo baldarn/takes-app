@@ -153,6 +153,7 @@ internal object TrackWrapping {
         videoEffects = pick(saved.videoEffects, old.videoEffects, now.videoEffects),
         frozenFrame = pick(saved.frozenFrame, old.frozenFrame, now.frozenFrame),
         mirror = pick(saved.mirror, old.mirror, now.mirror),
+        pauses = pick(saved.pauses, old.pauses, now.pauses),
     )
 
     /**

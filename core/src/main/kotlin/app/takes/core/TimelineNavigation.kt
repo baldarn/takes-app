@@ -173,7 +173,8 @@ class TimelineNavigation private constructor(
          * end strictly inside one of its own transitions is not a cut: the
          * join stands for it. Treatments, each over the stretch it applies to:
          *  - a clip's crop, its speed when not 1, its color when it has a look
-         *    with an amount above zero;
+         *    with an amount above zero, its pauses taken out, and a cut where
+         *    each pause was;
          *  - each title with text, over the part of it the clip shows;
          *  - a clip's or a sound's mute, or else its level when not 0 dB; its
          *    fade in and its fade out, each over the fade; its noise reduction;
@@ -205,6 +206,9 @@ class TimelineNavigation private constructor(
                 builder.cut(start, borrowed).cut(end, borrowed)
                 clip.crop?.let { builder.change(recipe("crop", CropSettings.serializer(), it), start, end) }
                 clip.speed?.takeIf { it.rate != 1.0 }?.let { builder.change(recipe("speed", SpeedSettings.serializer(), it), start, end) }
+                // Pauses taken out: the settings over the clip, and a cut where each one was (TimelineNavigation.swift:85-88, :100).
+                clip.pauses?.let { builder.change(recipe("pauses", PauseSettings.serializer(), it, setOf("cuts", "candidates", "analyzed")), start, end) }
+                if (clip.paused) for (piece in PicturePlayback.pieces(clip.playbackSpans).drop(1)) builder.cut(start + piece.from, borrowed)
                 clip.color?.takeIf { it.look != ColorLook.Natural && it.amount > 0 }
                     ?.let { builder.change(recipe("color", ColorSettings.serializer(), it), start, end) }
                 for (text in clip.texts.orEmpty()) {

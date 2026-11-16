@@ -594,7 +594,7 @@ internal fun ClipStrip(
             Text(
                 title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
                 modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), (row * 21.dp.toPx()).roundToInt()) }
-                    .width(with(density) { ((to - from) / clip.rate * pixelsPerSecond).toFloat().toDp() })
+                    .width(with(density) { ((clip.offset(to) - clip.offset(from)) * pixelsPerSecond).toFloat().toDp() })
                     .background(TitleColor, RoundedCornerShape(3.dp))
                     .clickable(onClickLabel = editTitle) { openTitle(title) }
                     // Clear of the trim grip when the title starts with the clip.

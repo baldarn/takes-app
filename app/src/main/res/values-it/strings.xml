@@ -180,17 +180,50 @@
 
     <!-- Pauses -->
     <string name="pauses_title">Rimuovi pause</string>
-    <string name="pauses_listening">Ascolto della clip…</string>
-    <string name="pauses_no_sound">Questa clip non ha audio da analizzare.</string>
-    <string name="pauses_none_found">Nessuna pausa così lunga.</string>
-    <plurals name="pauses_found">
-        <item quantity="one">%1$d pausa trovata. La clip si accorcerebbe di %2$s.</item>
-        <item quantity="many">%1$d pause trovate. La clip si accorcerebbe di %2$s.</item>
-        <item quantity="other">%1$d pause trovate. La clip si accorcerebbe di %2$s.</item>
+    <string name="pauses_listening_speech">Ascolto delle pause nel parlato…</string>
+    <string name="pauses_measuring">Misurazione del silenzio…</string>
+    <string name="pauses_scan_progress">Avanzamento della ricerca delle pause</string>
+    <plurals name="pauses_summary">
+        <item quantity="one">%1$d taglio · %2$s s in meno</item>
+        <item quantity="many">%1$d tagli · %2$s s in meno</item>
+        <item quantity="other">%1$d tagli · %2$s s in meno</item>
     </plurals>
-    <string name="pauses_silence_level">Livello del silenzio: %1$d dB, stimato dalla ripresa.</string>
-    <string name="pauses_shortest">Pausa più breve da rimuovere</string>
-    <string name="pauses_note">Intorno a ogni taglio resta un po\' di silenzio, così le parole non vengono troncate. Con un solo Annulla le pause tornano.</string>
+    <string name="pauses_scan_again">Cerca di nuovo</string>
+    <string name="pauses_lengths">%1$s → %2$s nel progetto</string>
+    <string name="pauses_before">Prima</string>
+    <string name="pauses_after">Dopo</string>
+    <string name="pauses_previous">Pausa precedente</string>
+    <string name="pauses_next">Pausa successiva</string>
+    <string name="pauses_selection">Pausa %1$d di %2$d</string>
+    <string name="pauses_at_before">A %1$s · Prima</string>
+    <string name="pauses_at_after">A %1$s · Dopo</string>
+    <string name="pauses_no_room">Tenuta: il margine non lascia spazio per tagliare.</string>
+    <string name="pauses_this">Questa pausa</string>
+    <string name="pauses_cut">Taglia</string>
+    <string name="pauses_keep">Tieni</string>
+    <string name="pauses_remove_seconds">Rimuove %1$s s</string>
+    <string name="pauses_keep_note">Questa pausa resta nel video</string>
+    <string name="pauses_listen_pause">Ascolta la pausa</string>
+    <string name="pauses_listen_cut">Ascolta il taglio</string>
+    <string name="pauses_stop">Ferma l\'anteprima</string>
+    <string name="pauses_no_audio">Questa parte non ha audio da analizzare.</string>
+    <string name="pauses_none_automatic">Nessuna pausa trovata. Prova una pausa minima più breve o scegli un livello del silenzio manuale nelle impostazioni di rilevamento.</string>
+    <string name="pauses_none_manual">Nessuna pausa trovata. Alza il livello del silenzio o accorcia la pausa minima nelle impostazioni di rilevamento.</string>
+    <string name="pauses_detection">Impostazioni di rilevamento</string>
+    <string name="pauses_automatic">Livello del silenzio automatico</string>
+    <string name="pauses_automatic_note">Cerca le interruzioni nel parlato, anche quando il rumore di fondo continua.</string>
+    <string name="pauses_reference_level">Livello di riferimento %1$s dBFS RMS.</string>
+    <string name="pauses_reference_levels">Livelli di riferimento da %1$s a %2$s dBFS RMS.</string>
+    <string name="pauses_silence_below">Silenzio sotto</string>
+    <string name="pauses_dbfs_peak">dBFS di picco</string>
+    <string name="pauses_dbfs_rms">dBFS RMS</string>
+    <string name="pauses_manual_note">Questo livello vale per la selezione. Alzandolo si può includere il parlato sommesso.</string>
+    <string name="pauses_minimum">Pausa minima</string>
+    <string name="pauses_seconds">s</string>
+    <string name="pauses_keep_after_speech">Margine dopo il parlato</string>
+    <string name="pauses_keep_before_speech">Margine prima del parlato</string>
+    <string name="pauses_settings_note">Usa l\'audio originale. Le modifiche si aggiornano da sole. Dopo aver allungato una clip, tocca Cerca di nuovo.</string>
+    <string name="pauses_saved_note">Le scelte vengono salvate. Rimuovendo questo effetto le pause tornano.</string>
 
     <!-- Sound -->
     <string name="sound_dialog_title">Audio della clip</string>

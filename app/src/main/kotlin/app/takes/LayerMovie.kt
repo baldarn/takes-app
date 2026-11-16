@@ -28,10 +28,10 @@ import app.takes.core.TransitionScene
 import java.io.File
 
 /** A picture of a layer plan as a player or export item, cut to the footage it plays, as [clippedItem] cuts a clip of a render plan. */
-fun clippedItem(picture: LayerPlan.Picture, file: File): MediaItem = MediaItem.Builder()
+fun clippedItem(picture: LayerPlan.Picture, file: File, startUs: Long = picture.sourceStartUs, endUs: Long = picture.sourceEndUs): MediaItem = MediaItem.Builder()
     .setUri(Uri.fromFile(file))
     .setMediaId(picture.id)
-    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(picture.sourceStartUs).setEndPositionUs(picture.sourceEndUs).build())
+    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(startUs).setEndPositionUs(endUs).build())
     .build()
 
 /**

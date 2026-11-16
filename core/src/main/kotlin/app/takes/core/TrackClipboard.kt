@@ -411,6 +411,7 @@ object TrackClipboard {
                     speed = content.speed?.let { it.copy(id = fresh(it.id)) },
                     crop = content.crop?.let { it.copy(id = fresh(it.id)) },
                     mirror = content.mirror?.let { it.copy(id = fresh(it.id)) },
+                    pauses = content.pauses?.let { it.copy(id = fresh(it.id)) },
                     color = content.color?.let { it.copy(id = fresh(it.id)) },
                     texts = content.texts?.map { it.copy(id = fresh(it.id)) },
                 ),

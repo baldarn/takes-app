@@ -58,8 +58,20 @@ internal class EditorPlayer(private val context: Context) {
     val decks: List<ExoPlayer> = lanes.subList(0, RenderPlan.DECKS)
     private val sources = DefaultMediaSourceFactory(context)
 
-    /** The clip as something to play: its own file, cut where the plan cuts it. */
-    private fun source(clip: RenderPlan.Picture, file: File): MediaSource = sources.createMediaSource(clippedItem(clip, file))
+    /**
+     * A piece of a clip as something to play: its own file, cut where the plan cuts it. A clip with pauses taken
+     * out is a playlist item for each stretch of its footage between them ([RenderPlan.Picture.pieces]), which
+     * the player plays one after another without a break.
+     */
+    private fun source(clip: RenderPlan.Picture, piece: Int, file: File): MediaSource {
+        val pieces = clip.pieces
+        if (pieces.size <= 1) return sources.createMediaSource(clippedItem(clip, file))
+        val (start, end) = PicturePlayback.cuts(pieces, piece, clip.sourceStartUs, clip.sourceEndUs)
+        return sources.createMediaSource(clippedItem(clip, file, start, end))
+    }
+
+    /** A playlist item: the piece [piece] of the clip at [clip]. */
+    private data class Item(val clip: Int, val piece: Int)
 
     /** The sound of the edit. */
     private val mix = MixPlayback()
@@ -75,7 +87,7 @@ internal class EditorPlayer(private val context: Context) {
     private var plan = RenderPlan.of(EditState())
     private val clips get() = plan.pictures
     private val chains get() = plan.chains
-    private var items = List(2) { emptyList<Int>() } // clip index of each playlist item, per deck
+    private var items = List(2) { emptyList<Item>() } // the clip and its piece of each playlist item, per deck
     private val duration get() = plan.duration
     private var loaded: Any? = null
     private var time = 0.0      // where the movie is
@@ -112,17 +124,17 @@ internal class EditorPlayer(private val context: Context) {
             for (lane in lanes.drop(decks.size)) if (lane.mediaItemCount > 0) lane.clearMediaItems()
         }
         this.plan = plan
-        items = plan.decks.map { it.clips }
+        items = plan.decks.map { deck -> deck.clips.flatMap { clip -> (0 until maxOf(1, clips[clip].pieces.size)).map { Item(clip, it) } } }
         sounding = plan.freezes.filter { it.sounding }.map { Sounding(it.deck, it.from, it.until, it.shown, files.getValue(clips[it.clip].sourceID), it.sourceTime) }
         for (deck in decks.indices) { heldPictures.drop(deck); parked[deck] = null }
         // The frames themselves, read ahead: a deck that is playing shows a frame near the freeze, not always the one before it.
         for (freeze in sounding) reading.execute { if (freeze in sounding) freeze.picture = heldFrame(freeze.file, freeze.source) }
         // What the decks hold. A change that leaves it as it is, such as a title or the angle of a wipe, needs no new playlists.
-        val media = items to clips.map { clip -> listOf(clip.id, clip.sourceID, clip.sourceStart, clip.sourceEnd, clip.rate) }
+        val media = items to clips.map { clip -> listOf(clip.id, clip.sourceID, clip.sourceStart, clip.sourceEnd, clip.rate, clip.pieces) }
         if (media != loaded) {
             loaded = media
             decks.forEachIndexed { deck, player ->
-                player.setMediaSources(items[deck].map { source(clips[it], files.getValue(clips[it].sourceID)) })
+                player.setMediaSources(items[deck].map { source(clips[it.clip], it.piece, files.getValue(clips[it.clip].sourceID)) })
                 player.prepare()
             }
         }
@@ -165,9 +177,42 @@ internal class EditorPlayer(private val context: Context) {
     /** Plays the deck at its clip's speed where the deck is in it, keeping the pitch: a retimed clip changes speed as it goes. */
     private fun pace(player: ExoPlayer, clip: Int) {
         val picture = clips.getOrNull(clip)
-        val at = if (picture != null && items.getOrNull(decks.indexOf(player))?.getOrNull(player.currentMediaItemIndex) == clip) player.currentPosition.coerceAtLeast(0) / 1000.0 else 0.0
+        val deck = decks.indexOf(player)
+        val at = if (picture != null && current(deck)?.clip == clip) footage(deck) else 0.0
         val rate = ((picture?.let { PicturePlayback.rate(it.spans, at) } ?: 1.0) * speed).toFloat()
         if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
+    }
+
+    /** The item [deck] is on. */
+    private fun current(deck: Int): Item? = items.getOrNull(deck)?.getOrNull(decks[deck].currentMediaItemIndex)
+
+    /** The clip [deck] is on. */
+    private fun currentClip(deck: Int): Int? = current(deck)?.clip
+
+    /** Seconds of footage past the first of its clip ([RenderPlan.Picture.position]) where [deck] is. */
+    private fun footage(deck: Int): Double {
+        val item = current(deck) ?: return 0.0
+        val picture = clips[item.clip]
+        val into = decks[deck].currentPosition.coerceAtLeast(0) / 1000.0
+        val piece = picture.pieces.getOrNull(item.piece) ?: return into
+        return piece.sourceStart - picture.sourceStart + into
+    }
+
+    /** Whether [deck] is on the last piece of the clip at [clip]. */
+    private fun onLastPiece(deck: Int, clip: Int): Boolean = current(deck)?.let { it.clip == clip && it.piece >= clips[clip].pieces.lastIndex } == true
+
+    /** Puts [player], the deck [deck], [offset] seconds into the clip at [clip]: on its piece there, where that piece has got to. */
+    private fun seekInto(deck: Int, player: ExoPlayer, clip: Int, offset: Double) {
+        val picture = clips[clip]
+        val pieces = picture.pieces
+        if (pieces.size <= 1) {
+            player.seekTo(items[deck].indexOf(Item(clip, 0)), (picture.position(offset) * 1000).toLong().coerceAtLeast(0))
+            return
+        }
+        val number = PicturePlayback.piece(pieces, offset)
+        val piece = pieces[number]
+        val into = picture.sourceStart + picture.position(offset) - piece.sourceStart
+        player.seekTo(items[deck].indexOf(Item(clip, number)), (into.coerceIn(0.0, piece.sourceEnd - piece.sourceStart) * 1000).toLong())
     }
 
     /** The chain [deck] is inside at [time], and the clip of it that is playing. */
@@ -179,8 +224,8 @@ internal class EditorPlayer(private val context: Context) {
     // A deck stops by itself on the last frame of its chain: what follows in its playlist belongs to a later moment.
     private fun stopAtChainEnd(deck: Int) {
         val player = decks[deck]
-        val clip = items[deck].getOrNull(player.currentMediaItemIndex)
-        val last = clip != null && chains.any { it.last == clip }
+        val clip = currentClip(deck)
+        val last = clip != null && chains.any { it.last == clip } && onLastPiece(deck, clip)
         if (player.pauseAtEndOfMediaItems != last) player.pauseAtEndOfMediaItems = last
     }
 
@@ -205,18 +250,18 @@ internal class EditorPlayer(private val context: Context) {
             } else heldPictures.drop(deck)
             parked[deck] = under.takeIf { !starting && frozen != null }
             if (active != null && frozen != null && !starting) {
-                player.seekTo(items[deck].indexOf(frozen.index), (clips[frozen.index].position(frozen.offset) * 1000).toLong())
+                seekInto(deck, player, frozen.index, frozen.offset)
                 pace(player, frozen.index)
             } else if (active != null) {
                 val clip = active.second
                 val offset = (time - clips[clip].start).coerceIn(0.0, clips[clip].duration)
                 // A deck's position runs in recorded seconds; a clip at another speed covers them faster or slower.
-                player.seekTo(items[deck].indexOf(clip), (clips[clip].position(offset) * 1000).toLong())
+                seekInto(deck, player, clip, offset)
                 pace(player, clip)
             } else if (frozen != null) {
-                player.seekTo(items[deck].indexOf(frozen.index), (clips[frozen.index].position(frozen.offset) * 1000).toLong())
+                seekInto(deck, player, frozen.index, frozen.offset)
             } else {
-                plan.coming(deck, time)?.let { player.seekTo(items[deck].indexOf(chains[it].first), 0) }
+                plan.coming(deck, time)?.let { player.seekTo(items[deck].indexOf(Item(chains[it].first, 0)), 0) }
             }
             stopAtChainEnd(deck)
         }
@@ -268,16 +313,16 @@ internal class EditorPlayer(private val context: Context) {
             val chain = chains[leading]
             val deck = clips[chain.first].deck
             val player = decks[deck]
-            val clip = items[deck].getOrNull(player.currentMediaItemIndex)
+            val clip = currentClip(deck)
             when {
                 // A deck parked elsewhere, or one that ran past its chain: its chain is over for it.
                 clip == null || clip > chain.last -> chain.end
                 clip < chain.first -> time + passed * speed
                 // Stopped on the last frame of the chain.
-                !player.playWhenReady && clip == chain.last && player.playbackState == Player.STATE_READY &&
+                !player.playWhenReady && clip == chain.last && onLastPiece(deck, clip) && player.playbackState == Player.STATE_READY &&
                     player.currentPosition >= player.duration - 30 -> chain.end
                 player.playbackState == Player.STATE_ENDED -> chain.end
-                else -> (clips[clip].start + clips[clip].offset(player.currentPosition.coerceAtLeast(0) / 1000.0)).coerceAtMost(chain.end)
+                else -> (clips[clip].start + clips[clip].offset(footage(deck))).coerceAtMost(chain.end)
             }
         }
         if (time >= duration) {
@@ -298,22 +343,22 @@ internal class EditorPlayer(private val context: Context) {
         }
         decks.forEachIndexed { deck, player ->
             val active = playing(deck, time)
-            val clip = items[deck].getOrNull(player.currentMediaItemIndex)
+            val clip = currentClip(deck)
             if (active != null) {
                 val (chain, _) = active
                 // A chain whose moment has come starts from where its deck was parked.
                 if (clip == null || clip !in chain.first..chain.last) {
-                    player.seekTo(items[deck].indexOf(chain.first), (clips[chain.first].position(time - chain.start) * 1000).toLong().coerceAtLeast(0))
+                    seekInto(deck, player, chain.first, (time - chain.start).coerceAtLeast(0.0))
                 }
-                if (!player.playWhenReady && !(clip == chain.last && player.currentPosition >= player.duration - 30)) player.play()
+                if (!player.playWhenReady && !(clip == chain.last && onLastPiece(deck, clip) && player.currentPosition >= player.duration - 30)) player.play()
                 // Each deck follows the speed of the clip it has reached.
-                items[deck].getOrNull(player.currentMediaItemIndex)?.let { pace(player, it) }
+                currentClip(deck)?.let { pace(player, it) }
             } else if (held(deck, time) == null) {
                 // The deck that finished waits at the start of its next chain, once its last frame is no longer shown.
                 val next = plan.coming(deck, time)?.let { chains[it] }
-                if (next != null && clip != next.first) {
+                if (next != null && (clip != next.first || current(deck)?.piece != 0)) {
                     player.pause()
-                    player.seekTo(items[deck].indexOf(next.first), 0)
+                    player.seekTo(items[deck].indexOf(Item(next.first, 0)), 0)
                 }
             }
             stopAtChainEnd(deck)

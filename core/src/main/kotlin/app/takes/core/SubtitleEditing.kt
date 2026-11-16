@@ -25,7 +25,17 @@ object SubtitleEditing {
         state.clips.forEachIndexed { index, clip ->
             val words = clip.subtitleWords
             if (!words.isNullOrEmpty() && speaks(clip)) {
-                cues += SubtitleTiming.cues(clip.id, words, TimelineEditing.clipStart(state.clips, index), clip.start, clip.end, clip.duration)
+                val start = TimelineEditing.clipStart(state.clips, index)
+                if (!clip.paused) cues += SubtitleTiming.cues(clip.id, words, start, clip.start, clip.end, clip.duration)
+                else {
+                    // A clip with pauses taken out plays its footage a stretch at a time, and a caption follows each, as on the
+                    // timeline's sound ([TrackSubtitles.cues]): the words of a pause taken out are not shown.
+                    var offset = 0.0
+                    clip.playbackSpans.forEachIndexed { run, span ->
+                        cues += SubtitleTiming.cues(clip.id, words, start + offset, span.start, span.end, span.duration, run)
+                        offset += span.duration
+                    }
+                }
             }
         }
         return cues.sortedWith(compareBy<SubtitleCue> { it.start }.thenBy { it.id })
@@ -45,7 +55,9 @@ object SubtitleEditing {
      */
     fun fingerprint(clips: List<TimelineClip>): String = sha256(
         clips.mapIndexed { index, clip ->
-            "${clip.id}|${clip.sourceID}|${TimelineEditing.clipStart(clips, index)}|${clip.start}|${clip.end}|${clip.rate}|${!speaks(clip)}"
+            "${clip.id}|${clip.sourceID}|${TimelineEditing.clipStart(clips, index)}|${clip.start}|${clip.end}|${clip.rate}|${!speaks(clip)}" +
+                // The pauses taken out, said only by a clip that has them, so that every other clip says what it always did.
+                (clip.pauses?.let { pauses -> "|" + pauses.cuts.joinToString(",") { "${it.start}-${it.end}" } } ?: "")
         }.joinToString("\n").toByteArray(),
     )
 

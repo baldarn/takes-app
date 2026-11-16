@@ -87,6 +87,9 @@ data class LayerPlan(
         /** Seconds into the picture at [position] seconds of footage past [sourceStart]. */
         fun offset(position: Double): Double = PicturePlayback.offset(spans, position)
 
+        /** The stretches of its footage a player is given one after another ([PicturePlayback.pieces]): one, unless pauses were taken out of it. */
+        val pieces: List<PicturePlayback.Piece> by lazy { PicturePlayback.pieces(spans, duration) }
+
         val start: Double get() = interval.start.seconds
         val duration: Double get() = interval.duration.seconds
         val end: Double get() = interval.end.seconds
@@ -341,11 +344,12 @@ data class LayerPlan(
                 val starts = maxOf(begins, from)
                 val stops = minOf(ends, to)
                 if (stops - starts < RenderPlan.SHORTEST_PART) continue
-                black(starts)
-                val first = if (starts <= begins) picture.sourceStartUs else RenderPlan.cutMicros(picture.sourceStart + picture.position(starts - begins))
-                val last = if (stops >= ends) picture.sourceEndUs else RenderPlan.cutMicros(picture.sourceStart + picture.position(stops - begins))
-                parts[lane] += RenderPlan.Part.Footage(picture.index, starts, stops, first, maxOf(first + 1, last))
-                filled = stops
+                // A picture with pauses taken out is a part for each stretch of its footage between them.
+                for (part in RenderPlan.footage(picture.index, begins, ends, picture.sourceStart, picture.sourceStartUs, picture.sourceEndUs, picture.pieces, picture::position, starts, stops)) {
+                    black(part.start)
+                    parts[lane] += part
+                    filled = part.end
+                }
             }
             black(to)
         }

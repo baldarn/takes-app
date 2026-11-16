@@ -25,8 +25,8 @@ Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work 
 
 | Status | Count |
 |---|---|
-| DONE | 124 |
-| PARTIAL | 41 |
+| DONE | 126 |
+| PARTIAL | 39 |
 | CORE ONLY | 7 |
 | MISSING | 31 |
 | N/A | 6 |
@@ -43,7 +43,7 @@ Per area:
 | 5. Editor: picture tools | 7 | 4 | 3 | 4 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 9 | 0 | 1 | 0 | 0 |
-| 8. Audio | 4 | 6 | 0 | 11 | 0 |
+| 8. Audio | 5 | 5 | 0 | 11 | 0 |
 | 9. Subtitles | 10 | 1 | 0 | 2 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
 | 11. Export | 10 | 0 | 0 | 2 | 0 |
@@ -250,7 +250,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Bypass/Enhanced comparison with matched listening levels | O/OfflineAudioPipeline.swift:225-300 | MISSING | — | | M | Phone (ears) |
 | ±5 s preview window while a chain renders | O/EffectApplication.swift:9-18 | MISSING | Whole file is cleaned first (A/EditorScreen.kt:433-443) | | S | Yes |
 | Censor audio (beep: waveform, frequency, level, envelope; per track) | O/AudioToolsEditor.swift:143-185, O/AudioCensor.swift:6-130 | MISSING | — | Needs range selection; tone generator in preview and export | M | Phone (ears) |
-| Remove pauses: detect and cut as one undo step | O/EditorTools.swift:1395-1471, O/VideoTools.swift:315-436 | PARTIAL | A/EditorScreen.kt:1262-1300, A/PauseLevels.kt, C/Pauses.kt:112 | Manual threshold, 0.1–3 s minimum (4 presets now), keep-before/after sliders, per-pause Cut/Keep, listen, re-edit later (`PauseSettings.candidates` exists at C/Pauses.kt:41-51 but cuts are baked in) | M | Yes |
+| Remove pauses: detect and cut as one undo step | O/EditorTools.swift:1395-1471, O/VideoTools.swift:238-436, O/TrackTimeline.swift:1376-1385 | DONE | A/PausesPanel.kt (summary, Scan again, pause by pause with Cut or Keep and Listen, Before and After, Detection settings: automatic or manual level, minimum pause 0.1–3 s, keep after and before speech, Remove), A/PauseLevels.kt, C/PauseTool.kt, C/Pauses.kt; the pauses are a setting of the clip (`TimelineClip.pauses`, schema 22, C/Project.kt), which stays one clip and plays its footage without them (`playbackSpans`), its transitions scaled only when they cost more than it lasts (`TimelineEditing.setPauses`, `TrackEditing.settingPauses`); the players and the export take each stretch between two pauses as an item of its own (C/PicturePlayback.kt `pieces`, A/EditorPlayer.kt, A/LayerPlayback.kt) | The tool shows the whole movie, not the scope's clips alone: a pause's time and Listen are the movie's (C/PauseTool.kt `range`). Projects made by earlier versions keep the pieces those made | | |
 | Export checks audio for clipping and warns | O/MovieExportPanel.swift:42-57, O/Project.swift:691-695 | MISSING | — | Peak pass and warning | M | Yes |
 
 ## 9. Subtitles
@@ -360,7 +360,7 @@ Each was a new `C/<Name>.kt` plus `core/src/test/.../<Name>Test.kt`, porting the
 15. **ListeningLevels and WaveformTiles** — DONE: C/AudioListeningLevels.kt (`O/OfflineAudioPipeline.swift:202-304`), C/WaveformTiles.kt (`O/WaveformDetail.swift:4-66`, `O/EditorTimeline.swift:778-796, 840-846`).
 16. **TrackTimeline** — DONE: C/TrackTimeline.kt and the `Track…` files beside it, adopted by the app (`docs/TRACKS-PLAN.md`).
 
-Already in `core` and waiting only for app work (no core package needed): audio unlinking, image overlay, pause Cut/Keep candidates, bookmark labels, the cover frame pool, stabilisation, the level horizon, face follow, the two-camera layouts, recording gain, the detailed waveform tiles and the recovery rules.
+Already in `core` and waiting only for app work (no core package needed): audio unlinking, image overlay, bookmark labels, the cover frame pool, stabilisation, the level horizon, face follow, the two-camera layouts, recording gain, the detailed waveform tiles and the recovery rules.
 
 ## Not classified with confidence
 

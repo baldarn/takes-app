@@ -68,7 +68,7 @@ class ClipFadesTest {
         assertEquals(15, clip.copy(audio = ClipAudio(fadeOut = 1.0, fadeOutElapsed = 0.5)).schema)
         // Half of what the clip lasts in the movie, not of its footage.
         assertEquals(15, clip.copy(audio = ClipAudio(fadeIn = 3.0), speed = SpeedSettings(rate = 2.0)).schema)
-        assertEquals(21, Project.LATEST_READABLE_SCHEMA) // the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21)
+        assertEquals(22, Project.LATEST_READABLE_SCHEMA) // the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22)
 
         val base = Project("Trip", id = "P", createdAt = 1).addRecording(take, now = 2).addSource(music, now = 2)
         val plain = LegacyProject.commit(base, TimelineEditing.setAudio(base.edit, 0, ClipAudio(volumeDB = -6.5, fadeIn = 1.7))!!, now = 3)

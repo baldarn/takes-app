@@ -27,7 +27,7 @@ Nothing here was run on a device or an emulator. Section 5 lists what that leave
 | **Sound: levels** | matches | Same ramps, same 8 ms minimum, same J/L cuts and split first/second, and preview and export read the same function. [R][P] |
 | **Sound: how the levels are applied** | differs, subtle | Preview sets the players' volume once per display frame (F16). |
 | **Layout: set, change, remove, split, delete, move, insert/paste, speed, undo** | matches | Within a timeline whose clips always follow one another. Checked against `docs/TRANSITIONS-FIT.md` and against the Swift. |
-| **Layout: trim, extend, pause removal, opening and close** | differs | F9, F10, F11. |
+| **Layout: trim, extend, opening and close** | differs | F9, F10. Pause removal matches since pauses are a setting of the clip (F11). |
 | **Export: frame accuracy, 4K, frame-rate conversion** | not verifiable from source | The mechanisms are described in F6, F17, F19, F20; whether they hold needs a device. |
 | **Export: HDR** | differs | Always tone-mapped to SDR (F7). |
 | **Tests** | differs | The original has pixel tests of every recipe (`Tests/TransitionTests.swift:65-107`) and compares preview with export frame by frame (`:146-151`). The Android shader has none: `app` has no test source set, and the core tests cover the numbers only. |
@@ -149,6 +149,7 @@ Severity: **every use** (seen whenever the feature is used), **specific cases**,
 - **Android.** The clip becomes separate pieces, and each transition is refitted to the piece it is left on (`core/TimelineEditing.kt:296-320`).
 - **Difference.** Probe: two 4 s clips with a 1 s dissolve; a pause from 0.4 s to 1.0 s removed from the second. Android leaves pieces of 0.4 s and 3.0 s and shortens the dissolve to 0.4 s (factor 0.4). The original keeps one 3.4 s clip and the dissolve at 1 s.
 - **Fix.** Inherent in pieces; the alternative is to refuse a cut that leaves the first or last piece shorter than the transition it carries, or to drop that sliver.
+- **Done.** Pauses are a setting of the clip, as in the original (`TimelineClip.pauses`, schema 22; `TimelineEditing.setPauses`). The clip stays one clip and plays its footage without them. Its transitions are scaled together only when they cost more than it now lasts. The probe gives one 3.4 s clip and the dissolve at 1 s (`ClipPausesTest.theDissolveStaysWholeOnTheClipThePausesLeaveOneClip`). Projects whose pauses earlier versions took out keep the pieces those made.
 
 ### F12. Split screen: "Reset framing" leaves the divider, and the divider has no handle — specific cases [R]
 
@@ -287,7 +288,7 @@ At progress 0 and 1 both sides return the first or the second picture untouched 
 | Speed | both transitions of the clip scaled together when they no longer fit; never grown | `:663-669`, `:88-104` | same |
 | Undo, redo | a step is the whole state, fit included | fits are fields of the clip | same |
 | Trim, extend | F10 | | differs |
-| Pauses | F11 | | differs |
+| Pauses | one clip, its transitions scaled together only when they cost more than it lasts | `TrackTimeline.swift:1376-1385` | same (F11) |
 | Opening, close | F9 | | differs |
 
 Probe figures: three 4 s clips with a 1 s dissolve at the first join leave 3 s free at the second; a fade of 8 s between two 4 s clips fits whole and keeps the project at 8 s, as the original's 1 s fade does (`Tests/TransitionTests.swift:43-45`).

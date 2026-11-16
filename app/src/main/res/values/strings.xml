@@ -177,16 +177,49 @@
 
     <!-- Pauses -->
     <string name="pauses_title">Remove pauses</string>
-    <string name="pauses_listening">Listening to the clip…</string>
-    <string name="pauses_no_sound">This clip has no sound to analyze.</string>
-    <string name="pauses_none_found">No pauses this long were found.</string>
-    <plurals name="pauses_found">
-        <item quantity="one">%1$d pause found. The clip would be %2$s shorter.</item>
-        <item quantity="other">%1$d pauses found. The clip would be %2$s shorter.</item>
+    <string name="pauses_listening_speech">Listening for speech pauses…</string>
+    <string name="pauses_measuring">Measuring silence…</string>
+    <string name="pauses_scan_progress">Pause scan progress</string>
+    <plurals name="pauses_summary">
+        <item quantity="one">%1$d cut · %2$s s shorter</item>
+        <item quantity="other">%1$d cuts · %2$s s shorter</item>
     </plurals>
-    <string name="pauses_silence_level">Silence level: %1$d dB, estimated from the recording.</string>
-    <string name="pauses_shortest">Shortest pause to remove</string>
-    <string name="pauses_note">A little silence is left around each cut so words are not clipped. One Undo brings the pauses back.</string>
+    <string name="pauses_scan_again">Scan again</string>
+    <string name="pauses_lengths">%1$s → %2$s in project</string>
+    <string name="pauses_before">Before</string>
+    <string name="pauses_after">After</string>
+    <string name="pauses_previous">Previous pause</string>
+    <string name="pauses_next">Next pause</string>
+    <string name="pauses_selection">Pause %1$d of %2$d</string>
+    <string name="pauses_at_before">At %1$s · Before</string>
+    <string name="pauses_at_after">At %1$s · After</string>
+    <string name="pauses_no_room">Kept: padding leaves no room to cut.</string>
+    <string name="pauses_this">This pause</string>
+    <string name="pauses_cut">Cut</string>
+    <string name="pauses_keep">Keep</string>
+    <string name="pauses_remove_seconds">Remove %1$s s</string>
+    <string name="pauses_keep_note">Keep this pause in the video</string>
+    <string name="pauses_listen_pause">Listen to pause</string>
+    <string name="pauses_listen_cut">Listen to cut</string>
+    <string name="pauses_stop">Stop preview</string>
+    <string name="pauses_no_audio">This section has no audio to analyze.</string>
+    <string name="pauses_none_automatic">No pauses found. Try a shorter minimum pause or choose a manual silence level in Detection settings.</string>
+    <string name="pauses_none_manual">No pauses found. Raise the silence level or shorten the minimum pause in Detection settings.</string>
+    <string name="pauses_detection">Detection settings</string>
+    <string name="pauses_automatic">Automatic silence level</string>
+    <string name="pauses_automatic_note">Looks for breaks in speech, even when background noise continues.</string>
+    <string name="pauses_reference_level">Reference level %1$s dBFS RMS.</string>
+    <string name="pauses_reference_levels">Reference levels range from %1$s to %2$s dBFS RMS.</string>
+    <string name="pauses_silence_below">Silence below</string>
+    <string name="pauses_dbfs_peak">dBFS peak</string>
+    <string name="pauses_dbfs_rms">dBFS RMS</string>
+    <string name="pauses_manual_note">This level applies to the selection. Raising it can include quiet speech.</string>
+    <string name="pauses_minimum">Minimum pause</string>
+    <string name="pauses_seconds">s</string>
+    <string name="pauses_keep_after_speech">Keep after speech</string>
+    <string name="pauses_keep_before_speech">Keep before speech</string>
+    <string name="pauses_settings_note">Uses original audio. Changes update automatically. After extending a clip, tap Scan again.</string>
+    <string name="pauses_saved_note">Choices are saved. Removing this effect restores the pauses.</string>
 
     <!-- Sound -->
     <string name="sound_dialog_title">Clip sound</string>

@@ -723,6 +723,7 @@ object RangeEditing {
                 color = clip.color?.let { it.copy(id = fresh(it.id)) },
                 crop = clip.crop?.let { it.copy(id = fresh(it.id)) },
                 mirror = clip.mirror?.let { it.copy(id = fresh(it.id)) },
+                pauses = clip.pauses?.let { it.copy(id = fresh(it.id)) },
                 speed = clip.speed?.let { it.copy(id = fresh(it.id)) },
                 subtitleWords = clip.subtitleWords?.map { it.copy(id = fresh(it.id), phraseID = fresh(it.phraseID)) },
             )

@@ -105,10 +105,10 @@ import java.util.Date
 import java.util.Locale
 
 /** A clip of a render plan as a player or export item, cut to the footage it plays: never later than the frame that begins there ([RenderPlan.cutMicros]). */
-fun clippedItem(picture: RenderPlan.Picture, file: File): MediaItem = MediaItem.Builder()
+fun clippedItem(picture: RenderPlan.Picture, file: File, startUs: Long = picture.sourceStartUs, endUs: Long = picture.sourceEndUs): MediaItem = MediaItem.Builder()
     .setUri(Uri.fromFile(file))
     .setMediaId(picture.id)
-    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(picture.sourceStartUs).setEndPositionUs(picture.sourceEndUs).build())
+    .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder().setStartPositionUs(startUs).setEndPositionUs(endUs).build())
     .build()
 
 /**

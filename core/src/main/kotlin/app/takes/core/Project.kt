@@ -249,26 +249,43 @@ data class TimelineClip(
     val frozenFrame: FrozenFrameSegment? = null,
     /** Flips of the clip's picture in the movie's frame, as the original saves them (YouRec/Project.swift:54). Null when it is not flipped. */
     val mirror: MirrorSettings? = null,
+    /**
+     * The pauses taken out of the clip, as the original keeps them
+     * (YouRec/Project.swift:52, YouRec/VideoTools.swift:238-248): the clip
+     * stays one clip and plays its footage without [PauseSettings.cuts], and
+     * the tool opens again on its candidates and their Cut or Keep. Null when
+     * no pause was removed.
+     */
+    val pauses: PauseSettings? = null,
 ) {
     /** How fast the clip plays by its own speed setting: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
 
-    /**
-     * Whether the clip's playback is more than one stretch at [rate]: a held
-     * frame, or an Undercranking or Step Printing that changes its speed.
-     */
-    val timed: Boolean get() = frozenFrame != null || VideoEffectTiming.retimes(videoEffects, start, end)
+    /** Whether a removed pause takes out footage between [start] and [end]. */
+    val paused: Boolean get() = pauses?.cuts?.any { minOf(end, it.end) > maxOf(start, it.start) } == true
+
+    /** The footage the clip plays, [start] to [end] without its removed pauses (YouRec/VideoTools.swift:253-262). */
+    val keptIntervals: List<SourceInterval>
+        get() = if (!paused) listOf(SourceInterval(start, end)) else PauseDetector.keptIntervals(this, pauses!!.cuts)
 
     /**
-     * What the clip plays, as source stretches each at one rate: the clip's
-     * speed times that of its Undercranking and Step Printing
-     * ([VideoEffectTiming.playbackSpans]). A held frame is one stretch from
-     * [start] to [end] taking the hold's duration.
+     * Whether the clip's playback is more than one stretch at [rate]: a held
+     * frame, an Undercranking or Step Printing that changes its speed, or
+     * pauses taken out of it.
+     */
+    val timed: Boolean get() = frozenFrame != null || paused || VideoEffectTiming.retimes(videoEffects, start, end)
+
+    /**
+     * What the clip plays, as source stretches each at one rate: the footage
+     * without its pauses ([keptIntervals]) at the clip's speed times that of
+     * its Undercranking and Step Printing ([VideoEffectTiming.playbackSpans],
+     * YouRec/VideoEffects/VideoEffectTiming.swift:37-62). A held frame is one
+     * stretch from [start] to [end] taking the hold's duration.
      */
     val playbackSpans: List<EffectPlaybackSpan>
         get() = frozenFrame?.let { listOf(EffectPlaybackSpan(start, end, (end - start) / it.duration)) }
             ?: if (!timed) listOf(EffectPlaybackSpan(start, end, rate))
-            else VideoEffectTiming.playbackSpans(videoEffects.orEmpty(), start, end, speed, listOf(SourceInterval(start, end)))
+            else VideoEffectTiming.playbackSpans(videoEffects.orEmpty(), start, end, speed, keptIntervals)
 
     /** Seconds the clip takes on the timeline. [start] and [end] are source seconds. */
     val duration: Double get() = frozenFrame?.duration ?: if (!timed) (end - start) / rate else SpeedMapping.duration(playbackSpans)
@@ -283,6 +300,8 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        // Readers before 22 would play the pauses the clip has taken out.
+        pauses != null -> PAUSES_SCHEMA
         mirror != null -> MIRROR_SCHEMA
         // Readers before 19 knew no held frame and played the time effects at the clip's own speed.
         frozenFrame != null || videoEffects.orEmpty().any { it.kind in VideoEffectTiming.TIME_EFFECTS } -> TIME_EFFECTS_SCHEMA
@@ -307,6 +326,8 @@ data class TimelineClip(
         const val TIME_EFFECTS_SCHEMA = 19
         /** Readers before it would show a flipped clip the right way round. */
         const val MIRROR_SCHEMA = 20
+        /** Readers before it would play the pauses a clip has taken out. */
+        const val PAUSES_SCHEMA = 22
     }
 }
 
@@ -433,7 +454,7 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
      */
     val schema: Int get() = maxOf(
         if (state.layered != null) TrackTimeline.LAYERED_SCHEMA else TrackTimeline.SCHEMA,
-        // A held frame or a time effect ([TimelineClip.TIME_EFFECTS_SCHEMA]) or a mirror ([TimelineClip.MIRROR_SCHEMA]) on a clip.
+        // A held frame or a time effect ([TimelineClip.TIME_EFFECTS_SCHEMA]), a mirror ([TimelineClip.MIRROR_SCHEMA]) or pauses ([TimelineClip.PAUSES_SCHEMA]) on a clip.
         (timeline?.video?.map { it.content } ?: state.clips).maxOfOrNull { it.schema } ?: 0,
         if (state.outputSize != null) EditState.OUTPUT_SIZE_SCHEMA else 0,
     )
@@ -783,6 +804,7 @@ data class Project(
                 val words = clip.subtitleWords.orEmpty()
                 if (words.map { it.id }.toSet().size != words.size) invalid()
                 if (words.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
+                clip.pauses?.let { if (!it.valid(source.duration)) invalid() }
             }
             snapshot.checked = sources to captureLedger
         }
@@ -797,7 +819,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = EditState.OUTPUT_SIZE_SCHEMA
+        const val LATEST_READABLE_SCHEMA = TimelineClip.PAUSES_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

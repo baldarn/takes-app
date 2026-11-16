@@ -467,9 +467,11 @@ object TimelineEditing {
     }
 
     /**
-     * Removes stretches of source time from the clip at [index], such as
-     * detected pauses, leaving the pieces in between as separate clips with
-     * the gaps closed. Pieces too short to stand alone are dropped with the
+     * Removes stretches of source time from the clip at [index], leaving the
+     * pieces in between as separate clips with the gaps closed: what the
+     * Pauses tool of earlier versions did. The tool now keeps the pauses as a
+     * setting of the clip ([setPauses]), as the original does; this stays for
+     * the parity suite and the golden projects, which hold edits made so. Pieces too short to stand alone are dropped with the
      * cut. Titles stay on every piece. Null when nothing would change or
      * nothing would be left.
      *
@@ -1009,13 +1011,41 @@ object TimelineEditing {
         val speed = if (rate == 1.0) null else (clip.speed ?: SpeedSettings()).copy(rate = rate)
         if (speed?.valid == false || speed == clip.speed) return null
         // The speed is merged as an edited recipe, with its ripple ([TrackEditing.settingSpeed]); the clips keep their order.
+        return retimed(state, index, { it.copy(speed = speed) }) { timeline -> TrackEditing.settingSpeed(timeline, clip.id, speed) }
+    }
+
+    // MARK: Pauses
+
+    /**
+     * Takes [pauses] out of the clip at [index], or puts back every pause it
+     * had taken out when null, as the original's Pauses tool writes them on
+     * the clip (YouRec/EditorTools.swift:618-640): the clip stays one clip
+     * and plays its footage without [PauseSettings.cuts], so later clips
+     * move up. Its transitions stay as they are unless together they cost
+     * more than the clip now lasts; then they are scaled together to fit, as
+     * for a change of speed (YouRec/TrackTimeline.swift:1376-1385). Null
+     * when nothing changes.
+     */
+    fun setPauses(state: EditState, index: Int, pauses: PauseSettings?): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        if (pauses == clip.pauses) return null
+        return retimed(state, index, { it.copy(pauses = pauses) }) { timeline -> TrackEditing.settingPauses(timeline, clip.id, pauses) }
+    }
+
+    /**
+     * The clip at [index] [change]d by [operation] on the timeline: an edit
+     * that keeps its footage and changes how long it plays. On a sequence
+     * the fits saved where its transitions are scaled are the ones
+     * [refitted] finds.
+     */
+    private fun retimed(state: EditState, index: Int, change: (TimelineClip) -> TimelineClip, operation: (TrackTimeline) -> TrackTimeline?): EditState? {
         val base = TrackWrapping.fitted(state)
-        val result = TrackWrapping.edit(base, sound = false) { TrackEditing.settingSpeed(it, clip.id, speed) } ?: return null
+        val result = TrackWrapping.edit(base, sound = false, operation = operation) ?: return null
         // Off a sequence the fits are the track model's.
         if (!state.isSequence) return result
         // Not adopted (the fit's last digits): where the clip's transitions are scaled to fit it, the fits saved are the ones today's rule finds
         // ([refitted]), to the last digit; the track model measures the clip in ticks and comes out a millionth apart.
-        val wanted = refitted(base.clips.toMutableList().also { it[index] = it[index].copy(speed = speed) }, index).associateBy { it.id }
+        val wanted = refitted(base.clips.toMutableList().also { it[index] = change(it[index]) }, index).associateBy { it.id }
         return result.copy(clips = result.clips.map { made ->
             val fits = wanted[made.id] ?: return@map made
             fun same(a: TransitionFit?, b: TransitionFit?) = a != null && b != null && a != b && kotlin.math.abs(a.factor - b.factor) <= FIT_ROUNDING

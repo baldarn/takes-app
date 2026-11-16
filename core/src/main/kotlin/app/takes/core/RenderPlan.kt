@@ -89,6 +89,9 @@ data class RenderPlan(
 
         /** Seconds into the picture at [position] seconds of footage past [sourceStart]. */
         fun offset(position: Double): Double = PicturePlayback.offset(spans, position)
+
+        /** The stretches of its footage a player is given one after another ([PicturePlayback.pieces]): one, unless pauses were taken out of it. */
+        val pieces: List<PicturePlayback.Piece> by lazy { PicturePlayback.pieces(spans, duration) }
     }
 
     /** One player of the preview: the clips it holds, in order, and the chains they form. */
@@ -280,12 +283,12 @@ data class RenderPlan(
                 val starts = maxOf(begins, from)
                 val stops = minOf(ends, to)
                 if (stops - starts < SHORTEST_PART) continue
-                black(deck, starts)
-                // The whole clip is cut where the edit cuts it; a part of it where the stretch does.
-                val first = if (starts <= begins) picture.sourceStartUs else cutMicros(picture.sourceStart + picture.position(starts - begins))
-                val last = if (stops >= ends) picture.sourceEndUs else cutMicros(picture.sourceStart + picture.position(stops - begins))
-                decks[deck] += Part.Footage(index, starts, stops, first, maxOf(first + 1, last))
-                filled[deck] = stops
+                // A clip with pauses taken out is a part for each stretch of its footage between them.
+                for (part in footage(index, begins, ends, picture.sourceStart, picture.sourceStartUs, picture.sourceEndUs, picture.pieces, picture::position, starts, stops)) {
+                    black(deck, part.start)
+                    decks[deck] += part
+                    filled[deck] = part.end
+                }
             }
         }
         for (deck in decks.indices) black(deck, to)
@@ -321,6 +324,43 @@ data class RenderPlan(
     }
 
     companion object {
+        /**
+         * The parts of the picture at [index], which plays from [begins] to
+         * [ends] of the movie, that lie between [starts] and [stops]: one for
+         * each of its [pieces] there, cut where the stretch cuts it. The
+         * whole picture is cut where the edit cuts it ([sourceStartUs],
+         * [sourceEndUs]); a part of it where the stretch or a pause does, at
+         * the second of footage [position] gives.
+         */
+        internal fun footage(
+            index: Int, begins: Double, ends: Double, sourceStart: Double, sourceStartUs: Long, sourceEndUs: Long,
+            pieces: List<PicturePlayback.Piece>, position: (Double) -> Double, starts: Double, stops: Double,
+        ): List<Part.Footage> {
+            if (pieces.size <= 1) {
+                val first = if (starts <= begins) sourceStartUs else cutMicros(sourceStart + position(starts - begins))
+                val last = if (stops >= ends) sourceEndUs else cutMicros(sourceStart + position(stops - begins))
+                return listOf(Part.Footage(index, starts, stops, first, maxOf(first + 1, last)))
+            }
+            val parts = ArrayList<Part.Footage>(pieces.size)
+            pieces.forEachIndexed { number, piece ->
+                val opens = if (number == 0) begins else begins + piece.from
+                val closes = if (number == pieces.lastIndex) ends else begins + piece.to
+                val from = maxOf(opens, starts)
+                val to = minOf(closes, stops)
+                if (to - from < SHORTEST_PART) return@forEachIndexed
+                val first = when {
+                    from <= opens -> if (number == 0) sourceStartUs else cutMicros(piece.sourceStart)
+                    else -> cutMicros(minOf(piece.sourceEnd, sourceStart + position(from - begins)))
+                }
+                val last = when {
+                    to >= closes -> if (number == pieces.lastIndex) sourceEndUs else cutMicros(piece.sourceEnd)
+                    else -> cutMicros(maxOf(piece.sourceStart, sourceStart + position(to - begins)))
+                }
+                parts += Part.Footage(index, from, to, first, maxOf(first + 1, last))
+            }
+            return parts
+        }
+
         /** How much of the movie is drawn before and after a section of an export, in seconds. */
         const val SECTION_MARGIN = 0.5
 

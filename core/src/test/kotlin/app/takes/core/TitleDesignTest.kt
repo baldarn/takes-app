@@ -286,7 +286,7 @@ class TitleProjectTest {
         for (title in listOf(plain.copy(appearance = TitleDesign()), plain.copy(motion = fade), plain.copy(appearance = TitleDesign.looks[2].second, motion = fade))) {
             val project = project(title)
             assertEquals(12, project.schemaVersion)
-            assertEquals(21, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21)
+            assertEquals(22, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22)
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }

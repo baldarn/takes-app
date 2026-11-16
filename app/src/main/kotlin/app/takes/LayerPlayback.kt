@@ -27,11 +27,20 @@ import kotlin.math.abs
  * holds: that the export draws.
  */
 internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerPlan, private val speed: () -> Double) {
-    /** The pictures each lane holds, by index, in the order they play. */
-    private val items = List(lanes.size) { lane -> plan.pictures.filter { it.lane == lane }.sortedWith(compareBy<LayerPlan.Picture> { it.start }.thenBy { it.index }).map { it.index } }
+    /** A playlist item: the piece [piece] of the picture at [picture] ([LayerPlan.Picture.pieces]). */
+    private data class Item(val picture: Int, val piece: Int)
+
+    /**
+     * The pictures each lane holds, in the order they play: a picture with pauses taken out is an item for each
+     * stretch of its footage between them, which the player plays one after another without a break.
+     */
+    private val items = List(lanes.size) { lane ->
+        plan.pictures.filter { it.lane == lane }.sortedWith(compareBy<LayerPlan.Picture> { it.start }.thenBy { it.index })
+            .flatMap { picture -> (0 until maxOf(1, picture.pieces.size)).map { Item(picture.index, it) } }
+    }
 
     /** What the players hold: two plans that give the same need no new playlists. */
-    val media: Any = items to plan.pictures.map { listOf(it.id, it.sourceID, it.sourceStartUs, it.sourceEndUs, it.rate) }
+    val media: Any = items to plan.pictures.map { listOf(it.id, it.sourceID, it.sourceStartUs, it.sourceEndUs, it.rate, it.pieces) }
 
     private val pictures get() = plan.pictures
     private var time = 0.0
@@ -41,37 +50,67 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
         if (previous == media) return
         lanes.forEachIndexed { lane, player ->
             if (items[lane].isEmpty()) { if (player.mediaItemCount > 0) player.clearMediaItems(); return@forEachIndexed }
-            player.setMediaItems(items[lane].map { clippedItem(pictures[it], files.getValue(pictures[it].sourceID)) })
+            player.setMediaItems(items[lane].map { item ->
+                val picture = pictures[item.picture]
+                val pieces = picture.pieces
+                if (pieces.size <= 1) clippedItem(picture, files.getValue(picture.sourceID))
+                else PicturePlayback.cuts(pieces, item.piece, picture.sourceStartUs, picture.sourceEndUs).let { (start, end) -> clippedItem(picture, files.getValue(picture.sourceID), start, end) }
+            })
             player.prepare()
         }
     }
 
     /** The picture the player of [lane] is on now. */
-    private fun current(lane: Int): Int? = items[lane].getOrNull(lanes[lane].currentMediaItemIndex)
+    private fun current(lane: Int): Int? = items[lane].getOrNull(lanes[lane].currentMediaItemIndex)?.picture
+
+    /** Whether the player of [lane] is on the first piece of its picture. */
+    private fun onFirstPiece(lane: Int): Boolean = items[lane].getOrNull(lanes[lane].currentMediaItemIndex)?.piece == 0
+
+    /** Whether the player of [lane] is on the last piece of its picture. */
+    private fun onLastPiece(lane: Int): Boolean = items[lane].getOrNull(lanes[lane].currentMediaItemIndex)?.let { it.piece >= pictures[it.picture].pieces.lastIndex } == true
+
+    /** Seconds of footage past the first of its picture ([LayerPlan.Picture.position]) where the player of [lane] is. */
+    private fun footage(lane: Int): Double {
+        val into = lanes[lane].currentPosition.coerceAtLeast(0) / 1000.0
+        val item = items[lane].getOrNull(lanes[lane].currentMediaItemIndex) ?: return into
+        val picture = pictures[item.picture]
+        val piece = picture.pieces.getOrNull(item.piece) ?: return into
+        return piece.sourceStart - picture.sourceStart + into
+    }
+
+    /** Puts the player of [lane] [offset] seconds into the picture at [picture]: on its piece there, where that piece has got to. */
+    private fun seekInto(lane: Int, picture: Int, offset: Double) {
+        val shown = pictures[picture]
+        val pieces = shown.pieces
+        val at = offset.coerceIn(0.0, shown.duration)
+        if (pieces.size <= 1) { lanes[lane].seekTo(items[lane].indexOf(Item(picture, 0)), (shown.position(at) * 1000).toLong()); return }
+        val number = PicturePlayback.piece(pieces, at)
+        val piece = pieces[number]
+        val into = shown.sourceStart + shown.position(at) - piece.sourceStart
+        lanes[lane].seekTo(items[lane].indexOf(Item(picture, number)), (into.coerceIn(0.0, piece.sourceEnd - piece.sourceStart) * 1000).toLong())
+    }
 
     /** The frame [lane] holds at [time] though its picture may be over: that of a still. */
     private fun held(lane: Int, time: Double): LayerPlan.Freeze? = plan.freezes.firstOrNull { it.lane == lane && time >= it.from && time < it.until }
 
     /** The next picture of [lane] after [time], where its player waits. */
-    private fun coming(lane: Int, time: Double): Int? = items[lane].firstOrNull { pictures[it].start > time }
+    private fun coming(lane: Int, time: Double): Int? = items[lane].firstOrNull { pictures[it.picture].start > time }?.picture
 
     /** Whether the run of pictures on [lane] ends with [picture]: the next on the lane does not follow straight on. */
     private fun endsRun(lane: Int, picture: Int): Boolean = plan.endings.any { it.deck == lane && abs(it.at - pictures[picture].end) < 1e-6 }
 
     /** Plays the lane at its picture's speed where the player is in it: a retimed picture changes speed as it goes. */
     private fun pace(player: ExoPlayer, picture: Int?) {
-        val at = player.currentPosition.coerceAtLeast(0) / 1000.0
+        val at = footage(lanes.indexOf(player))
         val rate = ((picture?.let { PicturePlayback.rate(pictures[it].spans, at) } ?: 1.0) * speed()).toFloat()
         if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
     }
 
     private fun stopAtRunEnd(lane: Int) {
         val player = lanes[lane]
-        val last = current(lane)?.let { endsRun(lane, it) } == true
+        val last = current(lane)?.let { endsRun(lane, it) } == true && onLastPiece(lane)
         if (player.pauseAtEndOfMediaItems != last) player.pauseAtEndOfMediaItems = last
     }
-
-    private fun position(picture: LayerPlan.Picture, offset: Double): Long = (picture.position(offset.coerceIn(0.0, picture.duration)) * 1000).toLong()
 
     /** Puts every lane where [time] needs it, and returns the time, inside the movie. */
     fun seek(time: Double, starting: Boolean = false): Double {
@@ -83,10 +122,9 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
             val on = plan.onLane(lane, at)
             val frozen = held(lane, at)
             when {
-                frozen != null && (on == null || (on.index == frozen.picture && !starting)) ->
-                    player.seekTo(items[lane].indexOf(frozen.picture), position(pictures[frozen.picture], frozen.offset))
-                on != null -> player.seekTo(items[lane].indexOf(on.index), position(on, at - on.start))
-                else -> coming(lane, at)?.let { player.seekTo(items[lane].indexOf(it), 0) }
+                frozen != null && (on == null || (on.index == frozen.picture && !starting)) -> seekInto(lane, frozen.picture, frozen.offset)
+                on != null -> seekInto(lane, on.index, at - on.start)
+                else -> coming(lane, at)?.let { player.seekTo(items[lane].indexOf(Item(it, 0)), 0) }
             }
             pace(player, current(lane))
             stopAtRunEnd(lane)
@@ -109,10 +147,10 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
             when {
                 on == null -> time + passed * speed()
                 // A player that has gone on to the next picture of its run: the time is that picture's.
-                on != picture.index -> if (pictures[on].start >= picture.start) pictures[on].start + pictures[on].offset(player.currentPosition.coerceAtLeast(0) / 1000.0) else time + passed * speed()
+                on != picture.index -> if (pictures[on].start >= picture.start) pictures[on].start + pictures[on].offset(footage(lane)) else time + passed * speed()
                 player.playbackState == Player.STATE_ENDED -> picture.end
-                !player.playWhenReady && player.playbackState == Player.STATE_READY && player.currentPosition >= player.duration - 30 -> picture.end
-                else -> (picture.start + picture.offset(player.currentPosition.coerceAtLeast(0) / 1000.0)).coerceAtMost(picture.end)
+                !player.playWhenReady && player.playbackState == Player.STATE_READY && onLastPiece(lane) && player.currentPosition >= player.duration - 30 -> picture.end
+                else -> (picture.start + picture.offset(footage(lane))).coerceAtMost(picture.end)
             }
         }.coerceAtMost(plan.duration)
         for (lane in lanes.indices) {
@@ -122,16 +160,16 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
             val now = current(lane)
             if (on != null) {
                 // A picture whose moment has come starts from where its lane was standing.
-                if (now != on.index) player.seekTo(items[lane].indexOf(on.index), position(on, time - on.start))
-                val atEnd = now == on.index && endsRun(lane, on.index) && player.currentPosition >= player.duration - 30
+                if (now != on.index) seekInto(lane, on.index, time - on.start)
+                val atEnd = now == on.index && endsRun(lane, on.index) && onLastPiece(lane) && player.currentPosition >= player.duration - 30
                 if (!player.playWhenReady && !atEnd) player.play()
                 pace(player, current(lane))
             } else if (held(lane, time) == null) {
                 // A lane that has finished waits on its next picture, once its last frame is no longer shown.
                 val next = coming(lane, time)
-                if (next != null && now != next) {
+                if (next != null && (now != next || !onFirstPiece(lane))) {
                     player.pause()
-                    player.seekTo(items[lane].indexOf(next), 0)
+                    player.seekTo(items[lane].indexOf(Item(next, 0)), 0)
                 } else if (next == null && player.playWhenReady) player.pause()
             }
             stopAtRunEnd(lane)

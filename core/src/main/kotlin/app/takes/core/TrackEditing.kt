@@ -484,6 +484,7 @@ object TrackEditing {
                 color = original.color?.let { it.copy(id = fresh(it.id)) },
                 crop = original.crop?.let { it.copy(id = fresh(it.id)) },
                 mirror = original.mirror?.let { it.copy(id = fresh(it.id)) },
+                pauses = original.pauses?.let { it.copy(id = fresh(it.id)) },
                 texts = original.texts?.map { it.copy(id = fresh(it.id)) },
                 bookmarks = original.bookmarks?.map { it.copy(id = newID()) },
                 subtitleWords = original.subtitleWords?.map { it.copy(id = fresh(it.id), phraseID = fresh(it.phraseID)) },
@@ -1002,6 +1003,19 @@ object TrackEditing {
         val clips = timeline.projectedClips
         if (clips.none { it.id == id } || (speed != null && !speed.valid)) return null
         return replacingVideoContents(timeline, clips.map { if (it.id == id) it.copy(speed = speed) else it }).takeIf { it != timeline }
+    }
+
+    /**
+     * The picture [id] with [pauses] taken out of it, or none when null, with
+     * the ripple of [replacingVideoContents]: the clip keeps its footage and
+     * plays it shorter, and its transitions are scaled together only when
+     * they cost more than it now lasts (YouRec/TrackTimeline.swift:1376-1385).
+     * Null when [id] is no picture or nothing changes.
+     */
+    fun settingPauses(timeline: TrackTimeline, id: String, pauses: PauseSettings?): TrackTimeline? {
+        val clips = timeline.projectedClips
+        if (clips.none { it.id == id }) return null
+        return replacingVideoContents(timeline, clips.map { if (it.id == id) it.copy(pauses = pauses) else it }).takeIf { it != timeline }
     }
 
     /** The picture [id] with the source bounds [start]…[end], with the ripple of [replacingVideoContents]. Null when [id] is no picture or nothing changes. */
