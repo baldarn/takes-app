@@ -31,6 +31,8 @@ import app.takes.core.TimelineClip
 import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectSettings
 import app.takes.core.VideoEffectTime
+import app.takes.core.VideoEffectTiming
+import app.takes.core.VideoEffectSequenceClock
 import app.takes.core.VideoEffectFormulas
 import app.takes.core.VideoEffectGrain
 import app.takes.core.VideoEffectShaderMath
@@ -59,8 +61,10 @@ object EffectShader {
         VideoEffectID.RgbOffset, VideoEffectID.NegativeStrobe, VideoEffectID.Kaleidoscope,
         // The second batch, with the pictures drawn before its passes (EffectPasses.kt).
         VideoEffectID.Halation, VideoEffectID.SixteenMM, VideoEffectID.SuperEight, VideoEffectID.Widescreen, VideoEffectID.CrashZoom,
-        // The third: Quantization with the palette from the scene, Chroma Key's spatial keyer.
-        VideoEffectID.Quantization, VideoEffectID.ChromaKey,
+        // The third: Quantization with the palette from the scene, Chroma Key's spatial keyer, and the pixels of the
+        // time effects: Freeze Frame's push-in and Print, Undercranking's flicker and weave (TimeEffectRendering.kt holds
+        // their frames and blends Step Printing's).
+        VideoEffectID.Quantization, VideoEffectID.ChromaKey, VideoEffectID.FreezeFrame, VideoEffectID.Undercranking,
     )
 
     /** How many parameter slots the shader takes. */
@@ -105,7 +109,7 @@ object EffectShader {
         bool near(float a, float b) { return abs(a - b) < 0.5; }
     """
 
-    private const val EFFECTS = """
+    private val EFFECTS = """
         float sCurve(float y, float contrast) {
             y = clamp(y, 0.0, 1.0);
             float a = pow(y, contrast);
@@ -438,6 +442,19 @@ object EffectShader {
             if (uP13.x > 0.5) return vec3(a);
             return o;
         }
+        // Metal:96, :386-387: the held frame magnified about the centre by the push-in, uHead.z the hold's clock; Print's grey,
+        // vignette and colour grain.
+        vec3 freezeFrame(vec2 uv, vec2 q, float pixelScale) {
+            float zoom = 1.0 + uP1.x * clamp(uHead.z / max(0.001, uP0.x), 0.0, 1.0);
+            vec3 o = src((uv - 0.5) / zoom + 0.5);
+            if (uP2.x > 0.5) {
+                o = mix(vec3(luma(o)), o, 0.95) * (1.0 - 0.12 * smoothstep(0.25, 0.7, length(uv - 0.5)));
+                o = grained(o, q, pixelScale, ${app.takes.core.VideoEffectFormulasC.FREEZE_PRINT_GRAIN}, false);
+            }
+            return o;
+        }
+        // Metal:97-100, :389: magnified by 1.01, moved by the weave (uX0.xy, pixels) and multiplied by the flicker (uX0.z).
+        vec3 undercranking(vec2 uv) { return src((uv - 0.5) / 1.01 + 0.5 + uX0.xy / uSize) * uX0.z; }
         vec3 written(vec3 c) { return clamp(srgb(max(c, 0.0)), 0.0, 1.0); }
     """
 
@@ -460,6 +477,8 @@ object EffectShader {
         9 to "o = crashZoom(uv);",
         7 to "o = quantization(c, uv, q);",
         18 to "o = chromaKey(c, uv);",
+        12 to "o = freezeFrame(uv, q, pixelScale);",
+        14 to "o = undercranking(uv);",
     )
 
     /**
@@ -715,9 +734,14 @@ object EffectShader {
      * drawn: the ones this shader draws. [inputs] is what the frame brings
      * for an effect, by its id: a Quantization's palette.
      */
-    fun passes(effects: List<VideoEffectSettings>?, sourceTime: Double, frameRate: Double, inputs: Map<String, EffectFrameInputs> = emptyMap()): List<EffectUniforms> {
+    fun passes(
+        effects: List<VideoEffectSettings>?, sourceTime: Double, frameRate: Double, inputs: Map<String, EffectFrameInputs> = emptyMap(),
+        holdTime: Double? = null,
+    ): List<EffectUniforms> {
         if (effects.isNullOrEmpty()) return emptyList()
-        return EffectFrame.of(effects, sourceTime, VideoEffectTime.frameIndex(sourceTime, frameRate), frameRate, inputs = inputs).filter { it.effect in drawn }
+        // On a held frame the grain is seeded by the hold's clock, so a freeze's Print grain moves (VideoEffectFrame.kt).
+        val frame = VideoEffectTime.frameIndex(holdTime ?: sourceTime, frameRate)
+        return EffectFrame.of(effects, sourceTime, frame, frameRate, holdTime = holdTime, inputs = inputs).filter { it.effect in drawn }
     }
 
     /**
@@ -735,6 +759,11 @@ object EffectShader {
             VideoEffectID.SuperEight -> {
                 VideoEffectFormulasB.superEightWeave(u.frame, u.p[2].x, size).let { out[0] = it.x.toFloat(); out[1] = it.y.toFloat() }
                 VideoEffectFormulasB.superEightLeak(u.time).let { out[4] = it.pulse.toFloat(); out[5] = if (it.fromLeft) 1f else 0f }
+            }
+            VideoEffectID.Undercranking -> {
+                val frame = app.takes.core.VideoEffectTiming.undercrankingFrame(u.time, u.number("fps"))
+                app.takes.core.VideoEffectTiming.undercrankingWeave(frame, u.number("weave"), size).let { out[0] = it.x.toFloat(); out[1] = it.y.toFloat() }
+                out[2] = app.takes.core.VideoEffectTiming.undercrankingFlicker(frame, u.number("flicker")).toFloat()
             }
             VideoEffectID.CrashZoom -> {
                 val release = if (u.flags and EffectUniforms.FLAG_RELEASE != 0) u.p[39].x else null
@@ -769,6 +798,7 @@ object EffectShader {
         VideoEffectID.Noir -> if (u.p[2].x > .5) Pair(VideoEffectFormulas.NOIR_GRAIN_SIZE, false) else null
         VideoEffectID.SixteenMM -> if (u.p[0].x > 0) Pair(VideoEffectFormulasB.sixteenMMGrainSizes[u.p[1].x.toInt().coerceIn(0, 2)], u.p[5].x < .5) else null
         VideoEffectID.SuperEight -> if (u.p[1].x > 0) Pair(VideoEffectFormulasB.SUPER_EIGHT_GRAIN_SIZE, true) else null
+        VideoEffectID.FreezeFrame -> if (u.p[2].x > .5) Pair(app.takes.core.VideoEffectFormulasC.FREEZE_PRINT_GRAIN_SIZE, true) else null
         else -> null
     }
 
@@ -807,7 +837,11 @@ class VideoEffectChain(
     private val begins: Double,
     private val frameRate: Double,
     private val assets: EffectAssets = EffectAssets.NONE,
+    /** The frames a second of the clip's footage, for the frame a cadence holds. */
+    private val sourceFPS: Double = 30.0,
 ) : GlEffect {
+    private val clock = VideoEffectSequenceClock.of(clip)
+
     override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = clip.videoEffects.orEmpty().none { it.kind in EffectShader.drawn }
 
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program()
@@ -887,8 +921,11 @@ class VideoEffectChain(
         override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
             val program = prepared()
             val offset = (presentationTimeUs / 1e6 - begins).coerceIn(0.0, clip.duration)
-            val sourceTime = clip.sourceTime(offset)
-            val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime))
+            // A held frame, of a freeze or of a cadence, is drawn as it looks at the second it holds (TimeEffectRendering.kt).
+            val shown = if (holdsFrames(clip)) VideoEffectTiming.shown(clip, frameOffset(presentationTimeUs, begins, clip), sourceFPS, clock)
+            else app.takes.core.VideoEffectShown(clip.sourceTime(offset))
+            val sourceTime = shown.sourceTime
+            val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime), shown.holdTime)
             if (passes.isEmpty()) {
                 // The picture as it is, pixel for pixel: read without filtering, which some GPUs let a hair of a
                 // neighbour into at a pixel's centre.

@@ -23,6 +23,8 @@ android {
         targetSdk = 36
         versionCode = 12
         versionName = "0.10"
+        // The pixel tests' runner; the sound gate's is declared beside it in the test manifest.
+        testInstrumentationRunner = "app.takes.pixels.TransitionPixelRunner"
     }
     signingConfigs {
         if (keystoreProperties.containsKey("storeFile")) {
