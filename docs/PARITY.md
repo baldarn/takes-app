@@ -19,34 +19,34 @@ Size: S = hours, M = about a day, L = several days. "Emulator?" says whether the
 
 Brought up to date on 2026-11-15, status only and without a new reading of the original: section 6 (transitions), section 7 (titles), section 9 (subtitles, where no status changed) and, in section 4, the rows on selection, range, tool scope and clipboard, with `main` at `27746ad`; and the rows this change itself delivers (previous/next change, snap to cuts, the transition badge, the opening and the close staying with their clip). The other rows and their line numbers are as they were audited. What still differs inside the transitions is in `docs/TRANSITIONS-REVIEW.md`, inside the subtitles in `docs/SUBTITLES-REVIEW.md`.
 
-Work in flight on other branches, not counted as done here: `agent/titles` (title tool with design, motion, timing, placement), `agent/deepfilter` (DeepFilterNet3 module), `agent/transitions-core`.
+Brought up to date on 2026-11-16 from the code on `main` at `59ae2d6`: the work packages list, section 10 (video effects), the export rows of section 11, the rows of sections 2, 3 and 5 that the new core files and the recorder work changed (issue 70 lists them), and two items of the last section, now settled and removed from it: the selected project is remembered across launches (A/ProjectStore.kt:103, 154), and 1D `.cube` files are read within the 32 MB and size limits (C/CubeLUT.kt). Other rows of section 3 (front light, haptics, focus, meter, settings sheet and more) were changed on `main` too and are not re-audited here.
 
 ## Summary
 
 | Status | Count |
 |---|---|
-| DONE | 72 |
+| DONE | 98 |
 | PARTIAL | 45 |
-| CORE ONLY | 9 |
-| MISSING | 77 |
-| N/A | 6 |
+| CORE ONLY | 15 |
+| MISSING | 46 |
+| N/A | 5 |
 | Total | 209 |
 
 Per area:
 
 | Area | DONE | PARTIAL | CORE ONLY | MISSING | N/A |
 |---|---|---|---|---|---|
-| 1. App shell and project list | 11 | 6 | 0 | 6 | 0 |
-| 2. Recovery and storage | 2 | 4 | 0 | 1 | 0 |
-| 3. Recorder and camera | 11 | 10 | 0 | 19 | 2 |
-| 4. Editor: timeline, playback, structure | 12 | 9 | 1 | 11 | 1 |
-| 5. Editor: picture tools | 1 | 4 | 7 | 6 | 0 |
+| 1. App shell and project list | 15 | 4 | 1 | 3 | 0 |
+| 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
+| 3. Recorder and camera | 12 | 10 | 4 | 14 | 2 |
+| 4. Editor: timeline, playback, structure | 20 | 7 | 1 | 6 | 0 |
+| 5. Editor: picture tools | 4 | 3 | 7 | 4 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 9 | 0 | 1 | 0 | 0 |
 | 8. Audio | 3 | 6 | 0 | 12 | 0 |
-| 9. Subtitles | 8 | 3 | 0 | 2 | 0 |
-| 10. Video effects | 0 | 0 | 0 | 14 | 1 |
-| 11. Export | 6 | 1 | 0 | 5 | 0 |
+| 9. Subtitles | 10 | 1 | 0 | 2 | 0 |
+| 10. Video effects | 4 | 7 | 1 | 2 | 1 |
+| 11. Export | 9 | 1 | 0 | 2 | 0 |
 | 12. Settings, credits, localisation, accessibility | 3 | 1 | 0 | 1 | 2 |
 
 The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
@@ -56,7 +56,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
 | Three destinations: Record, Projects, Edit | O/ContentView.swift:66-70 | DONE | A/MainActivity.kt:50-69 | — | | |
-| Tabs disabled during a take or an import | O/ContentView.swift:541-550 | MISSING | A/MainActivity.kt:65-68 (always enabled; leaving the recorder ends the take via ON_STOP/detach, A/RecorderScreen.kt:117-121) | Guard the tab row while recording or importing | S | Yes |
+| Tabs disabled during a take or an import | O/ContentView.swift:541-550 | PARTIAL | A/MainActivity.kt:66-72 (the tabs are off and dimmed while `hasActiveTake`) | Not during an import | S | Yes |
 | Landscape interface (editor side-by-side layout, recorder rotates) | O/YouRecApp.swift:77-110, O/EditorView.swift:354-383 | MISSING | `screenOrientation="portrait"` in app/src/main/AndroidManifest.xml:22 | Landscape layouts for recorder and editor | L | Yes |
 | First launch creates a project; last project re-selected | O/ContentView.swift:341, O/ProjectStore.swift:64 | PARTIAL | A/CaptureController.kt:401 creates on first Record; A/ProjectStore.kt:95 `select` | Verify the selection is persisted across launches (not confirmed, see last section) | S | Yes |
 | New project | O/ContentView.swift:629 | DONE | A/ProjectsScreen.kt:123, A/ProjectStore.kt:100 | — | | |
@@ -85,9 +85,9 @@ The port goes beyond the original in three places, not counted above: Italian lo
 |---|---|---|---|---|---|---|
 | Atomic manifest, content-addressed history, five rotating revisions with fallback | O/ProjectRecovery.swift:115-226 | DONE | C/ProjectDisk.kt:27-51, 119-131 | — | | |
 | Finished takes missing from the manifest are indexed at launch | O/ProjectStore.swift:485-566 | DONE | A/ProjectStore.kt:427-432, C/ProjectDisk.kt:73 | — | | |
-| Interrupted (unfinalised) recording salvaged: fragmented file, prefix copy or remux, quarantine | O/CaptureSegmentWriter.swift:213-264, O/RecordingSalvage.swift:123-257 | PARTIAL | CameraX 1.6.2 writes through Media3's muxer, which rewrites the index about once a second, so a killed take is readable as it is and is indexed at launch with its marks (A/ProjectStore.kt `indexFinishedTakes`). Checked on a Galaxy A54 on 2026-11-15: a take killed about 17 s in came back as 16.06 s with both marks, one killed right behind Stop as 8.04 s, a kill during a pause duplicated nothing. A leftover that cannot be read (a take killed in its first second) is moved with its events to `Recovery/` (C/ProjectDisk.kt `quarantineRecording`) and listed in "Unfinished recordings" in the project's menu with "Save file" and "Delete" (A/UnfinishedRecordings.kt), as O/ContentView.swift:392-419 | No repair of a file without an index (the original copies the playable prefix or remuxes it); no receipts, no repair-space budget, no banner with "Review" | M | Yes |
-| "Changes not saved" banner with Retry and an in-memory draft journal | O/ContentView.swift:76-85, O/ProjectRecovery.swift:373-401 | PARTIAL | A/ProjectStore.kt:416-423 shows a one-off error | Retry, draft kept and journalled | M | Yes (fill the disk) |
-| Free-space floor before recording | O/ProjectRecovery.swift:421-464 (75 MB / 170 MB per quality at O/CaptureController.swift:1357) | PARTIAL | A/CaptureController.kt:403-406 (fixed 300 MB) | Auto-pause while recording when space runs low (O/CaptureController.swift:2682-2695); CameraX only reports the failure afterwards | S | Partly |
+| Interrupted (unfinalised) recording salvaged: fragmented file, prefix copy or remux, quarantine | O/CaptureSegmentWriter.swift:213-264, O/RecordingSalvage.swift:123-257 | PARTIAL | CameraX 1.6.2 writes through Media3's muxer, which rewrites the index about once a second, so a killed take is readable as it is and is indexed at launch with its marks (A/ProjectStore.kt `indexFinishedTakes`). Checked on a Galaxy A54 on 2026-11-15: a take killed about 17 s in came back as 16.06 s with both marks, one killed right behind Stop as 8.04 s, a kill during a pause duplicated nothing. A leftover that cannot be read (a take killed in its first second) is moved with its events to `Recovery/` (C/ProjectDisk.kt `quarantineRecording`) and listed in "Unfinished recordings" in the project's menu with "Save file" and "Delete" (A/UnfinishedRecordings.kt), as O/ContentView.swift:392-419 | No repair of a file without an index (the original copies the playable prefix or remuxes it); no receipts, no repair-space budget, no banner with "Review". The rules are in the core and unused: C/RecoveryRules.kt (`completePrefix` finds the last closed fragment from the boxes, `copyBudget`, `receiptMatches`, `isReclaimableReserve`) | M | Yes |
+| "Changes not saved" banner with Retry and an in-memory draft journal | O/ContentView.swift:76-85, O/ProjectRecovery.swift:373-401 | PARTIAL | A/ProjectStore.kt:416-423 shows a one-off error; when a journalled draft applies is in C/RecoveryRules.kt (`draftApplies`, `draftCommitted`) | Retry, draft kept and journalled | M | Yes (fill the disk) |
+| Free-space floor before recording | O/ProjectRecovery.swift:421-464 (75 MB / 170 MB per quality at O/CaptureController.swift:1357) | DONE | C/RecordingSpace.kt (the original's rule, `ORIGINAL`, and the numbers used, `ANDROID_FLAT`: no floor, 300 MiB to start, the pause during a take as in the original); A/CaptureController.kt:753-769 checks it before a segment and pauses the take while there is room to finish the file | The device floor of the original (`max(512 MB, min(2 GB, total/50))`) is left out on purpose | | |
 | Free-space checks for zip, duplicate, restore | O/ProjectStore.swift:628-646 | PARTIAL | C/ProjectRestore.kt (NotEnoughSpace), C/ProjectDuplicate.kt | Not confirmed for zip | S | Yes |
 | Processing caches wiped or trimmed (previews, cleaned audio) | O/ProjectStore.swift:138-141, O/SourceMediaCache.swift:108 | PARTIAL | A/Denoiser.kt:26 keeps cleaned WAVs in the project cache | No quota or trim found | S | Yes |
 
@@ -95,16 +95,16 @@ The port goes beyond the original in three places, not counted above: Italian lo
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
-| Record, pause, resume, stop; one immutable file per segment | O/CaptureController.swift:1391-1487 | DONE | A/CaptureController.kt:398-507, A/RecorderScreen.kt:266-314 | — | | |
+| Record, pause, resume, stop; one immutable file per segment | O/CaptureController.swift:1391-1487 | DONE | A/CaptureController.kt, A/RecorderScreen.kt:500-544: the big button starts a take, stops the segment being written and resumes, as in the original; Stop beside it while paused | — | | |
 | Continue the same project later; "New project" from the recorder | O/RecorderView.swift:400-411 | DONE | A/RecorderScreen.kt:305-307, A/ProjectsScreen.kt:213 | — | | |
 | Record here (insert at the playhead) and return to the end | O/AddVideoPanel.swift:50, O/ContentView.swift:557-571 | DONE | A/EditorScreen.kt:749, A/RecorderScreen.kt:274-279, A/ProjectStore.kt:304-307 | — | | |
-| Status pill and clock (project duration + elapsed) | O/RecorderView.swift:472-493 | DONE | A/RecorderScreen.kt:141-166 | — | | |
-| Red/yellow frame border while recording/paused | O/RecorderView.swift:281-291 | MISSING | — | Border | S | Yes |
+| Status pill and clock (project duration + elapsed) | O/RecorderView.swift:472-493 | DONE | A/RecorderScreen.kt:336-358 (the one clock: the edit's length plus the segment being written, turning with the phone) | — | | |
+| Red/yellow frame border while recording/paused | O/RecorderView.swift:281-291 | DONE | A/RecorderScreen.kt:318-325 (2 dp line, 3 dp from the edge, red while recording and yellow while paused) | — | | |
 | Switch camera while recording, inside the same segment, with an event | O/CaptureController.swift:1513-1647 | PARTIAL | A/CaptureController.kt:247-256 (persistent recording, `camera` event) | Preview is not frozen on the last frame during the switch; "flip to last-used lens on the other side" button | M | Phone |
 | Lens menu (main, ultrawide, tele, front) | O/RecorderView.swift:533-549 | DONE | A/RecorderScreen.kt:249-263, A/CaptureController.kt:205-223 | — | | |
 | Zoom presets, tap = saved time, double tap = 1 s | O/RecorderView.swift:1049-1128 | DONE | A/RecorderScreen.kt:219-247, C/ZoomTransition.kt:40 | "1× Main" jump from the ultrawide to the main lens | | |
-| Zoom transition time, 0–30 s | O/RecorderView.swift:1131-1189, O/ZoomTransition.swift:71-78 | DONE | A/RecorderScreen.kt:224-233 (menu of presets) | Vertical-drag stepping in 0.5 s (presets only) | | |
-| Pinch zoom | O/RecorderZoomViewport.swift:116-214 | PARTIAL | A/RecorderScreen.kt:125-127, A/CaptureController.kt:384-388 | Timed-mode preview of the move ("2.0× · 3s on release"), two-finger pan of the crop centre | M | Yes |
+| Zoom transition time, 0–30 s | O/RecorderView.swift:1131-1189, O/ZoomTransition.swift:71-78 | DONE | A/RecorderZoom.kt:217-290, A/RecorderSettings.kt:20-21 (Instant until a time is chosen, as the original) | Vertical-drag stepping in 0.5 s (presets only) | | |
+| Pinch zoom | O/RecorderZoomViewport.swift:116-214 | PARTIAL | A/RecorderScreen.kt:125-127, A/CaptureController.kt:384-388, C/PinchZoom.kt | Timed-mode preview of the move ("2.0× · 3s on release"); the two-finger pan of the crop centre, whose maths are in C/CameraFraming.kt (`PinchPan`, `CameraFraming`) but which needs the frame-processing capture path | M | Yes |
 | Per-camera zoom memory | O/CaptureController.swift:1648-1664 | PARTIAL | A/CaptureController.kt:244, 365 | Pan centre, focus lock and lens position are not remembered (those features are missing) | S | Yes |
 | Quality: 1080p or 4K, 30 fps | O/RecorderView.swift:1295-1301 | MISSING | Fixed FHD at A/CaptureController.kt:265 | Quality setting and 4K | S | Phone |
 | Recording colour: SDR / HDR (HLG 10-bit) / Log | O/RecorderView.swift:4-43, O/CaptureController.swift:1665-1739 | MISSING | SDR only | HDR via CameraX `DynamicRange.HLG_10_BIT` where supported; Log has no general Android equivalent (see N/A row) | M | Phone |
@@ -113,26 +113,26 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Mirror selfie preview / save mirrored selfies | O/RecorderView.swift:1249-1252 | MISSING | — | Two settings; CameraX `MirrorMode` | S | Phone |
 | "Fit entire recorded frame" vs fill | O/RecorderView.swift:1303 | PARTIAL | Always fits (A/RecorderScreen.kt:102) | The fill option | S | Yes |
 | Capture stabilisation toggle | O/RecorderView.swift:798-801 | MISSING | — | CameraX video stabilisation toggle | S | Phone |
-| Level horizon with max angle | O/RecorderView.swift:802-807, O/HorizonLevel.swift:8-282 | MISSING | — | Needs a frame-processing capture path (see dual camera) | L | Phone |
-| Follow face (single camera crop follow) | O/RecorderView.swift:808-812, O/DualFaceDetector.swift:56-197 | MISSING | — | Face detection + crop pipeline | L | Phone |
+| Level horizon with max angle | O/RecorderView.swift:802-807, O/HorizonLevel.swift:8-282 | CORE ONLY | C/HorizonLevel.kt (framing and fixed magnification, the roll from gravity, the visible line, the correction over time) | A frame-processing capture path that turns and crops each frame, the gravity sensor, the setting | L | Phone |
+| Follow face (single camera crop follow) | O/RecorderView.swift:808-812, O/DualFaceDetector.swift:56-197 | CORE ONLY | C/CameraFraming.kt (`SingleCameraCrop`: reserve, crop, visible framing), C/DualCameraLayout.kt (`FaceTarget`, `FaceFraming.follow`) | Face detection and the crop pipeline on frames | L | Phone |
 | Front light (screen-edge lamp: width, tone, opacity) | O/RecorderFrontLight.swift:8-241 | MISSING | — | Pure UI overlay plus brightness | M | Yes (look), phone (effect) |
 | Tap to focus | O/CaptureController.swift:2442-2472, 3331-3348 | MISSING | — | `FocusMeteringAction` on tap, focus box | S | Phone |
 | Focus lock / manual focus with lens slider | O/RecorderView.swift:949-1041, 1191-1214 | MISSING | — | Camera2 interop `LENS_FOCUS_DISTANCE` | M | Phone |
 | Focus peaking | O/RecorderView.swift:966, O/CaptureController.swift:2422-2435 | MISSING | — | Frame analysis overlay | L | Phone |
-| Dual camera: two cameras into one picture, 4 layouts, inset shape, per-feed pan/zoom, swap | O/MultiCameraCapture.swift:93-330, O/DualCameraLayout.swift:5-124, O/RecorderView.swift:292-320, 1386-1531 | MISSING | — | CameraX concurrent camera + own compositor and encoder path | L | Phone (few devices support it) |
+| Dual camera: two cameras into one picture, 4 layouts, inset shape, per-feed pan/zoom, swap | O/MultiCameraCapture.swift:93-330, O/DualCameraLayout.swift:5-124, O/RecorderView.swift:292-320, 1386-1531 | CORE ONLY | C/DualCameraLayout.kt (layouts, regions, inset resize, touch ownership, placement, mask coverage, frame pairing) | CameraX concurrent camera + own compositor and encoder path, the UI | L | Phone (few devices support it) |
 | Front landscape 16:9 selfie with the phone upright | O/CaptureController.swift:1871-1971 | N/A | — | Depends on an iOS 26 sensor mode | | |
 | Live video effects while recording (21 effects, panel, frame tools) | O/VideoEffects/LiveEffectsPanel.swift:20-321, O/VideoEffects/LiveVideoEffects.swift | MISSING | — | Depends on area 10 and a GL capture path | L | Phone |
 | Crash zoom / dolly zoom buttons, tap to select the subject | O/RecorderView.swift:105-133, O/CaptureController.swift:2005-2106 | MISSING | — | Same | L | Phone |
 | Microphone choice | O/RecorderView.swift:1332-1338, O/CaptureController.swift:2553-2636 | PARTIAL | A/RecorderScreen.kt:200-215, A/CaptureController.kt:270-357 (Android 12+, per session) | Remembered priority list including disconnected microphones; fallback timing rules (O/CaptureAudio.swift:6-109) | M | Phone |
 | Active microphone name and mismatch warning | O/RecorderView.swift:445-470 | DONE | A/RecorderScreen.kt:174-187, A/CaptureController.kt:136-143 | — | | |
 | Microphone level meter | O/RecorderView.swift:913-934 | PARTIAL | A/RecorderScreen.kt:167-173 (while recording only) | Level before recording, "Clipping" and "No signal" states | S | Phone |
-| Recording gain −40…+12 dB per microphone | O/RecorderView.swift:1348-1369, O/CaptureAudio.swift:144-185 | MISSING | — | Needs an own audio path; CameraX has no gain | L | Phone |
+| Recording gain −40…+12 dB per microphone | O/RecorderView.swift:1348-1369, O/CaptureAudio.swift:144-185 | CORE ONLY | C/RecordingGain.kt (half-decibel grid, 20 ms ramp, unlimited) | Needs an own audio path; CameraX has no gain. The per-microphone setting | L | Phone |
 | Audio keeps running across camera switches (independent engine, gap fill, clock correction) | O/CaptureAudio.swift:190-321, O/LiveMicrophone.swift:22-58 | PARTIAL | CameraX persistent recording | Not verified what the sound does during a switch | S | Phone |
 | "Protect recording audio" | O/RecorderView.swift:1265-1270 | MISSING | — | Setting | S | Phone |
-| Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt:309-311, A/CaptureController.kt:428-432 | — | | |
+| Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt:509, A/CaptureController.kt; the marks of an interrupted take are kept, indexed at launch with it (A/ProjectStore.kt `indexFinishedTakes`) | — | | |
 | Orientation follows the device, locked for the take | O/RecorderView.swift:341-390 | PARTIAL | A/CaptureController.kt:114-127 (recorded orientation follows; interface stays portrait) | Interface rotation | M | Yes |
 | Warnings: microphone off, silenced, camera lost, storage full | O/CaptureController.swift:617-687, 2672-2695 | PARTIAL | A/CaptureController.kt:474-516 | Thermal banner; auto-pause on missing audio | S | Partly |
-| Backgrounding saves the take | O/CaptureController.swift:1165-1180 | DONE | A/RecorderScreen.kt:108-113 | — | | |
+| Backgrounding saves the take | O/CaptureController.swift:1165-1180 | DONE | A/RecorderScreen.kt:198-204, A/CaptureController.kt:307 (`background`: the take is paused and its segment saved, as in the original; returning never resumes by itself) | — | | |
 | Camera and microphone permission flow | Info settings in project.pbxproj:972-983 | DONE | A/RecorderScreen.kt:79-96 | — | | |
 | Haptics on mark, presets, toggles | O/RecorderView.swift:71, 836, 1119 | MISSING | — | Haptic feedback | S | Phone |
 | Quick settings panel and "More settings" sheet | O/RecorderView.swift:723-766, 1225-1310 | MISSING | — | The sheet itself; its rows are the items above | M | Yes |
@@ -145,7 +145,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Preview of the edit with play/pause | O/EditorView.swift:449, 565 | DONE | A/EditorScreen.kt (`togglePlay`, a tap on the picture while no tool takes its gestures) | — | | |
 | Scrolling thumbnail timeline with waveform under a fixed playhead; scrubbing pauses | O/EditorTimeline.swift:506-525 | DONE | A/EditorScreen.kt:934-1037 | — | | |
 | Timeline zoom | O/EditorTimeline.swift:577-582, 186-191 | DONE | A/EditorTimeline.kt (pinch, ruler), A/Transport.kt (`ZoomMenu`, with a step in and out), C/TimelineZoom.kt: whole project to 720 dp/s | The playhead stays in the middle at every scale, as it does in Takes; the original lets it move while the whole project fits. The pinch keeps the playhead under the middle instead of the point between the fingers, as the original's does. | | |
-| Detailed waveform at high zoom (1000 bins/s tiles) | O/WaveformDetail.swift:4-66 | PARTIAL | C/Waveform.kt:42 (50 peaks/s), A/EditorScreen.kt:1074-1088 | Detail tiles | M | Yes |
+| Detailed waveform at high zoom (1000 bins/s tiles) | O/WaveformDetail.swift:4-66 | PARTIAL | C/Waveform.kt:42 (50 peaks/s), A/EditorScreen.kt:1074-1088; the tiles and the peak pyramid are in C/WaveformTiles.kt | Decoding the tiles on screen and drawing them | M | Yes |
 | Timecode and duration | O/EditorTimeline.swift:1052-1055 | DONE | A/EditorScreen.kt:656 | — | | |
 | Review speed 1–3× with pitch kept | O/EditorView.swift:454-465 | DONE | A/Transport.kt (`ReviewSpeed`), A/EditorPlayer.kt (`play(time, speed)`); reviews of a cut, a transition or the playhead play at 1× | — | | |
 | Double-tap play "quick review" with pre/post-roll and return; preview a cut | O/EditorView.swift:526-547, O/EditorController.swift:408-467 | DONE | A/EditorScreen.kt (`playTapped`, `quickReview`), C/ReviewWindows.kt; with a screen reader Play plays at once and the review is an action of the button | — | | |
@@ -175,7 +175,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Tools sheet with sections and "In this project" list | O/EditorTools.swift:33-106 | PARTIAL | Three button rows (A/EditorScreen.kt:723-843) | Sheet, list of applied tools | M | Yes |
 | Before/After compare inside a tool | O/EditorTools.swift:1072-1151 | MISSING | — | | S | Yes |
 | "?" help on each tool | README "Effect inspectors have a reachable ?" | MISSING | — | Help texts | M | Yes |
-| Select cover: pick a frame and share it as JPEG | O/CoverPicker.swift:82-217, O/CoverFramePool.swift:39-47 | MISSING | — | | M | Yes |
+| Select cover: pick a frame and share it as JPEG | O/CoverPicker.swift:82-217, O/CoverFramePool.swift:39-47 | CORE ONLY | C/CoverFramePool.kt | The picker and the JPEG | M | Yes |
 
 ## 5. Editor: picture tools
 
@@ -188,15 +188,15 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Video shape for the project (Original, 16:9, 9:16, 1:1, 4:5) | O/CropEditor.swift:93, 189-194, 232-236, 418-436, O/VideoTools.swift:100-112 | CORE ONLY | C/Crop.kt (`OutputShape`), C/CropEditing.kt (`CropShape`) | `EditState.outputSize` with its validation and schema step, the canvas rule in A/Exporter.kt and A/EditorScreen.kt (both take the first clip's shape), and the menu in the Crop tool. Until then applying a crop does not pin the movie's shape as the original does | M | Yes |
 | Mirror (flip horizontally / vertically) | O/EditorTools.swift:1319-1322 | CORE ONLY | C/Crop.kt:108 (`MirrorSettings`) | Clip field, UI, preview and export | S | Yes |
 | Colour: 14 looks with strength | O/ColorGradeControls.swift:15-154, O/VideoToolCompositor.swift:456-529 | DONE | A/EditorScreen.kt:1206-1255, A/ColorLuts.kt, C/ColorGrade.kt | Preview needs Android 13 (A/EditorScreen.kt:621); look thumbnails | | |
-| Imported `.cube` LUT | O/ColorGrading.swift:39-128 | PARTIAL | A/ProjectStore.kt:196, C/CubeLUT.kt | LUT library (Imported / Favorites tabs), "LUT expects" input choice (`LUTInput` exists, C/ColorSettings.kt:28) | M | Yes |
+| Imported `.cube` LUT | O/ColorGrading.swift:39-128 | PARTIAL | A/ProjectStore.kt:196, C/CubeLUT.kt (3D and 1D) | LUT library (Imported / Favorites tabs), "LUT expects" input choice (`LUTInput`, C/ColorSettings.kt:28; what a log LUT is given is C/LogColor.kt `lutInput`) | M | Yes |
 | Exposure, warmth, tint | O/ColorGradeControls.swift | PARTIAL | A/EditorScreen.kt:1242-1244 (exposure ±2) | Exposure range ±4 | S | Yes |
-| Highlights slider | O/ColorGradeControls.swift | CORE ONLY | Field at C/ColorSettings.kt:51; not applied in C/ColorGrade.kt | Maths and slider | S | Yes |
+| Highlights slider | O/ColorGradeControls.swift | CORE ONLY | Applied in C/ColorGrade.kt `balance` after exposure and before the look, by the original's curve (C/LogColor.kt `highlights`), so the table the preview and the export share follows a saved value | The slider | S | Yes |
 | Local highlight recovery for Log footage | O/ColorGradeControls.swift, README:136-139 | MISSING | Field only (C/ColorSettings.kt:52) | Spatial filter; only meaningful with Log sources | L | Yes |
-| Log-to-display conversion of Log footage | O/LogColor.swift:61-191 | MISSING | — | Needed only for imported Apple Log clips | M | Yes |
+| Log-to-display conversion of Log footage | O/LogColor.swift:61-191 | CORE ONLY | C/LogColor.kt (Apple Log curve, Log and Log 2 primaries, the viewing transform) | Telling a log clip from its metadata, and the conversion in preview and export; needed only for imported Apple Log clips | M | Yes |
 | Saved named grades | O/ColorGradeControls.swift (`color.saveGrade`) | MISSING | — | | M | Yes |
 | Animated grade (A/B) | O/EffectAnimation.swift | CORE ONLY | C/ColorSettings.kt:55 (`motion`), `pose`/`applying` | UI; a per-frame LUT in preview and export | L | Yes |
 | Colour Correction (exposure, contrast, tonal ranges, white balance, saturation, vibrance, hue; Light/Color tabs; keyframes) | O/VideoEffects/VideoEffectCatalog.swift:209, O/VideoEffects/VideoEffectsEditor.swift:1344-1419 | MISSING | — | Part of video effects; could be folded into the LUT pipeline | M | Yes |
-| Stabilisation: Off / Light / Standard / Strong, compare, crop factor | O/StabilizationEditor.swift:325-335, O/StabilizationPath.swift:4-196, O/VideoStabilizer.swift:119-206, O/StabilizationMotion.cpp:140-179 | MISSING | — | Motion analysis (the C++ compiles under the NDK), path, per-frame transform in preview and export, cache | L | Yes |
+| Stabilisation: Off / Light / Standard / Strong, compare, crop factor | O/StabilizationEditor.swift:325-335, O/StabilizationPath.swift:4-196, O/VideoStabilizer.swift:119-206, O/StabilizationMotion.cpp:140-179 | CORE ONLY | C/StabilizationPath.kt (levels, pose algebra, the path with one crop, the transform at a time, the reference range kept by splits) | Motion analysis (the C++ compiles under the NDK), the clip field, per-frame transform in preview and export, cache, the tool | L | Yes |
 | Image overlay (timed, size, opacity, position, A/B motion) | O/EditorTools.swift:1238-1254 | CORE ONLY | C/ImageOverlay.kt:7 | Import, clip field, UI, drawing | M | Yes |
 | HDR kept through editing | README:48-49, O/MediaRenderer.swift:455-457 | MISSING | Tone-mapped to SDR (A/Exporter.kt:115) | HDR preview and export | L | Phone |
 
@@ -289,25 +289,25 @@ Not a departure any more: with Auto the port used to force the language of the f
 
 ## 10. Video effects
 
-None of this exists in the port: no model in `core`, no renderer, no UI. The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:34-37`, definitions at `O/VideoEffects/VideoEffectCatalog.swift:189-390`), drawn by one Metal file shared by preview and export.
+The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:34-37`, definitions at `O/VideoEffects/VideoEffectCatalog.swift:189-390`), drawn by one Metal file shared by preview and export. The port has the model, the catalogue, the keyframes and each effect's reference formulas in `core` (C/VideoEffectModel.kt, C/VideoEffectCatalog.kt, C/VideoEffectFormulas.kt, C/VideoEffectFormulasB.kt, C/VideoEffectFormulasC.kt, C/VideoEffectFrame.kt, C/VideoEffectPasses.kt, C/VideoEffectTiming.kt), and draws three batches of them: the export by OpenGL passes over Media3 (A/EffectRendering.kt, A/EffectPasses.kt, A/EffectNightFix.kt), the preview by one AGSL shader a pass on each deck from Android 13 (A/EffectRendering.kt `EffectPreview`), with no grain and with stand-ins for the blurs and mattes the export draws before a pass. The editor offers what is drawn (A/EffectsWork.kt `AndroidVideoEffects`: batch A, B and C) and says so of an effect it does not draw.
 
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
-| Effects editor: library in four sections, applied list, add, remove, enable/disable, compare with original | O/VideoEffects/VideoEffectsEditor.swift:38-208, 911-1055 | MISSING | — | Model, GL effect pipeline shared by preview and export, UI | L | Yes |
-| Parameter keyframes ("Animate", per-parameter diamond, previous/next key) | O/VideoEffects/VideoEffectsEditor.swift:535-560, 1209-1336; O/VideoEffects/VideoEffectModel.swift:122-141 | MISSING | — | | M | Yes |
-| Simple colour effects: RGB Offset (with pads), Negative Strobe, Silent Tint, Three-Strip, Bleach Bypass, Day for Night, Expressionism, Noir, Color Isolation "A color" | O/VideoEffects/VideoEffectCatalog.swift:193-259, O/VideoEffects/RGBOffsetPads.swift:3-69 | MISSING | — | One fragment shader each | L (all nine) | Yes |
-| Kaleidoscope with on-preview guide | O/VideoEffects/VideoEffectCatalog.swift:287, O/VideoEffects/KaleidoscopeGuide.swift:41-300 | MISSING | — | | M | Yes |
-| Crash Zoom | O/VideoEffects/VideoEffectCatalog.swift:276, O/VideoEffects/VideoEffectMath.swift:224 | MISSING | — | Face tracking variant is harder | M | Yes |
-| Widescreen 1953 (bars, blur fill, flares) | O/VideoEffects/VideoEffectCatalog.swift:296 | MISSING | — | Oval bokeh needs Cinematic depth: N/A | M | Yes |
-| Film texture: Halation, 16mm, Super 8 | O/VideoEffects/VideoEffectCatalog.swift:321-335 | MISSING | — | Multi-pass blur, grain, weave, cadence | L | Yes |
-| Quantization (palettes, dithering, "from scene" palette, saved palette) | O/VideoEffects/VideoEffectCatalog.swift:259, O/VideoEffects/VideoEffectMath.swift:81-163 | MISSING | — | k-means palette analysis | L | Yes |
-| Time effects: Freeze Frame, Step Printing, Undercranking | O/VideoEffects/VideoEffectCatalog.swift:303-314, O/VideoEffects/VideoEffectTiming.swift:18-68 | MISSING | `FrozenFrameSegment`, `EffectPlaybackSpan` only (C/PlaybackSpan.kt) | Retiming in player and export | L | Yes |
-| Chroma Key with background (solid, image, video, blur, studio, window), clean plate, eyedropper | O/VideoEffects/VideoEffectCatalog.swift:343 | MISSING | — | | L | Yes |
+| Effects editor: library in four sections, applied list, add, remove, enable/disable, compare with original | O/VideoEffects/VideoEffectsEditor.swift:38-208, 911-1055 | DONE | A/EffectsPanel.kt (effects at the playhead with their switches, sections with what is offered, controls from each effect's parameters, compare), A/EffectsWork.kt; on the clip under the playhead or a marked range or selection, one Undo step | Effects not drawn yet are left out of the library | | |
+| Parameter keyframes ("Animate", per-parameter diamond, previous/next key) | O/VideoEffects/VideoEffectsEditor.swift:535-560, 1209-1336; O/VideoEffects/VideoEffectModel.swift:122-141 | DONE | A/EffectsPanel.kt:267, 637-660 (Animate, the diamond, previous and next key), C/VideoEffectModel.kt | — | | |
+| Simple colour effects: RGB Offset (with pads), Negative Strobe, Silent Tint, Three-Strip, Bleach Bypass, Day for Night, Expressionism, Noir, Color Isolation "A color" | O/VideoEffects/VideoEffectCatalog.swift:193-259, O/VideoEffects/RGBOffsetPads.swift:3-69 | PARTIAL | Batch A (A/EffectsWork.kt:23-27), drawn by A/EffectRendering.kt in export and preview, with Color Correction | RGB Offset's pads on the picture; Noir's grain in the preview | M | Yes |
+| Kaleidoscope with on-preview guide | O/VideoEffects/VideoEffectCatalog.swift:287, O/VideoEffects/KaleidoscopeGuide.swift:41-300 | PARTIAL | Batch A, its mapping from C/VideoEffectFormulas.kt `kaleidoscope` | The guide on the picture | M | Yes |
+| Crash Zoom | O/VideoEffects/VideoEffectCatalog.swift:276, O/VideoEffects/VideoEffectMath.swift:224 | PARTIAL | Batch B (A/EffectsWork.kt:29-36), its move, map and radial blur | The target follows a face in the original; here it is set by hand | M | Yes |
+| Widescreen 1953 (bars, blur fill, flares) | O/VideoEffects/VideoEffectCatalog.swift:296 | DONE | Batch B, bars, flares and blur fill (the preview's flares and fill simplified) | Oval bokeh needs Cinematic depth: N/A | | |
+| Film texture: Halation, 16mm, Super 8 | O/VideoEffects/VideoEffectCatalog.swift:321-335 | PARTIAL | Batch B, multi-pass with grain and weave in the export (A/EffectPasses.kt); simplified in the preview, without grain | Super 8's cadence, which changes what plays when (the playback map's) | M | Yes |
+| Quantization (palettes, dithering, "from scene" palette, saved palette) | O/VideoEffects/VideoEffectCatalog.swift:259, O/VideoEffects/VideoEffectMath.swift:81-163 | PARTIAL | Batch C (A/EffectsWork.kt:38-46), the palette from the scene by the core's k-means (C/VideoEffectPalette.kt), smoothing and dithering | Face detail, which needs a person mask | M | Yes |
+| Time effects: Freeze Frame, Step Printing, Undercranking | O/VideoEffects/VideoEffectCatalog.swift:303-314, O/VideoEffects/VideoEffectTiming.swift:18-68 | CORE ONLY | C/VideoEffectTiming.kt (spans, blended frames, held frame, freeze), C/PlaybackSpan.kt | Retiming in player and export | L | Yes |
+| Chroma Key with background (solid, image, video, blur, studio, window), clean plate, eyedropper | O/VideoEffects/VideoEffectCatalog.swift:343 | PARTIAL | Batch C: the spatial keyer on a solid colour, a picture from the phone or the picture blurred | The other backgrounds, the clean plate, the person hint and the match colour (hidden, A/EffectsWork.kt:62), the eyedropper | L | Yes |
 | Auto Background, Color Isolation "The subject", person hints (person segmentation) | O/VideoEffects/VideoEffectCatalog.swift:371, O/VideoEffects/VideoEffectAssets.swift:346-353 | MISSING | — | Segmentation model (for example ML Kit selfie segmentation), temporal matte | L | Phone |
 | Dolly Zoom | O/VideoEffects/VideoEffectCatalog.swift:268 | MISSING | — | Person/depth layers and warp | L | Phone |
-| Night fix (Fast / Medium / Precise multi-frame denoise) | O/VideoEffects/NightFix.swift:51-297, O/VideoEffects/VideoEffectCatalog.swift:203 | MISSING | — | Optical flow fusion and chunk cache | L | Phone |
+| Night fix (Fast / Medium / Precise multi-frame denoise) | O/VideoEffects/NightFix.swift:51-297, O/VideoEffects/VideoEffectCatalog.swift:203 | PARTIAL | Fast on the raw frame before its colour, in the export (A/EffectNightFix.kt) and the preview (A/EffectRendering.kt `nightFix`), C/VideoEffectNightFix.kt | Medium and Precise need optical flow and are drawn Fast | L | Phone |
 | Effects from Cinematic-mode depth (oval bokeh, depth dolly) | README:272-275 | N/A | — | Apple Cinematic depth tracks | | |
-| Effect help with film-history notes | O/VideoEffects/VideoEffectCatalog.swift:7-32 | MISSING | — | Texts | M | Yes |
+| Effect help with film-history notes | O/VideoEffects/VideoEffectCatalog.swift:7-32 | DONE | A/EffectsPanel.kt:265, 327-340, A/EffectsText.kt | — | | |
 
 ## 11. Export
 
@@ -318,12 +318,12 @@ None of this exists in the port: no model in `core`, no renderer, no UI. The ori
 | Frame rate 24, 25, 30, 50, 60 | O/Project.swift:645-670 | PARTIAL | A/EditorScreen.kt:1435 ("up to 30 / up to 60", frame dropping only, A/Exporter.kt:169) | Real constant frame-rate output | M | Yes |
 | Codec H.264 / H.265 | same | DONE | A/EditorScreen.kt:1437, A/Exporter.kt:282 | — | | |
 | HDR export (HLG, forced H.265 10-bit) | O/Project.swift:669, O/MediaRenderer.swift:455-457 | MISSING | Tone-mapped to SDR (A/Exporter.kt:115) | | L | Phone |
-| Progress and Cancel | O/MovieExportPanel.swift:117-139, 193-199 | DONE | A/EditorScreen.kt:1471-1479, A/Exporter.kt:331 | Named steps | | |
-| Export pauses on backgrounding and resumes from 12 s sections | O/ExportCheckpoint.swift:23-146 | MISSING | Runs in the activity's scope with no foreground service (A/Exporter.kt:122) | Foreground service (the Android answer) or checkpoints | M | Yes |
+| Progress and Cancel | O/MovieExportPanel.swift:117-139, 193-199 | DONE | A/ExportPanel.kt (named steps), A/Exporter.kt, C/ExportProgress.kt | — | | |
+| Export pauses on backgrounding and resumes from 12 s sections | O/ExportCheckpoint.swift:23-146 | DONE | A/Exporter.kt:304-356 (pauses when the app leaves the front, resumes from the sections kept), C/ExportCheckpoint.kt | — | | |
 | Share the movie | O/MovieExportPanel.swift:24-41 | DONE | A/EditorScreen.kt:1494-1496 | — | | |
 | Save to Photos / gallery | same | DONE | A/EditorScreen.kt:1497-1499, A/Exporter.kt:338 (Android 10+) | — | | |
-| "Previous export" stays shareable; an unchanged edit offers sharing instead of exporting again | O/MovieExportPanel.swift:150-155, README:171-172 | MISSING | Result is held in memory only (A/Exporter.kt:126) | Receipts with edit and source checksums | M | Yes |
-| Output verification (duration, first/last frame) | O/MediaRenderer.swift:792-806 | MISSING | — | | S | Yes |
+| "Previous export" stays shareable; an unchanged edit offers sharing instead of exporting again | O/MovieExportPanel.swift:150-155, README:171-172 | DONE | C/ExportReceipt.kt, A/Exporter.kt:297-309, A/ExportPanel.kt:125-164 | — | | |
+| Output verification (duration, first/last frame) | O/MediaRenderer.swift:792-806 | DONE | A/ExportCheck.kt:43, C/ExportCheckpoint.kt (tolerance), the audio peak warning in C/ExportReceipt.kt | — | | |
 | Completion chime | README:170 | MISSING | — | | S | Phone |
 
 ## 12. Settings, credits, localisation, accessibility
@@ -340,32 +340,30 @@ None of this exists in the port: no model in `core`, no renderer, no UI. The ori
 
 ## Pure core work packages (new files in `core`, host tests, no edits to existing files)
 
-Ranked by how much user-visible work each unblocks and how independent it is. Each is a new `C/<Name>.kt` plus `core/src/test/.../<Name>Test.kt`. None needs to touch `Project.kt`; wiring a result into the saved model is a separate, later step.
+Each was a new `C/<Name>.kt` plus `core/src/test/.../<Name>Test.kt`, porting the original's tests named here; wiring a result into the saved model and the app is a separate step, said in the rows above. Status on 2026-11-16, from the files and tests in `core`:
 
-1. **AudioChain** — read `O/AudioDSP.swift:5-50`, `O/AudioChainControls.swift:33-56`, `O/Project.swift:63-139`. Deliver: the six stage kinds with defaults and validation; biquad coefficients and per-channel state for gain, 2nd-order high-pass and peaking EQ at 48 kHz; a `process(FloatArray, channels)` chain with per-stage bypass; fader↔value mappings (`20·25^n` Hz, `80·150^n` Hz, ±24 dB) and display text. The original's tests check exact bypass, repeated gain stages, filter stability and channel independence (`Tests/CoreTests.swift`).
-2. **RangeEditing** (range marks, delete range, clipboard) — read `O/TimelineEditing.swift:42-160`, `O/TimelinePaste.swift:5-195`, `Tests/TimelineClipboardChecks.swift`. Deliver on the current `EditState`: `quantize` to 1/30 s, `deleteRange(state, from, to)`, `copy(state, from, to)` → fragment, `paste(state, fragment, at)` with independent copies of effects and new ids, paste through a transition replacing it.
-3. **TimelineNavigation** — read `O/TimelineNavigation.swift:6-166`, `O/TrackTimeline.swift:1470-1491`, `O/EditorController.swift:408-467`. Deliver: change stops (cuts, transition edges, title/colour/crop/speed boundaries), `previous/next(time, effectsOnly)` with 1/120 s tolerance, snap target within a pixel distance with acquire/latch thresholds, quick-review window (1 s pre/post-roll) and "preview cut" time map.
-4. **AudioLevels** — read `O/AudioGain.swift:6-62, 199-239`, `O/TrackTimeline.swift:133-151`, `O/CutAudioEnvelope.swift:4-149`. Deliver: 0.5 dB grid and common level of a selection, drag-to-dB with detent and edge repeat, headroom interval and `clips(at:)`, edge fades fitted to an item, 8 ms cut fades and 10 ms gain ramps as a per-sample gain function.
-5. **AudioCensor** — read `O/AudioCensor.swift:6-130`. Deliver: settings with ranges, band-limited sine/triangle/square oscillator, short/soft/pulsed envelope, region slicing against clips and audio items, which track carries the tone, original-mute gain with 5 ms edges.
-6. **PicturePlacement** — read `O/TrackTimeline.swift:360-456, 1204-1207`, `O/DualCameraLayout.swift:4-124`, `O/DualCameraMasks.swift:11-40`, `Tests/DualCameraMaskTests.swift`. Deliver: `VideoPlacement` (cover, side by side, top/bottom, picture in picture) → window rect, edge crop with validity, reframe zoom; dual-camera `regions`, `constrain`, `resizeInset`, diagonal and circle mask coverage. Serves both editor picture-in-picture and dual camera.
-7. **VideoEffectModel** — read `O/VideoEffects/VideoEffectModel.swift`, `VideoEffectCatalog.swift:93-390`, `VideoEffectDefinitions.swift`, `VideoEffectTiming.swift`, `Tests/VideoEffectModelTests.swift`. Deliver: `EffectValue` and interpolation, parameter kinds with validation, keyframes (`value(at:)`, `setKeyframe`), the 24-effect catalogue with ranges and defaults, parameter visibility rules, render order (`ordered`), `isActive`, strobe polarity, `effectPlaybackSpans`, `sequenceRate`, `mutesSourceAudio`.
-8. **VideoEffectMath** — read `O/VideoEffects/VideoEffectMath.swift`, `VideoEffectSampling.swift`, `KaleidoscopeGuide.swift:7-37`, `RGBOffsetPads.swift:11-39`. Deliver: crash-zoom curve and transform, cadence clock, held time/frame index, sample plan for step printing, sRGB↔linear↔Oklab, splitmix64, palette k-means with temporal blend, kaleidoscope pose and drag transform, background placement, live budget rungs.
-9. **StabilizationPath** — read `O/StabilizationPath.swift:4-196`, `Tests/StabilizationTests.swift`. Deliver: levels with σ and zoom caps, pose algebra, `requiredZoom`, `StabilizationPath.make` (local-linear smoothing, segment fades, strength bisection, single crop zoom), `plan.transform(at:)`, split reuse via reference range. `O/StabilizationMotion.cpp` is plain C++ and can go into a separate new NDK module by another agent.
-10. **ExportPlan** — read `O/MediaRenderer.swift:80-150, 792-806`, `O/ExportCheckpoint.swift:6-146`, `O/Project.swift:669-695`, `O/CoverFramePool.swift:5-57`. Deliver: named progress steps with monotonic `advanced(to:)`, 12 s section arithmetic and ticket equality, receipt (edit + source checksums → "unchanged, share instead"), audio-peak warning text rule, output verification tolerances, cover frame pool (interval merge, 30 fps grid, band picks).
-11. **RecorderMath** — read `O/CaptureAudio.swift:6-185`, `O/HorizonLevel.swift:8-148`, `O/DualCameraLayout.swift:128-189`, `O/DualFaceDetector.swift:129-195`, `O/RecorderZoomViewport.swift:151-174`, `O/CaptureController.swift:2664-2695, 2874-2879`, `O/VideoEffects/CaptureZoomHistory.swift:5-178`, `Tests/SingleCameraFollowTests.swift`. Deliver: microphone priority/pin/fallback state machine, recording gain clamp and ramp, meter ballistics with clipping and no-signal holds, horizon framing/estimate/line, face target selection and follow smoothing, single-camera follow crop, pinch mapping with dead zone, storage auto-pause rule, zoom history lookup.
-12. **RecoveryRules** — read `O/ProjectRecovery.swift:299-464`, `O/RecordingSalvage.swift:54-152`, `O/Project.swift:716-720`, `O/ProjectStore.swift:294-316`, `Tests/ProjectRecoveryTests.swift`. Deliver: free-space floor `max(512 MB, min(2 GB, total/50))` and messages, salvage copy budget, MP4 box scan for the last complete fragment, 30-day deletion rule and deleted-list order, take receipt validation, pending-draft rule.
-13. **InsertionSites** — read `O/TimelineEditing.swift:3-32`, `O/PhotoClip.swift:7-65`, `O/VideoBatchImport.swift:13-19`. Deliver: start/gap/end insertion placement and overflow ripple, photo-clip plan (3 s, 30 fps, longest side ≤ 3840, even dimensions), batch ownership naming.
-14. **LogAndHighlights** — read `O/LogColor.swift:61-191`, `O/VideoToolCompositor.swift:456-529`, `O/ColorGrading.swift:39-128`. Deliver: Apple Log / Log 2 decode/encode and primaries matrix, the highlights curve, 1D `.cube` support if `C/CubeLUT.kt` lacks it (check first), LUT input conversion.
-15. **ListeningLevels and WaveformTiles** — read `O/OfflineAudioPipeline.swift:225-300`, `O/WaveformDetail.swift:4-17`, `O/EditorTimeline.swift:778-796`. Deliver: gated loudness matching over 400 ms windows and `allowsMatching`, min/max tile envelope at 1000 bins/s, peak pyramid.
-16. **TrackTimeline** (the multitrack model) — read `O/TrackTimeline.swift` whole, `docs/EDITOR-TRACKS-DESIGN.md`, `Tests/TrackTimelineTests.swift`, `Tests/TrackMediaTests.swift`, `Tests/MoveBoundaryChecks.swift`. Deliver: tick time, items with own start, link groups, split/remove/insert/extend/move with scopes, lane packing, `compile()` time slices. Last because it is the largest and its adoption replaces the sequence model that everything in `app` uses; it needs a design decision before anyone starts.
+1. **AudioChain** — DONE: C/AudioChain.kt, C/AudioChainControls.kt, C/AudioEffect.kt (`AudioChainControlsTest`, `AudioChainProcessorTest`). From `O/AudioDSP.swift:5-50`, `O/AudioChainControls.swift:33-56`, `O/Project.swift:63-139`.
+2. **RangeEditing** — DONE: C/RangeEditing.kt, C/TrackClipboard.kt (`RangeEditingTest`, `TrackClipboardTest`). From `O/TimelineEditing.swift:42-160`, `O/TimelinePaste.swift:5-195`.
+3. **TimelineNavigation** — DONE: C/TimelineNavigation.kt, C/TimelineSnapping.kt, C/ReviewWindows.kt. From `O/TimelineNavigation.swift:6-166`.
+4. **AudioLevels** — DONE: C/AudioLevels.kt, C/SoundEnvelope.kt. From `O/AudioGain.swift`, `O/CutAudioEnvelope.swift:4-149`.
+5. **AudioCensor** — DONE: C/AudioCensor.kt. From `O/AudioCensor.swift:6-130`.
+6. **PicturePlacement** — DONE: the editor's placement in C/VideoPlacement.kt and C/PlacementDraft.kt (`O/TrackTimeline.swift:360-456`); the two cameras' layouts and masks in C/DualCameraLayout.kt (`O/DualCameraLayout.swift:4-189`, `O/DualCameraMasks.swift:11-40`, with `Tests/DualCameraMaskTests.swift` and the dual layout tests of `Tests/CoreTests.swift:481-555`).
+7. **VideoEffectModel** — DONE: C/VideoEffectModel.kt, C/VideoEffectCatalog.kt, C/VideoEffectEditing.kt, C/VideoEffectTiming.kt.
+8. **VideoEffectMath** — PARTLY: the formulas, sampling, colour spaces, palette and kaleidoscope are in C/VideoEffectFormulas.kt, C/VideoEffectFormulasB.kt, C/VideoEffectFormulasC.kt, C/VideoEffectColor.kt, C/VideoEffectPalette.kt, C/VideoEffectFrame.kt. Left: the live budget rungs, which only live effects in the recorder need.
+9. **StabilizationPath** — DONE: C/StabilizationPath.kt (`StabilizationPathTest`, the cases of `Tests/StabilizationTests.swift:4-59`; its persistence, split and media checks wait for the clip field and the renderer). `O/StabilizationMotion.cpp` is plain C++ for a separate NDK module.
+10. **ExportPlan** — DONE: C/ExportProgress.kt, C/ExportCheckpoint.kt (sections, ticket, verification tolerance), C/ExportReceipt.kt (receipt, audio peak warning), C/CoverFramePool.kt. From `O/MediaRenderer.swift:80-150, 792-806`, `O/ExportCheckpoint.swift:6-146`, `O/Project.swift:669-695`, `O/CoverFramePool.swift:5-57`.
+11. **RecorderMath** — PARTLY: microphone route C/MicrophoneRoute.kt; recording gain C/RecordingGain.kt (`O/CaptureAudio.swift:142-185`); meter C/LevelMeter.kt; level horizon C/HorizonLevel.kt (`O/HorizonLevel.swift:8-148`, with the horizon checks of `Tests/SingleCameraFollowTests.swift:259-335`); face target and follow in C/DualCameraLayout.kt; the single camera's crop and the pinch's pan in C/CameraFraming.kt (`O/DualFaceDetector.swift:129-195`, `O/RecorderZoomViewport.swift:151-174`, `O/VideoEffects/CaptureZoomHistory.swift:5-32`); pinch mapping C/PinchZoom.kt; storage auto-pause C/RecordingSpace.kt. Left: the zoom history lookup (`O/VideoEffects/CaptureZoomHistory.swift:34-178`) and the frame zoom calibration, which belong with the frame-processing capture path.
+12. **RecoveryRules** — DONE: C/RecoveryRules.kt (space message, salvage budget, the complete start of a torn fragmented movie, take receipt, reserves, pending draft), with the floor in C/RecordingSpace.kt and Recently Deleted in C/DeletionRules.kt. From `O/ProjectRecovery.swift:299-464`, `O/RecordingSalvage.swift:54-152`, `Tests/ProjectRecoveryTests.swift:68-153`.
+13. **InsertionSites** — DONE: C/InsertionSites.kt.
+14. **LogAndHighlights** — DONE but the local recovery: C/LogColor.kt (Apple Log and Log 2 curve and primaries, viewing transform, Highlights, LUT input) with Highlights applied in C/ColorGrade.kt; 1D `.cube` files were already read by C/CubeLUT.kt. From `O/LogColor.swift:61-191`, `O/VideoToolCompositor.swift:500-523`, with `Tests/VideoToolsTests.swift:79-117`. Left: the local recovery for log footage, a spatial filter over the frame rather than a per-colour function.
+15. **ListeningLevels and WaveformTiles** — DONE: C/AudioListeningLevels.kt (`O/OfflineAudioPipeline.swift:202-304`), C/WaveformTiles.kt (`O/WaveformDetail.swift:4-66`, `O/EditorTimeline.swift:778-796, 840-846`).
+16. **TrackTimeline** — DONE: C/TrackTimeline.kt and the `Track…` files beside it, adopted by the app (`docs/TRACKS-PLAN.md`).
 
-Already in `core` and waiting only for app work (no core package needed): the nine transition styles, title design and motion, audio unlinking, effect animation (A/B), crop rotation, mirror, output shape, image overlay, pause Cut/Keep candidates, bookmark labels.
+Already in `core` and waiting only for app work (no core package needed): audio unlinking, mirror, output shape, image overlay, pause Cut/Keep candidates, bookmark labels, the cover frame pool, stabilisation, Log colour and the Highlights slider, the level horizon, face follow, the two-camera layouts, recording gain, the detailed waveform tiles and the recovery rules.
 
 ## Not classified with confidence
 
-- **Selected project remembered across launches** on Android: `ProjectStore.select` was seen (A/ProjectStore.kt:95) but I did not read whether the id is persisted.
 - **Zip free-space check**: seen for restore and duplicate, not confirmed for zip.
-- **1D `.cube` LUTs** and the 32 MB / size 65 limits: `C/CubeLUT.kt` was not read line by line.
 - **Sound during a camera switch** on Android (gap, click or continuous): needs a phone.
 - **Colour preview below Android 13**: the look is not shown in the preview (A/EditorScreen.kt:621); counted as DONE with a note, could be argued PARTIAL.
 - **`SubtitlesPanel.kt`** was read by outline and strings, not line by line; the caption rows marked DONE rest on its strings, `core` functions and the README.
