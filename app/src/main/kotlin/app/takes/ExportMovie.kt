@@ -106,7 +106,7 @@ class ExportMovie(
      * The movie's frames a second: the rate of its fastest footage under the ceiling of the settings
      * ([RenderPlan.frameRate]). A flash cut counts its frames in it.
      */
-    override val rate = plan.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling)
+    override val rate = plan.frameRate(ceiling)
 
     /** The frames of the whole movie. */
     val frames = ExportSections.pictures(total, rate)

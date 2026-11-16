@@ -146,9 +146,8 @@ private fun ExportSettingsDialog(
                 canvas?.let { settings.resolution.size(it.first, it.second) }?.let { (width, height) ->
                     Text(stringResource(R.string.export_pixels, width, height), color = Muted, fontSize = 13.sp)
                 }
-                // Only the limits the exporter can really honor.
-                Choices(stringResource(R.string.export_frame_rate), listOf(stringResource(R.string.export_up_to, 30) to 30, stringResource(R.string.export_up_to, 60) to 60), settings.frameRate) { settings = settings.copy(frameRate = it) }
-                Text(stringResource(R.string.export_frame_rate_note), color = Muted, fontSize = 13.sp)
+                // O/MovieExportPanel.swift:96-98: every rate the original exports at.
+                Choices(stringResource(R.string.export_frame_rate), ExportSettings.FRAME_RATES.map { stringResource(R.string.export_fps, it) to it }, settings.frameRate) { settings = settings.copy(frameRate = it) }
                 Choices(stringResource(R.string.export_format), listOf("H.264" to ExportSettings.Codec.H264, stringResource(R.string.export_h265_smaller) to ExportSettings.Codec.HEVC), settings.codec) {
                     settings = settings.copy(codec = it)
                 }

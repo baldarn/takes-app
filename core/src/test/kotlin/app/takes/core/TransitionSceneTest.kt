@@ -430,53 +430,26 @@ class TransitionSceneTest {
         assertEquals(listOf("T0"), TimelineEditing.titlesAt(titled, origin + 12.5 / 60) { 60.0 }.map { it.first.text })
     }
 
-    @Test fun aMovieWithATransitionHasOneFrameRate() {
-        // Footage of one rate at or under the ceiling: the movie has it, and no frame is left out or added.
-        assertEquals(25, TransitionScene.frameRate(listOf(25.0, 25.0), 30))
-        assertEquals(30, TransitionScene.frameRate(listOf(30.0, 30.0), 30))
-        assertEquals(60, TransitionScene.frameRate(listOf(60.0, 60.0), 60))
-        assertEquals(24, TransitionScene.frameRate(listOf(24.0), 60))
-        // Mixed: the fastest footage decides, whichever deck or clip it is on, and the slower has frames shown twice.
-        assertEquals(60, TransitionScene.frameRate(listOf(25.0, 60.0), 60))
-        assertEquals(60, TransitionScene.frameRate(listOf(60.0, 25.0), 60))
-        assertEquals(30, TransitionScene.frameRate(listOf(25.0, 30.0, 25.0), 60))
-        // A ceiling of 30 leaves every other frame of 60 and of 50, and all of 25.
-        assertEquals(30, TransitionScene.frameRate(listOf(60.0, 25.0), 30))
-        assertEquals(25, TransitionScene.frameRate(listOf(50.0, 25.0), 30))
-        assertEquals(30, TransitionScene.frameRate(listOf(50.0, 30.0), 30))
-        // A ceiling of 60 holds as well: 120 leaves every other frame.
-        assertEquals(60, TransitionScene.frameRate(listOf(120.0), 60))
-        // Footage that does not say counts as 30, and so does a movie with no clip.
-        assertEquals(30, TransitionScene.frameRate(listOf(null, 25.0), 60))
-        assertEquals(30, TransitionScene.frameRate(listOf(Double.NaN), 60))
-        assertEquals(30, TransitionScene.frameRate(emptyList(), 60))
-        // The rate is one the original exports at, the nearest, and never above the ceiling.
-        assertEquals(30, TransitionScene.frameRate(listOf(29.97), 60))
-        assertEquals(50, TransitionScene.frameRate(listOf(48.0), 60))
-        assertEquals(24, TransitionScene.frameRate(listOf(15.0), 30))
-        assertEquals(30, TransitionScene.frameRate(listOf(44.0), 30))
-        assertEquals(30, TransitionScene.frameRate(listOf(27.5), 30))
-        for (ceiling in ExportSettings.FRAME_RATES) for (footage in listOf(12.0, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0, 120.0, 240.0)) {
-            val rate = TransitionScene.frameRate(listOf(footage), ceiling)
-            assertTrue("$footage under $ceiling", rate in ExportSettings.FRAME_RATES && rate <= ceiling)
-        }
-        // A clip's speed changes which of its frames the movie shows, not the movie's rate.
-        val fast = joined(TransitionSettings(style = TransitionStyle.FlashCut, duration = 0.5), state = EditState(listOf(a.copy(speed = SpeedSettings(rate = 2.0)), b)))
-        assertEquals(2.0, fast[0].rate, tiny)
-        assertEquals(25, TransitionScene.frameRate(fast.map { 25.0 }, 60))
+    @Test fun aMovieHasTheFrameRateOfItsSettingsWhateverTheFootage() {
+        // O/Project.swift:663 (24, 25, 30, 50, 60), O/TrackRenderer.swift:164 (a frame every 1/fps), O/MediaRenderer.swift:750.
+        for (setting in ExportSettings.FRAME_RATES) assertEquals(setting, TransitionScene.frameRate(setting))
+        // A setting the original does not have is its default, 30 (O/Project.swift:667).
+        assertEquals(30, TransitionScene.frameRate(29))
+        assertEquals(30, TransitionScene.frameRate(0))
+        assertEquals(30, TransitionScene.frameRate(120))
     }
 
     @Test fun aFlashIsOneFrameOfTheMovieAtItsRate() {
         val clips = joined(TransitionSettings(style = TransitionStyle.FlashCut, duration = 0.5))
         val join = TimelineEditing.join(clips, 1)!!
-        for ((footage, ceiling) in listOf(listOf(25.0, 25.0) to 30, listOf(30.0, 60.0) to 60, listOf(60.0, 60.0) to 30, listOf(24.0, 24.0) to 60)) {
-            val rate = TransitionScene.frameRate(footage, ceiling)
+        for (setting in ExportSettings.FRAME_RATES) {
+            val rate = TransitionScene.frameRate(setting)
             val flashes = join.transition!!.flashFrames(join.timing.videoDuration, rate.toDouble())
             val shown = (0 until (join.timing.videoDuration * rate).toInt()).filter { frame ->
                 // The export draws the frame on tick n of the movie at n / rate, a microsecond later.
                 TransitionScene.moment(clips, join.origin + frame.toDouble() / rate + 1e-6, frames = { rate.toDouble() }).frame == TransitionFrame.Second
             }
-            assertEquals("$footage under $ceiling", flashes, shown)
+            assertEquals("at $setting", flashes, shown)
         }
     }
 }

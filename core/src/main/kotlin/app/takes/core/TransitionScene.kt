@@ -1,7 +1,5 @@
 package app.takes.core
 
-import kotlin.math.abs
-
 /**
  * What the movie shows at one moment: which pictures a renderer needs and
  * how [TransitionPicture] says to combine them. The preview and the export
@@ -70,31 +68,15 @@ object TransitionScene {
      * in the frame rate of its export, so that a flash is one frame of the
      * movie.
      *
-     * Such a movie has one frame rate from its first frame to its last, as
-     * the original's has (TransitionRenderer.swift:167): the export gives it
-     * a frame on every tick of that rate, whatever the footage, and takes
-     * for each the frame of the footage nearest in time. The original is
-     * told its rate; here the setting is a [ceiling] and the footage decides
-     * below it. The rate is that of the fastest footage among the clips
-     * ([footage]: frames per second, one entry per clip, null when not
-     * known and then counted as [FRAMES_PER_SECOND]), each first brought
-     * under the ceiling by leaving out whole frames ([FrameCeiling.rate]: 60
-     * under 30 is 30, 50 under 30 is 25), and then the nearest of the rates
-     * the original exports at ([ExportSettings.FRAME_RATES]) that is not
-     * above the ceiling. So footage all of one rate at or under the ceiling
-     * keeps every frame and gets none added; where rates are mixed the
-     * slower footage has frames shown twice, and a clip's speed changes which
-     * of its frames are shown, not the rate of the movie.
-     *
-     * A movie of plain cuts is not concerned: it has no clock, and its frames
-     * keep the times of the footage, thinned under the ceiling.
+     * Such a movie has one frame rate from its first frame to its last, the
+     * one the export settings name, as the original's has: a frame on every
+     * tick of 1/[setting] seconds whatever the footage
+     * (O/TrackRenderer.swift:164, O/MediaRenderer.swift:750), each the frame
+     * of the footage nearest in time. Footage faster than the movie has frames
+     * left out and slower footage has frames shown twice. A setting that is
+     * not one of [ExportSettings.FRAME_RATES] is the original's default, 30.
      */
-    fun frameRate(footage: List<Double?>, ceiling: Int): Int {
-        val fastest = footage.maxOfOrNull { FrameCeiling.rate(it?.takeIf { rate -> rate.isFinite() && rate > 0 } ?: FRAMES_PER_SECOND, ceiling.toDouble()) } ?: FRAMES_PER_SECOND
-        val allowed = ExportSettings.FRAME_RATES.filter { it <= ceiling }.ifEmpty { listOf(ExportSettings.FRAME_RATES.min()) }
-        // Halfway between two rates, the higher: frames shown twice rather than left out.
-        return allowed.sortedDescending().minBy { abs(it - fastest) }
-    }
+    fun frameRate(setting: Int): Int = if (setting in ExportSettings.FRAME_RATES) setting else FRAMES_PER_SECOND.toInt()
 
     /** The deck showing each clip: chains alternate. */
     fun decks(clips: List<TimelineClip>): List<Int> {

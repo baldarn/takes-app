@@ -180,7 +180,7 @@ data class RenderPlan(
     ): TransitionScene.Moment = TransitionScene.moment(clips, time, canvas, deckOf, frames)
 
     /** The frames per second of the movie, which are the same during every transition ([TransitionScene.frameRate]). */
-    fun frameRate(footage: List<Double?>, ceiling: Int): Int = TransitionScene.frameRate(footage, ceiling)
+    fun frameRate(setting: Int): Int = TransitionScene.frameRate(setting)
 
     /** The titles showing at [time], each with its opacity. */
     fun titlesAt(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Pair<TextOverlay, Double>> =

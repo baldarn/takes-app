@@ -55,7 +55,7 @@ class LayerMovie(
 ) : MovieRender {
     private val lanes = plan.lanes
 
-    override val rate = TransitionScene.frameRate(plan.pictures.map { rates[it.sourceID] }, ceiling)
+    override val rate = TransitionScene.frameRate(ceiling)
 
     private val perTransition = { _: TimelineTransition -> rate.toDouble() }
     private val picture = Size(canvas.first, canvas.second)

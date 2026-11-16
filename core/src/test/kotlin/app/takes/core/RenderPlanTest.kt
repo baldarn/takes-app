@@ -222,8 +222,8 @@ class RenderPlanTest {
         val state = joined(EditState(listOf(a, b, c)), 2, TransitionSettings(id = "T", style = TransitionStyle.Wipe, duration = 1.0))
         val plan = RenderPlan.of(state)
         for (step in 0..110) assertEquals(TransitionScene.moment(state.clips, step / 10.0), plan.moment(step / 10.0))
-        assertEquals(TransitionScene.frameRate(listOf(60.0, 60.0, 24.0), 30), plan.frameRate(listOf(60.0, 60.0, 24.0), 30))
-        assertEquals(30, plan.frameRate(listOf(60.0, 60.0, 24.0), 30))
+        assertEquals(TransitionScene.frameRate(25), plan.frameRate(25))
+        assertEquals(30, plan.frameRate(30))
     }
 
     // MARK: What an export takes: sections, voices, envelopes

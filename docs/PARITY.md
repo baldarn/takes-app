@@ -46,7 +46,7 @@ Per area:
 | 8. Audio | 3 | 6 | 0 | 12 | 0 |
 | 9. Subtitles | 10 | 1 | 0 | 2 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
-| 11. Export | 9 | 1 | 0 | 2 | 0 |
+| 11. Export | 10 | 0 | 0 | 2 | 0 |
 | 12. Settings, credits, localisation, accessibility | 3 | 1 | 0 | 1 | 2 |
 
 The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
@@ -316,7 +316,7 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 |---|---|---|---|---|---|---|
 | Export the edit to MP4, sources untouched | O/MediaRenderer.swift | DONE | A/Exporter.kt:128-298 | — | | |
 | Resolution: project, 720p, 1080p, 4K | O/Project.swift:645-661, O/MovieExportPanel.swift:64-115 | DONE | A/EditorScreen.kt:1427-1433, C/Project.kt:233-246 | "Upscaled from" note | | |
-| Frame rate 24, 25, 30, 50, 60 | O/Project.swift:645-670 | PARTIAL | A/EditorScreen.kt:1435 ("up to 30 / up to 60", frame dropping only, A/Exporter.kt:169) | Real constant frame-rate output | M | Yes |
+| Frame rate 24, 25, 30, 50, 60 | O/Project.swift:663-667, O/MovieExportPanel.swift:96-98, O/TrackRenderer.swift:164 | DONE | A/ExportPanel.kt (the five rates, 30 by default), C/TransitionScene.kt `frameRate`: a frame every 1/fps whatever the footage, from the export's clock (A/ExportMovie.kt, A/LayerMovie.kt) | The frame a still holds is found on a grid of 30 a second at every rate, where the original uses the movie's | | |
 | Codec H.264 / H.265 | same | DONE | A/EditorScreen.kt:1437, A/Exporter.kt:282 | — | | |
 | HDR export (HLG, forced H.265 10-bit) | O/Project.swift:669, O/MediaRenderer.swift:455-457 | MISSING | Tone-mapped to SDR (A/Exporter.kt:115) | | L | Phone |
 | Progress and Cancel | O/MovieExportPanel.swift:117-139, 193-199 | DONE | A/ExportPanel.kt (named steps), A/Exporter.kt, C/ExportProgress.kt | — | | |
