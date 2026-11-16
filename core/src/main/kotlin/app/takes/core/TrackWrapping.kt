@@ -23,11 +23,11 @@ import kotlin.math.abs
  *  - A picture has no place of its own: the clips follow one another in the
  *    order the timeline keeps its pictures, and where each plays is the layout's
  *    ([TimelineEditing.layout]). So time an operation leaves empty closes,
- *    and two pictures it leaves overlapping play one after the other. The
- *    kinds `removed-transition-leaves-its-time`,
- *    `close-that-holds-pushes-nothing` and
- *    `unlinked-picture-does-not-ripple` of docs/TRACKS-PARITY-DECISIONS.md
- *    are kept by this alone, until S4 and S6.
+ *    and two pictures it leaves overlapping play one after the other, unless
+ *    the function asks for the places ([edit] with `layers`, since S4): then
+ *    an edit whose pictures would move is the timeline itself. Where a clip's
+ *    sound is unlinked the clips still close up
+ *    (`unlinked-picture-does-not-ripple` of docs/TRACKS-PARITY-DECISIONS.md).
  *  - A sound of its own is on one of two tracks ([place]): `third-sound` and
  *    `sound-tracks-are-laid-anew`, until S5.
  *  - What the captions were timed for is the fingerprint the edit has saved,
@@ -221,13 +221,19 @@ internal object TrackWrapping {
      * answers null, when it changes nothing a sequence shows, or when what it
      * leaves cannot be written back ([back]): it does not apply.
      *
+     * [layers] true: when reading what the operation leaves as a sequence
+     * would put one of its pictures somewhere else (time left empty, two
+     * pictures left over one another), the edit is that timeline
+     * ([TrackEditState.edit]), as in the original; not where a clip's sound
+     * is unlinked.
+     *
      * An edit that is not a sequence ([EditState.layered]) is its timeline:
      * what the operation leaves is the edit, as it is ([TrackEditState.edit]),
      * and [sound] and [settled], which say how a sequence keeps what the
      * operation did, do not apply.
      */
     fun edit(
-        state: EditState, sound: Boolean = true,
+        state: EditState, sound: Boolean = true, layers: Boolean = false,
         settled: (AudioItem) -> AudioItem = { it }, operation: (TrackTimeline) -> TrackTimeline?,
     ): EditState? {
         val from = converted(state)
@@ -237,22 +243,56 @@ internal object TrackWrapping {
         }
         val next = operation(from.timeline) ?: return null
         if (next === from.timeline) return null
-        return back(state, from.seen, next, sound, settled)?.takeIf { it !== state }
+        // Since S4 the pictures keep the places the operation gives them: time it leaves empty stays empty and two
+        // pictures it leaves overlapping play over one another, as in the original. The edit is then that timeline.
+        val result = back(state, from.seen, next, sound, settled)
+        // Not yet where a clip's sound is unlinked: what an edit of the pictures does to a picture without its sound is
+        // `unlinked-picture-does-not-ripple`, decided apart (docs/TRACKS-PARITY-DECISIONS.md).
+        if (layers && result != null && !unlinked(state) && moved(result.toTimeline(), next)) return next.toEdit(state.captureBase)
+        return result?.takeIf { it !== state }
+    }
+
+    /** True when a clip of [state] has its sound unlinked: a sound item with the clip's id ([AudioUnlinking]). */
+    private fun unlinked(state: EditState): Boolean {
+        val items = state.audio ?: return false
+        val clips = state.clips.mapTo(HashSet()) { it.id }
+        return items.any { it.id in clips }
+    }
+
+    /** True when the sequence [made] plays a picture of [timeline] somewhere else, or not at all: the clips following one another would move it. */
+    private fun moved(made: TrackTimeline, timeline: TrackTimeline): Boolean {
+        val places = HashMap<String, VideoTimelineItem>()
+        for (picture in made.video) places.putIfAbsent(picture.id, picture)
+        return timeline.video.any { picture ->
+            val other = places[picture.id] ?: return@any true
+            abs(other.start.ticks - picture.start.ticks) > PLACE_TICKS || abs(other.end.ticks - picture.end.ticks) > PLACE_TICKS
+        }
+    }
+
+    /** Ticks two places of a picture may be apart and be the same place: the sequence rounds each length to a tick. */
+    private const val PLACE_TICKS = 3
+
+    /**
+     * The sound [id] at the level and mute of [audio] ([TrackAudio.settingVolume]), with each fade that changes from
+     * [was] set as the track model sets one ([TrackAudio.settingFade]): no longer than the item, from silence.
+     */
+    fun sounding(timeline: TrackTimeline, id: String, audio: ClipAudio, was: ClipAudio): TrackTimeline {
+        var result = TrackAudio.settingVolume(timeline, audio.volumeDB, audio.muted, TimelineSelection(audio = setOf(id)))
+        if (audio.fadeIn != was.fadeIn) result = TrackAudio.settingFade(result, id, AudioFadeEdge.FadeIn, audio.fadeIn)
+        if (audio.fadeOut != was.fadeOut) result = TrackAudio.settingFade(result, id, AudioFadeEdge.FadeOut, audio.fadeOut)
+        return result
     }
 
     /**
-     * The sound [id] at the level and mute of [audio] ([TrackAudio.settingVolume]), and with each fade that changes from
-     * [was] as the conversion writes a fade ([TrackConversion.fades]): the seconds asked for, also when they are more
-     * than the item lasts, which is how such a fade is played and saved today.
+     * [result], an edit made from [state] on its timeline, with the captions
+     * timed for what [state] has saved when it is a sequence, as [back] keeps
+     * them: kept until S8 (`captions-fingerprint`).
      */
-    fun sounding(timeline: TrackTimeline, id: String, audio: ClipAudio, was: ClipAudio): TrackTimeline {
-        val result = TrackAudio.settingVolume(timeline, audio.volumeDB, audio.muted, TimelineSelection(audio = setOf(id)))
-        val fades = TrackConversion.fades(audio)
-        val before = TrackConversion.fades(was)
-        if (fades == before) return result
-        return result.copy(audio = result.audio.map { item ->
-            if (item.id != id) item else item.copy(fadeIn = if (fades.fadeIn != before.fadeIn) fades.fadeIn else item.fadeIn, fadeOut = if (fades.fadeOut != before.fadeOut) fades.fadeOut else item.fadeOut)
-        })
+    fun captionsKept(state: EditState, result: EditState): EditState {
+        val subtitles = result.subtitles ?: return result
+        if (!result.isSequence) return result
+        val wanted = state.subtitles?.timingFingerprint ?: ""
+        return if (subtitles.timingFingerprint == wanted) result else result.copy(subtitles = subtitles.copy(timingFingerprint = wanted))
     }
 
     /** The id the sound item [id] of [state] has on the timeline ([TrackSequenceView.soundID]). */

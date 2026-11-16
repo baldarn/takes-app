@@ -179,7 +179,7 @@ internal object TrackParity {
         val rawTrack = answered(run.track)
         val sameBytes = if (rawToday?.state == null || rawTrack?.state == null) null else saved(rawToday.state) == saved(rawTrack.state)
         val today = settled(rawToday?.let { answer -> Answer(answer.state?.let(::canonical), answer.values) })
-        val track = settled(rawTrack?.let { answer -> Answer(answer.state?.let(::canonical), answer.values, timeline = answer.timeline) })
+        val track = settled(rawTrack?.let { answer -> Answer(answer.state?.let(::canonical), answer.values, obstacle = answer.obstacle, timeline = answer.timeline) })
         val aspects = LinkedHashSet<String>()
         val verdict = when {
             today == null && track == null -> Verdict.Identical

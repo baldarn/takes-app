@@ -204,12 +204,12 @@ class UnusedTakesTest {
         assertEquals(listOf(b.id, a.id, c.id), sources(UnusedTakes.add(project, listOf(b), -4.0)!!.project))
     }
 
-    @Test fun tooCloseToAnEdgeGoesToThatEdge() {
+    @Test fun aPlaceNearAnEdgeCutsThere() {
+        // Since S4 a piece of any length is left, as in the original (`split-refused-near-an-edge`).
         val project = edited()
         val added = UnusedTakes.add(project, listOf(b), 19.95)!!
-        assertEquals(listOf(0.0 to 20.0, 0.0 to 3.0, 0.0 to 2.0), ranges(added.project))
-        // The reported start is where the take landed, not where it was asked for.
-        assertEquals(20.0, added.start, 1e-9)
+        assertEquals(listOf(0.0 to 19.95, 0.0 to 3.0, 19.95 to 20.0, 0.0 to 2.0), ranges(added.project))
+        assertEquals(19.95, added.start, 1e-9)
     }
 
     @Test fun intoAnEmptyTimeline() {

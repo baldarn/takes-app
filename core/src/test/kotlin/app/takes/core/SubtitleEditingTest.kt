@@ -138,10 +138,11 @@ class SubtitleEditingTest {
         // Two seconds off the front: the first sentence loses its first second and a half.
         val front = TimelineEditing.trim(transcribed, 0, 2.0, 20.0, 20.0)!!
         assertShown(listOf(Triple("morning everyone.", 0.0, 1.0), Triple("See you soon.", 8.0, 10.0), Triple("Hello there.", 19.0, 20.0)), front)
-        // Off the end: the second sentence goes, and comes back when the trim is undone by widening again.
+        // Off the end: the second sentence goes, and comes back when the edge is dragged out again, which since S4 reveals
+        // the footage over the next clip instead of pushing it (`handle-trim-outwards-overlaps`).
         val end = TimelineEditing.trim(transcribed, 0, 0.0, 8.0, 20.0)!!
         assertShown(listOf(Triple("Good morning everyone.", 1.0, 3.0), Triple("Hello there.", 9.0, 10.0)), end)
-        assertShown(shown(transcribed), TimelineEditing.trim(end, 0, 0.0, 20.0, 20.0)!!)
+        assertShown(listOf(Triple("Good morning everyone.", 1.0, 3.0), Triple("Hello there.", 9.0, 10.0), Triple("See you soon.", 10.0, 12.0)), TimelineEditing.trim(end, 0, 0.0, 20.0, 20.0)!!)
     }
 
     @Test fun movingAndDeletingClipsTakesTheirCaptionsAlong() {

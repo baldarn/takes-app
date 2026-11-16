@@ -185,7 +185,10 @@ internal object TrackParityCases {
     private fun today(state: EditState?, vararg values: Pair<String, Any?>): Answer? = state?.let { Answer(it, values.toMap()) }
 
     /** What a function answers now that it runs on the track model, with the timeline its answer converts to, for the invariants. */
-    private fun wrapped(state: EditState?, vararg values: Pair<String, Any?>): Answer? = state?.let { Answer(it, values.toMap(), timeline = it.toTimeline()) }
+    private fun wrapped(state: EditState?, vararg values: Pair<String, Any?>): Answer? = state?.let {
+        // An edit of pictures over one another or apart ([EditState.layered]) is no sequence, and says why.
+        Answer(it, values.toMap(), obstacle = it.layered?.let { timeline -> TrackSequenceView.sequence(timeline).obstacle }, timeline = it.toTimeline())
+    }
 
     private fun value(name: String, value: Any?) = Answer(values = mapOf(name to value))
 
