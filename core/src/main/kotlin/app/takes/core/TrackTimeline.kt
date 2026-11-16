@@ -406,6 +406,16 @@ data class TrackTimeline(
          */
         const val SCHEMA = 17
 
+        /**
+         * The schema number of a step whose timeline is no sequence
+         * ([EditState.layered]): pictures over one another, time with nothing
+         * in it. Release 0.10 reads timelines of [SCHEMA] but only those that
+         * are a sequence; it would take such a step for invalid data and open
+         * an older revision in its place (docs/TRACKS-PLAN.md, 3.4). From
+         * this number on, it says the project was saved by a newer version.
+         */
+        const val LAYERED_SCHEMA = 18
+
         const val COUNTERPART_SUFFIX = "~sound"
         const val ALIAS_SUFFIX = "~item"
 

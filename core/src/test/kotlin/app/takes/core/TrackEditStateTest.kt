@@ -104,7 +104,7 @@ class TrackEditStateTest {
         assertFalse(moved.edit.isSequence)
         assertEquals(timeline, moved.edit.layered)
         assertEquals(timeline, moved.snapshots.last().timeline)
-        assertEquals(TrackTimeline.SCHEMA, moved.schemaVersion)
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, moved.schemaVersion)
         // Saved as the timeline alone, as every step since S3b.
         assertTrue(moved.snapshots.last().data().decodeToString().startsWith("{\"state\":{\"timeline\":"))
         // Unchanged and Stale commit nothing; the same timeline again is no step.
@@ -219,6 +219,76 @@ class TrackEditStateTest {
         assertTrue(again.edit.isSequence)
         assertEquals(listOf(clips[1].id, clips[2].id, clips[0].id), again.edit.clips.map { it.id })
         assertTrue(again.undo().redo().edit.isSequence)
+    }
+
+    // MARK: Schema
+
+    /**
+     * A step that is no sequence takes schema 18, which release 0.10 (it
+     * reads 17, timelines that are sequences only) refuses as "saved by a
+     * newer version" instead of opening an older revision in its place
+     * (docs/TRACKS-PLAN.md, 3.4). A step that is a sequence stays at 17, and
+     * the project keeps the highest number of what it has held, as it does
+     * for 17: its history still names the step that is no sequence.
+     */
+    @Test
+    fun aStepThatIsNoSequenceTakesSchema18() {
+        assertEquals(18, TrackTimeline.LAYERED_SCHEMA)
+        assertEquals(18, Project.LATEST_READABLE_SCHEMA)
+        val base = project(original)
+        val sequence = base.commit(TimelineEditing.move(base.edit, 0, 2)!!)
+        assertTrue(sequence.edit.isSequence)
+        assertEquals(TrackTimeline.SCHEMA, sequence.schemaVersion)
+        assertEquals(TrackTimeline.SCHEMA, sequence.snapshots.last().schema)
+        val (moved, _) = overlapped()
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, moved.snapshots.last().schema)
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, moved.schemaVersion)
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, Project.schemaOf(moved.manifest { _, _ -> }))
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, reopened(moved).schemaVersion)
+        // Back to a sequence: the step is 17, the project stays 18 while its history holds the overlap.
+        val back = moving(moved, clips[0].id, -2.0)
+        assertTrue(back.edit.isSequence)
+        assertEquals(TrackTimeline.SCHEMA, back.snapshots.last().schema)
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, back.schemaVersion)
+        // A gap is no sequence either; a take recorded at a place onto a layered edit is a layered step.
+        val gapped = moving(base, clips[1].id, 8.0)
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, gapped.schemaVersion)
+        val take = SourceMedia(id = uuid(7), filename = "later.mp4", duration = 3.0)
+        assertEquals(TrackTimeline.SCHEMA, base.beginRecordingInsertion(1.0).addRecording(take).schemaVersion)
+        val overInserted = moved.beginRecordingInsertion(1.0).addRecording(take)
+        assertFalse(overInserted.edit.isSequence)
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, overInserted.snapshots[overInserted.historyCursor].schema)
+        assertEquals(TrackTimeline.LAYERED_SCHEMA, overInserted.schemaVersion)
+        // A reader of 17 is told the project is newer.
+        val files = HashMap<String, ByteArray>()
+        val manifest = moved.manifest { name, data -> files[name] = data }
+        assertTrue(Project.isNewer(manifest.decodeToString().replaceFirst("\"schemaVersion\":18", "\"schemaVersion\":19").toByteArray()))
+        assertFalse(Project.isNewer(manifest))
+    }
+
+    /**
+     * Leaves, under `TAKES_LAYERED_OUT`, libraries for a core of release 0.10
+     * to open: a project whose head is a Move over a picture (`overlap`), one
+     * with a gap (`gap`), and one moved over and back, a sequence again with
+     * the overlap in its history (`back`). Each has been saved twice, so its
+     * kept revisions hold a manifest of 17 that 0.10 could open.
+     */
+    @Test
+    fun writeLayeredProjectsForAnOlderCore() {
+        val out = System.getenv("TAKES_LAYERED_OUT")?.let(::File) ?: return
+        out.deleteRecursively()
+        out.mkdirs()
+        val base = project(original).let { it.commit(TimelineEditing.setColor(it.edit, 2, ColorSettings(exposure = 0.5))!!) }
+        assertTrue(base.edit.isSequence)
+        val overlap = moving(base, clips[0].id, 2.0)
+        val projects = mapOf("overlap" to overlap, "gap" to moving(base, clips[1].id, 8.0), "back" to moving(overlap, clips[0].id, -2.0))
+        for ((name, project) in projects) {
+            val disk = ProjectDisk(File(out, name))
+            disk.save(base)
+            disk.save(project)
+            File(disk.folder(project.id), source.filename).writeBytes("media".toByteArray())
+            assertEquals(TrackTimeline.LAYERED_SCHEMA, Project.schemaOf(File(disk.folder(project.id), "project.json").readBytes()))
+        }
     }
 
     @Test
