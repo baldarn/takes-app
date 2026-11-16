@@ -70,17 +70,21 @@ object ColorGrade {
      * Exposure, warmth and tint. Exposure multiplies the light itself, so it
      * is applied in linear terms. Warmth and tint are simple channel gains: an
      * approximation of the original's temperature filter, not a match for it.
-     * Highlights and local recovery are in the model but not applied yet.
+     * Highlights follows them in linear light, as the original's grade applies
+     * it before any look (YouRec/VideoToolCompositor.swift:503-511, [LogColor.highlights]).
+     * Local recovery is in the model but not applied yet.
      */
     fun balance(settings: ColorSettings, red: Double, green: Double, blue: Double): DoubleArray {
         val exposure = settings.exposure ?: 0.0
         val warmth = settings.warmth ?: 0.0
         val tint = settings.tint ?: 0.0
-        if (exposure == 0.0 && warmth == 0.0 && tint == 0.0) return doubleArrayOf(red, green, blue)
+        val highlights = settings.highlights ?: 0.0
+        if (exposure == 0.0 && warmth == 0.0 && tint == 0.0 && highlights == 0.0) return doubleArrayOf(red, green, blue)
         val gain = 2.0.pow(exposure)
         val gains = doubleArrayOf(1 + 0.12 * warmth, 1 - 0.10 * tint, 1 - 0.12 * warmth)
         val input = doubleArrayOf(red, green, blue)
-        return DoubleArray(3) { toDisplay((toLinear(input[it].coerceIn(0.0, 1.0)) * gain * gains[it]).coerceIn(0.0, 1.0)) }
+        val linear = LogColor.highlights(DoubleArray(3) { toLinear(input[it].coerceIn(0.0, 1.0)) * gain * gains[it] }, highlights)
+        return DoubleArray(3) { toDisplay(linear[it].coerceIn(0.0, 1.0)) }
     }
 
     /** One color through the whole grade. */
