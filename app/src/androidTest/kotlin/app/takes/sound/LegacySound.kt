@@ -10,7 +10,6 @@ import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
-import app.takes.SoundProcessor
 import app.takes.clippedItem
 import app.takes.core.RenderPlan
 import app.takes.steadySpeed

@@ -9,7 +9,6 @@ import androidx.media3.common.Effect
 import androidx.media3.common.GlObjectsProvider
 import androidx.media3.common.GlTextureInfo
 import androidx.media3.common.MediaItem
-import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.ExperimentalApi
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
@@ -28,7 +27,6 @@ import app.takes.core.RenderPlan
 import app.takes.core.Size as FrameSize
 import app.takes.core.TransitionLayout
 import java.io.File
-import kotlin.math.roundToLong
 
 /**
  * Lets through the frames of one section of the movie and no other, and gives them the times of a movie
