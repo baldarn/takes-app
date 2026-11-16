@@ -1882,7 +1882,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     audioTool?.let { (kind, work) ->
         val done = { next: EditState? -> commit(next, playhead); audioTool = null }
-        if (kind == AudioToolKind.Enhance) EnhanceDialog(work.chain, apply = { done(work.enhanced(it)) }, remove = work.region?.let { { done(work.removed()) } }, dismiss = { audioTool = null })
+        if (kind == AudioToolKind.Enhance) {
+            LaunchedEffect(work) { editor.pause() }
+            EnhanceInspector(work, files, voiced, playhead, apply = { done(work.enhanced(it)) }, remove = { done(if (work.region != null) work.removed() else work.enhanced(emptyList())) }, dismiss = { audioTool = null })
+        }
         else CensorDialog(work.censor, apply = { done(work.censored(it)) }, remove = work.region?.let { { done(work.removed()) } }, dismiss = { audioTool = null })
     }
     ExportPanel(project, canvas, store, exporter, choosingExport) { choosingExport = false }

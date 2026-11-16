@@ -117,6 +117,14 @@ internal class MixPlayback {
         synchronized(lock) { if (playing) restart(time) }
     }
 
+    /** Plays at [volume] times the mix's level, as a listening level that is never exported (Enhance audio's comparison). */
+    fun volume(volume: Float) {
+        synchronized(lock) { runCatching { track.setVolume(volume.coerceIn(0f, 1f)) } }
+    }
+
+    /** The second of the movie being heard now, while playing; for a preview that plays without a picture to follow. */
+    fun position(): Double = synchronized(lock) { if (playing) heard() else origin }
+
     /** Keeps the sound with the picture, which is at [time]: call once per frame while playing. */
     fun follow(time: Double) {
         synchronized(lock) {
