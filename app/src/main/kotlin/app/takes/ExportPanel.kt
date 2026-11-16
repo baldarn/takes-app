@@ -275,6 +275,11 @@ private fun ExportAudioWarning(warning: ExportReceipt.AudioWarning) {
 /** The finished movie, to play, share or save. */
 @Composable
 private fun ExportedDialog(file: File, exporter: Exporter, context: Context, store: ProjectStore) {
+    // The chime and its "success" tap, once, when the new movie shows.
+    val view = LocalView.current
+    LaunchedEffect(file) {
+        if (ExportChime.finished(file)) view.performHapticFeedback(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+    }
     AlertDialog(
         onDismissRequest = { exporter.result = null },
         title = { Text(stringResource(R.string.export_done_title)) },
