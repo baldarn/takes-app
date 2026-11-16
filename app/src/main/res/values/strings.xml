@@ -476,6 +476,8 @@
     <string name="editor_speed">Speed</string>
     <string name="speed_title">Clip speed</string>
     <string name="speed_note">The whole clip plays slower or faster, picture and sound, and the pitch of voices is kept. Later clips move.</string>
+    <string name="speed_apply">Apply</string>
+    <string name="speed_slider">Playback speed</string>
     <string name="editor_subtitles">Subtitles</string>
     <string name="subtitles_title">Subtitles</string>
     <string name="subtitles_apply">Apply</string>
