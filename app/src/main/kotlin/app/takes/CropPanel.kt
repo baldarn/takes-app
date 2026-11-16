@@ -75,7 +75,6 @@ import app.takes.core.EditState
 import app.takes.core.Point
 import app.takes.core.RangeEditing
 import app.takes.core.Size as FrameSize
-import app.takes.core.SpeedMapping
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import java.util.Locale
@@ -132,7 +131,7 @@ internal data class Cropping(val draft: CropDraft, val on: CropScope) {
         if (piece.clip.id !in on.ids) return piece.clip.crop
         // Until something is changed every clip shows what it has; one without a crop fills the frame, as applying leaves it.
         if (!draft.framingChanged && !draft.animationChanged) return piece.clip.crop ?: CropSettings(id = draft.crop.id)
-        return draft.displayed(sourceTime, SpeedMapping.spans(piece.clip, piece.clip.speed), piece.start - on.start, piece.clip.crop?.motion)
+        return draft.displayed(sourceTime, piece.clip.playbackSpans, piece.start - on.start, piece.clip.crop?.motion)
     }
 
     /**
@@ -147,7 +146,7 @@ internal data class Cropping(val draft: CropDraft, val on: CropScope) {
         for (piece in on.pieces) {
             val index = next.clips.indexOfFirst { it.id == piece.clip.id }
             val clip = next.clips.getOrNull(index) ?: continue
-            val crop = draft.applied(clip.crop, SpeedMapping.spans(clip, clip.speed), piece.start - on.start, sizes[clip.sourceID], canvas, removing)
+            val crop = draft.applied(clip.crop, clip.playbackSpans, piece.start - on.start, sizes[clip.sourceID], canvas, removing)
             TimelineEditing.setCrop(next, index, crop)?.let { next = it; changed = true }
         }
         return next.takeIf { changed }

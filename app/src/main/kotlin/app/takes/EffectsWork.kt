@@ -3,7 +3,6 @@ package app.takes
 import app.takes.core.EditState
 import app.takes.core.EffectValue
 import app.takes.core.RangeEditing
-import app.takes.core.SpeedMapping
 import app.takes.core.StrobeTimePoint
 import app.takes.core.TimelineClip
 import app.takes.core.VideoEffectEditing
@@ -172,7 +171,7 @@ internal data class EffectsWork(
 
     /** Playback seconds against source seconds, where the clip does not play its footage at its own pace. */
     private fun strobeClock(clip: TimelineClip): List<StrobeTimePoint>? {
-        val spans = SpeedMapping.spans(clip, clip.speed)
+        val spans = clip.playbackSpans
         val first = spans.firstOrNull() ?: return null
         if (spans.size <= 1 && first.rate == 1.0) return null
         var elapsed = 0.0
