@@ -166,8 +166,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import app.takes.core.TimelineSnapping
 import app.takes.core.TitleMotionRanges
 import app.takes.core.TrackRenderPlan
+import app.takes.core.TrackAudioRegions
+import app.takes.core.TrackMix
 import app.takes.core.EditRender
-import app.takes.core.LayerSound
 import app.takes.core.TimelineTransition
 import app.takes.core.EffectValue
 import app.takes.core.VideoEffectID
@@ -265,46 +266,47 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         onDispose { view.keepScreenOn = false }
     }
     val sounds = edit.audio.orEmpty()
-    // Noise reduction runs in the background, one recording at a time. Until a clip's
-    // cleaned sound is ready the preview plays the recorded sound; then the players reload.
-    // The render plan of the edit as it is shown, before any cleaned sound is at hand: it marks every clip that asks for noise reduction.
     // How the edit is drawn: a sequence on two decks; pictures over one another or apart by picture layers, a player a
     // lane; or not at all, past the pictures the device decodes at once. For layers the render plan holds the sound tracks alone.
     val render = remember(edit) { EditRender.of(edit, EditRendering.LANES) }
     val layers = (render as? EditRender.Layers)?.plan
-    val layerSound = remember(layers, edit) { layers?.let { LayerSound(it, edit.clips, edit.audio.orEmpty()) } }
     val refusal = (render as? EditRender.TooManyLayers)?.let { EditRendering.tooMany(context, it) }
     val asked = remember(render) { (render as? EditRender.Sequence)?.plan ?: RenderPlan.of(EditState(audio = edit.audio)) }
-    val cleaning = asked.pictures.filter { it.soundRemoved }.map { files.getValue(it.sourceID) to (asked.clips[it.index].audio?.denoise ?: 0.0) }.distinct()
+    val plan = asked
+    // The sound is the audio engine's: the mix plan of the edit's timeline, as the export mixes it. The chains of
+    // Enhance audio are processed in the background, one at a time; until one is ready its pieces play the recording,
+    // then the mix is loaded again.
+    val timeline = remember(edit) { edit.toTimeline() }
+    val chains = remember(timeline, files) {
+        TrackAudioRegions.requests(timeline).values.filter { Denoiser.playable(it.effects) }.mapNotNull { request -> files[request.sourceID]?.let { it to request.effects } }
+    }
     var cleaned by remember { mutableIntStateOf(0) }
     var cleaningProgress by remember { mutableStateOf<Float?>(null) }
-    LaunchedEffect(cleaning) {
+    LaunchedEffect(chains) {
         try {
-            for ((file, amount) in cleaning) {
-                if (Denoiser.ready(file, amount) != null) continue
+            for ((file, effects) in chains) {
+                if (Denoiser.ready(file, effects) != null) continue
                 cleaningProgress = 0f
-                if (Denoiser.process(file, amount) { cleaningProgress = it } != null) cleaned++
+                if (Denoiser.process(file, effects) { cleaningProgress = it } != null) cleaned++
             }
         } finally {
             cleaningProgress = null
         }
     }
-    // The cleaned sound that is ready, by clip, and the plan the preview plays: a clip whose cleaned sound is not ready yet plays its recorded sound.
-    val clean = remember(asked, cleaned, files) {
-        asked.pictures.filter { it.soundRemoved }.mapNotNull { clip ->
-            Denoiser.ready(files.getValue(clip.sourceID), asked.clips[clip.index].audio?.denoise ?: 0.0)?.let { clip.index to it }
-        }.toMap()
-    }
-    val plan = remember(asked, clean) { if (asked.pictures.none { it.soundRemoved }) asked else TrackRenderPlan.of(edit, clean.keys) }
+    // Which recordings have sound at all: one without takes no lane.
+    var voiced by remember { mutableStateOf<Map<String, Boolean>?>(null) }
+    LaunchedEffect(files) { voiced = withContext(Dispatchers.IO) { files.mapValues { hasSound(it.value) } } }
+    val mixPlan = remember(timeline, voiced) { voiced?.let { heard -> TrackMix.plan(timeline, voiced = { heard[it] == true }) } }
+    LaunchedEffect(mixPlan, cleaned) { mixPlan?.let { editor.loadSound(it, files, Denoiser.input(files)) } }
     // While an edit drawn by layers exports, its players let go of their decoders: the export needs one a lane as well.
     val exporting = exporter.progress != null
-    LaunchedEffect(clips, sounds, cleaned, layers, refusal != null, exporting && layers != null) {
+    LaunchedEffect(clips, sounds, layers, refusal != null, exporting && layers != null) {
         playhead = playhead.coerceIn(0.0, duration)
         when {
             layers != null && exporting -> editor.unload()
-            layers != null -> editor.load(layers, plan, files, playhead)
+            layers != null -> editor.load(layers, files, playhead)
             refusal != null -> editor.unload()
-            else -> editor.load(plan, files, clean, playhead)
+            else -> editor.load(plan, files, playhead)
         }
     }
     // The Crop tool: the framing it is working on and the clips it goes on, shown in the preview and not saved until applied.
@@ -500,8 +502,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         if (layers != null) lanePictures?.getOrNull(deck)?.let { layers.pictures[it].content to layers.pictures[it].start }
         else deckClips.getOrNull(deck)?.let { plan.clips[it] to plan.pictures[it].start }
     }
-    // What each deck sounds like: its clip's own level and what the transitions at its ends leave of it.
-    val deckSounds = if (layers != null && layerSound != null) List(layers.lanes) { lane -> layerSound.laneLevel(lane, playhead) } else List(2) { deck -> plan.deckLevel(deck, playhead) }
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
     val deckColors = shownClips.map { it?.first?.color }
@@ -522,12 +522,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         if (crop == null || size == null) null else {
             val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame) }
             framing
-        }
-    }
-    SideEffect {
-        deckSounds.forEachIndexed(editor::setSound)
-        for (track in 0 until AudioItem.TRACKS) {
-            editor.setTrackSound(track, plan.trackLevel(track, playhead))
         }
     }
     // The titles under the playhead, with the one being worked on as it is now.

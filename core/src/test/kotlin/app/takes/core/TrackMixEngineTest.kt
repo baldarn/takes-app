@@ -102,6 +102,24 @@ class TrackMixEngineTest {
         assertTrue(TrackMix.plan(split).pieces.any { it.continues })
     }
 
+    @Test fun aNewLevelIsTakenWhereTheMixIsAndAnythingElseIsRefused() {
+        val sounds = listOf(sound(1, uuid(100), 0.0, 3.0), sound(2, uuid(101), 1.0, 2.0))
+        val before = TrackMix.plan(TrackTimeline(audio = sounds))
+        val louder = TrackMix.plan(TrackTimeline(audio = listOf(sounds[0].copy(volumeDB = 6.0), sounds[1])))
+        sources.clear()
+        val expected = reference(louder)
+        engine(before).use { mixer ->
+            val half = (mixer.frames / 2).toInt()
+            val first = FloatArray(half * channels)
+            mixer.render(first, half)
+            assertTrue(mixer.adopt(louder))
+            val rest = FloatArray(((mixer.frames - half) * channels).toInt())
+            mixer.render(rest, (mixer.frames - half).toInt())
+            assertSame("after the new level", expected.copyOfRange(half * channels, expected.size), rest)
+            assertEquals(false, mixer.adopt(TrackMix.plan(TrackTimeline(audio = sounds.take(1)))))
+        }
+    }
+
     @Test fun anEmptyTimelineIsSilenceAsLongAsNothing() {
         engine(TrackMix.plan(TrackTimeline())).use { assertEquals(0, it.renderAll().size) }
     }
