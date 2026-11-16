@@ -122,7 +122,7 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
 /** The shader of every transition, written once and worded for each of the two renderers. */
 object TransitionShader {
     // Mixes happen in linear light, as in the original: pixels are decoded from sRGB, combined, and encoded again.
-    private const val BODY = """
+    internal const val HEAD = """
         vec3 lin(vec3 c) {
             c = clamp(c, 0.0, 1.0);
             return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
@@ -131,12 +131,19 @@ object TransitionShader {
             c = clamp(c, 0.0, 1.0);
             return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
         }
+    """
+
+    private const val SIDE = """
         // One side's picture at a pixel of the frame; past the frame its edge pixels go on.
         vec3 side(float kind, vec2 p) {
             if (kind > 2.5) return held(kind - 3.0, clamp(p, vec2(0.5), uSize - 0.5));
             if (kind > 1.5) return uFill;
             return deck(kind, clamp(p, vec2(0.5), uSize - 0.5));
         }
+    """
+
+    /** What comes after `side()`: the drawing of every style from the two sides. */
+    internal const val TAIL = """
         // One side moved by an offset and blurred evenly along an axis, a radius to each side: in linear light.
         vec3 pan(float kind, vec2 q, vec2 offset, vec2 axis, float radius) {
             if (radius < 0.5) return lin(side(kind, q - offset));
@@ -203,7 +210,9 @@ object TransitionShader {
         }
     """
 
-    private const val UNIFORMS = """
+    private const val BODY = HEAD + SIDE + TAIL
+
+    internal const val UNIFORMS = """
         uniform vec2 uSize;
         uniform float uMode;
         uniform vec2 uKind;
@@ -297,24 +306,43 @@ fun largestTextureSide(): Int? = try {
 }
 
 /**
- * Lays the [decks] of an export, one or two, one above the other in a frame
- * as many times as tall, untouched, the first on top. [TransitionEffect] then
- * makes the movie's frame from them, which Media3's own blend of sequences
- * could not: it only lays one over the other by opacity, on encoded pixels.
+ * Lays the [decks] of an export one above the other in a frame as many times
+ * as tall, untouched, the first on top; or, with [columns] 2, in a grid two
+ * movies wide, row by row, for lanes that would make a column taller than the
+ * GPU's largest texture (docs/LAYERS-PROBE.md, section 4.2). [TransitionEffect]
+ * or [LayersEffect] then makes the movie's frame from them, which Media3's own
+ * blend of sequences could not: it only lays one over the other by opacity,
+ * on encoded pixels.
  *
  * The first input is not a deck but the clock, the sequence whose frames
  * give the movie its frame times: it is not drawn. The decks are the inputs
  * after it.
  */
-class DecksCompositor(private val canvas: Size, private val decks: Int) : VideoCompositorSettings {
-    override fun getOutputSize(inputSizes: List<Size>): Size = Size(canvas.width, canvas.height * decks)
+class DecksCompositor(private val canvas: Size, private val decks: Int, private val columns: Int = 1) : VideoCompositorSettings {
+    private val rows = (decks + columns - 1) / columns
+
+    override fun getOutputSize(inputSizes: List<Size>): Size = Size(canvas.width * columns, canvas.height * rows)
 
     override fun getOverlaySettings(inputId: Int, presentationTimeUs: Long): OverlaySettings = object : OverlaySettings {
         private val deck = inputId - 1
+        private val cell = maxOf(deck, 0)
 
         override fun getAlphaScale(): Float = if (deck < 0) 0f else 1f
 
-        override fun getBackgroundFrameAnchor(): android.util.Pair<Float, Float> = android.util.Pair.create(0f, if (decks < 2) 0f else if (deck <= 0) 0.5f else -0.5f)
+        // The middle of the deck's cell, from -1 to 1 across the frame and upward: for one or two decks in a column 0, 0.5 and -0.5.
+        override fun getBackgroundFrameAnchor(): android.util.Pair<Float, Float> = android.util.Pair.create(
+            if (columns < 2) 0f else (2f * (cell % columns) + 1f) / columns - 1f,
+            if (rows < 2) 0f else 1f - (2f * (cell / columns) + 1f) / rows,
+        )
+    }
+
+    companion object {
+        /** The columns of the grid the decks are laid in: 1, a column, unless [decks] movies [height] pixels tall exceed [largestSide]. */
+        fun columns(decks: Int, height: Int, largestSide: Int?): Int = if (decks > 1 && largestSide != null && height.toLong() * decks > largestSide) 2 else 1
+
+        /** Whether [decks] movies of [width] by [height] laid in [columns] fit on a GPU whose largest texture is [largestSide]. */
+        fun fits(decks: Int, columns: Int, width: Int, height: Int, largestSide: Int): Boolean =
+            decks <= 1 || (width.toLong() * columns <= largestSide && height.toLong() * ((decks + columns - 1) / columns) <= largestSide)
     }
 }
 

@@ -70,6 +70,8 @@ object TitleRenderer {
 class TitleOverlay(
     private val plan: RenderPlan, private val width: Int, private val height: Int, assets: AssetManager,
     private val frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND },
+    /** Seconds the frames' times are ahead of the plan's: where a clip drawn by itself begins in its sequence. */
+    private val shift: Double = 0.0,
 ) : BitmapOverlay() {
     private val empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
     private val painter = TitlePainter(assets)
@@ -78,7 +80,7 @@ class TitleOverlay(
     private var bitmap = empty
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
-        val time = presentationTimeUs / 1e6
+        val time = presentationTimeUs / 1e6 - shift
         // Opacity in steps, so a steady title is drawn once. A title on its way in or out is drawn for every frame.
         val visible = plan.titlesShown(time, frames).map { it.copy(share = (it.share * 64).toInt() / 64.0) }.filter { it.share > 0 }
         if (visible != shown) {

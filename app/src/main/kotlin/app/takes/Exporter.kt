@@ -78,6 +78,9 @@ import app.takes.core.Project
 import app.takes.core.RenderPlan
 import app.takes.core.TimelineClip
 import app.takes.core.TrackRenderPlan
+import app.takes.core.EditRender
+import app.takes.core.LayerPlan
+import app.takes.core.LayerSound
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -497,8 +500,15 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
      * sound when that was measured. Cancelling the coroutine stops it, and what is in [checkpoint] by then stays.
      */
     private suspend fun run(project: Project, folder: File, checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit): Unit = coroutineScope {
+        // An edit with pictures over one another or apart is drawn by picture layers; past what the device decodes at once it is not drawn.
+        val render = EditRender.of(project.edit, EditRendering.LANES)
+        if (render is EditRender.TooManyLayers) throw Refusal(EditRendering.tooMany(context, render))
+        if (render is EditRender.Layers) {
+            layered(project, render.plan, folder, checkpoint, published)
+            return@coroutineScope
+        }
         // What the movie is made of, before any cleaned sound is at hand: every clip that asks for noise reduction is marked.
-        val asked = TrackRenderPlan.of(project.edit)
+        val asked = (render as EditRender.Sequence).plan
         val settings = project.exportSettings
         val files = project.sources.associate { it.id to store.file(project, it) }
         // The first clip gives the picture its shape; the settings give it its size.
@@ -521,7 +531,6 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             ExportCheckpoint.reclaim(folder)
             if (!scratch.mkdirs() && !scratch.isDirectory) throw ExportProblem(ExportProblem.Reason.NotPrepared)
         }
-        fun partial() = File(scratch, UUID.randomUUID().toString().uppercase() + ".mp4")
 
         // Noise reduction: the cleaned sound of every clip that asks for it, made before rendering and kept.
         report(ExportProgress.of(ExportProgress.Step.AudioEffects))
@@ -547,6 +556,72 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 clean = clean, black = blackStill(context), luts = folder,
             )
         }
+        finish(project, movie, duration, canvas, folder, exports, scratch, checkpoint, published) { progress -> ExportCheck.peak(plan, files, clean, progress) }
+    }
+
+    /**
+     * The export of an edit drawn by picture layers ([LayerMovie]): as a sequence's, from its [plan] of layers
+     * and the sound of its pictures and tracks ([LayerSound]). The loudest sample is not measured for it yet,
+     * so its movie makes no claim about its sound.
+     */
+    private suspend fun layered(project: Project, plan: LayerPlan, folder: File, checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit) {
+        val edit = project.edit
+        val settings = project.exportSettings
+        val files = project.sources.associate { it.id to store.file(project, it) }
+        val sounds = edit.audio.orEmpty()
+        // The first picture in time gives the picture its shape, as for a sequence; the settings give it its size.
+        val first = edit.clips.firstOrNull()?.sourceID ?: plan.pictures.firstOrNull()?.sourceID
+        val canvas = withContext(Dispatchers.IO) { first?.let { files[it] }?.let(::displaySize) }?.let { settings.resolution.size(it.first, it.second) }
+        if (canvas == null || plan.pictures.any { files[it.sourceID]?.isFile != true } || sounds.any { files[it.sourceID]?.isFile != true }) {
+            throw Refusal(context.getString(R.string.export_source_missing))
+        }
+        // The lanes are drawn from one frame that holds them all: in a column, or in a grid two movies wide past the
+        // GPU's largest texture. One that cannot hold even the grid would fail halfway: say so before any work is done.
+        val side = if (plan.lanes > 1) withContext(Dispatchers.Default) { largestTextureSide() } else null
+        val columns = DecksCompositor.columns(plan.lanes, canvas.second, side)
+        if (side != null && !DecksCompositor.fits(plan.lanes, columns, canvas.first, canvas.second, side)) {
+            throw Refusal(context.getString(R.string.export_layers_too_large, canvas.first, canvas.second))
+        }
+        val exports = File(folder, ExportCheckpoint.EXPORTS)
+        val scratch = File(folder, ExportCheckpoint.PROCESSING)
+        withContext(Dispatchers.IO) {
+            ExportCheckpoint.reclaim(folder)
+            if (!scratch.mkdirs() && !scratch.isDirectory) throw ExportProblem(ExportProblem.Reason.NotPrepared)
+        }
+        val sounding = LayerSound(plan, edit.clips, sounds)
+        report(ExportProgress.of(ExportProgress.Step.AudioEffects))
+        val wanted = plan.pictures.filter { sounding.denoise(it.index) > 0 }
+        val clean = mutableMapOf<Int, File>()
+        wanted.forEachIndexed { step, picture ->
+            Denoiser.process(files.getValue(picture.sourceID), sounding.denoise(picture.index)) {
+                report(ExportProgress.of(ExportProgress.Step.AudioEffects, (step + it.toDouble()) / wanted.size))
+            }?.let { clean[picture.index] = it }
+        }
+        report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
+        val movie = withContext(Dispatchers.IO) {
+            val used = plan.pictures.map { it.sourceID }.distinct()
+            LayerMovie(
+                context, plan, sounding, settings.frameRate, files, canvas, columns,
+                sizes = used.associateWith { files[it]?.let(::displaySize) },
+                rates = used.associateWith { files[it]?.let(::frameRate) },
+                voiced = used.associateWith { files[it]?.let(::hasSound) == true },
+                clean = clean, black = blackStill(context), luts = folder,
+            )
+        }
+        finish(project, movie, plan.duration, canvas, folder, exports, scratch, checkpoint, published) { null }
+    }
+
+    /**
+     * The rest of an export once its [movie] is made: the sound beside the picture, the picture a section at a
+     * time, the join, the checks and the saving. [peak] measures the loudest sample of the mix, null when it cannot.
+     */
+    private suspend fun finish(
+        project: Project, movie: MovieRender, duration: Double, canvas: Pair<Int, Int>, folder: File, exports: File, scratch: File,
+        checkpoint: ExportCheckpoint, published: (File, Float?) -> Unit, peak: suspend ((Double) -> Unit) -> Float?,
+    ): Unit = coroutineScope {
+        val settings = project.exportSettings
+        val files = project.sources.associate { it.id to store.file(project, it) }
+        fun partial() = File(scratch, UUID.randomUUID().toString().uppercase() + ".mp4")
         val codec = if (settings.codec == ExportSettings.Codec.HEVC) MimeTypes.VIDEO_H265 else MimeTypes.VIDEO_H264
         val sections = ExportSections.sections(duration)
 
@@ -556,8 +631,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         val measuring = async {
             if (checkpoint.measuredPeak == null) {
                 report(ExportProgress.of(ExportProgress.Step.AudioPeak))
-                ExportCheck.peak(plan, files, clean) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
-                    ?.let { peak -> withContext(Dispatchers.IO) { checkpoint.savePeak(peak) } }
+                peak { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
+                    ?.let { loudest -> withContext(Dispatchers.IO) { checkpoint.savePeak(loudest) } }
             }
         }
         val sounding = async {

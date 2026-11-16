@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="layers_too_many">Troppi video si sovrappongono da %1$s a %2$s: %3$d, e questo dispositivo ne mostra al massimo %4$d insieme. Spostane uno perché se ne sovrappongano meno.</string>
+    <string name="export_layers_too_large">Su questo dispositivo i video di questo filmato non si possono disegnare uno sopra l\'altro a %1$d × %2$d. Scegli una dimensione di esportazione più piccola.</string>
+</resources>
