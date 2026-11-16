@@ -1,6 +1,7 @@
 package app.takes.core
 
 import kotlin.math.abs
+import kotlin.math.sign
 
 /**
  * The timeline as a sequence of clips with two sound tracks, or null when it
@@ -37,7 +38,12 @@ fun TrackTimeline.toSequence(): EditState? = TrackSequenceForm.sequence(this)
  *  - the sound unlinked from a clip comes before the other items that begin
  *    after it, and its muted clip no longer remembers the level and fades it
  *    had before unlinking;
- *  - a caption fingerprint that no longer matched is empty.
+ *  - a caption fingerprint that no longer matched is empty;
+ *  - pictures are on layers by their number in the row, where the layers
+ *    they had decided nothing (no two pictures that overlap were the other
+ *    way round), and everything is kept in the order the conversion makes:
+ *    a Move over a picture and back, or out and its gap closed, leaves a
+ *    sequence.
  *
  * `captureBase` is not part of either form's saved edit and is not carried.
  */
@@ -135,9 +141,10 @@ object TrackSequenceForm {
      * rounded again, so each may be one tick off.
      */
     private fun same(made: TrackTimeline, saved: TrackTimeline): Boolean {
-        if (made.copy(audio = emptyList(), subtitles = null) != saved.copy(audio = emptyList(), subtitles = null)) return false
-        if (made.audio.size != saved.audio.size) return false
-        for ((a, b) in made.audio.zip(saved.audio)) {
+        val kept = arranged(saved, made)
+        if (made.copy(audio = emptyList(), subtitles = null) != kept.copy(audio = emptyList(), subtitles = null)) return false
+        if (made.audio.size != kept.audio.size) return false
+        for ((a, b) in made.audio.zip(kept.audio)) {
             if (a == b) continue
             if (a.followsVideo != null || b.followsVideo != null) return false
             val runA = a.mapping.runs.singleOrNull() ?: return false
@@ -151,5 +158,63 @@ object TrackSequenceForm {
         if (a == null || b == null) return true
         // A fingerprint is either the timeline's own or none.
         return if (a.timingFingerprint.isEmpty()) b.timingFingerprint.isEmpty() else b.timingFingerprint == TrackConversion.timingFingerprint(saved)
+    }
+
+    /**
+     * [saved] as the conversion would keep what it holds, where that says
+     * nothing about what plays: its lists in the order of [made]'s, by id,
+     * and the layers of its pictures [made]'s wherever they decide nothing.
+     * A layer decides only which of two pictures that play together is in
+     * front, so it is taken from [made] when every two pictures that overlap
+     * in [saved] are in the same order there as in [made]. The original
+     * leaves a picture on the layer a Move gave it when its overlap is gone
+     * (YouRec/TrackTimeline.swift:726-739 raises it for a new overlap only,
+     * and `pruneRelations`, :847-897, never changes a layer), and keeps
+     * pictures in the order they were added; neither makes such a timeline
+     * anything but a sequence. What does not match by id is left as it is,
+     * for the comparison to refuse.
+     */
+    private fun arranged(saved: TrackTimeline, made: TrackTimeline): TrackTimeline {
+        val video = saved.video.inOrderOf(made.video) { it.id }
+        val layers = made.video.associate { it.id to it.layer }
+        val relayered = if (video.size == made.video.size && layersDecideNothing(saved.video, layers)) video.map { it.copy(layer = layers.getValue(it.id)) } else video
+        return saved.copy(
+            video = relayered,
+            audio = saved.audio.inOrderOf(made.audio) { it.id },
+            links = saved.links.inOrderOf(made.links) { it.id },
+            bookmarks = saved.bookmarks.inOrderOf(made.bookmarks) { it.id },
+            transitions = saved.transitions.inOrderOf(made.transitions) { it.id },
+            generated = saved.generated.inOrderOf(made.generated) { it.id },
+        )
+    }
+
+    /** True when every two of [pictures] that overlap are in the same order by their layers as by [layers]. */
+    private fun layersDecideNothing(pictures: List<VideoTimelineItem>, layers: Map<String, Int>): Boolean {
+        val byStart = pictures.sortedBy { it.start }
+        for (i in byStart.indices) {
+            val a = byStart[i]
+            val la = layers[a.id] ?: return false
+            var j = i + 1
+            while (j < byStart.size && byStart[j].start < a.end) {
+                val b = byStart[j++]
+                if (b.end <= b.start || a.end <= a.start) continue
+                val lb = layers[b.id] ?: return false
+                if (VideoTimelineItem.backToFront.compare(a, b).sign != (la.compareTo(lb)).sign) return false
+            }
+        }
+        return true
+    }
+
+    /** This list in the order of [other]'s keys, when both hold the same unique keys; otherwise this list as it is. */
+    private inline fun <T> List<T>.inOrderOf(other: List<T>, key: (T) -> String): List<T> {
+        if (size != other.size) return this
+        var ordered = true
+        for (index in indices) if (key(this[index]) != key(other[index])) { ordered = false; break }
+        if (ordered) return this
+        val mine = HashMap<String, T>(size * 2)
+        for (item in this) if (mine.put(key(item), item) != null) return this
+        val result = ArrayList<T>(size)
+        for (item in other) result += mine.remove(key(item)) ?: return this
+        return result
     }
 }

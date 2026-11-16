@@ -158,6 +158,69 @@ class TrackEditStateTest {
         assertNull(TrackEditState.closingGap(base.edit, 5.0))
     }
 
+    // MARK: Back to a sequence
+
+    /** Move [id] of [project]'s edit by [seconds], unsnapped, committed. */
+    private fun moving(project: Project, id: String, seconds: Double): Project {
+        val timeline = project.edit.toTimeline()
+        val session = TrackMoveSession.begin(timeline, timeline.selection(id), 0.0, 60.0)!!.dragged(seconds, snapping = false)
+        return project.commit(session.done(timeline))
+    }
+
+    /**
+     * The original keeps a picture's layer when its overlap is gone
+     * (YouRec/TrackTimeline.swift:728-739 raises it only for a new overlap,
+     * and `pruneRelations` never touches layers): a layer says nothing where
+     * the picture plays over nothing. A Move over the next picture and back
+     * leaves pictures edge to edge again, which is a sequence, for every tool
+     * and on disk, with Undo and Redo across.
+     */
+    @Test
+    fun aMoveOverAndBackIsASequenceAgain() {
+        val over = moving(project(original), clips[0].id, 2.0)
+        assertFalse(over.edit.isSequence)
+        assertTrue(over.edit.toTimeline().video.single { it.id == clips[0].id }.layer >= clips.size)
+        val back = moving(over, clips[0].id, -2.0)
+        assertEquals(3, back.snapshots.size)
+        assertTrue(back.edit.isSequence)
+        assertEquals(clips.map { it.id }, back.edit.clips.map { it.id })
+        assertEquals(EditState(clips).clips, back.edit.clips)
+        assertNull(TrackEditState.unavailable(back.edit, SequenceOnly.Reorder))
+        assertNull(TrackEditState.unavailable(back.edit, SequenceOnly.Transition))
+        assertNotNull(TimelineEditing.move(back.edit, 0, 2))
+        assertFalse(back.undo().edit.isSequence)
+        assertTrue(back.undo().undo().edit.isSequence)
+        assertTrue(back.undo().redo().edit.isSequence)
+        assertEquals(back.edit, back.undo().redo().edit)
+        assertTrue(reopened(back).edit.isSequence)
+        assertTrue(reopened(back).undo().redo().edit.isSequence)
+        assertFalse(reopened(back).undo().edit.isSequence)
+    }
+
+    /** A picture moved out past the end and the gap it left closed: the pictures in a new order, edge to edge, a sequence. */
+    @Test
+    fun aMoveOutAndCloseGapIsASequence() {
+        val out = moving(project(original), clips[1].id, 8.0)
+        assertFalse(out.edit.isSequence)
+        val closed = out.commit(TrackEditState.closingGap(out.edit, 5.0)!!)
+        assertEquals(3, closed.snapshots.size)
+        assertTrue(closed.edit.isSequence)
+        assertEquals(listOf(clips[0].id, clips[2].id, clips[1].id), closed.edit.clips.map { it.id })
+        assertNull(TrackEditState.unavailable(closed.edit, SequenceOnly.Reorder))
+        assertFalse(closed.undo().edit.isSequence)
+        assertTrue(closed.undo().undo().edit.isSequence)
+        assertTrue(closed.undo().redo().edit.isSequence)
+        assertTrue(reopened(closed).edit.isSequence)
+        assertFalse(reopened(closed).undo().edit.isSequence)
+        // Over the next picture first, then out, then the gap closed: the layer it took is forgotten too.
+        val over = moving(project(original), clips[0].id, 2.0)
+        val past = moving(over, clips[0].id, 10.0)
+        val again = past.commit(TrackEditState.closingGap(past.edit, 2.0)!!)
+        assertTrue(again.edit.isSequence)
+        assertEquals(listOf(clips[1].id, clips[2].id, clips[0].id), again.edit.clips.map { it.id })
+        assertTrue(again.undo().redo().edit.isSequence)
+    }
+
     @Test
     fun aTakeRecordedLaterGoesWherePicturesEndWithoutMovingAnything() {
         val (moved, timeline) = overlapped()
