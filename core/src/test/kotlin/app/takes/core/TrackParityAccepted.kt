@@ -4,7 +4,7 @@ package app.takes.core
  * The kinds of difference ([TrackParityKinds]) that have been read and
  * accepted: with `TAKES_PARITY_GATE=1` in the environment the parity suite
  * fails on any difference whose kind is not in this list. They are the kinds
- * docs/TRACKS-PARITY-DECISIONS.md decides as Unreachable or Invisible. Every
+ * docs/TRACKS-PARITY-DECISIONS.md decides as Unreachable or Invisible, and the ones adopted since. Every
  * other kind is "Kept until" a later stage or "Not adopted": the function
  * that would show it keeps today's result, so the kind must not appear. A
  * difference no kind explains can never be accepted.
@@ -39,9 +39,9 @@ internal object TrackParityAccepted {
         "bookmark-at-the-last-second",
         // RangeEditing and removeIntervals drop a mark with its footage as before.
         "bookmark-outlives-its-footage",
-        // Not taken up: a fade asked longer than its item is saved and played as asked, which a test of release 0.8 pins as heard.
+        // Taken up at S4: a fade is set no longer than its item, from silence.
         "fade-no-longer-than-its-item",
-        // A trim keeps the fades a handle leaves, as since 0.8; a cut slices a fade on both sides alike.
+        // Taken up for a trim at S4: a handle cuts a fade where the edge goes in and gives it back as the original's does.
         "fades-through-retimes-and-cuts",
         // Adopted at S12 for footage (TrackEditorEdits.insertingFootage); the takes of the capture ledger are inserted again at every read and keep their ids.
         "insert-new-identity",
@@ -49,5 +49,20 @@ internal object TrackParityAccepted {
         "later-piece-new-identity",
     )
 
-    val kinds: Set<String> = unreachable + invisible
+    /**
+     * Adopted at S4 (docs/TRACKS-PARITY-DECISIONS.md, "At S4"): the editing
+     * functions now give the original's result, and an edit whose pictures
+     * the result leaves over one another or apart is that timeline.
+     */
+    private val adopted = setOf(
+        "handle-trim-outwards-overlaps",
+        "handle-trim-inwards-is-a-deletion",
+        "range-inside-a-transition",
+        "split-refused-near-an-edge",
+        "range-end-within-a-frame-of-a-cut",
+        "removed-transition-leaves-its-time",
+        "close-that-holds-pushes-nothing",
+    )
+
+    val kinds: Set<String> = unreachable + invisible + adopted
 }

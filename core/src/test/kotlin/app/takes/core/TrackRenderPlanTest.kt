@@ -115,7 +115,8 @@ class TrackRenderPlanTest {
             if (!full && index % group.every != 0) return@forEachIndexed
             val rng = TrackFixtures.Random(group.seed + index * 104729L)
             for (run in TrackParityCases.runs(subject, rng, group.samples)) {
-                val state = run.track()?.state ?: continue
+                // An edit of pictures over one another or apart (since S4: a handle trim outwards, a range in a transition) has no sequence to compare with.
+                val state = run.track()?.state?.takeIf { it.isSequence } ?: continue
                 answered++
                 if (!seen.add(state)) continue
                 assertPlannedAlike("${subject.name}: ${run.function} ${run.label}", state, moments = 8, edges = false, cleanings = listOf(null))

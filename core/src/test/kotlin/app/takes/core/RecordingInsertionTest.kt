@@ -153,13 +153,14 @@ class RecordingInsertionTest {
         assertEquals(listOf(a.id, d.id), sources(end.undo()))
     }
 
-    @Test fun tooCloseToAnEdgeGoesToThatEdge() {
-        // A split may not leave a piece shorter than MINIMUM_CLIP.
+    @Test fun aPlaceNearAnEdgeCutsThere() {
+        // Since S4 a piece of any length is left, as in the original (`split-refused-near-an-edge`).
         val base = Project("x").addRecording(a).addRecording(d)
-        assertEquals(listOf(b.id, a.id, d.id), sources(base.beginRecordingInsertion(0.05).addRecording(b)))
-        assertEquals(listOf(a.id, b.id, d.id), sources(base.beginRecordingInsertion(19.95).addRecording(b)))
-        assertEquals(listOf(a.id, b.id, d.id), sources(base.beginRecordingInsertion(20.05).addRecording(b)))
-        assertEquals(listOf(0.0 to 20.0, 0.0 to 3.0, 0.0 to 1.0), ranges(base.beginRecordingInsertion(19.95).addRecording(b)))
+        assertEquals(listOf(a.id, b.id, a.id, d.id), sources(base.beginRecordingInsertion(0.05).addRecording(b)))
+        assertEquals(listOf(0.0 to 0.05, 0.0 to 3.0, 0.05 to 20.0, 0.0 to 1.0), ranges(base.beginRecordingInsertion(0.05).addRecording(b)))
+        assertEquals(listOf(0.0 to 19.95, 0.0 to 3.0, 19.95 to 20.0, 0.0 to 1.0), ranges(base.beginRecordingInsertion(19.95).addRecording(b)))
+        // On the join itself nothing is cut.
+        assertEquals(listOf(a.id, b.id, d.id), sources(base.beginRecordingInsertion(20.0).addRecording(b)))
     }
 
     @Test fun aSpedUpClipIsSplitAtThePictureShowing() {

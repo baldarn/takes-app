@@ -36,7 +36,8 @@ class TimelineEditingTest {
     @Test fun splitNeedsRoomOnBothSides() {
         assertNull(TimelineEditing.split(state, 0.0))
         assertNull(TimelineEditing.split(state, 4.0))
-        assertNull(TimelineEditing.split(state, 3.95))
+        // Since S4 a piece of any length is left, as in the original (`split-refused-near-an-edge`).
+        assertEquals(0.05, TimelineEditing.split(state, 3.95)!!.clips[1].duration, 1e-9)
         assertNull(TimelineEditing.split(state, 6.0))
         assertNull(TimelineEditing.split(EditState(), 1.0))
     }
@@ -339,10 +340,11 @@ class BookmarkTest {
         assertEquals(listOf(2.0), split.clips[0].bookmarks!!.map { it.time })
         assertEquals(listOf(4.0), split.clips[1].bookmarks!!.map { it.time })
         assertEquals(listOf(1.0, 3.0), TimelineEditing.bookmarkTimes(split.clips))
-        // A mark trimmed out of sight is kept, and comes back when the clip is extended again.
+        // A mark trimmed out of sight is kept with its footage. The head of the first clip has no room before it to be
+        // extended into (TrackTimeline.swift:1636).
         val trimmed = TimelineEditing.trim(marked, 0, 2.5, 5.0, 10.0)!!
         assertEquals(listOf(1.5), TimelineEditing.bookmarkTimes(trimmed.clips))
-        assertEquals(listOf(1.0, 3.0), TimelineEditing.bookmarkTimes(TimelineEditing.trim(trimmed, 0, 1.0, 5.0, 10.0)!!.clips))
+        assertNull(TimelineEditing.trim(trimmed, 0, 1.0, 5.0, 10.0))
         assertEquals(listOf(4.0, 6.0), TimelineEditing.bookmarkTimes(TimelineEditing.move(marked, 0, 1)!!.clips))
     }
 
@@ -391,12 +393,13 @@ class ClipAudioTest {
         assertEquals(gain / 2, TimelineEditing.soundLevel(clips, 0, 3.0), 1e-12)
         assertEquals(1.0, TimelineEditing.soundLevel(clips, 1, 2.0), 0.0)
         assertEquals(0.0, TimelineEditing.soundLevel(clips, 5, 0.0), 0.0)
-        // A fade may be as long as the clip, and longer than what is left of it: where two cross, the lower counts
-        // (CutAudioEnvelope.swift:38, TrackTimeline.swift:150).
+        // A fade may be as long as the clip and no longer, as the original sets one (TrackTimeline.swift:191-195): where two
+        // cross, the lower counts (CutAudioEnvelope.swift:38, TrackTimeline.swift:150).
         val long = TimelineEditing.setAudio(state, 0, ClipAudio(fadeIn = 4.0, fadeOut = 10.0))!!.clips
-        assertEquals(0.2, TimelineEditing.soundLevel(long, 0, 2.0), 1e-12)
+        assertEquals(4.0, long[0].audio!!.fadeOut, 0.0)
+        assertEquals(0.5, TimelineEditing.soundLevel(long, 0, 2.0), 1e-12)
         assertEquals(0.25, TimelineEditing.soundLevel(long, 0, 1.0), 1e-12)
-        assertEquals(0.1, TimelineEditing.soundLevel(long, 0, 3.0), 1e-12)
+        assertEquals(0.25, TimelineEditing.soundLevel(long, 0, 3.0), 1e-12)
     }
 
     @Test fun soundFollowsTransitionsToo() {

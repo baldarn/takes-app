@@ -1,6 +1,7 @@
 package app.takes.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -14,6 +15,7 @@ import org.junit.Test
  * are those of the original at faf1815.
  */
 class TransitionFitTest {
+    // Since S4 a fit is the track model's own, found by halving in ticks: within a hundred-millionth of today's rule's.
     private val tiny = 1e-9
     private fun clip(id: String, end: Double = 4.0, start: Double = 0.0) = TimelineClip(id = id, sourceID = "S", start = start, end = end)
     private fun dissolve(next: String, seconds: Double) = TransitionSettings(id = "J$next", nextClipID = next, duration = seconds)
@@ -173,8 +175,8 @@ class TransitionFitTest {
         // The halvings take no more than is free: the second clip never begins before zero.
         assertTrue(starts(state)[1] >= 0)
         assertNull(TimelineEditing.setJoin(state, 1, TransitionSettings(id = "J", duration = 3.0)))
-        // The clip is extended: the transition stays as it was fitted (TrackTimeline.swift:1370-1385, neither branch).
-        state = TimelineEditing.trim(state, 0, 0.0, 4.0, 4.0)!!
+        // The clip gets longer, slowed down: the transition stays as it was fitted (TrackTimeline.swift:1370-1385, neither branch).
+        state = TimelineEditing.setSpeed(state, 0, 0.25)!!
         assertNumbers(listOf(1.0 / 3), factors(state))
         assertNumbers(listOf(0.0, 3.0), starts(state))
         assertEquals(7.0, state.duration, tiny)
@@ -210,51 +212,67 @@ class TransitionFitTest {
         assertTrue(trimmed.clips.all { it.transition == null && it.transitionFit == null })
         assertNumbers(listOf(0.0, 0.5), starts(trimmed))
         assertEquals(4.5, trimmed.duration, tiny)
+        // Extended again, it reveals over the next clip and moves nothing; the transition does not come back.
         val extended = TimelineEditing.trim(trimmed, 0, 0.0, 4.0, 4.0)!!
         assertTrue(extended.clips.all { it.transition == null && it.transitionFit == null })
-        assertEquals(8.0, extended.duration, tiny)
+        assertEquals(4.5, extended.duration, tiny)
         // The incoming clip trimmed to half a second: the same (TrackTimeline.swift:1362-1375).
         val incoming = TimelineEditing.trim(pair, 1, 3.5, 4.0, 4.0)!!
         assertTrue(incoming.clips.all { it.transition == null })
         assertEquals(4.5, incoming.duration, tiny)
     }
 
-    @Test fun aTrimThatLeavesTheFootageLeavesTheTransition() {
+    // A handle trim as the original's editor makes it (EditorView.swift:1241-1258): inwards a deletion of the trimmed part.
+
+    @Test fun aTrimOfTheEdgeATransitionIsOnRemovesIt() {
         val trimmed = TimelineEditing.trim(pair, 0, 0.0, 2.0, 4.0)!!
-        assertNumbers(listOf(1.0), factors(trimmed))
-        assertNumbers(listOf(0.0, 1.0), starts(trimmed))
-        assertEquals(5.0, trimmed.duration, tiny)
-        // Exactly the footage it costs is enough: the test is "greater than" (TrackTimeline.swift:1370).
-        val exact = TimelineEditing.trim(pair, 0, 0.0, 1.0, 4.0)!!
-        assertNumbers(listOf(1.0), factors(exact))
-        assertEquals(4.0, exact.duration, tiny)
+        assertNumbers(emptyList(), factors(trimmed))
+        assertNumbers(listOf(0.0, 2.0), starts(trimmed))
+        assertEquals(6.0, trimmed.duration, tiny)
+        // The other edge never removes one.
+        val head = TimelineEditing.trim(pair, 0, 1.0, 4.0, 4.0)!!
+        assertNumbers(listOf(1.0), factors(head))
+        assertEquals(6.0, head.duration, tiny)
+        assertEquals(pair.clips[0].id, head.clips[0].id)
     }
 
-    @Test fun aClipTooShortForBothItsTransitionsLosesBoth() {
-        // Three clips with 1 s dissolves; the middle one trimmed to 1.5 s costs 2 s: TrackTimeline.swift:1370-1375.
+    @Test fun aTrimRemovesTheTransitionOnItsSideOnly() {
+        // Three clips with 1 s dissolves; the end of the middle one trimmed to 1.5 s: the dissolve out of it goes, the one into it stays.
         var state = EditState(listOf(clip("A"), clip("B"), clip("C")))
         state = TimelineEditing.setJoin(state, 1, TransitionSettings(duration = 1.0))!!
         state = TimelineEditing.setJoin(state, 2, TransitionSettings(duration = 1.0))!!
         val trimmed = TimelineEditing.trim(state, 1, 0.0, 1.5, 4.0)!!
-        assertTrue(trimmed.clips.all { it.transition == null && it.transitionFit == null })
-        assertEquals(9.5, trimmed.duration, tiny)
-        // The opening and the close count as the transitions into and out of their clip.
+        assertNotNull(trimmed.clips[0].transition)
+        assertNull(trimmed.clips[1].transition)
+        assertEquals(8.5, trimmed.duration, tiny)
+        // The opening and the close are the transitions at the start and the end of their clip.
         val ends = TimelineEditing.setJoin(TimelineEditing.setJoin(EditState(listOf(clip("A"))), 0, TransitionSettings(duration = 1.0))!!, 1, TransitionSettings(duration = 1.0))!!
         val short = TimelineEditing.trim(ends, 0, 0.0, 1.5, 4.0)!!
-        assertNull(short.clips[0].openingTransition)
-        assertNull(short.clips[0].openingTransitionFit)
+        assertNotNull(short.clips[0].openingTransition)
         assertNull(short.clips[0].transition)
-        assertNotNull(TimelineEditing.trim(ends, 0, 0.0, 2.0, 4.0)!!.clips[0].openingTransition)
     }
 
-    @Test fun aTrimOfAProjectSavedWithoutFitsStartsFromTheSequenceRule() {
-        // Factors 2/3 and 2/3 cost the middle clip all of its 4 s; trimmed to 3.5 s it loses both.
-        val trimmed = TimelineEditing.trim(chain, 1, 0.0, 3.5, 4.0)!!
-        assertTrue(trimmed.clips.all { it.transition == null })
-        // The first clip trimmed to 3 s still has the 2 s its dissolve costs: both stay as they were fitted.
+    @Test fun aTrimInsideAnOverlapLeavesTheOverlapAsTheDeletionLeavesIt() {
+        // Factors 2/3 and 2/3: the first clip trimmed to 3 s loses its dissolve, and its end still lies under the second
+        // clip, which nothing moves: two pictures at once, as in the original.
         val kept = TimelineEditing.trim(chain, 0, 0.0, 3.0, 4.0)!!
-        assertNumbers(listOf(2.0 / 3, 2.0 / 3), factors(kept))
-        assertEquals(7.0, kept.duration, tiny)
+        assertFalse(kept.isSequence)
+        assertEquals(1, kept.layered!!.transitions.size)
+        assertEquals(8.0, kept.duration, tiny)
+    }
+
+    @Test fun aTrimOutwardsOverTheNextClipMakesAnOverlap() {
+        val two = EditState(listOf(clip("A").copy(end = 3.0), clip("B")))
+        val longer = TimelineEditing.trim(two, 0, 0.0, 4.0, 4.0)!!
+        assertFalse(longer.isSequence)
+        // Nothing else moves: the movie keeps its length and the first picture plays over the start of the second, in front.
+        assertEquals(7.0, longer.duration, tiny)
+        val pictures = longer.layered!!.video.associateBy { it.id }
+        assertEquals(4.0, pictures.getValue(two.clips[0].id).end.seconds, tiny)
+        assertEquals(3.0, pictures.getValue(two.clips[1].id).start.seconds, tiny)
+        assertTrue(pictures.getValue(two.clips[0].id).layer > pictures.getValue(two.clips[1].id).layer)
+        // Trimmed back in, the row of clips is a sequence again.
+        assertTrue(TimelineEditing.trim(longer, longer.clips.indexOfFirst { it.id == two.clips[0].id }, 0.0, 3.0, 4.0)!!.isSequence)
     }
 
     // MARK: Insert and paste

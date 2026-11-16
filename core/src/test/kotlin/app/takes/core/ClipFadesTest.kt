@@ -179,10 +179,15 @@ class ClipFadesTest {
         assertEquals(ClipAudio(fadeIn = 2.0, fadeInElapsed = 0.5, fadeOut = 3.0), head.clips[0].audio)
         assertEquals(0.25, level(head, 0.0), tiny)
         assertEquals(1.0, level(head, 1.5), tiny)
-        val back = TimelineEditing.trim(head, 0, 0.2, 10.0, 20.0)!!
-        assertEquals(0.2, back.clips[0].audio!!.fadeInElapsed!!, tiny)
-        val further = TimelineEditing.trim(back, 0, 0.0, 10.0, 20.0)!!
-        assertEquals(ClipAudio(fadeIn = 2.0, fadeOut = 3.0), further.clips[0].audio)
+        // The head of the first clip has no room before it: extending reveals nothing there (TrackTimeline.swift:1636).
+        assertNull(TimelineEditing.trim(head, 0, 0.2, 10.0, 20.0))
+        // After another clip it reveals over that one, and the fade comes back from where it was cut.
+        val after = EditState(listOf(TimelineClip(id = "C0", sourceID = "S1", start = 10.0, end = 12.0), clip.copy(audio = ClipAudio(fadeIn = 2.0, fadeOut = 3.0))))
+        val cut = TimelineEditing.trim(after, 1, 0.5, 10.0, 20.0)!!
+        val back = TimelineEditing.trim(cut, 1, 0.2, 10.0, 20.0)!!
+        assertEquals(0.2, back.clips.first { it.id == clip.id }.audio!!.fadeInElapsed!!, tiny)
+        val further = TimelineEditing.trim(back, back.clips.indexOfFirst { it.id == clip.id }, 0.0, 10.0, 20.0)!!
+        assertEquals(ClipAudio(fadeIn = 2.0, fadeOut = 3.0), further.clips.first { it.id == clip.id }.audio)
 
         val tail = TimelineEditing.trim(state, 0, 0.0, 8.5, 20.0)!!
         assertEquals(ClipAudio(fadeIn = 2.0, fadeOut = 3.0, fadeOutElapsed = 1.5), tail.clips[0].audio)

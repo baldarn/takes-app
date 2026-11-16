@@ -343,7 +343,7 @@ object RangeEditing {
     private fun joined(clips: List<TimelineClip>): List<TimelineClip> {
         val last = clips.lastOrNull() ?: return clips
         val empty = TimelineClip(sourceID = last.sourceID, start = 0.0, end = 0.0)
-        return TimelineEditing.delete(EditState(clips + empty), clips.size)?.clips ?: clips
+        return TimelineEditing.delete(EditState(clips + empty), clips.size, layers = false)?.clips ?: clips
     }
 
     /** The clips without the opening and the close, which shape the ends of a timeline and not the clips' places among themselves. */
@@ -430,11 +430,19 @@ object RangeEditing {
      * Null when the range is shorter than a frame or inverted, or when the
      * scope covers nothing.
      */
-    fun delete(given: EditState, scope: EditScope, playhead: Double? = null): Removed? {
+    fun delete(given: EditState, scope: EditScope, playhead: Double? = null): Removed? = delete(given, scope, playhead, exactly = true)
+
+    private fun delete(given: EditState, scope: EditScope, playhead: Double?, exactly: Boolean): Removed? {
         // Off a sequence: as the original's editor deletes ([TrackSequenceView.delete]): linked picture and sound close their time, anything by itself leaves a gap.
         if (!given.isSequence) {
             val removed = TrackSequenceView.delete(given, scope, playhead) ?: return null
             return Removed(removed.result.timeline.toEdit(given.captureBase), removed.position)
+        }
+        // Since S4 a range with an end inside a transition, or a hair from a cut, is cut exactly there on the timeline,
+        // as the original's editor deletes (N12, `range-end-within-a-frame-of-a-cut`).
+        if (exactly && scope is EditScope.Range && exact(given.clips, scope.range)) {
+            val removed = TrackSequenceView.delete(given, scope, playhead) ?: return null
+            return Removed(TrackWrapping.captionsKept(given, edit(removed.result, given.captureBase)), removed.position)
         }
         // From here on the transitions that stay keep the fit they have.
         val state = given.copy(clips = TimelineEditing.fitted(given.clips))
@@ -610,7 +618,8 @@ object RangeEditing {
         // Off a sequence: [SequenceOnly.Clipboard].
         if (!state.isSequence) return null
         val fragment = copy(state, scope) ?: return null
-        val removed = delete(state, scope, playhead) ?: return null
+        // What is removed is what is copied: the clipboard's cut, a range end within a frame of a cut on the cut (YouRec/TimelineEditing.swift:66-80).
+        val removed = delete(state, scope, playhead, exactly = false) ?: return null
         return CutOut(removed.state, fragment, removed.position)
     }
 
@@ -732,10 +741,10 @@ object RangeEditing {
      * pieces inside, so it changes exactly the marked footage; [Scoped.state]
      * is the edit with those cuts and nothing else changed.
      *
-     * A range that begins or ends inside a transition ([transitionAt]), other
-     * than on its join, applies to nothing and cuts nothing: the tool would
-     * silently change the footage hidden under it. So does a range shorter
-     * than a frame.
+     * A range that begins or ends inside a transition, or a hair from a
+     * cut, is cut exactly there on the timeline ([exact]): the tool applies
+     * to the pieces inside, also of a picture that plays under a transition.
+     * A range shorter than a frame applies to nothing.
      */
     fun scoped(state: EditState, scope: EditScope): Scoped = if (!state.isSequence) {
         // Off a sequence: the items are cut at the two ends of a range wherever those fall ([TrackSequenceView.scoped]).
@@ -743,13 +752,10 @@ object RangeEditing {
     } else when (scope) {
         EditScope.Whole -> Scoped(state, state.clips.map { it.id })
         is EditScope.Selected -> Scoped(state, state.clips.map { it.id }.filter { it in scope.targets.clips })
-        is EditScope.Range -> {
+        is EditScope.Range -> if (exact(state.clips, scope.range)) exactly(state, scope) else {
             // The cuts are made on the fitted clips, so no transition is fitted again around the pieces.
             val clips = TimelineEditing.fitted(state.clips)
-            val joins = joinTimes(clips)
-            fun inside(time: Double) = joins.none { abs(it - time) < JOIN_REACH } && transitionAt(clips, time) != null
-            val resolved = bounded(scope.range)?.takeUnless { inside(it.start) || inside(it.end) }
-                ?.let { resolve(clips, it.start, it.end, scope.targets?.clips) }
+            val resolved = bounded(scope.range)?.let { resolve(clips, it.start, it.end, scope.targets?.clips) }
             if (resolved == null) Scoped(state, emptyList()) else {
                 val chosen = resolved.pieces.subList(resolved.from, resolved.until).filter { scope.targets.aims(clips[it.origin].id) }
                 // An edit that cuts nothing is the edit it was given.
@@ -758,6 +764,58 @@ object RangeEditing {
             }
         }
     }
+
+    /**
+     * True when [range] has an end where today's cut of a sequence ([cut])
+     * would not cut: inside a transition, its join included, or closer than
+     * a frame to the edge of a clip or of a transition. Since S4 such a
+     * range is cut exactly where it ends, on the timeline, as the original's
+     * editor cuts a range for Delete and for a tool (YouRec/EditorView.swift:1125-1130,
+     * YouRec/TrackTimeline.swift:1080-1094): both pictures playing there are
+     * cut, the pieces may go on overlapping, and the prune keeps or drops the
+     * transition. Copy and Cut keep today's cut, which is the original's
+     * own for the clipboard (YouRec/TimelineEditing.swift:66-80).
+     */
+    private fun exact(clips: List<TimelineClip>, range: TimeRange): Boolean {
+        val bounded = bounded(range) ?: return false
+        val layout = TimelineEditing.layout(fitted(clips))
+        val edges = layout.placements.flatMap { listOf(it.start, it.end) } + transitions(fitted(clips)).flatMap { listOf(it.range.start, it.range.endInclusive) }
+        fun moved(time: Double): Boolean {
+            // On the join too, where the editor puts a mark made inside a transition: both pictures are cut there.
+            if (transitionAt(fitted(clips), time) != null) return true
+            return edges.any { abs(it - time) > EPSILON && abs(it - time) < SLIVER }
+        }
+        return moved(bounded.start) || moved(bounded.end)
+    }
+
+    // The fitted clips asked about last.
+    @Volatile private var fittedClips: Pair<List<TimelineClip>, List<TimelineClip>>? = null
+
+    private fun fitted(clips: List<TimelineClip>): List<TimelineClip> {
+        fittedClips?.let { (given, result) -> if (given === clips) return result }
+        return TimelineEditing.fitted(clips).also { fittedClips = clips to it }
+    }
+
+    /**
+     * [scoped] of a range [exact] says is cut where it ends: the pictures
+     * among its targets that play in it, with what they are linked to, cut
+     * at both ends on the timeline ([TrackEditing.scoped]). Kept until S5
+     * (`scope-cuts-sound-items`): a sound of its own is not cut.
+     */
+    private fun exactly(state: EditState, scope: EditScope.Range): Scoped {
+        val range = bounded(scope.range) ?: return Scoped(state, emptyList())
+        val timeline = state.toTimeline()
+        val interval = EditInterval(TrackSequenceView.onTimeline(timeline, range.start), TrackSequenceView.onTimeline(timeline, range.end))
+        val pictures = timeline.video.filter { scope.targets.aims(it.id) && it.start < interval.end && interval.start < it.end }.mapTo(LinkedHashSet()) { it.id }
+        if (pictures.isEmpty()) return Scoped(state, emptyList())
+        val scoped = TrackEditing.scoped(timeline, TimelineSelection(video = pictures, range = interval))
+        val clips = scoped.timeline.chronologicalVideo.map { it.id }.filter { it in scoped.selection.video }
+        return Scoped(if (scoped.timeline == timeline) state else TrackWrapping.captionsKept(state, edit(TrackSequenceView.sequence(scoped.timeline), state.captureBase)), clips)
+    }
+
+    /** The edit [result] is: the sequence it reads as, whatever ids the cut gave its sounds, else its timeline. */
+    private fun edit(result: SequenceResult, captureBase: Int?): EditState =
+        result.state?.copy(captureBase = captureBase) ?: result.timeline.toEdit(captureBase)
 
     /**
      * The stretch of time a tool opened without a scope of its own works on:

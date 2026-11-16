@@ -154,15 +154,19 @@ class RangeEditingTest {
     }
 
     /** TRANSLATED: TransitionTests.swift:56-62. */
-    @Test fun rangeEndsWithinAFrameOfACutUseTheCut() {
+    @Test fun rangeEndsWithinAFrameOfACutCutThere() {
         val offGrid = EditState(listOf(clip("A", 0.0, 0.517), clip("B", 0.0, 4.0)))
         val pasted = RangeEditing.paste(offGrid, ClipFragment(listOf(clip("A", 0.0, 0.3))), 1.0)!!.state
         assertEquals(4, pasted.clips.size)
         val afterDelete = RangeEditing.delete(pasted, range(1.0, 1.3))!!.state
         assertEquals(offGrid.duration, afterDelete.duration, 0.00001)
+        // Since S4 the items are cut exactly where the range ends, as the original's editor cuts a range for Delete
+        // (`range-end-within-a-frame-of-a-cut`): a sliver of a millisecond stays at either end.
         val nearCut = RangeEditing.delete(offGrid, range(0.517 + 0.001, offGrid.duration - 0.001))!!.state
-        assertEquals(1, nearCut.clips.size)
-        assertEquals(0.517, nearCut.duration, 0.00001)
+        assertEquals(3, nearCut.clips.size)
+        assertEquals(0.519, nearCut.duration, 0.00001)
+        // A cut keeps the clipboard's rule, the original's own: what is removed is what is copied, on the cut.
+        assertEquals(1, RangeEditing.cut(offGrid, range(0.517 + 0.001, offGrid.duration - 0.001))!!.state.clips.size)
     }
 
     /** TRANSLATED: TrackTimelineTests.swift:29-34. */
@@ -192,18 +196,24 @@ class RangeEditingTest {
         assertEquals(8.0, removed.duration, 0.0)
     }
 
-    @Test fun aRangeEndingInsideADissolveEndsAtItsJoin() {
+    @Test fun aRangeEndingInsideADissolveCutsBothClipsThere() {
         val b = clip("B", 0.0, 4.0)
         val a = clip("A", 0.0, 4.0).copy(transition = TransitionSettings(nextClipID = b.id, style = TransitionStyle.Dissolve, duration = 1.0))
         val state = EditState(listOf(a, b))
-        // 3.5 is the middle of the overlap, where the editor aligns a mark.
+        // 3.5 is the middle of the overlap, where the editor aligns a mark. Since S4 both pictures are cut there, as the
+        // original's editor cuts them (N12): the dissolve goes, and the half of the overlap before the join stays, B's
+        // first half second under the end of A.
         val removed = RangeEditing.delete(state, range(3.5, 7.0))!!.state
-        // B goes whole; A is not cut and shows the second it lent to the dissolve again.
-        assertEquals(listOf(a.copy(transition = null)), removed.clips)
+        assertFalse(removed.isSequence)
+        assertEquals(listOf(0.0 to 3.5, 0.0 to 0.5), ranges(removed))
+        assertEquals(3.5, removed.duration, 0.0)
+        assertEquals(3.0, removed.layered!!.video.first { it.content.sourceID == "B" }.start.seconds, 1e-9)
+        assertTrue(removed.layered!!.transitions.isEmpty())
         val kept = RangeEditing.delete(state, range(0.0, 3.5))!!.state
-        assertEquals(listOf(b), kept.clips)
-        // Both ends in the same overlap cover nothing.
-        assertNull(RangeEditing.delete(state, range(3.1, 3.9)))
+        assertEquals(listOf(3.5 to 4.0, 0.5 to 4.0), ranges(kept))
+        assertEquals(3.5, kept.duration, 0.0)
+        // Both ends in the same overlap cut both clips twice; the clipboard keeps its rule and copies nothing there.
+        assertEquals(6.2, RangeEditing.delete(state, range(3.1, 3.9))!!.state.duration, 1e-9)
         assertNull(RangeEditing.copy(state, range(3.1, 3.9)))
     }
 
@@ -661,7 +671,7 @@ class RangeEditingTest {
     // MARK: Tool scope
 
     /** TRANSLATED: TransitionTests.swift:14-19 and 55-56. */
-    @Test fun aToolScopeInsideAnOverlapAppliesToNothing() {
+    @Test fun aToolScopeInsideAnOverlapAppliesToBothPicturesThere() {
         val second = clip("B", 0.0, 4.0)
         val first = clip("A", 0.0, 4.0).copy(transition = TransitionSettings(nextClipID = second.id, style = TransitionStyle.Dissolve, duration = 1.0))
         val edit = EditState(listOf(first, second))
@@ -671,16 +681,17 @@ class RangeEditingTest {
         assertEquals(TimeRange(0.0, 3.5), RangeEditing.interval(edit, null, first.id))
         assertEquals(TimeRange(0.0, 7.0), RangeEditing.interval(edit, null, null))
         assertEquals(TimeRange(0.0, 7.0), RangeEditing.interval(edit, TimeRange(-1.0, 9.0), second.id))
-        // A selection inside overlap cannot silently modify excess footage.
-        val bad = RangeEditing.scoped(edit, range(3.2, 5.0))
-        assertSame(edit, bad.state)
-        assertTrue(bad.clips.isEmpty())
-        // On the join it applies to the incoming clip from its first frame.
-        val good = RangeEditing.scoped(edit, range(3.5, 5.0))
-        assertEquals(listOf(second.id), good.clips)
-        assertEquals(listOf(0.0 to 4.0, 0.0 to 2.0, 2.0 to 4.0), ranges(good.state))
-        assertEquals(first.transition, good.state.clips[0].transition)
-        assertEquals(edit.duration, good.state.duration, 0.0)
+        // Since S4 a range from inside the overlap cuts both pictures there and applies to what plays in it of each, the
+        // end of the first under the second included (N12); the dissolve has lost its edge and goes, and nothing moves.
+        val inside = RangeEditing.scoped(edit, range(3.2, 5.0))
+        assertFalse(inside.state.isSequence)
+        assertEquals(listOf(0.0 to 3.2, 0.0 to 0.2, 3.2 to 4.0, 0.2 to 2.0, 2.0 to 4.0), ranges(inside.state))
+        assertEquals(listOf(2, 3).map { inside.state.clips[it].id }, inside.clips)
+        assertEquals(edit.duration, inside.state.duration, 0.0)
+        // On the join the same: the editor's mark there is where both are cut.
+        val onJoin = RangeEditing.scoped(edit, range(3.5, 5.0))
+        assertEquals(listOf(0.0 to 3.5, 0.0 to 0.5, 3.5 to 4.0, 0.5 to 2.0, 2.0 to 4.0), ranges(onJoin.state))
+        assertEquals(edit.duration, onJoin.state.duration, 0.0)
     }
 
     @Test fun theScopeDecidesWhichClipsAToolAppliesTo() {
@@ -733,10 +744,12 @@ class RangeEditingTest {
             assertEquals("$style", running.time, RangeEditing.markTime(state, inside), 0.0)
             assertNull("$style", RangeEditing.transitionAt(state.clips, running.range.start - 0.1))
             assertNull("$style", RangeEditing.transitionAt(state.clips, running.range.endInclusive + 0.1))
-            // VideoTools.swift:299-303: a tool scope ending inside it applies to nothing.
-            assertTrue("$style", RangeEditing.scoped(state, range(inside, state.duration)).let { it.state === state && it.clips.isEmpty() })
-            // A range edit ending inside it ends at its join: the second clip goes whole and the first is not cut.
-            assertEquals("$style", listOf(state.clips[0].copy(transition = null)), RangeEditing.delete(state, range(inside, state.duration))!!.state.clips)
+            // Since S4 a tool scope or a deletion from inside it cuts what plays there (N12): the transition goes, and
+            // nothing is left after where the range begins.
+            assertTrue("$style", RangeEditing.scoped(state, range(inside, state.duration)).clips.isNotEmpty())
+            val deleted = RangeEditing.delete(state, range(inside, state.duration))!!.state
+            assertTrue("$style", deleted.duration <= inside + 1e-9)
+            assertTrue("$style", deleted.toTimeline().transitions.isEmpty())
             // TimelineClipboardChecks.swift:110-112: a paste inside it retains all source handles, and cuts the clip showing there.
             val within = RangeEditing.paste(state, insert, inside)!!.state
             assertEquals("$style", 4, within.clips.size)
@@ -786,9 +799,9 @@ class RangeEditingTest {
         assertEquals(listOf(wipe, null, null), after.clips.map { it.transition })
         assertEquals(b.id, after.clips[1].id)
         assertEquals(6.0, after.duration, 0.0)
-        // Within a frame of either edge, from outside, is the edge.
-        assertEquals(ranges(before), ranges(RangeEditing.delete(state, range(1.0, 2.99))!!.state))
-        assertEquals(ranges(after), ranges(RangeEditing.delete(state, range(4.01, 5.0))!!.state))
+        // Within a frame of either edge, from outside, the clip is cut there (`range-end-within-a-frame-of-a-cut`, since S4).
+        assertEquals(listOf(0.0 to 1.0, 2.99 to 4.0, 0.0 to 4.0), ranges(RangeEditing.delete(state, range(1.0, 2.99))!!.state))
+        assertEquals(listOf(0.0 to 4.0, 0.0 to 1.01, 2.0 to 4.0), ranges(RangeEditing.delete(state, range(4.01, 5.0))!!.state).map { (x, y) -> Math.round(x * 1e6) / 1e6 to Math.round(y * 1e6) / 1e6 })
         // A fragment that reaches exactly as far as the wipe holds it whole.
         val copy = RangeEditing.copy(state, range(2.0, 4.0))!!
         assertEquals(listOf(2.0 to 4.0, 0.0 to 1.0), copy.clips.map { it.start to it.end })
@@ -811,24 +824,23 @@ class RangeEditingTest {
      * join (EditorView.swift:1113-1115), so a range never ends there. One that
      * does, ends at the join.
      */
-    @Test fun aRangeEdgeInsideATransitionIsItsJoin() {
+    @Test fun aRangeEdgeInsideATransitionCutsBothClipsThere() {
         val state = pair(TransitionSettings(style = TransitionStyle.Wipe, duration = 1.0))
-        val (a, b) = state.clips
-        // Beginning inside: from the join, so the second clip from its first frame. The wipe goes with that piece.
+        // Beginning inside: both clips are cut there and what lies in the range goes; what is left of the overlap before it
+        // stays, the second clip's start under the end of the first (N12, since S4).
         val from = RangeEditing.delete(state, range(3.2, 5.0))!!.state
-        assertEquals(listOf(a.copy(transition = null)), from.clips.take(1))
-        assertEquals(listOf(0.0 to 4.0, 2.0 to 4.0), ranges(from))
-        assertEquals(6.0, from.duration, 0.0)
-        assertEquals(RangeEditing.delete(state, range(3.5, 5.0))!!.state.clips.map { it.start to it.end }, ranges(from))
-        // Ending inside: up to the join, so the first clip to its last frame.
+        assertEquals(listOf(0.0 to 3.2, 0.0 to 0.2, 2.0 to 4.0), ranges(from))
+        assertEquals(5.2, from.duration, 1e-9)
+        assertEquals(listOf(0.0 to 3.5, 0.0 to 0.5, 2.0 to 4.0), ranges(RangeEditing.delete(state, range(3.5, 5.0))!!.state))
+        // Ending inside: the same at the other end.
         val until = RangeEditing.delete(state, range(1.0, 3.8))!!.state
-        assertEquals(listOf(a.copy(end = 1.0, transition = null), b), until.clips)
-        assertEquals(5.0, until.duration, 0.0)
+        assertEquals(4.2, until.duration, 1e-9)
+        assertTrue(until.toTimeline().transitions.isEmpty())
         assertEquals(listOf(0.0 to 2.0), RangeEditing.copy(state, range(3.2, 5.0))!!.clips.map { it.start to it.end })
         assertNull(RangeEditing.copy(state, range(3.2, 5.0))!!.clips.single().transition)
-        // TransitionTests.swift:53-54: a tool scope there applies to nothing.
-        assertTrue(RangeEditing.scoped(state, range(3.2, 5.0)).clips.isEmpty())
-        assertTrue(RangeEditing.scoped(state, range(1.0, 3.8)).clips.isEmpty())
+        // A tool there applies to both pictures where the range has them.
+        assertEquals(2, RangeEditing.scoped(state, range(3.2, 5.0)).clips.size)
+        assertEquals(2, RangeEditing.scoped(state, range(1.0, 3.8)).clips.size)
     }
 
     /** TRANSLATED: TransitionTests.swift:282-284, "Solid color hold adds time without consuming footage". */
@@ -892,7 +904,8 @@ class RangeEditingTest {
         assertEquals(1, RangeEditing.transitionAt(lead.clips, 5.5)!!.index)
         assertEquals(7.0, RangeEditing.markTime(lead, 5.5), 0.0)
         assertEquals(4.9, RangeEditing.markTime(lead, 4.9), 1e-12)
-        assertTrue(RangeEditing.scoped(lead, range(5.5, 9.0)).clips.isEmpty())
+        // A tool from inside it cuts both clips there (N12, since S4).
+        assertEquals(2, RangeEditing.scoped(lead, range(5.5, 9.0)).clips.size)
         // Up to where the sound begins to change, and from where the picture is done: the whole of it stays.
         val before = RangeEditing.delete(lead, range(1.0, 5.0))!!.state
         assertEquals(listOf(0.0 to 1.0, 5.0 to 8.0, 8.0 to 18.0), ranges(before))
@@ -984,9 +997,11 @@ class RangeEditingTest {
         assertEquals(6.0, RangeEditing.markTime(state, 5.0), 0.0)
         assertEquals(6.0, RangeEditing.markTime(state, 6.3), 0.0)
         // The frozen frame is the last of the first clip: without that frame there is no freeze.
+        // Since S4 the time it held stays (`removed-transition-leaves-its-time`): black until the second clip begins.
         val trimmed = RangeEditing.delete(state, range(2.0, 4.0))!!.state
-        assertEquals(listOf(a.copy(end = 2.0, transition = null), b), trimmed.clips)
-        assertEquals(6.0, trimmed.duration, 0.0)
+        assertEquals(listOf(0.0 to 2.0, 0.0 to 4.0), ranges(trimmed))
+        assertFalse(trimmed.isSequence)
+        assertEquals(8.0, trimmed.duration, 0.0)
         // It needs no footage of the first clip, so a range reaching its start is a range reaching the join.
         assertEquals(listOf(a.copy(transition = null)), RangeEditing.delete(state, range(6.0, 10.0))!!.state.clips)
         // After its dissolve the second clip can be cut and the freeze stays.
@@ -1008,7 +1023,7 @@ class RangeEditingTest {
         val a = clip("A", 0.0, 4.0).copy(transition = join(b, TransitionStyle.Wipe, 1.0))
         val state = EditState(listOf(a, b, c))
         assertEquals(12.0, state.duration, 0.0)
-        for (removed in listOf(RangeEditing.delete(state, selected(b))!!.state, RangeEditing.delete(state, range(3.5, 8.0))!!.state, RangeEditing.cut(state, selected(b))!!.state)) {
+        for (removed in listOf(RangeEditing.delete(state, selected(b))!!.state, RangeEditing.cut(state, selected(b))!!.state)) {
             assertEquals(listOf(a.copy(transition = null), c), removed.clips)
             assertEquals(8.0, removed.duration, 0.0)
         }
@@ -1044,8 +1059,9 @@ class RangeEditingTest {
         assertEquals(0.0, RangeEditing.markTime(state, 0.4), 0.0)
         assertEquals(8.0, RangeEditing.markTime(state, 7.6), 0.0)
         assertEquals(1.0, RangeEditing.markTime(state, 1.0), 0.0)
-        assertTrue(RangeEditing.scoped(state, range(0.5, 3.0)).clips.isEmpty())
-        assertTrue(RangeEditing.scoped(state, range(3.0, 7.5)).clips.isEmpty())
+        // A tool from inside the opening or the close cuts the clip there (N12, since S4).
+        assertEquals(1, RangeEditing.scoped(state, range(0.5, 3.0)).clips.size)
+        assertEquals(2, RangeEditing.scoped(state, range(3.0, 7.5)).clips.size)
         assertEquals(state.clips.map { it.id }, RangeEditing.scoped(state, range(0.0, 8.0)).clips)
     }
 
@@ -1066,8 +1082,8 @@ class RangeEditingTest {
         assertEquals(listOf(null, null), headless.clips.map { it.openingTransition })
         assertEquals(close, headless.clips[1].transition)
         assertEquals(6.0, headless.duration, 0.0)
-        // A range from inside the opening is a range from the start.
-        assertEquals(ranges(headless), ranges(RangeEditing.delete(state, range(0.5, 2.0))!!.state))
+        // A range from inside the opening cuts the clip there, and the opening stays on what is left before it (N12, since S4).
+        assertEquals(listOf(0.0 to 0.5, 2.0 to 4.0, 0.0 to 4.0), ranges(RangeEditing.delete(state, range(0.5, 2.0))!!.state))
         // From where the opening ends, it stays.
         val opened = RangeEditing.delete(state, range(1.0, 2.0))!!.state
         assertEquals(listOf(0.0 to 1.0, 2.0 to 4.0, 0.0 to 4.0), ranges(opened))
@@ -1080,7 +1096,7 @@ class RangeEditingTest {
         assertEquals(listOf(0.0 to 4.0, 0.0 to 2.0), ranges(tailless))
         assertEquals(listOf(null, null), tailless.clips.map { it.transition })
         assertEquals(opening, tailless.clips[0].openingTransition)
-        assertEquals(ranges(tailless), ranges(RangeEditing.delete(state, range(6.0, 7.5))!!.state))
+        assertEquals(listOf(0.0 to 4.0, 0.0 to 2.0, 3.5 to 4.0), ranges(RangeEditing.delete(state, range(6.0, 7.5))!!.state))
         // Up to where the close begins, it stays.
         val closed = RangeEditing.delete(state, range(5.0, 7.0))!!.state
         assertEquals(listOf(0.0 to 4.0, 0.0 to 1.0, 3.0 to 4.0), ranges(closed))
@@ -1233,9 +1249,9 @@ class RangeEditingTest {
         // The opening stays at the start of the clip and the close at its end.
         assertEquals(listOf(state.clips[0].openingTransition, null, null), scoped.state.clips.map { it.openingTransition })
         assertEquals(listOf(null, null, state.clips[0].transition), scoped.state.clips.map { it.transition })
-        // A split refuses a piece shorter than a tenth of a second; a range may leave two frames (TrackTimeline.swift:1015, one tick is enough).
+        // A split, like a range, may leave two frames (TrackTimeline.swift:1015, one tick is enough).
         val bare = EditState(listOf(whole.copy(speed = null)))
-        assertNull(TimelineEditing.split(bare, 0.07))
+        assertEquals(0.07, TimelineEditing.split(bare, 0.07)!!.clips[0].end, 1e-12)
         val short = RangeEditing.delete(bare, range(0.07, 3.0))!!.state
         assertEquals(2, short.clips.size)
         assertEquals(whole.id, short.clips[0].id)
