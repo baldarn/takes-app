@@ -111,6 +111,13 @@
     <string name="editor_review_at">Review at %1$s</string>
     <string name="editor_zoom_timeline_out">Zoom timeline out</string>
     <string name="editor_zoom_timeline_in">Zoom timeline in</string>
+    <string name="editor_timeline_span">Timeline view span</string>
+    <string name="editor_span_custom">Custom</string>
+    <string name="editor_span_whole">Whole project</string>
+    <string name="editor_span_five_minutes">5 minutes</string>
+    <string name="editor_span_minute">1 minute</string>
+    <string name="editor_span_ten_seconds">10 seconds</string>
+    <string name="editor_span_second">1 second</string>
     <string name="editor_reducing_noise">Reducing noise… %1$d%%</string>
     <string name="editor_split">Split</string>
     <string name="editor_sound">Sound</string>
@@ -613,7 +620,7 @@
     <string name="range_too_short">Choose an end at least one frame away</string>
     <string name="range_aligned_to_join">Selection aligned to the transition join</string>
     <string name="range_preview_cut">Preview cut</string>
-    <string name="range_hint">Scroll to scrub · − and + to zoom</string>
+    <string name="range_hint">Scroll to scrub · pinch to zoom</string>
     <string name="selection_actions">Selection actions: %1$s</string>
     <string name="selection_video">Video</string>
     <string name="selection_audio">Audio</string>

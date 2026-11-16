@@ -144,7 +144,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 |---|---|---|---|---|---|---|
 | Preview of the edit with play/pause | O/EditorView.swift:449, 565 | DONE | A/EditorScreen.kt (`togglePlay`, a tap on the picture while no tool takes its gestures) | — | | |
 | Scrolling thumbnail timeline with waveform under a fixed playhead; scrubbing pauses | O/EditorTimeline.swift:506-525 | DONE | A/EditorScreen.kt:934-1037 | — | | |
-| Timeline zoom | O/EditorTimeline.swift:577-582, 186-191 | PARTIAL | A/EditorScreen.kt:683-684 (− / + buttons, 6–480 dp/s) | Pinch; "whole project / 5 min / 1 min / 10 s / 1 s" menu; time ruler | M | Yes |
+| Timeline zoom | O/EditorTimeline.swift:577-582, 186-191 | DONE | A/EditorTimeline.kt (pinch, ruler), A/Transport.kt (`ZoomMenu`, with a step in and out), C/TimelineZoom.kt: whole project to 720 dp/s | The playhead stays in the middle at every scale, as it does in Takes; the original lets it move while the whole project fits. The pinch keeps the playhead under the middle instead of the point between the fingers, as the original's does. | | |
 | Detailed waveform at high zoom (1000 bins/s tiles) | O/WaveformDetail.swift:4-66 | PARTIAL | C/Waveform.kt:42 (50 peaks/s), A/EditorScreen.kt:1074-1088 | Detail tiles | M | Yes |
 | Timecode and duration | O/EditorTimeline.swift:1052-1055 | DONE | A/EditorScreen.kt:656 | — | | |
 | Review speed 1–3× with pitch kept | O/EditorView.swift:454-465 | DONE | A/Transport.kt (`ReviewSpeed`), A/EditorPlayer.kt (`play(time, speed)`); reviews of a cut, a transition or the playhead play at 1× | — | | |
