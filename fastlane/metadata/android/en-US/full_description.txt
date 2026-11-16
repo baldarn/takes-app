@@ -23,6 +23,7 @@ EDIT ON A TIMELINE
 • Noise reduction for recorded sound.
 • Remove pauses: find the silences in a clip and cut them out.
 • Color: looks, exposure, warmth and tint for each clip, or import your own .cube LUT.
+• Video effects as in YouRec: Noir, Day for Night, Bleach Bypass, Kaleidoscope and seven more, each with its film history.
 • Crop and reframe the picture, rotate it, or animate between two framings.
 • Add video at the playhead: record a new take there, or drop in takes you have not used yet.
 • Subtitles: speech is transcribed on your phone, then you can edit the text and choose its style. Two speech models to choose from: the larger one is the model YouRec uses.
