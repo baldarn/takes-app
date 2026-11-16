@@ -61,6 +61,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
@@ -138,6 +139,7 @@ private fun rowWave(rows: TimelineRows?) = if (rows == null || rows.count <= 1) 
 private fun rowPitch(rows: TimelineRows?) = rowTile(rows) + rowWave(rows) + if (rows == null || rows.count <= 1) 0.dp else 2.dp
 private fun stripHeight(rows: TimelineRows?) = if (rows == null || rows.count <= 1) TileSize + WaveHeight else rowPitch(rows) * rows.count
 private val GhostColor = Color(0xFF64D2FF)
+private val SyncColor = Color(0xFFFF453A)
 
 @Composable
 internal fun Timeline(
@@ -149,6 +151,8 @@ internal fun Timeline(
     marked: MarkedView? = null, level: LevelGesture? = null,
     pinch: (factor: Float?) -> Unit = {},
     rows: TimelineRows? = null, moveDrag: MoveDrag? = null,
+    soundRows: Int = AudioItem.TRACKS, syncOffsets: Map<String, Double> = emptyMap(), soundless: Set<String> = emptySet(),
+    movingSounds: Set<String> = emptySet(),
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -167,6 +171,8 @@ internal fun Timeline(
     val scale by rememberUpdatedState(pixelsPerSecond)
     val latestRows by rememberUpdatedState(rows)
     val onMove by rememberUpdatedState(moveDrag)
+    val latestSoundRows by rememberUpdatedState(soundRows)
+    val latestMovingSounds by rememberUpdatedState(movingSounds)
     val haptics = LocalHapticFeedback.current
     val pitch = rowPitch(rows)
     val strip = stripHeight(rows)
@@ -194,7 +200,7 @@ internal fun Timeline(
     }
     BoxWithConstraints(
         // Clips at a fixed height from the top; audio tracks appear under them when there is sound.
-        Modifier.fillMaxWidth().height(120.dp + (strip - TileSize - WaveHeight) + if (sounds.isEmpty()) 0.dp else TrackHeight * AudioItem.TRACKS).background(Panel)
+        Modifier.fillMaxWidth().height(120.dp + (strip - TileSize - WaveHeight) + if (sounds.isEmpty()) 0.dp else TrackHeight * soundRows).background(Panel)
             .onGloballyPositioned { windowTop = it.positionInWindow().y }.pointerInput(Unit) {
             // Two fingers zoom, as the original's pinch (EditorTimeline.swift:577-582): null as they land, then how many
             // times as far apart they are. Meanwhile nothing scrolls, trims or levels.
@@ -222,10 +228,14 @@ internal fun Timeline(
                 val inStrip = down.position.y >= StripTop.toPx() && down.position.y <= (StripTop + strip).toPx()
                 // The row of pictures under the finger, off a single row.
                 val row = if (laid != null && inStrip) ((down.position.y - StripTop.toPx()) / pitch.toPx()).toInt() else 0
-                // During a Move a drag on a picture being moved moves it; anywhere else the timeline scrolls.
+                // During a Move a drag on a picture or a sound being moved moves it; anywhere else the timeline scrolls.
                 onMove?.let { move ->
                     val card = laid?.takeIf { inStrip }?.clipAt(latestClips, row, time)
-                    if (card == null || latestClips[card].id !in laid.moving) return@awaitEachGesture
+                    val below = down.position.y - (StripTop + strip).toPx()
+                    val soundRow = if (below >= 0) (below / TrackHeight.toPx()).toInt() else -1
+                    val sound = if (soundRow in 0 until latestSoundRows) TimelineEditing.audioAt(latestSounds, soundRow, time)?.id else null
+                    val grabbed = (card != null && laid?.moving?.contains(latestClips[card].id) == true) || (sound != null && sound in latestMovingSounds)
+                    if (!grabbed) return@awaitEachGesture
                     down.consume()
                     var total = 0f
                     var lifted = false
@@ -257,7 +267,7 @@ internal fun Timeline(
                     }
                     val underStrip = down.position.y - (StripTop + strip).toPx()
                     val track = if (underStrip >= 0) (underStrip / TrackHeight.toPx()).toInt() else -1
-                    val sound = if (track in 0 until AudioItem.TRACKS) TimelineEditing.audioAt(latestSounds, track, time)?.id else null
+                    val sound = if (track in 0 until latestSoundRows) TimelineEditing.audioAt(latestSounds, track, time)?.id else null
                     if (clip != null || sound != null) { dragLevel(down, clip, sound, time, windowTop, gesture); return@awaitEachGesture }
                 }
                 // Above and below the clips the timeline only scrolls.
@@ -290,7 +300,7 @@ internal fun Timeline(
                 clips, files, rows, current, trim, pixelsPerSecond, viewport, scroll, marked, Modifier.width(width).height(strip),
                 openTitle = openTitle, select = { onSelect(it, null) },
                 toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(it, null) },
-                focusTransition = focusTransition,
+                focusTransition = focusTransition, soundless = soundless,
             )
             // Clips sit at their timeline position; a dissolve draws the incoming clip over the end of the previous one.
             else Box(Modifier.width(width).height(TileSize + WaveHeight).offset { IntOffset(shift.roundToInt(), 0) }, Alignment.CenterStart) {
@@ -308,7 +318,7 @@ internal fun Timeline(
                             trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
                             offset, pixelsPerSecond, viewport, scroll, openTitle = { openTitle(index, it) },
                             select = { onSelect(clip.id, null) }, toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(clip.id, null) },
-                            focusTransition = focusTransition,
+                            focusTransition = focusTransition, soundless = clip.id in soundless,
                         )
                     }
                 }
@@ -326,7 +336,7 @@ internal fun Timeline(
             val mutedNote = stringResource(R.string.sound_muted)
             val selectLabel = stringResource(R.string.selection_select)
             val toggleLabel = stringResource(R.string.selection_toggle)
-            if (sounds.isNotEmpty()) for (track in 0 until AudioItem.TRACKS) {
+            if (sounds.isNotEmpty()) for (track in 0 until soundRows) {
                 Box(Modifier.width(width).height(TrackHeight).padding(top = 3.dp)) {
                     for (item in sounds) {
                         if (item.track != track) continue
@@ -337,6 +347,7 @@ internal fun Timeline(
                                 modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt(), 0) }
                                     .width(with(density) { (item.duration * pixelsPerSecond).toFloat().toDp() }).fillMaxHeight()
                                     .background(SoundColor, RoundedCornerShape(4.dp))
+                                    .then(if (item.id in movingSounds) Modifier.border(2.dp, GhostColor, RoundedCornerShape(4.dp)) else Modifier)
                                     .pointerInput(item.id) {
                                         detectTapGestures(
                                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(null, item.id) },
@@ -349,6 +360,17 @@ internal fun Timeline(
                                     }
                                     .padding(horizontal = 6.dp, vertical = 2.dp),
                             )
+                            // A sound that plays apart from its picture says by how much, as the original's Restore sync does.
+                            syncOffsets[item.id]?.let { offset ->
+                                val shown = signedSeconds(offset)
+                                val described = stringResource(R.string.sync_badge_description, shown)
+                                Text(
+                                    stringResource(R.string.sync_badge, shown), color = Color.White, fontSize = 10.sp, maxLines = 1, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.offset { IntOffset((item.start * pixelsPerSecond).roundToInt() + 2.dp.roundToPx(), 2.dp.roundToPx()) }
+                                        .background(SyncColor, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp)
+                                        .semantics { contentDescription = described },
+                                )
+                            }
                         }
                     }
                     if (marked != null) {
@@ -395,6 +417,7 @@ internal fun ClipStrip(
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, openTitle: (TextOverlay) -> Unit,
     select: () -> Unit, toggle: () -> Unit, focusTransition: (TransitionLayout.Join) -> Unit,
     top: Int = 0, tileHeight: Dp = TileSize, waveHeight: Dp = WaveHeight, outline: Color? = null,
+    soundless: Boolean = false,
 ) {
     val density = LocalDensity.current
     val onSelect by rememberUpdatedState(select)
@@ -436,6 +459,8 @@ internal fun ClipStrip(
                 }
             }
             Canvas(Modifier.fillMaxWidth().height(waveHeight).background(Color(0xFF14161A))) {
+                // A picture whose sound was unlinked has none here: the sound is drawn on a row of its own.
+                if (soundless) return@Canvas
                 val levels = peaks ?: return@Canvas
                 val step = 3.dp.toPx()
                 // Draw only the columns near the screen.
@@ -478,7 +503,7 @@ internal fun ClipStrip(
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 12.dp).background(Color(0xFFB6C2FF), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
         }
         // What has been done to the sound, where the waveform is.
-        clip.audio?.let { audio ->
+        clip.audio?.takeIf { !soundless }?.let { audio ->
             val note = listOfNotNull(
                 if (audio.muted) stringResource(R.string.sound_muted) else audio.volumeDB.takeIf { it != 0.0 }?.let(::levelLabel),
                 stringResource(R.string.editor_tag_fade).takeIf { audio.fadeIn > 0 || audio.fadeOut > 0 },
@@ -531,7 +556,7 @@ private fun PictureRows(
     clips: List<TimelineClip>, files: Map<String, File>, rows: TimelineRows, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, marked: MarkedView?, modifier: Modifier,
     openTitle: (index: Int, title: TextOverlay) -> Unit, select: (String) -> Unit, toggle: (String) -> Unit,
-    focusTransition: (TransitionLayout.Join) -> Unit,
+    focusTransition: (TransitionLayout.Join) -> Unit, soundless: Set<String> = emptySet(),
 ) {
     val density = LocalDensity.current
     val tile = rowTile(rows)
@@ -558,7 +583,7 @@ private fun PictureRows(
                     openTitle = { openTitle(index, it) }, select = { select(clip.id) }, toggle = { toggle(clip.id) },
                     focusTransition = focusTransition,
                     top = (rows.rows[index] * pitch).roundToInt(), tileHeight = tile, waveHeight = wave,
-                    outline = GhostColor.takeIf { clip.id in rows.moving },
+                    outline = GhostColor.takeIf { clip.id in rows.moving }, soundless = clip.id in soundless,
                 )
             }
         }

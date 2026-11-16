@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Unlink and Link: picture and sound as components, YouRec/EditorView.swift:1137-1161 -->
+    <string name="link_unlink">Unlink</string>
+    <string name="link_link">Link</string>
+    <string name="link_unlink_description">Unlink the selected picture and sound</string>
+    <string name="link_link_description">Link the selected parts</string>
+    <string name="link_unlinked">Unlinked %1$s · Undo restores links</string>
+    <string name="link_linked">Linked · Undo available</string>
+    <string name="link_clear_range">Clear the time range, then tap a part and long-press other parts to select them for Link.</string>
+    <string name="link_too_few">Tap a part to select it, then long-press other video or audio parts to add them. Long-press again to remove a part from the selection.</string>
+    <string name="link_non_contiguous">Non-contiguous parts selected. Each video or audio sequence must meet edge to edge, without gaps or overlaps. Move the parts together with Snap, then try Link again.</string>
+    <string name="link_no_intersection">The selected video and audio do not overlap in time. Move them to a shared interval before linking.</string>
+    <string name="link_transition_boundary">The shared time starts or ends inside a transition. Adjust or remove that transition before linking the intersection.</string>
+    <string name="link_intersection_title">Link shared time only?</string>
+    <string name="link_intersection_message">Video and audio cover different times. Split at %1$s and %2$s, then link the shared interval? The outside parts stay separate. Nothing is deleted or moved.</string>
+    <string name="link_intersection_confirm">Link intersection</string>
+    <string name="link_stale">The timeline changed. Tap Link again to review the current selection.</string>
+
+    <!-- Restore sync, YouRec/EditorView.swift:649-655 -->
+    <string name="sync_restore">Restore audio sync (%1$s s)</string>
+    <string name="sync_restore_description">Restore audio sync: the sound is %1$s seconds off its picture</string>
+    <string name="sync_restored">Sync restored · Undo available</string>
+    <string name="sync_badge">%1$s s</string>
+    <string name="sync_badge_description">Out of sync with its picture by %1$s seconds</string>
+
+    <!-- Delete of a component alone -->
+    <string name="selection_delete_gap">Delete, leave gap</string>
+    <string name="selection_material">%1$s · %2$s</string>
+</resources>
