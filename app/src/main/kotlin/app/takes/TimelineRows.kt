@@ -4,8 +4,31 @@ import app.takes.core.EditState
 import app.takes.core.TimeRange
 import app.takes.core.TimelineClip
 import app.takes.core.TrackEditState
+import app.takes.core.TimelineEditing
+import app.takes.core.TrackLayout
 import app.takes.core.TrackTimeline
+import app.takes.core.TransitionStyle
 import app.takes.core.lanes
+
+/**
+ * A transition as the timeline marks it, as the original does
+ * (YouRec/EditorTimeline.swift:110-140, :953-968): a badge on its join at
+ * [time], on the top [row] of the pictures it plays on, and a bar under each
+ * of those rows from [start] to [end], where its picture effect runs.
+ * [number] is the join's number in the row of clips, null off one.
+ */
+internal class TransitionMarker(
+    val time: Double, val start: Double, val end: Double, val row: Int, val rows: List<Int>, val style: TransitionStyle, val edge: Int, val number: Int?,
+) {
+    companion object {
+        /** The transitions of a row of clips, each with its join's number ([TimelineEditing.transitions]). */
+        fun of(clips: List<TimelineClip>): List<TransitionMarker> = TimelineEditing.transitions(clips).mapNotNull { join ->
+            val style = join.transition?.style ?: return@mapNotNull null
+            val range = join.origin..(join.origin + join.timing.videoDuration)
+            TransitionMarker(join.time, range.start, range.endInclusive, 0, listOf(0), style, join.edge, join.index)
+        }
+    }
+}
 
 /**
  * Where the timeline draws the pictures of an edit that is no single row:
@@ -30,6 +53,10 @@ internal class TimelineRows(
     val gaps: List<TimeRange>,
     val moving: Set<String> = emptySet(),
     val ghost: TimeRange? = null,
+    /** Whether each clip's left and right edge is the edge of its footage, by its number: an edge folded under a transition has no grip (YouRec/TrackTimeline.swift:1689-1690). */
+    val trimsLeft: List<Boolean> = rows.map { true },
+    val trimsRight: List<Boolean> = rows.map { true },
+    val markers: List<TransitionMarker> = emptyList(),
 ) {
     /** The clip number on [row] playing at timeline second [time], if any. */
     fun clipAt(clips: List<TimelineClip>, row: Int, time: Double): Int? = clips.indices.firstOrNull { index ->
@@ -49,10 +76,18 @@ internal class TimelineRows(
                 lanes[state.clips[index].id]?.contentInterval?.start?.seconds ?: TrackEditState.clipStart(state, index) ?: 0.0
             }
             val rows = state.clips.map { lanes[it.id]?.row ?: 0 }
+            val rowOf = lanes.mapValues { it.value.row }
+            // No badge during a Move, as in the original.
+            val markers = if (moving != null) emptyList() else TrackLayout.of(drawn).joins.mapNotNull { join ->
+                val style = join.transition?.style?.takeIf { join.selectable } ?: return@mapNotNull null
+                val on = listOfNotNull(join.outgoingID, join.incomingID).mapNotNull { rowOf[it] }.distinct().ifEmpty { return@mapNotNull null }
+                TransitionMarker(join.time, join.videoRange.start, join.videoRange.endInclusive, on.min(), on, style, join.edge, null)
+            }
             return TimelineRows(
                 starts, rows, (rows.maxOrNull() ?: 0) + 1, state.duration,
                 TrackEditState.pictureGaps(state).filter { it.end - it.start > 1e-6 },
                 moving.orEmpty(), ghost,
+                state.clips.map { lanes[it.id]?.trimsLeft ?: true }, state.clips.map { lanes[it.id]?.trimsRight ?: true }, markers,
             )
         }
     }

@@ -671,6 +671,7 @@
     <string name="transition_chip_add">Aggiungi transizione</string>
     <string name="transition_chip_edit">Modifica %1$s</string>
     <string name="transition_tag_focus">Porta qui il cursore per modificare o togliere la transizione</string>
+    <string name="transition_badge_description">Transizione %1$s</string>
     <string name="subtitles_metered_title">Scaricare con una connessione a consumo?</string>
     <string name="subtitles_metered_message">Il download è di circa %1$d MB. Questa connessione conteggia i dati che usi, come la rete mobile: il download può avere un costo o consumare il tuo piano dati.</string>
     <string name="subtitles_metered_download">Scarica comunque</string>

@@ -1061,14 +1061,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                 }
             },
-            trim?.index ?: location?.index, trim, pixelsPerSecond,
-            shift = trim?.takeIf { it.leading }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
+            // The clip being trimmed where the draft has it: an outward trim over a neighbour makes the draft one of rows, in another order.
+            trim?.let { draft -> shown.indexOfFirst { it.id == clips.getOrNull(draft.index)?.id }.takeIf { it >= 0 } ?: draft.index } ?: location?.index,
+            trim?.let { draft -> shown.indexOfFirst { it.id == clips.getOrNull(draft.index)?.id }.takeIf { it >= 0 }?.let { draft.copy(index = it) } ?: draft }, pixelsPerSecond,
+            // A leading trim of a row of clips keeps what follows still while the draft closes up; a draft of rows has every picture at its own place.
+            shift = trim?.takeIf { it.leading && trimmed?.isSequence != false }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
             // A tap on the name of a transition puts the playhead on its join, where the row below offers it, as in the original.
-            focusTransition = { join ->
+            focusTransition = { time ->
                 if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
                     marks = marks.selecting()
-                    jump(join.time.coerceIn(0.0, duration))
+                    jump(time.coerceIn(0.0, duration))
                 }
             },
             beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) location?.let { trim = Trim(it.index, leading, clips[it.index]) } },

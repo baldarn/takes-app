@@ -662,6 +662,7 @@
     <string name="transition_chip_add">Add transition</string>
     <string name="transition_chip_edit">Edit %1$s</string>
     <string name="transition_tag_focus">Position the playhead here to edit or remove the transition</string>
+    <string name="transition_badge_description">%1$s transition</string>
     <string name="subtitles_metered_title">Download on a metered connection?</string>
     <string name="subtitles_metered_message">The download is about %1$d MB. This connection counts the data you use, as mobile data does, so the download may cost you or use up your allowance.</string>
     <string name="subtitles_metered_download">Download anyway</string>
