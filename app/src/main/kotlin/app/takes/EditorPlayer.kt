@@ -22,6 +22,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import app.takes.core.EditState
 import app.takes.core.LayerPlan
+import app.takes.core.PicturePlayback
 import app.takes.core.RenderPlan
 import app.takes.core.TimelineEditing
 import app.takes.core.TransitionScene
@@ -161,9 +162,11 @@ internal class EditorPlayer(private val context: Context) {
         lanes.forEach { if (it.mediaItemCount > 0) it.clearMediaItems() }
     }
 
-    /** Plays the deck at its clip's speed, keeping the pitch. */
+    /** Plays the deck at its clip's speed where the deck is in it, keeping the pitch: a retimed clip changes speed as it goes. */
     private fun pace(player: ExoPlayer, clip: Int) {
-        val rate = ((clips.getOrNull(clip)?.rate ?: 1.0) * speed).toFloat()
+        val picture = clips.getOrNull(clip)
+        val at = if (picture != null && items.getOrNull(decks.indexOf(player))?.getOrNull(player.currentMediaItemIndex) == clip) player.currentPosition.coerceAtLeast(0) / 1000.0 else 0.0
+        val rate = ((picture?.let { PicturePlayback.rate(it.spans, at) } ?: 1.0) * speed).toFloat()
         if (player.playbackParameters.speed != rate) player.playbackParameters = PlaybackParameters(rate)
     }
 
@@ -202,16 +205,16 @@ internal class EditorPlayer(private val context: Context) {
             } else heldPictures.drop(deck)
             parked[deck] = under.takeIf { !starting && frozen != null }
             if (active != null && frozen != null && !starting) {
-                player.seekTo(items[deck].indexOf(frozen.index), (frozen.offset * clips[frozen.index].rate * 1000).toLong())
+                player.seekTo(items[deck].indexOf(frozen.index), (clips[frozen.index].position(frozen.offset) * 1000).toLong())
                 pace(player, frozen.index)
             } else if (active != null) {
                 val clip = active.second
                 val offset = (time - clips[clip].start).coerceIn(0.0, clips[clip].duration)
                 // A deck's position runs in recorded seconds; a clip at another speed covers them faster or slower.
-                player.seekTo(items[deck].indexOf(clip), (offset * clips[clip].rate * 1000).toLong())
+                player.seekTo(items[deck].indexOf(clip), (clips[clip].position(offset) * 1000).toLong())
                 pace(player, clip)
             } else if (frozen != null) {
-                player.seekTo(items[deck].indexOf(frozen.index), (frozen.offset * clips[frozen.index].rate * 1000).toLong())
+                player.seekTo(items[deck].indexOf(frozen.index), (clips[frozen.index].position(frozen.offset) * 1000).toLong())
             } else {
                 plan.coming(deck, time)?.let { player.seekTo(items[deck].indexOf(chains[it].first), 0) }
             }
@@ -274,7 +277,7 @@ internal class EditorPlayer(private val context: Context) {
                 !player.playWhenReady && clip == chain.last && player.playbackState == Player.STATE_READY &&
                     player.currentPosition >= player.duration - 30 -> chain.end
                 player.playbackState == Player.STATE_ENDED -> chain.end
-                else -> (clips[clip].start + player.currentPosition.coerceAtLeast(0) / 1000.0 / clips[clip].rate).coerceAtMost(chain.end)
+                else -> (clips[clip].start + clips[clip].offset(player.currentPosition.coerceAtLeast(0) / 1000.0)).coerceAtMost(chain.end)
             }
         }
         if (time >= duration) {
@@ -300,7 +303,7 @@ internal class EditorPlayer(private val context: Context) {
                 val (chain, _) = active
                 // A chain whose moment has come starts from where its deck was parked.
                 if (clip == null || clip !in chain.first..chain.last) {
-                    player.seekTo(items[deck].indexOf(chain.first), ((time - chain.start) * clips[chain.first].rate * 1000).toLong().coerceAtLeast(0))
+                    player.seekTo(items[deck].indexOf(chain.first), (clips[chain.first].position(time - chain.start) * 1000).toLong().coerceAtLeast(0))
                 }
                 if (!player.playWhenReady && !(clip == chain.last && player.currentPosition >= player.duration - 30)) player.play()
                 // Each deck follows the speed of the clip it has reached.

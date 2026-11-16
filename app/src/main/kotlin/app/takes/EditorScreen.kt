@@ -327,6 +327,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var cropping by remember { mutableStateOf<Cropping?>(null) }
     // The Video effects tool: the effects it is working on and the clips they go on, not saved until applied.
     var effecting by remember { mutableStateOf<EffectsWork?>(null) }
+    // A Freeze Frame just put in from the Video effects tool, by its id: the tool opens again on its controls once the edit has it.
+    var frozenEffect by remember { mutableStateOf<String?>(null) }
     // The timeline scrolls under a fixed playhead. Playback and edits move the
     // scroll position; a drag moves the playhead and seeks.
     LaunchedEffect(clips, pixelsPerSecond, editor.playing) {
@@ -779,7 +781,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false) { palettesReady++ }
                         palettesReady.let { } // read, so that the picture is drawn again once a palette is ready
                         restored = effectPreviews?.get(deck)?.nightFix(shown, sourceTime)
-                        val passes = EffectShader.passes(shown, sourceTime, movieRate, EffectAssets.inputs(assets, shown, sourceTime))
+                        // A held frame pushes in on the hold's clock; a cadence's held frames and Step Printing's blends the preview does not draw.
+                        val passes = EffectShader.passes(shown, sourceTime, movieRate, EffectAssets.inputs(assets, shown, sourceTime), clip.frozenFrame?.let { it.offset + offset })
                         previewBounds?.takeIf { passes.isNotEmpty() }?.let { bounds ->
                             effectPreviews?.get(deck)?.effect(passes, bounds.width, bounds.height) { id -> shown?.firstOrNull { it.id == id }?.let(assets::picture) }
                         }
@@ -1121,6 +1124,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         // The badges of Enhance audio and Censor, under the timeline and scrolling with it.
         AudioToolBadges(timeline, scroll, pixelsPerSecond) { badge -> audioTool = badge.kind to AudioToolWork.of(edit, badge, soundSelection(edit, marks.selected.clips, marks.selected.audio, marks.range?.let { EditInterval.of(it.start, it.end) })) }
         val framing = cropping
+        // Once the edit holds the Freeze Frame just made, the tool opens on its controls.
+        LaunchedEffect(edit, frozenEffect) {
+            val id = frozenEffect ?: return@LaunchedEffect
+            val hold = edit.clips.firstOrNull { clip -> clip.videoEffects.orEmpty().any { it.id == id } } ?: return@LaunchedEffect
+            frozenEffect = null
+            effecting = EffectsWork.opening(edit, null, hold).copy(selected = id, page = EffectsPage.Inspector)
+        }
         val effectsWork = effecting
         val placed = placementWork
         val movedDone = stringResource(R.string.move_done)
@@ -1171,6 +1181,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         } else if (effectsWork != null) {
             // The tool closes when the edit changes under it, as with Undo.
             LaunchedEffect(edit) { if (effecting?.on?.base != edit) effecting = null }
+            val freezeRefused = stringResource(R.string.effects_freeze_refused)
             EffectsPanel(
                 effectsWork, playhead, change = { effecting = it },
                 // One Undo step for everything done in the tool. Effects that change nothing are not saved.
@@ -1181,6 +1192,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 },
                 cancel = { effecting = null },
                 modifier = Modifier.weight(1f), appliesTo = toolScopeLabel, tools = effectTools,
+                // The held frame goes in at the playhead as one Undo step, with what the tool had done so far in the step before it.
+                freeze = {
+                    val base = effectsWork.applied()?.takeIf { effectsWork.on.scoped == null } ?: edit
+                    val made = TimelineEditing.freezing(base, playhead)
+                    if (made == null) feedback = freezeRefused else {
+                        effecting = null
+                        frozenEffect = made.second
+                        commit(made.first, playhead)
+                    }
+                },
             )
         } else if (framing != null) {
             val shape = canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) }

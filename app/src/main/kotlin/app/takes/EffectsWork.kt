@@ -45,7 +45,16 @@ internal object AndroidVideoEffects {
      */
     val BATCH_C: List<VideoEffectID> = listOf(VideoEffectID.Quantization, VideoEffectID.ChromaKey, VideoEffectID.NightFix)
 
-    val offered: Set<VideoEffectID> = (BATCH_A + BATCH_B + BATCH_C).toSet()
+    /**
+     * The time effects, which change what plays when (the playback map):
+     * Freeze Frame, a held frame put in at the playhead; Step Printing, its
+     * blocks of frames blended in the export; Undercranking, its cadence held
+     * in the export, its speed and mute in the playback and the mix. Super 8's
+     * cadence comes with them.
+     */
+    val BATCH_TIME: List<VideoEffectID> = listOf(VideoEffectID.FreezeFrame, VideoEffectID.StepPrinting, VideoEffectID.Undercranking)
+
+    val offered: Set<VideoEffectID> = (BATCH_A + BATCH_B + BATCH_C + BATCH_TIME).toSet()
 
     /** The library's effects of [section] that are offered, in the order the original lists them. */
     fun effects(section: VideoEffectLibrarySection): List<VideoEffectID> = section.kinds.filter { it in offered }
@@ -56,8 +65,6 @@ internal object AndroidVideoEffects {
         VideoEffectID.ColorIsolation to setOf("mode"),
         // Following a face needs face detection; the target is set by hand.
         VideoEffectID.CrashZoom to setOf("trackFace"),
-        // The cadence holds frames, which is the playback map's.
-        VideoEffectID.SuperEight to setOf("fps"),
         VideoEffectID.Quantization to setOf("faceDetail"),
         VideoEffectID.ChromaKey to setOf("personHint", "cleanPlate", "matchColor", "matchStrength", "backgroundAudio"),
         // Medium and Precise need optical flow.
@@ -70,6 +77,12 @@ internal object AndroidVideoEffects {
     /** Whether the preview draws a simplified version of [effect] at source second [at]: its blurs, smoothing or matte are stand-ins. */
     fun previewSimplified(effect: VideoEffectSettings, at: Double): Boolean = when (effect.kind) {
         VideoEffectID.Halation, VideoEffectID.SuperEight, VideoEffectID.ChromaKey, VideoEffectID.NightFix -> true
+        // The preview plays the retime and draws the flicker and weave; the export holds the cadence's frames.
+        VideoEffectID.Undercranking -> true
+        // The preview plays the retime; the export blends each block's frames.
+        VideoEffectID.StepPrinting -> effect.number("smear", at) > 0
+        // The preview draws the push-in and Print's look; the export adds its grain.
+        VideoEffectID.FreezeFrame -> effect.choice("style", at) == "Print"
         VideoEffectID.SixteenMM -> effect.number("softness", at) > 0
         VideoEffectID.Widescreen -> effect.number("flares", at) > 0 || effect.choice("bars", at) == "Blur fill"
         VideoEffectID.Quantization -> effect.number("smoothing", at) > 0

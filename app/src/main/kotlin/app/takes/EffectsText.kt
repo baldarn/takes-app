@@ -48,6 +48,9 @@ private val WORDS: Map<VideoEffectID, EffectWords> = mapOf(
     VideoEffectID.Quantization to EffectWords(R.string.effect_quantization, R.string.effect_quantization_summary, R.string.effect_quantization_help, R.string.effect_quantization_history),
     VideoEffectID.ChromaKey to EffectWords(R.string.effect_chroma_key, R.string.effect_chroma_key_summary, R.string.effect_chroma_key_help, R.string.effect_chroma_key_history),
     VideoEffectID.NightFix to EffectWords(R.string.effect_night_fix, R.string.effect_night_fix_summary, R.string.effect_night_fix_help, null),
+    VideoEffectID.FreezeFrame to EffectWords(R.string.effect_freeze_frame, R.string.effect_freeze_frame_summary, R.string.effect_freeze_frame_help, R.string.effect_freeze_frame_history),
+    VideoEffectID.StepPrinting to EffectWords(R.string.effect_step_printing, R.string.effect_step_printing_summary, R.string.effect_step_printing_help, R.string.effect_step_printing_history),
+    VideoEffectID.Undercranking to EffectWords(R.string.effect_undercranking, R.string.effect_undercranking_summary, R.string.effect_undercranking_help, R.string.effect_undercranking_history),
 )
 
 @Composable
@@ -137,8 +140,25 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "ovalBokeh" -> R.string.effect_control_oval_bokeh
     // Crash Zoom.
     "zoom" -> R.string.effect_control_zoom_amount
-    "speed" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_push_duration else null
-    "hold" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_hold else null
+    "speed" -> when (kind) {
+        VideoEffectID.CrashZoom -> R.string.effect_control_push_duration
+        VideoEffectID.Undercranking -> R.string.effect_control_speed_up
+        VideoEffectID.StepPrinting -> R.string.effect_control_speed
+        else -> null
+    }
+    "hold" -> when (kind) {
+        VideoEffectID.CrashZoom -> R.string.effect_control_hold
+        VideoEffectID.FreezeFrame -> R.string.effect_control_hold_duration
+        else -> null
+    }
+    // The time effects.
+    "push" -> R.string.effect_control_push_in
+    "style" -> R.string.effect_control_style
+    "audio" -> R.string.effect_control_audio
+    "step" -> R.string.effect_control_step_frames
+    "smear" -> R.string.effect_control_smear
+    "flicker" -> R.string.effect_control_flicker
+    "mute" -> R.string.effect_control_mute_audio
     "return" -> R.string.effect_control_return
     "motionBlur" -> R.string.effect_control_motion_blur
     "targetX" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_target_x else null
@@ -203,6 +223,8 @@ private val CHOICES: Map<String, Int> = mapOf(
     "Green" to R.string.effect_choice_green, "Result" to R.string.effect_choice_result, "Matte" to R.string.effect_choice_matte, "Original" to R.string.effect_choice_original,
     "Solid" to R.string.effect_choice_solid, "Image" to R.string.effect_choice_image, "Blur original" to R.string.effect_choice_blur_original, "Fill" to R.string.effect_choice_fill,
     "Fit" to R.string.effect_choice_fit, "Fast" to R.string.effect_choice_fast,
+    "Clean" to R.string.effect_choice_clean, "Print" to R.string.effect_choice_print, "Cut" to R.string.effect_choice_cut,
+    "Continue" to R.string.effect_choice_continue, "Fade out over hold" to R.string.effect_choice_fade_out_over_hold,
 )
 
 /** A choice of a picker as it is shown; the saved value stays the original's English. */
