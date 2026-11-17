@@ -397,7 +397,7 @@ class CameraFrames(context: Context) {
                     false
                 }
                 looksShown = drewLooks
-                if (looking.recording) capture(lookTime, shown, drewLooks, crash != null && crash.zoom > 1.0001, now, wanted)
+                if (looking.recording) capture(lookTime, shown, drewLooks, crash != null && crash.zoom > 1.0001, now, wanted, surfaceTexture.timestamp, nanos, moving.origin)
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, eglContext)) continue
@@ -612,15 +612,24 @@ class CameraFrames(context: Context) {
      * original appends each frame's (LiveVideoEffects.swift:641-646): what the looks [shown] drew, when [drewLooks],
      * their masks unless [pushed] in, and the subject a camera move follows, the one seen within half a second of
      * [now] (:534), or none while it is looked for in vain.
+     *
+     * It is kept at the time the camera took the frame, [stamp], on the segment's clock from [origin], where the camera
+     * stamps its frames on the clock of [SystemClock.elapsedRealtimeNanos] as [nanos], the time it is drawn, is: the
+     * preview draws a frame a tenth of a second after it is taken, on a Galaxy A54. The analysis then brings the times
+     * to the movie's ([CapturedEffectAnalysis.Recorder.shift]).
      */
-    private fun capture(lookTime: Double, shown: List<VideoEffectSettings>, drewLooks: Boolean, pushed: Boolean, now: Double, wanted: Assists) {
+    private fun capture(
+        lookTime: Double, shown: List<VideoEffectSettings>, drewLooks: Boolean, pushed: Boolean, now: Double, wanted: Assists,
+        stamp: Long, nanos: Long, origin: Long,
+    ) {
         val analysis = capturedLooks ?: return
+        val taken = if (abs(nanos - stamp) < 1_000_000_000L) (stamp - origin) / 1e9 else lookTime
         val drawn = if (drewLooks) live.captured(shown, lookTime) else null
         val subject = if (wanted.tracking) trackedSample?.takeIf { now - it.second <= 0.5 }?.first?.let {
-            app.takes.core.EffectSubjectSample.of(lookTime, it.box, it.confidence, it.face)
+            app.takes.core.EffectSubjectSample.of(taken, it.box, it.confidence, it.face)
         } else null
         analysis.append(
-            lookTime, drawn?.palettes.orEmpty(), drawn?.person, drawn?.auto, drawn?.qualities.orEmpty(), subject,
+            taken, drawn?.palettes.orEmpty(), drawn?.person, drawn?.auto, drawn?.qualities.orEmpty(), subject,
             tracking = wanted.tracking, pushed = pushed || drawn?.pushed == true,
         )
     }
@@ -1059,7 +1068,7 @@ class CameraFrames(context: Context) {
                 }
                 looksShown = drewLooks
                 // The preview's canvas mirrored otherwise than the recording's: its masks are not the recording's.
-                if (looking.recording) capture(lookTime, shown, drewLooks, apart, now, Assists())
+                if (looking.recording) capture(lookTime, shown, drewLooks, apart, now, Assists(), nanos, nanos, moves.origin)
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, preview.eglContext)) continue

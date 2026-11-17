@@ -145,6 +145,8 @@ class CaptureController(private val context: Context, private val store: Project
         var microphone: String? = null // the microphone it began with, whose recording gain it is given
         var moves = emptyList<VideoEffectSettings>() // its live effects and Crash Zooms, as last saved beside it
         var analysis: CapturedEffectAnalysis.Recorder? = null // what its live looks showed, saved with them
+        var origin = 0L // where its effect clock starts, a time of SystemClock.elapsedRealtimeNanos
+        var firstFrame = Long.MAX_VALUE // the earliest time its first frame can have been taken, from the recorder's reports
     }
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
@@ -2086,6 +2088,19 @@ class CaptureController(private val context: Context, private val store: Project
         if (inserted) onInsertionEnded?.invoke()
     }
 
+    /**
+     * Brings the times of what [current]'s looks showed to its movie's: each report of the [recorded] length says the
+     * movie's first frame was taken no later than that long before it, less the time the report takes to come
+     * ([REPORT_LATENCY]); the earliest such time is where the movie's clock starts, which the effect clock, started
+     * by the recorder's Start, runs ahead of (LiveVideoEffects.swift:641-646 times them by the movie's writer).
+     */
+    private fun timeAnalysis(current: Segment, recorded: Long) {
+        val analysis = current.analysis ?: return
+        if (phase != Phase.Recording || recorded <= 0 || current.origin == 0L) return
+        current.firstFrame = minOf(current.firstFrame, SystemClock.elapsedRealtimeNanos() - recorded)
+        analysis.shift = maxOf(0.0, (current.firstFrame - REPORT_LATENCY - current.origin) / 1e9)
+    }
+
     private fun handle(current: Segment, event: VideoRecordEvent) {
         when (event) {
             // The first report comes a second into the recording; time runs from here until then.
@@ -2093,8 +2108,10 @@ class CaptureController(private val context: Context, private val store: Project
                 current.reportedAt = SystemClock.elapsedRealtimeNanos()
                 // The moves of the segment are timed on its own clock, from here.
                 anchorMoves()
+                current.origin = movesOrigin
             }
             is VideoRecordEvent.Status -> if (segment === current) {
+                timeAnalysis(current, event.recordingStats.recordedDurationNanos)
                 // The system does not always report a route that changes under a running recording.
                 val second = event.recordingStats.recordedDurationNanos / 1_000_000_000
                 if (second != current.nanos / 1_000_000_000) showActiveMicrophone(audioManager.activeRecordingConfigurations)
@@ -2178,6 +2195,11 @@ class CaptureController(private val context: Context, private val store: Project
     private companion object {
         /** The key of the phone's own microphones in the order of preference. */
         const val PHONE_MICROPHONE = "phone"
+        /**
+         * The least time a report of the recorded length takes to reach the app after the frame it counts is taken:
+         * 0.091 s on a Galaxy A54, measured against a zoom step seen in both the preview's frames and the movie.
+         */
+        const val REPORT_LATENCY = 90_000_000L
         // A segment ends in a second or two; after five the recorder is taken to be stuck.
         const val SAVE_STEPS = 50
         const val SAVE_STEP_MILLIS = 100L

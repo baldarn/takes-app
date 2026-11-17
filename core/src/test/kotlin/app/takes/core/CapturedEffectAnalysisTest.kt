@@ -127,6 +127,10 @@ class CapturedEffectAnalysisTest {
         }
         assertTrue(CapturedEffectAnalysis.masksServe(analysis, auto = true, from = 2.0, to = 4.0))
         assertFalse(CapturedEffectAnalysis.masksServe(analysis, auto = true, from = 0.0, to = 4.0))
+        // Only the stretch over the gap is analysed.
+        assertEquals(1.0..2.0, CapturedEffectAnalysis.unserved(analysis, auto = true, from = 0.0, to = 4.0))
+        assertEquals(1.5..2.0, CapturedEffectAnalysis.unserved(analysis, auto = true, from = 1.5, to = 4.0))
+        assertEquals(0.0..4.0, CapturedEffectAnalysis.unserved(analysis.copy(autoBackgroundMasks = null), auto = true, from = 0.0, to = 4.0))
         folder.deleteRecursively()
     }
 
@@ -203,5 +207,26 @@ class CapturedEffectAnalysisTest {
         assertEquals(noir.id, CapturedEffectAnalysis.source(listOf(added, noir, q), 1.0)!!.id)
         assertEquals(q.id, CapturedEffectAnalysis.source(listOf(noir.copy(enabled = false), q), 1.0)!!.id)
         assertNull(CapturedEffectAnalysis.source(listOf(added), 1.0))
+    }
+
+    // The effect clock starts before the movie's first frame: the times are brought to the movie's, what falls before
+    // it dropped but for the last, at 0 (LiveVideoEffects.swift:641-646 times them by the movie's writer).
+    @Test fun bringsTheTimesToTheMoviesFirstFrame() {
+        val folder = Files.createTempDirectory("analysis").toFile()
+        val recorder = CapturedEffectAnalysis.Recorder()
+        recorder.begin(folder)
+        recorder.append(0.10, mapOf("Q" to two), mask(0.1, 1), null, mapOf("Q" to VideoEffectQuality.Full))
+        recorder.append(0.20, mapOf("Q" to other), mask(0.2, 2), null)
+        recorder.append(0.30, mapOf("Q" to two), mask(0.3, 3), null, mapOf("Q" to VideoEffectQuality.Lite), pushed = true)
+        recorder.append(0.40, emptyMap(), mask(0.4, 4), null)
+        recorder.shift = 0.25
+        val analysis = recorder.snapshot()
+        fun ms(times: List<Double>) = times.map { Math.round(it * 1000) / 1000.0 }
+        assertEquals(listOf(0.0, 0.15), ms(analysis.masks.map { it.time }))
+        assertEquals(listOf(0.0, 0.05), ms(analysis.palettes.getValue("Q").frames.map { it.time }))
+        assertEquals(listOf(0.0, 0.05), ms(analysis.qualities!!.getValue("Q").frames.map { it.time }))
+        assertEquals(0.05, analysis.maskGaps!!.single().start, 1e-9)
+        assertEquals(0.15, analysis.maskGaps!!.single().end, 1e-9)
+        folder.deleteRecursively()
     }
 }

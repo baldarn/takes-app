@@ -126,6 +126,14 @@ data class CapturedEffectAnalysis(
         private val executor: Executor = Executor { it.run() },
         private val checkpointInterval: Int = 60,
     ) {
+        /**
+         * Seconds the clock of [append] runs ahead of the movie's frames: the time on it of the movie's first frame.
+         * The original's frames are timed by the movie's writer (LiveVideoEffects.swift:641-646); here the clock
+         * starts when the recorder says the recording has begun, before the first frame it keeps, and [snapshot]
+         * brings every time back by this much. It can be set at any time; the latest holds.
+         */
+        @Volatile var shift: Double = 0.0
+
         private val palettes = LinkedHashMap<String, MutableList<Frame>>()
         private val qualities = LinkedHashMap<String, MutableList<QualityFrame>>()
         private var subjects: MutableList<EffectSubjectSample>? = null
@@ -234,19 +242,23 @@ data class CapturedEffectAnalysis(
             return out.toByteArray()
         }
 
-        /** What was collected so far; the masks those written by now. */
+        /**
+         * What was collected so far, the masks those written by now, its times brought to the movie's by [shift]: what
+         * falls before the movie's first frame is dropped but for the last of each, which stands from its start.
+         */
         @Synchronized
         fun snapshot(): CapturedEffectAnalysis {
-            val open = gapStart?.let { listOf(Gap(it, VideoEffectSettings.MAXIMUM_TIME)) }.orEmpty()
+            val by = shift
+            val open = gapStart?.let { listOf(Gap(it, VideoEffectSettings.MAXIMUM_TIME + by)) }.orEmpty()
             return CapturedEffectAnalysis(
-                palettes = palettes.mapValues { Track(it.value.toList()) },
-                masks = synchronized(masks) { masks.toList() },
-                autoBackgroundMasks = synchronized(masks) { autoMasks?.toList() },
-                qualities = this.qualities.takeIf { it.isNotEmpty() }?.mapValues { QualityTrack(it.value.toList()) },
-                subjects = subjects?.let { EffectSubjectTrack(it.toList(), stepwise = true) },
+                palettes = palettes.mapValues { (_, frames) -> Track(shifted(frames, by, { it.time }) { f, t -> f.copy(time = t) }) },
+                masks = synchronized(masks) { shifted(masks.toList(), by, { it.time }) { f, t -> f.copy(time = t) } },
+                autoBackgroundMasks = synchronized(masks) { autoMasks?.toList()?.let { list -> shifted(list, by, { it.time }) { f, t -> f.copy(time = t) } } },
+                qualities = this.qualities.takeIf { it.isNotEmpty() }?.mapValues { (_, frames) -> QualityTrack(shifted(frames, by, { it.time }) { f, t -> f.copy(time = t) }) },
+                subjects = subjects?.let { samples -> EffectSubjectTrack(shifted(samples, by, { it.time }) { f, t -> f.copy(time = t) }, stepwise = true) },
                 maskFilter = FILTER,
                 autoBackgroundMotionAware = true,
-                maskGaps = (gaps + open).takeIf { it.isNotEmpty() },
+                maskGaps = (gaps + open).mapNotNull { gap -> Gap(maxOf(0.0, gap.start - by), gap.end - by).takeIf { it.end > it.start } }.takeIf { it.isNotEmpty() },
             )
         }
 
@@ -347,6 +359,16 @@ data class CapturedEffectAnalysis(
     }
 
     companion object {
+        /**
+         * [items], in order of time, each [at] [by] seconds earlier: those that come to fall before 0 are dropped,
+         * but for the last of them, which is put at 0.
+         */
+        internal fun <T> shifted(items: List<T>, by: Double, at: (T) -> Double, moved: (T, Double) -> T): List<T> {
+            if (by == 0.0) return items.toList()
+            val kept = items.indexOfLast { at(it) - by <= 0.0 }
+            return items.drop(maxOf(0, kept)).map { moved(it, maxOf(0.0, at(it) - by)) }
+        }
+
         /** How the smoothed masks are made: the motion-gated EMA of Auto Background, as the live pass writes it (LiveVideoEffects.swift:307). */
         const val FILTER = "auto-background-ema-v1"
         private val FILTERS = setOf("motion-gated-ema-v1", "auto-background-ema-v1", "auto-background-motion-v2")
@@ -380,8 +402,18 @@ data class CapturedEffectAnalysis(
          * footage: it has raw masks, Auto Background's smoothed ones too when [auto] is wanted, and none of them were
          * found on a pushed-in picture there (MediaRenderer.swift:376-378).
          */
-        fun masksServe(analysis: CapturedEffectAnalysis?, auto: Boolean, from: Double, to: Double): Boolean =
-            analysis != null && analysis.masks.isNotEmpty() && (!auto || analysis.hasMotionAwareAutoBackground) && !analysis.gapIn(from, to)
+        fun masksServe(analysis: CapturedEffectAnalysis?, auto: Boolean, from: Double, to: Double): Boolean = unserved(analysis, auto, from, to) == null
+
+        /**
+         * The seconds from [from] to [to] whose masks the editor finds itself, as [masksServe] says: all of them when the
+         * saved masks do not serve, the stretch over the gaps when only those are missing, null when none.
+         */
+        fun unserved(analysis: CapturedEffectAnalysis?, auto: Boolean, from: Double, to: Double): ClosedFloatingPointRange<Double>? {
+            if (analysis == null || analysis.masks.isEmpty() || auto && !analysis.hasMotionAwareAutoBackground) return from..to
+            val gaps = analysis.maskGaps.orEmpty().filter { it.start < to && it.end > from }
+            if (gaps.isEmpty()) return null
+            return maxOf(from, gaps.minOf { it.start })..minOf(to, gaps.maxOf { it.end })
+        }
 
         /**
          * Whether the palettes captured for [effect] still draw it as the preview did

@@ -347,13 +347,13 @@ object CapturedAnalyses {
     }
 
     /**
-     * Whether the masks saved with the take of [clip] serve its effects over [span] without analysing its footage
-     * ([CapturedEffectAnalysis.masksServe]).
+     * The seconds of [span] whose masks the effects of [clip] need analysed, the saved ones not serving there
+     * ([CapturedEffectAnalysis.unserved]); null when they serve it all.
      */
-    fun serve(movie: File, clip: TimelineClip, span: ClosedFloatingPointRange<Double>): Boolean {
-        val effect = clip.videoEffects.orEmpty().firstOrNull { it.enabled && it.analysisFile != null } ?: return false
+    fun unserved(movie: File, clip: TimelineClip, span: ClosedFloatingPointRange<Double>): ClosedFloatingPointRange<Double>? {
+        val effect = clip.videoEffects.orEmpty().firstOrNull { it.enabled && it.analysisFile != null } ?: return span
         val auto = clip.videoEffects.orEmpty().any { it.enabled && it.kind == VideoEffectID.AutoBackground }
-        return CapturedEffectAnalysis.masksServe(of(movie, effect)?.analysis, auto, span.start, span.endInclusive)
+        return CapturedEffectAnalysis.unserved(of(movie, effect)?.analysis, auto, span.start, span.endInclusive)
     }
 }
 
