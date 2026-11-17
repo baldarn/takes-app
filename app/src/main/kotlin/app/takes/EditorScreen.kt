@@ -1133,7 +1133,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             cleaningProgress?.let { CleaningProgress(it, Modifier.align(Alignment.Center)) }
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
             else {
-                ReviewSpeed(reviewSpeed, reviewSpeedsOpen, Modifier.align(Alignment.BottomStart).padding(8.dp), toggle = { reviewSpeedsOpen = !reviewSpeedsOpen }, choose = chooseReviewSpeed)
+                // While a colour is picked from the picture, the bar saying what to tap in its place.
+                effecting?.takeIf { it.picking != null }?.let { work -> EffectPickBar(work, { playhead }, { effecting = it }, Modifier.align(Alignment.BottomCenter)) }
+                    ?: ReviewSpeed(reviewSpeed, reviewSpeedsOpen, Modifier.align(Alignment.BottomStart).padding(8.dp), toggle = { reviewSpeedsOpen = !reviewSpeedsOpen }, choose = chooseReviewSpeed)
                 val fullLabel = stringResource(R.string.full_preview_open)
                 IconButton(
                     onClick = { cancelPendingPlay(); fullPreview = true }, Modifier.align(Alignment.TopEnd).semantics { contentDescription = fullLabel },

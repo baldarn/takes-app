@@ -41,47 +41,61 @@ import app.takes.core.ViewLayer
 
 /**
  * A colour of an effect picked from the editor's preview while the Video effects tool picks one: a tap on the
- * picture takes the median of the 9 × 9 pixels around it, what the bar under the picture says, and Cancel.
- * [sample] gives the colour under a point of the preview of [width] × [height], or null outside the picture.
+ * picture takes the median of the 9 × 9 pixels around it. [sample] gives the colour under a point of the preview of
+ * [width] × [height], or null outside the picture. What to tap, and Cancel, are in [EffectPickBar].
  * VideoEffectsEditor.swift:988-1002, 865-880.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun EffectColorPick(work: EffectsWork, playhead: () -> Double, sample: (Offset, Float, Float) -> EffectRGB?, change: (EffectsWork) -> Unit) {
-    val parameter = work.picking ?: return
+    if (work.picking == null) return
     val latest by rememberUpdatedState(work)
     val send by rememberUpdatedState(change)
     val take by rememberUpdatedState(sample)
     val clock by rememberUpdatedState(playhead)
-    val hint = stringResource(
-        when (work.pickRefusal) {
-            EffectsWork.PickRefusal.Outside -> R.string.effects_tap_inside
-            EffectsWork.PickRefusal.NotScreen -> R.string.live_effects_screen_invalid
-            EffectsWork.PickRefusal.NoHue -> R.string.isolation_invalid_hue
-            null -> if (parameter == "screenColor") R.string.effects_tap_screen else R.string.effects_tap_color
-        },
-    )
-    val input = work.current(playhead())?.let { stringResource(R.string.effects_pick_input, effectName(it.kind)) }.orEmpty()
+    val hint = pickHint(work)
     Box(
         Modifier.fillMaxSize().pointerInput(Unit) {
             detectTapGestures { at -> send(latest.picked(take(at, size.width.toFloat(), size.height.toFloat()), clock())) }
         }.semantics { contentDescription = hint },
+    )
+}
+
+/**
+ * The bar at the foot of the preview while a colour is picked: what to tap, or why the last tap was refused, the
+ * effect it is for, and Cancel. Across the whole preview rather than the picture, so that on a narrow portrait picture
+ * it neither hides the picture nor loses Cancel. VideoEffectsEditor.swift:865-880.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun EffectPickBar(work: EffectsWork, playhead: () -> Double, change: (EffectsWork) -> Unit, modifier: Modifier = Modifier) {
+    if (work.picking == null) return
+    val hint = pickHint(work)
+    val input = work.current(playhead())?.let { stringResource(R.string.effects_pick_input, effectName(it.kind)) }.orEmpty()
+    // Cancel under the words where the two do not fit on a line.
+    FlowRow(
+        modifier.fillMaxWidth().padding(8.dp)
+            .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        // Cancel under the words where the two do not fit on a line, as on a narrow portrait picture.
-        FlowRow(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(8.dp)
-                .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            itemVerticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.padding(vertical = 6.dp).widthIn(min = 120.dp)) {
-                Text(hint, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                if (input.isNotEmpty()) Text(input, color = Color(0xFFA0A4AB), fontSize = 11.sp)
-            }
-            TextButton(onClick = { send(latest.cancellingPick()) }, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.common_cancel)) }
+        Column(Modifier.padding(vertical = 6.dp).widthIn(min = 120.dp)) {
+            Text(hint, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            if (input.isNotEmpty()) Text(input, color = Color(0xFFA0A4AB), fontSize = 11.sp)
         }
+        TextButton(onClick = { change(work.cancellingPick()) }, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.common_cancel)) }
     }
 }
+
+/** What the person is asked to tap, or why the last tap was refused. */
+@Composable
+private fun pickHint(work: EffectsWork): String = stringResource(
+    when (work.pickRefusal) {
+        EffectsWork.PickRefusal.Outside -> R.string.effects_tap_inside
+        EffectsWork.PickRefusal.NotScreen -> R.string.live_effects_screen_invalid
+        EffectsWork.PickRefusal.NoHue -> R.string.isolation_invalid_hue
+        null -> if (work.picking == "screenColor") R.string.effects_tap_screen else R.string.effects_tap_color
+    },
+)
 
 /** Reads a colour from what a deck of the editor shows. */
 internal object EffectColorSampling {
