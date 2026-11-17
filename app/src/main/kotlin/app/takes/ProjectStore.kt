@@ -417,8 +417,9 @@ class ProjectStore(context: Context) {
                 }
                 limited.copyOf(size)
             } ?: return@withContext null
-            CubeLUT.parse(bytes) // rejects anything that is not a valid, bounded cube
-            val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            val cube = CubeLUT.parse(bytes) // rejects anything that is not a valid, bounded cube
+            // Named by the cube's TITLE when it has one, else by its file, as the original (YouRec/ColorGrading.swift:126).
+            val name = cube.title?.ifBlank { null } ?: resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             }?.substringBeforeLast('.')?.take(120)?.ifBlank { null } ?: context.getString(R.string.color_lut_default_name)
             val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }

@@ -182,11 +182,6 @@
     <string name="crop_remove">Remove crop</string>
 
     <!-- Color -->
-    <string name="color_look">Look</string>
-    <string name="color_lut_name">LUT: %1$s</string>
-    <string name="color_import_lut">Import a .cube LUT</string>
-    <string name="color_choose_another_lut">Choose another LUT</string>
-    <string name="color_use_look">Use a look</string>
     <string name="color_strength">Strength</string>
     <string name="color_highlights">Highlights</string>
     <string name="color_highlights_help">Adjusts bright tones before the look. Move left to lower them.</string>
@@ -201,6 +196,19 @@
     <string name="color_remove">Remove look</string>
     <string name="common_expanded">Expanded</string>
     <string name="common_collapsed">Collapsed</string>
+    <string name="color_favorite">Favorite look</string>
+    <string name="color_favorite_add">Add favorite</string>
+    <string name="color_favorite_remove">Remove favorite</string>
+    <string name="color_import_icon">Import LUT</string>
+    <string name="color_import_from_files">Import a .cube LUT from Files</string>
+    <string name="color_library">Library</string>
+    <string name="color_tab_builtin">Built-in</string>
+    <string name="color_tab_imported">Imported</string>
+    <string name="color_tab_favorites">Favorites</string>
+    <string name="color_favorites_empty">Tap the star beside a look’s name to keep it here.</string>
+    <string name="color_lut_expects">LUT expects</string>
+    <string name="color_lut_expects_note">Choose the input specified by the LUT’s author. Output must be Rec.709. Log-to-Rec.709 LUTs include their own camera conversion.</string>
+    <string name="color_library_failed">The color library could not be saved.</string>
     <string name="color_lut_default_name">Imported LUT</string>
     <string name="color_lut_unreadable">The LUT file could not be read.</string>
     <string name="color_lut_rejected">%1$s</string>

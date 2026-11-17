@@ -27,8 +27,8 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 | Status | Count |
 |---|---|
-| DONE | 153 |
-| PARTIAL | 35 |
+| DONE | 154 |
+| PARTIAL | 34 |
 | CORE ONLY | 4 |
 | MISSING | 11 |
 | N/A | 6 |
@@ -42,7 +42,7 @@ Per area:
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 23 | 7 | 0 | 4 | 0 |
-| 5. Editor: picture tools | 8 | 4 | 3 | 3 | 0 |
+| 5. Editor: picture tools | 9 | 3 | 3 | 3 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 19 | 0 | 0 | 2 | 0 |
@@ -190,7 +190,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Video shape for the project (Original, 16:9, 9:16, 1:1, 4:5) | O/CropEditor.swift:93, 189-194, 232-236, 418-436, O/VideoTools.swift:100-112 | DONE | The "Video shape" menu of A/CropPanel.kt (`Cropping.reshaped`, `applied`: a crop or a chosen shape pins the frame, Original with no crop frees it); `EditState.outputSize` saved beside the step's timeline as `[width, height]`, checked even and 2…16384, schema 21 (C/Project.kt); the canvas of the preview (A/EditorScreen.kt) and the export (A/Exporter.kt `movieShape`) | `canvasReference` is not kept: without a fixed size the frame always takes the first picture's shape. An edit made from a timeline does not carry the size, so `Project.commit` keeps the one the project has unless the Crop tool names one | | |
 | Mirror (flip horizontally / vertically) | O/EditorTools.swift:1319-1322 | DONE | Two switches in A/CropPanel.kt rather than a Mirror tool of their own; `TimelineClip.mirror` (schema 20, C/Project.kt), C/TimelineEditing.kt `setMirror`; the export through `FramingEffect` and the preview through `PictureFrame.layer` | No Mirror badge of its own on the timeline | | |
 | Colour: 14 looks with strength | O/ColorGradeControls.swift:15-154, O/VideoToolCompositor.swift:456-529 | DONE | A/ColorPanel.kt (a tool in place of the timeline, the preview showing the grade as it changes, with Before and After and Remove look, in the order of the original's controls), A/ColorLuts.kt, C/ColorGrade.kt | Preview needs Android 13 (A/EditorScreen.kt:621); look thumbnails | | |
-| Imported `.cube` LUT | O/ColorGrading.swift:39-128 | PARTIAL | A/ProjectStore.kt:196, C/CubeLUT.kt (3D and 1D) | LUT library (Imported / Favorites tabs), "LUT expects" input choice (`LUTInput`, C/ColorSettings.kt:28; what a log LUT is given is C/LogColor.kt `lutInput`) | M | Yes |
+| Imported `.cube` LUT | O/ColorGrading.swift:39-157, O/ColorGradeControls.swift:14-22, 76-111, O/EditorTools.swift:544-575 | DONE | A/ProjectStore.kt `importLut` (copied into the project under a name made from its contents, named by its TITLE else its file), C/CubeLUT.kt (3D and 1D); the library of the Color tool (A/ColorPanel.kt): Built-in, Imported and Favorites tabs, the favourite star beside the name and a touch and hold on a look or LUT, Import, and "LUT expects" (Rec.709, Apple Log, Apple Log 2) for a LUT, kept with it in the library; the library is the app's, `ColorLibrary/library.json` with the LUT files beside it (A/ColorLibrary.kt, C/GradeLibrary.kt), and a LUT chosen from it is copied into the project, so projects and their archives do not depend on it | The tabs show names, without the original's thumbnails of each look on the frame (see the row above) | | |
 | Exposure, warmth, tint | O/ColorGradeControls.swift:68-75, 149-154 | DONE | The sliders of the Color tool (A/ColorPanel.kt; behind "Exposure & white balance" with Reset balance, as the original): exposure −4…4 EV, warmth and tint −1…1, in steps of 0.05 and written with two decimals as the original (C/ColorControls.kt `ColorControl`) | — | | |
 | Highlights slider | O/ColorGradeControls.swift:52-66 | DONE | The slider of the Color tool (A/ColorPanel.kt, −1…1 in steps of 0.01 (C/ColorControls.kt), above the balance as in the original), applied in C/ColorGrade.kt `balance` by the original's curve (C/LogColor.kt `highlights`); the export's LUT and the preview's shader checked against it in A/androidTest `PictureToolPixelCases` | — | | |
 | Local highlight recovery for Log footage | O/ColorGradeControls.swift, README:136-139 | MISSING | Field only (C/ColorSettings.kt:52) | Spatial filter; only meaningful with Log sources | L | Yes |

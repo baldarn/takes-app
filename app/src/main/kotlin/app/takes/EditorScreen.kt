@@ -1537,7 +1537,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 if (next != work.base) work.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
             }
             ColorPanel(
-                work, importLut = { uri -> store.importLut(project.id, uri) },
+                work, folder, importLut = { uri -> store.importLut(project.id, uri) },
                 apply = { done(work.applied()) }, remove = { done(work.applied(removing = true)) },
                 cancel = { editor.pause(); coloring = null },
                 modifier = Modifier.layoutId(EditorSlot.Tools),

@@ -185,11 +185,6 @@
     <string name="crop_remove">Rimuovi ritaglio</string>
 
     <!-- Color -->
-    <string name="color_look">Look</string>
-    <string name="color_lut_name">LUT: %1$s</string>
-    <string name="color_import_lut">Importa una LUT .cube</string>
-    <string name="color_choose_another_lut">Scegli un\'altra LUT</string>
-    <string name="color_use_look">Usa un Look</string>
     <string name="color_strength">Intensità</string>
     <string name="color_highlights">Alte luci</string>
     <string name="color_highlights_help">Regola i toni chiari prima del look. Sposta a sinistra per abbassarli.</string>
@@ -204,6 +199,19 @@
     <string name="color_remove">Rimuovi il look</string>
     <string name="common_expanded">Espanso</string>
     <string name="common_collapsed">Compresso</string>
+    <string name="color_favorite">Look preferito</string>
+    <string name="color_favorite_add">Aggiungi ai preferiti</string>
+    <string name="color_favorite_remove">Rimuovi dai preferiti</string>
+    <string name="color_import_icon">Importa LUT</string>
+    <string name="color_import_from_files">Importa una LUT .cube da File</string>
+    <string name="color_library">Libreria</string>
+    <string name="color_tab_builtin">Integrati</string>
+    <string name="color_tab_imported">Importati</string>
+    <string name="color_tab_favorites">Preferiti</string>
+    <string name="color_favorites_empty">Tocca la stella accanto al nome di un look per tenerlo qui.</string>
+    <string name="color_lut_expects">La LUT si aspetta</string>
+    <string name="color_lut_expects_note">Scegli l\'ingresso indicato dall\'autore della LUT. L\'uscita deve essere Rec.709. Le LUT da Log a Rec.709 includono la propria conversione della camera.</string>
+    <string name="color_library_failed">Non è stato possibile salvare la libreria dei colori.</string>
     <string name="color_lut_default_name">LUT importata</string>
     <string name="color_lut_unreadable">Non è stato possibile leggere il file LUT.</string>
     <string name="color_lut_rejected">Questa LUT non si può usare: %1$s</string>

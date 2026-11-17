@@ -3,21 +3,35 @@ package app.takes
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,10 +43,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -43,13 +62,17 @@ import app.takes.core.ColorControl
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.EditState
+import app.takes.core.GradeLibrary
 import app.takes.core.ImportedLUT
+import app.takes.core.LUTInput
 import app.takes.core.RangeEditing
 import app.takes.core.ToolCompare
 import kotlinx.coroutines.launch
+import java.io.File
 
 private val Soft = Color(0xFFA0A4AB)
 private val RemoveRed = Color(0xFFFF6961)
+private val Selected = Color(0xFF64D2FF)
 
 /**
  * The Color tool at work, as the original's tool workspace keeps it
@@ -90,7 +113,7 @@ internal class Coloring(
  */
 @Composable
 internal fun ColorPanel(
-    work: Coloring, importLut: suspend (Uri) -> ImportedLUT?, apply: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
+    work: Coloring, folder: File, importLut: suspend (Uri) -> ImportedLUT?, apply: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -106,7 +129,7 @@ internal fun ColorPanel(
             Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ColorGradeControls(work, importLut)
+            ColorGradeControls(work, folder, importLut)
             if (work.existing) {
                 // Remove look, when the tool was opened on clips with a grade (EditorTools.swift:1096-1100).
                 TextButton(onClick = remove, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
@@ -120,20 +143,44 @@ internal fun ColorPanel(
 
 /**
  * The controls of the original's Color tool, in its order (YouRec/ColorGradeControls.swift:12-121): the name of the
- * look or LUT, its strength, Highlights, exposure and white balance behind a disclosure, and the looks.
+ * look or LUT with its favourite star and Import, its strength, Highlights, exposure and white balance behind a
+ * disclosure, the library in tabs (built-in looks, imported LUTs, favourites) and, for a LUT, what it expects.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ColorGradeControls(work: Coloring, importLut: suspend (Uri) -> ImportedLUT?) {
+private fun ColorGradeControls(work: Coloring, folder: File, importLut: suspend (Uri) -> ImportedLUT?) {
     val color = work.color
     fun change(next: ColorSettings) { work.color = next }
+    val context = LocalContext.current
+    val store = remember { ColorLibrary(context) }
+    var library by remember { mutableStateOf(store.read()) }
+    var failed by remember { mutableStateOf(false) }
+    fun keep(next: GradeLibrary) { library = next; failed = !store.save(next) }
+    // The tab shown first: Imported for a LUT, as the original (ColorGradeControls.swift:122).
+    var category by remember { mutableStateOf(if (color.imported != null) GradeLibrary.Category.Imported else GradeLibrary.Category.BuiltIn) }
     val scope = rememberCoroutineScope()
     val pickLut = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        // An imported LUT is chosen at full strength, as the original does (EditorTools.swift:561).
-        if (uri != null) scope.launch { importLut(uri)?.let { change(work.color.copy(imported = it, look = ColorLook.Natural, amount = 1.0)) } }
+        // An imported LUT joins the library and is chosen at full strength, as the original does (EditorTools.swift:554-563).
+        if (uri != null) scope.launch {
+            val lut = importLut(uri) ?: return@launch
+            if (store.copy(lut, folder, store.folder)) keep(library.importing(lut)) else failed = true
+            change(work.color.copy(imported = lut, look = ColorLook.Natural, amount = 1.0))
+            category = GradeLibrary.Category.Imported
+        }
     }
     var balanceOpen by remember { mutableStateOf(false) }
+    val selected = GradeLibrary.id(color)
 
-    Text(color.label(), color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(color.label(), color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        val favorite = selected in library.favorites
+        val favoriteLabel = stringResource(R.string.color_favorite)
+        val favoriteState = stringResource(if (favorite) R.string.editor_snap_on else R.string.editor_snap_off)
+        IconButton(onClick = { keep(library.toggled(selected)) }, modifier = Modifier.semantics { contentDescription = favoriteLabel; stateDescription = favoriteState }) {
+            Icon(if (favorite) Icons.Filled.Star else Icons.Outlined.StarBorder, null, tint = if (favorite) Color(0xFFFFD60A) else Color.White)
+        }
+        IconButton(onClick = { pickLut.launch("*/*") }) { Icon(Icons.Outlined.FileDownload, stringResource(R.string.color_import_icon), tint = Color.White) }
+    }
     // Strength does nothing to Natural without a LUT, and is off there as in the original (ColorGradeControls.swift:26).
     Level(stringResource(R.string.color_strength), color.amount, ColorControl.Strength, enabled = color.look != ColorLook.Natural || color.imported != null) {
         change(work.color.copy(amount = it))
@@ -163,15 +210,70 @@ private fun ColorGradeControls(work: Coloring, importLut: suspend (Uri) -> Impor
             Text(stringResource(R.string.color_reset_balance))
         }
     }
-    val lut = color.imported
-    if (lut == null) {
-        Choices(stringResource(R.string.color_look), ColorLook.entries.map { stringResource(it.label) to it }, color.look) { change(work.color.copy(look = it)) }
-    } else {
-        Text(stringResource(R.string.color_lut_name, lut.name), color = Color.White, modifier = Modifier.padding(top = 12.dp))
+    // The library (ColorGradeControls.swift:76-101).
+    val tabs = GradeLibrary.Category.entries
+    val libraryLabel = stringResource(R.string.color_library)
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().semantics { contentDescription = libraryLabel }) {
+        tabs.forEachIndexed { index, tab ->
+            SegmentedButton(selected = category == tab, onClick = { category = tab }, shape = SegmentedButtonDefaults.itemShape(index, tabs.size)) {
+                Text(stringResource(tab.label), maxLines = 1, softWrap = false, fontSize = 13.sp)
+            }
+        }
     }
-    Row {
-        TextButton(onClick = { pickLut.launch("*/*") }) { Text(stringResource(if (lut == null) R.string.color_import_lut else R.string.color_choose_another_lut)) }
-        if (lut != null) TextButton(onClick = { change(work.color.copy(imported = null)) }) { Text(stringResource(R.string.color_use_look)) }
+    FlowRow(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), Arrangement.spacedBy(8.dp)) {
+        for (look in library.looks(category)) {
+            val id = GradeLibrary.id(look)
+            LookTile(stringResource(look.label), id == selected, id in library.favorites, toggleFavorite = { keep(library.toggled(id)) }) {
+                change(work.color.copy(imported = null, look = look))
+            }
+        }
+        for (lut in library.luts(category)) {
+            LookTile(lut.name, lut.filename == selected, lut.filename in library.favorites, toggleFavorite = { keep(library.toggled(lut.filename)) }) {
+                // From the library into the project, so that the project keeps it (EditorTools.swift:546).
+                if (store.copy(lut, store.folder, folder)) change(work.color.copy(imported = lut)) else failed = true
+            }
+        }
+    }
+    if (category == GradeLibrary.Category.Imported && library.imported.isEmpty()) {
+        TextButton(onClick = { pickLut.launch("*/*") }, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.color_import_from_files)) }
+    }
+    if (category == GradeLibrary.Category.Favorites && library.favorites.isEmpty()) {
+        Text(stringResource(R.string.color_favorites_empty), color = Soft, fontSize = 12.sp)
+    }
+    // What the LUT expects, kept with it in the library for its next use (ColorGradeControls.swift:102-111).
+    color.imported?.let { lut ->
+        Choices(stringResource(R.string.color_lut_expects), LUTInput.entries.map { it.title to it }, lut.input) { input ->
+            val next = lut.copy(input = input)
+            change(work.color.copy(imported = next))
+            if (library.imported.any { it.filename == next.filename }) keep(library.expecting(next))
+        }
+        Text(stringResource(R.string.color_lut_expects_note), color = Soft, fontSize = 12.sp)
+    }
+    if (failed) Text(stringResource(R.string.color_library_failed), color = Color(0xFFFF9F0A), fontSize = 12.sp)
+}
+
+/**
+ * A look or a LUT of the library, selected with a tap; a touch and hold, or the screen reader's action, adds it to
+ * the favourites or takes it away, as the original's context menu (ColorGradeControls.swift:133-148).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LookTile(title: String, selected: Boolean, isFavorite: Boolean, toggleFavorite: () -> Unit, choose: () -> Unit) {
+    val action = stringResource(if (isFavorite) R.string.color_favorite_remove else R.string.color_favorite_add)
+    Row(
+        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp))
+            .background(if (selected) Selected.copy(alpha = 0.18f) else Color.Transparent)
+            .border(if (selected) 2.dp else 1.dp, if (selected) Selected else Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+            .combinedClickable(role = Role.Button, onLongClick = toggleFavorite, onClick = choose)
+            .semantics {
+                this.selected = selected
+                customActions = listOf(CustomAccessibilityAction(action) { toggleFavorite(); true })
+            }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (isFavorite) Icon(Icons.Filled.Star, null, Modifier.padding(end = 4.dp).size(14.dp), tint = Color(0xFFFFD60A))
+        Text(title, color = Color.White, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -213,4 +315,12 @@ internal val ColorLook.label: Int
         ColorLook.Night -> R.string.color_look_night
         ColorLook.Silver -> R.string.color_look_silver
         ColorLook.Ink -> R.string.color_look_ink
+    }
+
+/** The names of the library's tabs. */
+private val GradeLibrary.Category.label: Int
+    get() = when (this) {
+        GradeLibrary.Category.BuiltIn -> R.string.color_tab_builtin
+        GradeLibrary.Category.Imported -> R.string.color_tab_imported
+        GradeLibrary.Category.Favorites -> R.string.color_tab_favorites
     }
