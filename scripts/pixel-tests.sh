@@ -6,6 +6,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# A copy left on the device by another build (an emulator snapshot from another CI runner, whose
+# debug key differs) would refuse the install as an incompatible update: take it off first.
+adb uninstall app.takes.dev.test > /dev/null 2>&1 || true
+adb uninstall app.takes.dev > /dev/null 2>&1 || true
 ./gradlew :app:installDebug :app:installDebugAndroidTest
 
 report="$(mktemp)"
