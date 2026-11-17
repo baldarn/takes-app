@@ -42,4 +42,9 @@
         android:name="app.takes.effects.ProjectExportRunner"
         android:label="Project exports"
         android:targetPackage="app.takes.dev" />
+    <!-- DeepFilterNet3 on a recording, timed, beside sherpa-onnx: adb shell am instrument -w -e clip <path> app.takes.dev.test/app.takes.sound.DeepFilterRunner -->
+    <instrumentation
+        android:name="app.takes.sound.DeepFilterRunner"
+        android:label="DeepFilterNet3 on a recording"
+        android:targetPackage="app.takes.dev" />
 </manifest>
