@@ -318,6 +318,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val timeline = remember(edit) { edit.toTimeline() }
     var cleaned by remember { mutableIntStateOf(0) }
     var cleaningProgress by remember { mutableStateOf<Float?>(null) }
+    // The speed to play on at once when the edit just saved is loaded: a level released while the movie played.
+    var resumeSpeed by remember { mutableStateOf<Double?>(null) }
     // Enhance audio or Censor, open on what it acts on.
     var audioTool by remember { mutableStateOf<Pair<AudioToolKind, AudioToolWork>?>(null) }
     val listening by remember { derivedStateOf { (playhead / LISTEN_STEP).toInt() } }
@@ -349,6 +351,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // While an edit drawn by layers exports, its players let go of their decoders: the export needs one a lane as well.
     val exporting = exporter.progress != null
     LaunchedEffect(clips, sounds, layers, plan.duration, refusal != null, exporting && layers != null) {
+        val resume = resumeSpeed
+        resumeSpeed = null
         playhead = playhead.coerceIn(0.0, duration)
         when {
             layers != null && exporting -> editor.unload()
@@ -356,6 +360,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             refusal != null -> editor.unload()
             else -> editor.load(plan, files, playhead)
         }
+        if (resume != null && refusal == null && !(exporting && layers != null)) editor.play(playhead, resume)
     }
     // The Crop tool: the framing it is working on and the clips it goes on, shown in the preview and not saved until applied.
     var cropping by remember { mutableStateOf<Cropping?>(null) }
@@ -1167,6 +1172,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     soundTrial = null
                     current.adjustment.committed(cancelled = !lifted || current.cancelling)?.let { level ->
                         current.applied(level)?.let { next ->
+                            // Released, the level is kept and the movie plays on, as the original resumes its preview (Tests/EditorUITests.swift:2611-2623).
+                            if (editor.playing) resumeSpeed = reviewSpeed
                             commit(next.state, playhead)
                             // As in the original, what was changed is what is selected afterwards.
                             marks = RangeMarks(selected = next.selected)
