@@ -40,8 +40,9 @@ internal object AndroidVideoEffects {
     /**
      * The third batch, the effects of it that change no timing: Quantization
      * with its palette from the scene (without face detail, which needs a
-     * person mask), Chroma Key's spatial keyer on a solid colour, a picture
-     * from the phone or the picture blurred, and Night fix. Freeze
+     * person mask), Chroma Key's spatial keyer, with its clean plate, on a solid
+     * colour, a picture or a movie from the phone or the picture blurred, and
+     * Night fix. Freeze
      * Frame, Undercranking, Step Printing and Super 8's cadence change what
      * plays when, which is the playback map's.
      */
@@ -59,7 +60,7 @@ internal object AndroidVideoEffects {
     /**
      * The effects that read the person in the frame, with the parts of the others that do (Color Isolation's
      * subject, Chroma Key's person hint, Quantization's face detail): offered where LiteRT runs (PersonMasks.kt).
-     * Auto Background without its video background and match colour; Dolly Zoom, the subject separated by the person
+     * Auto Background; Dolly Zoom, the subject separated by the person
      * (there is no imported depth here), its target followed from the point set (SubjectTracks.kt).
      */
     val BATCH_PERSON: List<VideoEffectID> = listOf(VideoEffectID.AutoBackground, VideoEffectID.DollyZoom)
@@ -74,8 +75,9 @@ internal object AndroidVideoEffects {
 
     /** Controls of an offered effect that this release does not draw, by effect. */
     private val HIDDEN: Map<VideoEffectID, Set<String>> = mapOf(
-        VideoEffectID.ChromaKey to setOf("cleanPlate", "backgroundAudio"),
-        VideoEffectID.AutoBackground to setOf("matchColor", "matchStrength", "backgroundAudio"),
+        // The background movie's sound is not mixed in.
+        VideoEffectID.ChromaKey to setOf("backgroundAudio"),
+        VideoEffectID.AutoBackground to setOf("backgroundAudio"),
     )
 
     /** Controls that need a person mask, hidden where this phone cannot make one: Color Isolation keeps "A color" only. */
@@ -113,9 +115,6 @@ internal object AndroidVideoEffects {
     /** [effect] as this release draws it, for what its controls show: every effect is drawn as it is set. */
     fun asDrawn(effect: VideoEffectSettings): VideoEffectSettings = effect
 
-    /** The choices of a picker this release offers: a Chroma Key's and an Auto Background's backgrounds without video. */
-    fun choices(kind: VideoEffectID, parameter: String, choices: List<String>): List<String> =
-        if ((kind == VideoEffectID.ChromaKey || kind == VideoEffectID.AutoBackground) && parameter == "background") choices.filter { it != "Video" } else choices
 }
 
 /** Where the Video effects tool is: the applied list, the library, one of its sections, or an effect's controls. */
@@ -271,7 +270,7 @@ internal data class EffectsWork(
                     first.withKeyframe(parameter, at, value)
                 }
                 else -> effect.with(parameter, value).let { if (control.keyframes.isEmpty()) it else it.withKeyframe(parameter, at, value) }
-            }
+            }.sanitizedBackgroundMedia(at)
         }
     }
 

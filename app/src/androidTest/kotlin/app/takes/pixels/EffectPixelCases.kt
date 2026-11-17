@@ -120,7 +120,7 @@ class EffectStage(
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 object PreviewStage {
-    fun frame(input: Picture, passes: List<app.takes.core.EffectUniforms>, picture: Bitmap? = null, person: app.takes.PersonFrame? = null): Picture {
+    fun frame(input: Picture, passes: List<app.takes.core.EffectUniforms>, picture: Bitmap? = null, person: app.takes.PersonFrame? = null, plate: app.takes.CleanPlate? = null): Picture {
         val width = input.width
         val height = input.height
         val bitmap = Bitmap.createBitmap(IntArray(input.pixels.size) { input.pixels[it] or (0xff shl 24) }, width, height, Bitmap.Config.ARGB_8888)
@@ -129,7 +129,7 @@ object PreviewStage {
             setPosition(0, 0, width, height)
             beginRecording().drawBitmap(bitmap, 0f, 0f, null)
             endRecording()
-            setRenderEffect(EffectPreview().effect(passes, width.toFloat(), height.toFloat(), picture = { picture }, person = { person }))
+            setRenderEffect(EffectPreview().effect(passes, width.toFloat(), height.toFloat(), picture = { picture }, person = { person }, plate = { plate }))
         }
         val root = RenderNode("root").apply {
             setPosition(0, 0, width, height)
@@ -241,7 +241,9 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
                 else -> EffectImage.flat(1, 1, u.vector("backgroundColor").xyz * Math.pow(2.0, brightness))
             }
             check(scale > 0)
-            VideoEffectFormulasC.chromaKeyPass(u, image, background)
+            // A clean plate brought to the frame and blurred, laid as the frame is (Assets:492-512).
+            val plate = assets.plate(effects.first { it.id == u.id })?.let { VideoEffectFormulasC.cleanPlate(bitmapImage(it.picture), width, height) }
+            VideoEffectFormulasC.chromaKeyPass(u, image, background, cleanPlate = plate)
         }
         else -> EffectImage.of(VideoEffectFormulas.pass(u, image.toPicture()))
     }
@@ -290,7 +292,7 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
             val passes = EffectShader.passes(effects, time, EffectStage.RATE, EffectAssets.inputs(assets, effects, time))
             if (!identity && !nightFix) check(passes.isNotEmpty()) { "Nothing is drawn: the case tests nothing" }
             val drawn = if (preview && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                PreviewStage.frame(input, passes, effects.firstNotNullOfOrNull { assets.picture(it) })
+                PreviewStage.frame(input, passes, effects.firstNotNullOfOrNull { assets.picture(it) }, plate = effects.firstNotNullOfOrNull { assets.plate(it) })
             } else {
                 stage.frame(input, (time * 1e6).roundToLong())
             }
@@ -512,6 +514,24 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
         rgb(mixed(16), mixed(8), mixed(0))
     }
 
+    /**
+     * [assets] with a clean plate: the screen of [screened] without its subject, at twice the frame's size, a little
+     * brighter at the top than the screen of the frame, for a recording of the frame's own size.
+     */
+    private fun plateAssets(blue: Boolean): EffectAssets {
+        val w = width * 2
+        val h = height * 2
+        val plate = Bitmap.createBitmap(IntArray(w * h) { i ->
+            val y = i / w
+            val shade = 1.04 - 0.27 * y / h
+            (0xff shl 24) or (if (blue) rgb((30 * shade).toInt(), (60 * shade).toInt(), (210 * shade).toInt()) else rgb((40 * shade).toInt(), (200 * shade).toInt(), (60 * shade).toInt()))
+        }, w, h, Bitmap.Config.ARGB_8888)
+        val upright = app.takes.core.Size(width.toDouble(), height.toDouble())
+        return object : EffectAssets by assets {
+            override fun plate(effect: VideoEffectSettings): app.takes.CleanPlate = app.takes.CleanPlate(plate, upright)
+        }
+    }
+
     /** The effects of the third batch that change no timing: Quantization, Chroma Key's spatial keyer, Night fix Fast. */
     fun batchC(): List<Case> {
         val green = screened(blue = false)
@@ -522,6 +542,13 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
             Set("B&W in five, smoothing 1", mapOf("colors" to 5.0, "monochrome" to true, "smoothing" to 1.0)),
             Set("Pop 2 in six, ordered 4×4", mapOf("colors" to 6.0, "palette" to "Pop 2", "dithering" to "Ordered 4x4", "smoothing" to 0.2)),
         ), simplified = { it["smoothing"] != 0.0 })
+        // The preview reads the plate made smaller, a stand-in for the export's blur: measured, not held to the core.
+        fun plated(label: String, values: Map<String, Any>, source: Picture, blue: Boolean) = plateAssets(blue).let { plated ->
+            listOf(
+                case("Chroma Key: $label", listOf(settings(VideoEffectID.ChromaKey, values)), ALLOWED, source = source, assets = plated),
+                case("Chroma Key, preview: $label", listOf(settings(VideoEffectID.ChromaKey, values)), ALLOWED, source = source, assets = plated, preview = true, simplified = true),
+            )
+        }
         fun key(label: String, values: Map<String, Any>, source: Picture, simplified: Boolean = true, intensity: Double? = null) = listOf(
             case("Chroma Key: $label", listOf(settings(VideoEffectID.ChromaKey, values, intensity)), ALLOWED, source = source),
             case("Chroma Key, preview: $label", listOf(settings(VideoEffectID.ChromaKey, values, intensity)), ALLOWED, source = source, preview = true, simplified = simplified),
@@ -543,6 +570,10 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
             // The matte as it is shown, its alpha sRGB-encoded: near black a thousandth of alpha is a level or more.
             key("the matte, screen set by hand", mapOf("view" to "Matte", "softness" to 0.0, "autoScreen" to false, "screenColor" to app.takes.core.EffectRGB.hex("#28C83C")), green, simplified = false) +
             key("half", emptyMap(), green, intensity = 0.5) +
+            // A clean plate: the empty screen at each pixel in place of one colour (Metal:401, :469, Assets:492-512). Its own
+            // picture at twice the frame's size, a little greener at the top than the screen behind the subject.
+            plated("clean plate of a green screen, solid background", emptyMap(), green, blue = false) +
+            plated("clean plate of a blue screen, set Blue, image background, hard edge", mapOf("screenType" to "Blue", "softness" to 0.0, "background" to "Image"), blue, blue = true) +
             listOf(
                 case("Chroma Key: intensity 0 leaves the picture as it was", listOf(settings(VideoEffectID.ChromaKey, emptyMap(), 0.0)), 0, source = green, identity = true),
                 case("Night fix: defaults", listOf(settings(VideoEffectID.NightFix, emptyMap())), ALLOWED, nightFix = true),

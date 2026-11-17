@@ -752,21 +752,30 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // Add audio at the playhead: record a voice or choose a file (AudioToolsEditor.swift:5-65, EditorView.swift:326, 339).
     var addingAudio by remember { mutableStateOf<Double?>(null) }
-    // A picture for a video effect's background, kept in the project; [pictureFor] takes its file name.
-    var pictureFor by remember { mutableStateOf<((String?) -> Unit)?>(null) }
-    val pickPicture = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        val picked = pictureFor
-        pictureFor = null
-        if (uri == null || picked == null) return@rememberLauncherForActivityResult
-        scope.launch { picked(store.importEffectPicture(project.id, uri)) }
+    // A picture, a movie or a clean plate for a video effect, kept in the project: what it is, the recording a plate is
+    // for, and what takes the result.
+    var mediaFor by remember { mutableStateOf<Triple<EffectMediaKind, String?, (EffectMediaPicked) -> Unit>?>(null) }
+    val pickEffectMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val asked = mediaFor
+        mediaFor = null
+        if (uri == null || asked == null) return@rememberLauncherForActivityResult
+        val (kind, sourceID, picked) = asked
+        scope.launch {
+            // A plate is of the recording's shape, upright. VideoEffectsEditor.swift:822-827.
+            val upright = if (kind != EffectMediaKind.Plate) null else withContext(Dispatchers.IO) {
+                sourceID?.let { files[it] }?.let(::displaySize)?.let { app.takes.core.Size(it.first.toDouble(), it.second.toDouble()) }
+            }
+            picked(store.importEffectMedia(project.id, uri, kind, upright))
+        }
     }
     val seekTo by rememberUpdatedState(jump)
     val effectTools = remember(project.id) {
         EffectTools(
             seek = { seekTo(it) },
-            pickPicture = { picked ->
-                pictureFor = picked
-                pickPicture.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly).build())
+            pickMedia = { kind, sourceID, picked ->
+                mediaFor = Triple(kind, sourceID, picked)
+                val type = if (kind == EffectMediaKind.Movie) ActivityResultContracts.PickVisualMedia.VideoOnly else ActivityResultContracts.PickVisualMedia.ImageOnly
+                pickEffectMedia.launch(PickVisualMediaRequest.Builder().setMediaType(type).build())
             },
             samplePalette = { sourceID, time, count ->
                 files[sourceID]?.let { file -> withContext(Dispatchers.IO) { runCatching { ScenePalettes.sample(file, time, count) }.getOrNull() } }
@@ -941,6 +950,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val effectPreviews = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) List(EditRendering.LANES) { EffectPreview() } else null }
                 // A palette from the scene is analysed in the background the first time it is shown, and drawn once it is.
                 var palettesReady by remember { mutableIntStateOf(0) }
+                // The movies behind a Chroma Key's or an Auto Background's subject, one reader for each deck, read in the
+                // background and drawn once a frame is there.
+                val backgroundMovies = remember { List(EditRendering.LANES) { BackgroundMovies(wait = false, longSide = 960) { palettesReady++ } } }
+                DisposableEffect(backgroundMovies) { onDispose { backgroundMovies.forEach { it.close() } } }
                 // Made where the pictures are composed: at each frame only while a clip on view has effects, whose passes change with the time.
                 fun effects() = List(EditRendering.LANES) { deck ->
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List null
@@ -968,8 +981,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         previewBounds?.takeIf { passes.isNotEmpty() }?.let { bounds ->
                             effectPreviews?.get(deck)?.effect(
                                 passes, bounds.width, bounds.height,
-                                picture = { id -> shown?.firstOrNull { it.id == id }?.let(assets::picture) },
+                                picture = { id ->
+                                    shown?.firstOrNull { it.id == id }?.let { effect ->
+                                        if (effect.choice("background", sourceTime) != "Video") assets.picture(effect)
+                                        else assets.movie(effect)?.let { backgroundMovies[deck].frame(it, app.takes.core.EffectBackgroundLoop.time(effect, sourceTime)) }
+                                    }
+                                },
                                 person = { smoothed -> assets.person(sourceTime, smoothed) },
+                                plate = { id -> shown?.firstOrNull { it.id == id }?.let(assets::plate) },
                                 ready = { palettesReady++ },
                             )
                         }

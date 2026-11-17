@@ -495,6 +495,22 @@ data class VideoEffectSettings(
     fun withKeyframe(id: String, time: Double, value: EffectValue): VideoEffectSettings =
         copy(parameters = parameters.map { if (it.id == id) it.withKeyframe(time, value) else it })
 
+    /**
+     * This effect without a background's media of the other kind than its background at [time]: a picture under a
+     * Video background or a movie under an Image one is let go, by a key there when the media or the background
+     * moves. Model:252-262.
+     */
+    fun sanitizedBackgroundMedia(time: Double): VideoEffectSettings {
+        val mode = choice("background", time)
+        if (mode != "Image" && mode != "Video") return this
+        val file = (value("media", time) as? EffectValue.Media)?.file ?: return this
+        val media = parameters.firstOrNull { it.id == "media" } ?: return this
+        val video = file.substringAfterLast('.', "").lowercase() in listOf("mov", "mp4", "m4v")
+        if ((mode == "Video") == video) return this
+        val moving = media.keyframes.isNotEmpty() || parameters.firstOrNull { it.id == "background" }?.keyframes?.isNotEmpty() == true
+        return if (moving) withKeyframe("media", time, EffectValue.Media(null)) else with("media", EffectValue.Media(null))
+    }
+
     /** What a recording keeps of a look that was showing its matte or its original. Model:245-251. */
     val recordingResult: VideoEffectSettings
         get() = copy(parameters = parameters.map { if (it.id == "view") it.copy(value = EffectValue.Choice("Result"), keyframes = emptyList()) else it })

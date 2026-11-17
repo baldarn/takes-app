@@ -633,11 +633,16 @@ data class Project(
     val edit: EditState get() = materialized(snapshots[historyCursor])
     val history: List<EditState> get() = snapshots.map(::materialized)
     /**
-     * Files an edit refers to that are not recordings, such as imported LUTs, from any step of the history: those
-     * of the ends of a moving grade too (YouRec/Project.swift:289).
+     * Files an edit refers to that are not recordings, from any step of the history and from the takes: the pictures,
+     * movies and clean plates of the video effects and their analyses, and imported LUTs, those of the ends of a moving
+     * grade too (YouRec/Project.swift:287-291).
      */
     val effectFiles: List<String>
-        get() = snapshots.flatMap { it.state.clips }.plus(captureLedger).flatMap { it.color?.lutAssets.orEmpty() }.map { it.filename }.distinct().sorted()
+        get() {
+            val clips = snapshots.flatMap { it.state.clips }.plus(captureLedger)
+            val effects = clips.flatMap { clip -> clip.videoEffects.orEmpty().flatMap { it.mediaFiles } }
+            return (effects + clips.flatMap { it.color?.lutAssets.orEmpty() }.map { it.filename }).distinct().sorted()
+        }
 
     /**
      * The copies of imported fonts the titles and captions use, from any step

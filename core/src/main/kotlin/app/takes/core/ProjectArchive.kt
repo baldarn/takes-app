@@ -124,10 +124,11 @@ object ProjectArchive {
     /** The media files a ZIP of [project] holds, by name, with their paths. */
     private fun media(projectFolder: File, project: Project): List<Pair<String, Path>> {
         // validate() has made every name a plain file name, so each path stays inside the folder.
-        // A font copy already missing stays behind, as in the original (YouRec/ProjectArchive.swift:227-231): its titles fall back.
-        val fonts = project.fontFiles.toSet()
+        // A picture, an effect's file or a font copy already missing stays behind, as in the original
+        // (YouRec/ProjectArchive.swift:226-231): only the recordings are required.
+        val recordings = project.sources.map { it.filename }.toSet()
         return project.mediaFiles.map { it to File(projectFolder, it).toPath() }
-            .filter { (name, path) -> name !in fonts || Files.exists(path, LinkOption.NOFOLLOW_LINKS) }
+            .filter { (name, path) -> name in recordings || Files.exists(path, LinkOption.NOFOLLOW_LINKS) }
     }
 
     private fun size(path: Path): Long {

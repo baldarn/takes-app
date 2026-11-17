@@ -211,6 +211,48 @@ internal object EffectPassShaders {
     """
 
     /**
+     * Chroma Key's matte against a clean plate [uPlate] (linear, laid on the picture): `ve_keyAlpha` with the screen
+     * read at each pixel (Metal:469, flags & 2), a blue screen where the type says so or, on Auto, where the plate's
+     * blue is over its green there.
+     */
+    val KEY_PLATE = """
+        $HEAD
+        uniform sampler2D uPlate;
+        uniform vec4 uKey; // screen type, strength, balance
+        uniform vec2 uClip;
+        void main() {
+            vec2 uv = (pixel() + 0.5) / uOut;
+            vec3 c = read(uv);
+            vec3 s = texture2D(uPlate, vec2(uv.x, 1.0 - uv.y)).rgb;
+            bool blue = uKey.x > 1.5 || (uKey.x < 0.5 && s.b > s.g);
+            float key = blue ? c.b : c.g;
+            float other = blue ? c.g : c.b;
+            float sk = blue ? s.b : s.g;
+            float so = blue ? s.g : s.b;
+            float balance = uKey.z;
+            bool even = abs(balance - 0.5) < 0.0001;
+            float d = key - (even ? max(c.r, other) : balance * c.r + (1.0 - balance) * other);
+            float ds = sk - (even ? max(s.r, so) : balance * s.r + (1.0 - balance) * so);
+            float a = 1.0 - clamp(uKey.y * d / max(ds, 0.0001), 0.0, 1.0);
+            a = clamp((a - uClip.x) / max(0.0001, uClip.y - uClip.x), 0.0, 1.0);
+            gl_FragColor = vec4(vec3(a), 1.0);
+        }
+    """
+
+    /**
+     * A picture [uTex] laid on another by [uToPicture], which takes a pixel of the one drawn to a position 0…1 on the
+     * picture (rows of the matrix: x, y); read between its pixels in linear light, black outside it.
+     */
+    val PICTURE_PLACE = """
+        $HEAD
+        uniform mat3 uToPicture;
+        void main() {
+            vec2 m = (uToPicture * vec3(pixel() + 0.5, 1.0)).xy;
+            gl_FragColor = vec4(m.x < 0.0 || m.x > 1.0 || m.y < 0.0 || m.y > 1.0 ? vec3(0.0) : read(m), 1.0);
+        }
+    """
+
+    /**
      * `ve_subjectWeight` (Metal:548-552, [app.takes.core.AutoBackgroundFormulas.subjectWeight]): at each pixel of a
      * small picture, the picture [uTex] read at its centre times how surely the matte [uMatte] is the subject,
      * `smoothstep(0.5, 0.95, matte)`, or with [uWeightOnly] that weight alone.
@@ -733,6 +775,27 @@ internal class EffectGpu {
             p.setFloatsUniform("uScreen", floatArrayOf(screen.x.toFloat(), screen.y.toFloat(), screen.z.toFloat()))
             p.setFloatsUniform("uKey", floatArrayOf(0f, strength.toFloat(), balance.toFloat(), if (blue) 1f else 0f))
             p.setFloatsUniform("uClip", floatArrayOf(blackClip.toFloat(), whiteClip.toFloat()))
+        })
+
+    /** Chroma Key's matte of [source] against the clean [plate] laid on it, into [key]: [VideoEffectFormulasC.keyAlpha] at every pixel with the plate's colour there. */
+    fun keyOnPlate(source: EffectSource, key: String, plate: EffectSource, type: Int, strength: Double, balance: Double, blackClip: Double, whiteClip: Double): EffectTarget =
+        draw(EffectPassShaders.KEY_PLATE, source, key, source.width, source.height, { p ->
+            p.setSamplerTexIdUniform("uPlate", plate.texture, 1)
+            p.setFloatsUniform("uKey", floatArrayOf(type.toFloat(), strength.toFloat(), balance.toFloat(), 0f))
+            p.setFloatsUniform("uClip", floatArrayOf(blackClip.toFloat(), whiteClip.toFloat()))
+        })
+
+    /**
+     * [picture] laid on a picture of [width] × [height], into [key]: [toPicture] takes a pixel of that picture to a
+     * position 0…1 on [picture]. Linear light, black outside it.
+     */
+    fun placePicture(picture: EffectSource, key: String, width: Int, height: Int, toPicture: app.takes.core.Affine): EffectTarget =
+        draw(EffectPassShaders.PICTURE_PLACE, picture, key, width, height, { p ->
+            p.setFloatsUniform("uToPicture", floatArrayOf(
+                toPicture.a.toFloat(), toPicture.b.toFloat(), 0f,
+                toPicture.c.toFloat(), toPicture.d.toFloat(), 0f,
+                toPicture.tx.toFloat(), toPicture.ty.toFloat(), 1f,
+            ))
         })
 
     /** The mean of [source], `average`: reduced to a quarter, rounded up, until one pixel is left (Renderer:354-361). */

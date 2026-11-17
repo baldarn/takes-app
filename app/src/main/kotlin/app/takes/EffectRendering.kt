@@ -432,11 +432,12 @@ object EffectShader {
             return unlab(chosen);
         }
         // Metal:400-416, the spatial keyer: auxAt the matte, backAt the new background and extraAt its light wrap, each times
-        // uX0.w (its brightness); uX0.xyz the screen; uX1.xyz a solid background's colour, when uX1.w is 1 or 3; with
-        // match colour (uX1.w 2 or 3) the straight colour times moreAt's gain (Metal:409-413).
+        // uX0.w (its brightness); uX0.xyz the screen, or with a clean plate (4 in uX1.w) moreAt, the plate at the pixel
+        // (Metal:401, flags & 2); uX1.xyz a solid background's colour, when uX1.w is odd; with match colour (2 in uX1.w)
+        // the straight colour times matchAt's gain (Metal:409-413).
         vec3 chromaKey(vec3 c, vec2 uv) {
             float a = auxAt(uv).r;
-            vec3 screen = keyScreen();
+            vec3 screen = uX1.w > 3.5 ? moreAt(uv) : keyScreen();
             bool solid = mod(uX1.w, 2.0) > 0.5;
             vec3 background = solid ? uX1.xyz : backAt(uv) * uX0.w;
             vec3 wrapped = solid ? uX1.xyz : extraAt(uv) * uX0.w;
@@ -448,7 +449,7 @@ object EffectShader {
             if (blue) straight.b = after;
             else straight.g = after;
             straight += vec3(0.3, 0.6, 0.1) * ((before - after) * 0.5);
-            if (uX1.w > 1.5) straight *= moreAt(vec2(0.5));
+            if (mod(uX1.w, 4.0) > 1.5) straight *= matchAt(vec2(0.5));
             vec3 o = straight * a + background * (1.0 - a);
             o += wrapped * (a * (1.0 - a) * 4.0 * uP10.x * 0.25);
             if (uP13.x > 1.5) return c;
@@ -457,15 +458,17 @@ object EffectShader {
         }
         // Metal:400-415: auxAt the person's refined mask, moreAt the local background behind it (the estimate), backAt
         // the new background and extraAt its light wrap, each times uX0.w (its brightness), or uX1.xyz a solid colour
-        // when uX1.w is 1; uX0.x the light wrap, uX0.y the view (Result, Matte, Original), uX0.z 1 when the frame has a
-        // person mask (else the picture as it is).
+        // when uX1.w is odd; uX0.x the light wrap, uX0.y the view (Result, Matte, Original), uX0.z 1 when the frame has a
+        // person mask (else the picture as it is); with match colour (2 in uX1.w) the straight colour times matchAt's
+        // gain (Metal:409-413).
         vec3 autoBackground(vec3 c, vec2 uv) {
             if (uX0.z < 0.5) return c;
             float a = auxAt(uv).r;
-            bool solid = uX1.w > 0.5;
+            bool solid = mod(uX1.w, 2.0) > 0.5;
             vec3 background = solid ? uX1.xyz : backAt(uv) * uX0.w;
             vec3 wrapped = solid ? uX1.xyz : extraAt(uv) * uX0.w;
             vec3 straight = clamp((c - moreAt(uv) * (1.0 - a)) / max(a, 0.0001), 0.0, 1.0);
+            if (uX1.w > 1.5) straight *= matchAt(vec2(0.5));
             vec3 o = straight * a + background * (1.0 - a);
             o += wrapped * (a * (1.0 - a) * 4.0 * uX0.x * 0.25);
             if (uX0.y > 1.5) return c;
@@ -589,7 +592,9 @@ object EffectShader {
         uniform sampler2D uBack;
         uniform sampler2D uExtra;
         uniform sampler2D uMore;
+        uniform sampler2D uMatch;
         vec3 auxAt(vec2 uv) { return texture2D(uAux, vec2(uv.x, 1.0 - uv.y)).rgb; }
+        vec3 matchAt(vec2 uv) { return texture2D(uMatch, vec2(uv.x, 1.0 - uv.y)).rgb; }
         vec3 moreAt(vec2 uv) { return texture2D(uMore, vec2(uv.x, 1.0 - uv.y)).rgb; }
         vec3 backAt(vec2 uv) { return texture2D(uBack, vec2(uv.x, 1.0 - uv.y)).rgb; }
         vec3 extraAt(vec2 uv) { return texture2D(uExtra, vec2(uv.x, 1.0 - uv.y)).rgb; }
@@ -694,6 +699,18 @@ object EffectShader {
             if (pane) return lin(vec3(0.62, 0.73, 0.83));
             return mix(light, dark, clamp(length(p - vec2(uSize.x * 0.3, uSize.y * 0.7)) / (uSize.x * 0.8), 0.0, 1.0));
         }
+        // A Chroma Key's clean plate, made smaller and so softened: uPlateX and uPlateY take a deck pixel to a pixel of
+        // it, uPlate.yz its size. Black outside it, as the export lays it.
+        uniform shader plate;
+        uniform vec4 uPlate;
+        uniform vec3 uPlateX;
+        uniform vec3 uPlateY;
+        vec3 plateAt(vec2 uv) {
+            vec3 p = vec3(uv * uSize, 1.0);
+            vec2 m = vec2(dot(uPlateX, p), dot(uPlateY, p));
+            if (m.x < 0.0 || m.y < 0.0 || m.x > uPlate.y || m.y > uPlate.z) return vec3(0.0);
+            return lin(clamp(plate.eval(m).rgb, 0.0, 1.0));
+        }
         // An Image background: the picture at uPlace (its scale, its top left in the deck's pixels), black outside it.
         vec3 placed(vec2 uv) {
             vec2 p = (uv * uSize - uPlace.yz) / uPlace.x;
@@ -724,7 +741,8 @@ object EffectShader {
             16, 17 -> Triple("blurred(uv, uBlur.x, 0.0)", "vec3(0.0)", "vec3(0.0)")
             // The smoothed picture stands in as the picture itself; face detail sharpens against the picture blurred.
             7 -> Triple("spot(uv, 0.0)", "blurred(uv, uBlur.y, 0.0)", "vec3(0.0)")
-            18 -> Triple("vec3(keyAlpha(spot(uv, 0.0), keyScreen()))", "uPlace.x > 0.0 ? placed(uv) : blurred(uv, uBlur.y, 0.0)", "backAt(uv)")
+            // With a clean plate (4 in uX1.w) the screen is the plate at the pixel.
+            18 -> Triple("vec3(keyAlpha(spot(uv, 0.0), uX1.w > 3.5 ? plateAt(uv) : keyScreen()))", "uPlace.x > 0.0 ? placed(uv) : blurred(uv, uBlur.y, 0.0)", "backAt(uv)")
             // The person's mask as it is, without the guided filter.
             4 -> Triple("vec3(personAt(uv))", "vec3(0.0)", "vec3(0.0)")
             // The mask as it is; the new background (a picture, Studio or Window, or the picture blurred), its light wrap as itself.
@@ -743,13 +761,16 @@ object EffectShader {
             7 -> "vec3(personAt(uv))"
             19 -> "src(uv)"
             8 -> "dollyFill(uv)"
+            18 -> "plateAt(uv)"
             else -> "vec3(0.0)"
         }
+        // The preview draws no match colour.
         return """
         vec3 auxAt(vec2 uv) { return $aux; }
         vec3 backAt(vec2 uv) { return $back; }
         vec3 extraAt(vec2 uv) { return $extra; }
         vec3 moreAt(vec2 uv) { return $more; }
+        vec3 matchAt(vec2 uv) { return vec3(1.0); }
         """
     }
 
@@ -910,7 +931,7 @@ object EffectShader {
                 out[1] = u.number("view").toFloat()
                 out[3] = gain.toFloat()
                 val background = background(u)
-                if (background == "Solid" || background == "Video") {
+                if (background == "Solid") {
                     val solid = if (background == "Solid") u.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
                     out[4] = solid.x.toFloat()
                     out[5] = solid.y.toFloat()
@@ -927,7 +948,7 @@ object EffectShader {
                 out[2] = screen.z.toFloat()
                 out[3] = gain.toFloat()
                 val background = background(u)
-                if (background != "Image" && background != "Blur original") {
+                if (background != "Image" && background != "Video" && background != "Blur original") {
                     val solid = if (background == "Solid") u.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
                     out[4] = solid.x.toFloat()
                     out[5] = solid.y.toFloat()
@@ -1056,7 +1077,7 @@ class VideoEffectChain(
     }
 
     /** The pictures a pass reads besides its input, 0 for none, and the numbers worked out with them, which replace [EffectShader.extras]. */
-    private class Auxiliary(val aux: Int = 0, val back: Int = 0, val extra: Int = 0, val extras: FloatArray? = null, val more: Int = 0)
+    private class Auxiliary(val aux: Int = 0, val back: Int = 0, val extra: Int = 0, val extras: FloatArray? = null, val more: Int = 0, val match: Int = 0)
 
     private inner class Program : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
         private var program: GlProgram? = null
@@ -1118,6 +1139,7 @@ class VideoEffectChain(
             program.samplerIfPresent("uBack", auxiliary.back.takeIf { it != 0 } ?: texture, 3)
             program.samplerIfPresent("uExtra", auxiliary.extra.takeIf { it != 0 } ?: texture, 4)
             program.samplerIfPresent("uMore", auxiliary.more.takeIf { it != 0 } ?: texture, 5)
+            program.samplerIfPresent("uMatch", auxiliary.match.takeIf { it != 0 } ?: texture, 6)
             program.setFloatsUniformIfPresent("uCount", floatArrayOf(if (pass == null) 0f else EffectShader.count(pass)))
             program.bindAttributesAndUniforms()
             // Arrays after the program's own binding, which knows only their first element.
@@ -1284,11 +1306,17 @@ class VideoEffectChain(
             val scale = VideoEffectPasses.pixelScale(width, height)
             val manual = pass.vector("screenColor").xyz
             val type = pass.number("screenType").toInt()
-            val screen = if (pass.number("autoScreen") > .5) VideoEffectFormulasC.screenReference(gpu.border(source), manual, type) else manual
-            var matte = gpu.key(
-                source, "matte", screen, VideoEffectFormulasC.blueScreen(screen, type),
-                pass.number("strength"), pass.number("balance"), pass.number("blackClip"), pass.number("whiteClip"),
-            )
+            // A clean plate is the screen at every pixel, in place of the colour detected or set (Renderer:507-511).
+            val plate = settings(pass)?.let(assets::plate)?.let { cleanPlate(it, width, height) }
+            val screen = if (plate == null && pass.number("autoScreen") > .5) VideoEffectFormulasC.screenReference(gpu.border(source), manual, type) else manual
+            var matte = if (plate != null) {
+                gpu.keyOnPlate(source, "matte", EffectSource(plate), type, pass.number("strength"), pass.number("balance"), pass.number("blackClip"), pass.number("whiteClip"))
+            } else {
+                gpu.key(
+                    source, "matte", screen, VideoEffectFormulasC.blueScreen(screen, type),
+                    pass.number("strength"), pass.number("balance"), pass.number("blackClip"), pass.number("whiteClip"),
+                )
+            }
             // The person hint, at a quarter of the size: the garbage matte outside the grown person and the holdout inside
             // the shrunk one (Renderer:513-519, Metal:474-479).
             if (pass.number("personHint") > .5) {
@@ -1324,15 +1352,41 @@ class VideoEffectChain(
                 null
             }
             if (match != null) extras[7] = 2f
+            if (plate != null) extras[7] += 4f
             if (background == null) {
                 extras[4] = solid.x.toFloat()
                 extras[5] = solid.y.toFloat()
                 extras[6] = solid.z.toFloat()
                 extras[7] += 1f
-                return Auxiliary(aux = matte.texture, more = match?.texture ?: 0, extras = extras)
+                return Auxiliary(aux = matte.texture, more = plate?.texture ?: 0, match = match?.texture ?: 0, extras = extras)
             }
             val wrap = if (pass.number("wrap") > 0) gpu.blur(EffectSource(background), "wrap", width * 0.02, VideoEffectPasses.quarter(width), VideoEffectPasses.quarter(height)) else background
-            return Auxiliary(aux = matte.texture, back = background.texture, extra = wrap.texture, more = match?.texture ?: 0, extras = extras)
+            return Auxiliary(aux = matte.texture, back = background.texture, extra = wrap.texture, more = plate?.texture ?: 0, match = match?.texture ?: 0, extras = extras)
+        }
+
+        // A clean plate laid on the frame: kept while the plate, the frame's size and the framing hold.
+        private var plateLaid: Triple<Any, List<Double>, EffectTarget>? = null
+
+        /**
+         * [plate] laid on the frame of [width] × [height] as the original lays it (VideoEffectAssets.swift:492-512): the
+         * picture of the empty screen brought to the recording's upright size, blurred by 8 pixels at 1080 there, then
+         * framed as the recording is in the frame, black outside it. Linear light. Its grade is the plate's own ([CleanPlate]).
+         */
+        private fun cleanPlate(plate: CleanPlate, width: Int, height: Int): EffectTarget? {
+            val upright = plate.upright
+            val w = upright.width.roundToInt().coerceAtLeast(2)
+            val h = upright.height.roundToInt().coerceAtLeast(2)
+            // From the upright recording, in its pixels, to the frame's.
+            val toFrame = app.takes.core.PictureFraming.frame(clip, frameOffset, upright, EffectSize(width.toDouble(), height.toDouble())).transform
+            val key = listOf(width.toDouble(), height.toDouble(), toFrame.a, toFrame.b, toFrame.c, toFrame.d, toFrame.tx, toFrame.ty)
+            plateLaid?.let { (picture, at, laid) -> if (picture === plate.picture && at == key) return laid }
+            val picture = plateSource(plate.picture)
+            val scaled = gpu.placePicture(picture, "plate.scaled", w, h, app.takes.core.Affine.scale(1.0 / w, 1.0 / h))
+            val blurred = gpu.blur(EffectSource(scaled), "plate.blurred", 8 * VideoEffectPasses.pixelScale(w, h))
+            val toPlate = toFrame.inverted().concatenating(app.takes.core.Affine.scale(1.0 / w, 1.0 / h))
+            val laid = gpu.placePicture(EffectSource(blurred), "plate", width, height, toPlate)
+            plateLaid = Triple(plate.picture, key, laid)
+            return laid
         }
 
         /**
@@ -1348,8 +1402,14 @@ class VideoEffectChain(
             val blur = pass.number("backgroundBlur")
             fun blurred(target: EffectTarget) = if (blur > 0) gpu.blur(EffectSource(target), "background.blur", blur * scale) else target
             val settings = clip.videoEffects.orEmpty().firstOrNull { it.id == pass.id }
+            // A movie's frame at the effect's own clock, looped (Assets:592-598).
+            fun frame(effect: VideoEffectSettings): Bitmap? {
+                val file = assets.movie(effect) ?: return null
+                val readers = movies ?: BackgroundMovies(wait = assets.waitsForMovies, longSide = if (assets.waitsForMovies) 1920 else 960).also { movies = it }
+                return readers.frame(file, app.takes.core.EffectBackgroundLoop.time(effect, frameSourceTime))
+            }
             return when (EffectShader.background(pass)) {
-                "Image" -> settings?.let(assets::picture)?.let { picture ->
+                "Image", "Video" -> settings?.let { if (EffectShader.background(pass) == "Video") frame(it) else assets.picture(it) }?.let { picture ->
                     val image = pictureSource(picture)
                     val fill = pass.number("fit") < .5
                     val zoom = pass.number("backgroundZoom")
@@ -1380,16 +1440,24 @@ class VideoEffectChain(
             val wrap = pass.number("wrap")
             val extras = floatArrayOf(wrap.toFloat(), pass.number("view").toFloat(), 1f, gain.toFloat(), 0f, 0f, 0f, 0f)
             val background = replaced(pass, source, pass.number("portraitBlur"))
+            val solid = if (background == null && EffectShader.background(pass) == "Solid") pass.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
+            // Match colour, as a Chroma Key's: the subject under the refined mask brought toward the new background's
+            // light, but on the original blurred (Renderer:536-541, VideoEffectCatalog.swift:124).
+            val match = if (pass.number("matchColor") > .5 && EffectShader.background(pass) != "Blur original") {
+                gpu.matchGain(source, EffectSource(mask), background?.let(::EffectSource), solid, gain, pass.number("matchStrength"), "match")
+            } else {
+                null
+            }
+            if (match != null) extras[7] = 2f
             if (background == null) {
-                val solid = if (EffectShader.background(pass) == "Solid") pass.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
                 extras[4] = solid.x.toFloat()
                 extras[5] = solid.y.toFloat()
                 extras[6] = solid.z.toFloat()
-                extras[7] = 1f
-                return Auxiliary(aux = mask.texture, more = estimate.texture, extras = extras)
+                extras[7] += 1f
+                return Auxiliary(aux = mask.texture, more = estimate.texture, match = match?.texture ?: 0, extras = extras)
             }
             val wrapped = if (wrap > 0) gpu.blur(EffectSource(background), "wrap", width * 0.02, VideoEffectPasses.quarter(width), VideoEffectPasses.quarter(height)) else background
-            return Auxiliary(aux = mask.texture, back = background.texture, extra = wrapped.texture, more = estimate.texture, extras = extras)
+            return Auxiliary(aux = mask.texture, back = background.texture, extra = wrapped.texture, more = estimate.texture, match = match?.texture ?: 0, extras = extras)
         }
 
         /**
@@ -1455,31 +1523,17 @@ class VideoEffectChain(
             return EffectSource(personTexture, mask.width, mask.height, encoded = false)
         }
 
-        // The picked picture of a background, uploaded once: rows from the bottom, as the chain's textures.
-        private var picture: Bitmap? = null
-        private var pictureTexture = 0
+        // The picked picture or the movie's frame of a background, and a clean plate, each uploaded once: rows from the
+        // bottom, as the chain's textures.
+        private val pictureUpload = Upload()
+        private val plateUpload = Upload()
 
-        private fun pictureSource(bitmap: Bitmap): EffectSource {
-            if (bitmap !== picture || pictureTexture == 0) {
-                if (pictureTexture == 0) pictureTexture = IntArray(1).also { GLES20.glGenTextures(1, it, 0) }[0]
-                val pixels = IntArray(bitmap.width * bitmap.height)
-                bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                val bytes = ByteBuffer.allocateDirect(pixels.size * 4)
-                for (row in bitmap.height - 1 downTo 0) for (x in 0 until bitmap.width) {
-                    val c = pixels[row * bitmap.width + x]
-                    bytes.put((c shr 16).toByte()).put((c shr 8).toByte()).put(c.toByte()).put(0xff.toByte())
-                }
-                bytes.flip()
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, pictureTexture)
-                for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
-                for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
-                GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
-                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, bitmap.width, bitmap.height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bytes)
-                GlUtil.checkGlError()
-                picture = bitmap
-            }
-            return EffectSource(pictureTexture, bitmap.width, bitmap.height, encoded = true)
-        }
+        // The movies behind a subject, read as the frames are drawn: at once in an export, in the background live.
+        private var movies: BackgroundMovies? = null
+
+        private fun pictureSource(bitmap: Bitmap): EffectSource = pictureUpload.source(bitmap)
+
+        private fun plateSource(bitmap: Bitmap): EffectSource = plateUpload.source(bitmap)
 
         /**
          * The lattice of the grain of [frame] for grain of [grainSize] pixels at 1080: four bytes a point, the
@@ -1580,7 +1634,10 @@ class VideoEffectChain(
                 if (lattice.framebuffer != 0) GlUtil.deleteFbo(lattice.framebuffer)
             }
             if (latticeProgram != 0) GLES20.glDeleteProgram(latticeProgram)
-            if (pictureTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(pictureTexture), 0)
+            pictureUpload.release()
+            plateUpload.release()
+            movies?.close()
+            movies = null
             if (personTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(personTexture), 0)
             program?.delete()
             kinds.values.forEach { it.delete() }
@@ -1608,12 +1665,14 @@ class EffectPreview {
     /**
      * The effect for a deck [width] by [height] pixels showing [passes];
      * null when there are none. [picture] gives a Chroma Key's Image
-     * background by the effect's id.
+     * background, or the frame of its Video background, by the effect's id.
      */
     fun effect(
         passes: List<EffectUniforms>, width: Float, height: Float, picture: (String) -> Bitmap? = { null },
         /** The person mask of the frame, raw or (true) Auto Background's smoothed stream; null without one. */
         person: (Boolean) -> PersonFrame? = { null },
+        /** A Chroma Key's clean plate by the effect's id; null without one. */
+        plate: (String) -> CleanPlate? = { null },
         /**
          * Called on the main thread when a frame's grain, made in the background, is ready to be drawn; without it
          * the grain is made at once.
@@ -1645,6 +1704,9 @@ class EffectPreview {
                     else -> extras[0] = 1f
                 }
             }
+            val cleanPlate = if (pass.effect == VideoEffectID.ChromaKey) plate(pass.id) else null
+            plateInput(shader, cleanPlate, width, height)
+            if (cleanPlate != null) extras[7] += 4f
             shader.setFloatUniform("uX0", extras.copyOfRange(0, 4))
             shader.setFloatUniform("uX1", extras.copyOfRange(4, 8))
             shader.setFloatUniform("uGrainSize", 1f)
@@ -1699,9 +1761,43 @@ class EffectPreview {
         shader.setFloatUniform("uLattice", if (lattice != null) 1f else 0f, 0f)
     }
 
-    /** Whether [pass] is a Chroma Key or an Auto Background with an Image background. */
+    /** Whether [pass] is a Chroma Key or an Auto Background with an Image or a Video background. */
     private fun pictured(pass: EffectUniforms): Boolean =
-        (pass.effect == VideoEffectID.ChromaKey || pass.effect == VideoEffectID.AutoBackground) && EffectShader.background(pass) == "Image"
+        (pass.effect == VideoEffectID.ChromaKey || pass.effect == VideoEffectID.AutoBackground) && EffectShader.background(pass).let { it == "Image" || it == "Video" }
+
+    private var plateShown: Pair<Bitmap, BitmapShader>? = null
+
+    /**
+     * A Chroma Key's clean [plate] as the pass's `plate` input, laid on the deck as the deck shows the clip (upright,
+     * fitted), made smaller, its short side 135 pixels, so that read between its pixels it is softened about as the
+     * export's blur of 8 pixels at 1080 softens it. Nothing without one.
+     */
+    private fun plateInput(shader: RuntimeShader, plate: CleanPlate?, width: Float, height: Float) {
+        if (plate == null) {
+            shader.setInputShader("plate", none)
+            shader.setFloatUniform("uPlate", 0f, 1f, 1f, 0f)
+            shader.setFloatUniform("uPlateX", 0f, 0f, 0f)
+            shader.setFloatUniform("uPlateY", 0f, 0f, 0f)
+            return
+        }
+        val kept = plateShown?.takeIf { it.first === plate.picture } ?: run {
+            val picture = plate.picture
+            val scale = minOf(1.0, 135.0 / minOf(picture.width, picture.height))
+            val small = Bitmap.createScaledBitmap(picture, maxOf(1, (picture.width * scale).roundToInt()), maxOf(1, (picture.height * scale).roundToInt()), true)
+            Pair(picture, BitmapShader(small, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { filterMode = BitmapShader.FILTER_MODE_LINEAR })
+        }.also { plateShown = it }
+        val small = kept.second
+        shader.setInputShader("plate", small)
+        val smallWidth = maxOf(1, (plate.picture.width * minOf(1.0, 135.0 / minOf(plate.picture.width, plate.picture.height))).roundToInt())
+        val smallHeight = maxOf(1, (plate.picture.height * minOf(1.0, 135.0 / minOf(plate.picture.width, plate.picture.height))).roundToInt())
+        val deck = EffectSize(width.toDouble(), height.toDouble())
+        // From the deck to the upright recording's pixels, then to the small plate's.
+        val toPlate = app.takes.core.PictureFraming.fit(plate.upright, deck).inverted()
+            .concatenating(app.takes.core.Affine.scale(smallWidth / plate.upright.width, smallHeight / plate.upright.height))
+        shader.setFloatUniform("uPlate", 1f, smallWidth.toFloat(), smallHeight.toFloat(), 0f)
+        shader.setFloatUniform("uPlateX", toPlate.a.toFloat(), toPlate.c.toFloat(), toPlate.tx.toFloat())
+        shader.setFloatUniform("uPlateY", toPlate.b.toFloat(), toPlate.d.toFloat(), toPlate.ty.toFloat())
+    }
 
     private var personShown: Pair<app.takes.core.PersonMaskChunks.Mask, BitmapShader>? = null
 

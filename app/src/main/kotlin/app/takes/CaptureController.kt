@@ -883,16 +883,79 @@ class CaptureController(private val context: Context, private val store: Project
     /** A frame tool could not be used, or a sample was not a colour the effect takes. */
     var effectWarning by mutableStateOf<String?>(null)
 
+    /**
+     * A Chroma Key's clean plate being captured: the seconds left of the countdown before it, then the capture's
+     * progress. CaptureController.swift:242-243.
+     */
+    var plateCountdown by mutableStateOf<Int?>(null); private set
+    var plateProgress by mutableStateOf<Double?>(null); private set
+    private var plateJob: Job? = null
+    private var plateCapture = 0
+
     /** A frame tool is open over the preview: the panel steps aside for it. RecorderView.swift:86. */
-    val frameToolActive: Boolean get() = colorPick != null || positioning != null
+    val frameToolActive: Boolean get() = colorPick != null || positioning != null || plateCountdown != null || plateProgress != null
 
     /** Tells [frames] the looks to draw: those set, or while a tool is open what it is chosen against. */
     private fun publishLooks() {
         val effects = liveEffects
+        // While the plate is captured the preview shows the camera's picture as it is (LiveVideoEffects.swift:484-486).
+        val capturing = plateProgress != null && plateCountdown == null
         val shown = colorPick?.let { (id, _) -> LiveVideoEffects.prefix(effects, id) }
             ?: positioning?.let { id -> LiveVideoEffects.prefix(effects, id) + listOfNotNull(positionDraft?.copy(enabled = true)) }
-            ?: LiveVideoEffects.looks(effects)
-        frames.looks = CameraFrames.Looks(shown, recording = phase == Phase.Recording, tool = colorPick != null || positioning != null)
+            ?: if (capturing) emptyList() else LiveVideoEffects.looks(effects)
+        frames.looks = CameraFrames.Looks(shown, recording = phase == Phase.Recording, tool = colorPick != null || positioning != null || capturing)
+    }
+
+    /**
+     * Captures [id]'s clean plate: three seconds to step out of the frame, then a second of the empty screen
+     * averaged, kept as its plate; given up when no frames come within six seconds. CaptureController.swift:343-359, 533-543.
+     */
+    fun captureCleanPlate(id: String) {
+        if (hasActiveTake) return
+        cancelFrameTools()
+        val capture = ++plateCapture
+        plateProgress = 0.0
+        plateCountdown = 3
+        plateJob = scope.launch {
+            for (remaining in 3 downTo 1) {
+                plateCountdown = remaining
+                delay(1000)
+            }
+            if (hasActiveTake) { cancelFrameTools(); return@launch }
+            plateCountdown = null
+            publishLooks()
+            if (canChangeFormat) refreshAssists()
+            frames.capturePlate { event -> plateEvent(capture, id, event) }
+            delay(6000)
+            if (plateCapture == capture && plateProgress != null) {
+                cancelFrameTools()
+                effectWarning = context.getString(R.string.live_effects_plate_no_frames)
+            }
+        }
+    }
+
+    private fun plateEvent(capture: Int, id: String, event: LiveEffectRendering.PlateEvent) {
+        if (capture != plateCapture || plateProgress == null || plateCountdown != null) {
+            if (event is LiveEffectRendering.PlateEvent.Ready) File(frames.effectsFolder, event.name).delete()
+            return
+        }
+        when (event) {
+            is LiveEffectRendering.PlateEvent.Progress -> plateProgress = event.fraction
+            is LiveEffectRendering.PlateEvent.Failed -> {
+                cancelFrameTools()
+                effectWarning = context.getString(when (event.failure) {
+                    app.takes.core.CleanPlateAverage.Failure.Orientation -> R.string.live_effects_plate_orientation
+                    app.takes.core.CleanPlateAverage.Failure.Interrupted -> R.string.live_effects_plate_interrupted
+                    app.takes.core.CleanPlateAverage.Failure.Format -> R.string.live_effects_plate_format
+                    null -> R.string.live_effects_tool_failed
+                })
+            }
+            is LiveEffectRendering.PlateEvent.Ready -> {
+                cancelFrameTools()
+                if (hasActiveTake || liveEffects.none { it.id == id }) { File(frames.effectsFolder, event.name).delete(); return }
+                setLiveEffects(liveEffects.map { if (it.id == id) it.with("cleanPlate", EffectValue.Media(event.name)) else it })
+            }
+        }
     }
 
     /** The looks need the frames to pass through the recorder's own pass. */
@@ -906,13 +969,21 @@ class CaptureController(private val context: Context, private val store: Project
 
     /** Ends a frame tool without its result. CaptureController.swift:367-376. */
     fun cancelFrameTools() {
-        val changed = colorPick != null || positioning != null
+        val changed = colorPick != null || positioning != null || plateCountdown != null || plateProgress != null
         colorPick = null
         positioning = null
         placement = null
         positionDraft = null
         paletteSampling = null
         paletteTimeout?.cancel()
+        if (plateProgress != null || plateCountdown != null) {
+            plateCapture++
+            plateJob?.cancel()
+            plateJob = null
+            plateCountdown = null
+            plateProgress = null
+            frames.cancelPlate()
+        }
         if (changed) {
             publishLooks()
             if (canChangeFormat) refreshAssists()
@@ -972,18 +1043,21 @@ class CaptureController(private val context: Context, private val store: Project
         setLiveEffects(liveEffects.map { if (it.id == id) next else it })
     }
 
-    /** Places the picked picture of [id] on the preview with the fingers. CaptureController.swift:288-300. */
+    /** Places the picked picture or movie of [id] on the preview with the fingers. CaptureController.swift:288-300. */
     fun beginBackgroundPosition(id: String) {
         if (hasActiveTake) return
         val effect = liveEffects.firstOrNull { it.id == id } ?: return
         val name = (effect.value("media", 0.0) as? EffectValue.Media)?.file ?: return
-        val picture = EffectPictures.get(File(frames.effectsFolder, name)) ?: run { effectWarning = context.getString(R.string.live_effects_tool_failed); return }
+        // A movie's size as it stands, a picture's as it is decoded. VideoEffectAssets.swift:689-699.
+        val file = File(frames.effectsFolder, name)
+        val picture = (if (effect.choice("background") == "Video") displaySize(file) else EffectPictures.get(file)?.let { it.width to it.height })
+            ?: run { effectWarning = context.getString(R.string.live_effects_tool_failed); return }
         val canvas = frameSize ?: run { effectWarning = context.getString(R.string.live_effects_wait_preview); return }
         cancelFrameTools()
         stopDolly(immediate = false, reason = DollyHint.TapFace)
         placement = VideoEffectBackgroundPlacement(
             effect.number("backgroundX"), effect.number("backgroundY"), effect.number("backgroundZoom"),
-            canvas, app.takes.core.Size(picture.width.toDouble(), picture.height.toDouble()), fill = effect.choice("fit") != "Fit",
+            canvas, app.takes.core.Size(picture.first.toDouble(), picture.second.toDouble()), fill = effect.choice("fit") != "Fit",
         )
         positionDraft = effect
         positioning = id
@@ -1024,27 +1098,19 @@ class CaptureController(private val context: Context, private val store: Project
             else app.takes.core.Size(size.width.toDouble(), size.height.toDouble())
         }
 
-    /** A picture from the phone for a look's background, kept in the live effects' folder: its name, or null. */
-    suspend fun importLivePicture(uri: android.net.Uri): String? = withContext(Dispatchers.IO) {
-        try {
-            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
-            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
-            val extension = when (bounds.outMimeType) {
-                "image/png" -> "png"
-                "image/webp" -> "webp"
-                "image/heif", "image/heic" -> "heic"
-                else -> "jpg"
-            }
-            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-            // Named as the editor names a picture it keeps, so that it is the same file once beside a take.
-            val file = File(frames.effectsFolder, "effect-picture-${hash.take(32)}.$extension")
-            if (!file.isFile) app.takes.core.ProjectDisk.writeAtomically(bytes, file)
-            file.name
-        } catch (_: Exception) {
-            null
-        }
+    /**
+     * A picture or a movie from the phone for a look's background, or a clean plate of the frame's shape, kept in the
+     * live effects' folder, named as the editor names what it keeps ([EffectMediaImport]). LiveEffectsPanel.swift:300-320.
+     */
+    internal suspend fun importLiveMedia(uri: android.net.Uri, kind: EffectMediaKind): EffectMediaPicked = withContext(Dispatchers.IO) {
+        EffectMediaImport.import(context.contentResolver, uri, frames.effectsFolder, kind, frameSize)
+    }
+
+    /** Whether the clean plate [name] of the live effects is of the frame's shape; true while the frame's is not known. LiveEffectsPanel.swift:265-267. */
+    fun plateFits(name: String): Boolean {
+        val size = CleanPlates.size(File(frames.effectsFolder, name)) ?: return true
+        val frame = frameSize ?: return true
+        return app.takes.core.VideoEffectFormulasC.cleanPlateCompatible(size, frame)
     }
 
     /** Follows the phone's heat, for the looks' lighter processing (LiveVideoEffects.swift:495-498). */

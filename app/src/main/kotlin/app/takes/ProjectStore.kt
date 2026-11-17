@@ -434,31 +434,11 @@ class ProjectStore(context: Context) {
      * the person, when the file is not a usable LUT.
      */
     /**
-     * A picture picked for a video effect's background, kept in the project
-     * folder under a name made from its contents: its file name, or null when
-     * it is not a picture that can be read.
+     * A picture, a movie or a clean plate picked for a video effect, kept in the project folder ([EffectMediaImport]);
+     * a plate is refused unless its shape is [matching]'s, the recording's upright.
      */
-    suspend fun importEffectPicture(projectID: String, uri: Uri): String? = withContext(Dispatchers.IO) {
-        try {
-            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
-            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
-            val extension = when (bounds.outMimeType) {
-                "image/png" -> "png"
-                "image/webp" -> "webp"
-                "image/heif", "image/heic" -> "heic"
-                else -> "jpg"
-            }
-            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-            val folder = disk.folder(projectID).apply { mkdirs() }
-            val file = File(folder, "effect-picture-${hash.take(32)}.$extension")
-            if (!file.isFile) ProjectDisk.writeAtomically(bytes, file)
-            file.name
-        } catch (_: Exception) {
-            null
-        }
-    }
+    internal suspend fun importEffectMedia(projectID: String, uri: Uri, kind: EffectMediaKind, matching: app.takes.core.Size?): EffectMediaPicked =
+        withContext(Dispatchers.IO) { EffectMediaImport.import(resolver, uri, disk.folder(projectID), kind, matching) }
 
     /**
      * A picture picked for the Image tool, upright, its longer side brought down to 4096 pixels, written as a PNG in

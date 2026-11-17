@@ -35,6 +35,7 @@ class ProjectRestoreTest {
     private val contents = mapOf(
         take.filename to bytes(1_500_000, 1), scene.filename to bytes(70_000, 2),
         music.filename to bytes(1, 3), lut.filename to "LUT_3D_SIZE 2\n".toByteArray(), "image-I.png" to bytes(500, 7),
+        "effect-plate.png" to bytes(400, 8), "effect-back.mov" to bytes(900, 9),
     )
 
     private fun save(project: Project): Project {
@@ -163,6 +164,33 @@ class ProjectRestoreTest {
         assertArrayEquals(contents["image-I.png"], File(disk().folder(restored.id), "image-I.png").readBytes())
 
         assertEquals(ProjectException.Reason.MissingMedia, refused(ProjectException::class.java, zip(unzip(data).filterKeys { it != "image-I.png" })).reason)
+    }
+
+    /**
+     * A Chroma Key's clean plate and background movie come along with the project, as the original's
+     * effect files do (YouRec/Project.swift:287-291); one that is not in the archive, as a backup made before
+     * they were carried, stays missing, as the original restores it (YouRec/ProjectArchive.swift:356-358).
+     */
+    @Test fun aVideoEffectsFilesComeBackAndAnArchiveWithoutThemIsRestored() {
+        var project = Project("Keyed").addRecording(take)
+        val key = VideoEffectSettings(VideoEffectID.ChromaKey).with("cleanPlate", EffectValue.Media("effect-plate.png"))
+            .with("background", EffectValue.Choice("Video")).with("media", EffectValue.Media("effect-back.mov"))
+        project = save(project.commit(project.edit.copy(clips = project.edit.clips.map { it.copy(videoEffects = listOf(key)) })))
+        assertEquals(listOf("effect-back.mov", "effect-plate.png"), project.effectFiles)
+
+        val data = archive(project)
+        assertTrue(unzip(data).keys.containsAll(listOf("effect-back.mov", "effect-plate.png")))
+        val restored = restore(data)
+        assertArrayEquals(contents["effect-plate.png"], File(disk().folder(restored.id), "effect-plate.png").readBytes())
+        assertArrayEquals(contents["effect-back.mov"], File(disk().folder(restored.id), "effect-back.mov").readBytes())
+
+        // Made where the plate was already missing: the rest comes back.
+        File(disk().folder(project.id), "effect-plate.png").delete()
+        val without = restore(archive(project))
+        assertFalse(File(disk().folder(without.id), "effect-plate.png").exists())
+        assertTrue(File(disk().folder(without.id), "effect-back.mov").isFile)
+        // A file the archive vouches for is still required.
+        assertEquals(ProjectException.Reason.MissingMedia, refused(ProjectException::class.java, zip(unzip(data).filterKeys { it != "effect-back.mov" })).reason)
     }
 
     @Test fun soundOnItsOwnTracksComesBack() {

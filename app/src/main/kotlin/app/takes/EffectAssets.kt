@@ -44,6 +44,18 @@ interface EffectAssets {
     /** The picture of a Chroma Key's Image background, upright and decoded; null without one. */
     fun picture(effect: VideoEffectSettings): Bitmap? = null
 
+    /** The movie of a Chroma Key's or an Auto Background's Video background; null without one. */
+    fun movie(effect: VideoEffectSettings): File? = null
+
+    /** Whether a movie's frames are read when they are drawn (an export) rather than in the background (the recorder). */
+    val waitsForMovies: Boolean get() = true
+
+    /**
+     * A Chroma Key's clean plate, upright and graded as the clip; null without one, when its shape is not the
+     * recording's, or while it is read. VideoEffectAssets.swift:492-512.
+     */
+    fun plate(effect: VideoEffectSettings): CleanPlate? = null
+
     /**
      * Where the subject [effect] follows is at source second [sourceTime], on the recording stood upright; null when
      * it is not followed there, or not analysed yet. VideoEffectAssets.swift:476-486.
@@ -128,6 +140,16 @@ class SourceAssets(
         val file = File(folder ?: return null, name)
         return EffectPictures.get(file)
     }
+
+    override fun movie(effect: VideoEffectSettings): File? = EffectPictures.movie(folder, effect)
+
+    override val waitsForMovies: Boolean get() = wait
+
+    override fun plate(effect: VideoEffectSettings): CleanPlate? {
+        val name = (effect.value("cleanPlate", 0.0) as? EffectValue.Media)?.file ?: return null
+        val size = upright ?: return null
+        return CleanPlates.plate(File(folder ?: return null, name), size, clip.color, folder, wait, ready)
+    }
 }
 
 /**
@@ -180,6 +202,13 @@ internal class PersonFrames(private val context: Context, private val media: Sou
 /** Pictures picked for backgrounds, decoded once and kept while they are used, at most 2048 pixels on their longer side. */
 internal object EffectPictures {
     private val kept = ConcurrentHashMap<String, Bitmap>()
+
+    /** The movie picked for [effect]'s Video background in [folder]; null without one. */
+    fun movie(folder: File?, effect: VideoEffectSettings): File? {
+        val name = (effect.value("media", 0.0) as? EffectValue.Media)?.file ?: return null
+        if (name.substringAfterLast('.', "").lowercase() !in app.takes.core.EffectParameterKind.VIDEO_EXTENSIONS) return null
+        return File(folder ?: return null, name).takeIf { it.isFile }
+    }
 
     fun get(file: File): Bitmap? {
         if (!file.isFile) return null

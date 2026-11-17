@@ -329,7 +329,7 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
                     if (VideoEffectParameterSection.section(parameter, effect) != section) continue
                     if (!VideoEffectParameterVisibility.visible(parameter, AndroidVideoEffects.asDrawn(effect), at) || AndroidVideoEffects.hides(effect.kind, parameter.id)) continue
                     when {
-                        parameter.kind is EffectParameterKind.Media -> PictureControl(effect, parameter, at, set, tools)
+                        parameter.kind is EffectParameterKind.Media -> MediaControl(effect, parameter, at, set, work.piece(time())?.clip?.sourceID, tools)
                         // A Chroma Key's screen: Green, Blue, or sampled from the preview. VideoEffectsEditor.swift:155-175, 1251-1252.
                         effect.kind == VideoEffectID.ChromaKey && parameter.id == "screenColor" -> ScreenColor(effect, parameter, { _, value ->
                             (value as? EffectValue.Color)?.value?.let { if (ChromaScreen.accepts(it)) change(work.screenColor(it)) }
@@ -456,7 +456,7 @@ internal fun EffectControl(effect: VideoEffectSettings, parameter: EffectParamet
                 Text(title, color = Color.White, fontSize = 14.sp)
                 val chosen = (value as? EffectValue.Choice)?.value
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (choice in AndroidVideoEffects.choices(effect.kind, parameter.id, VideoEffectParameterVisibility.choices(parameter, effect))) {
+                    for (choice in VideoEffectParameterVisibility.choices(parameter, effect)) {
                         FilterChip(chosen == choice, onClick = { set(parameter.id, EffectValue.Choice(choice)) }, label = { Text(choiceName(effect.kind, choice)) })
                     }
                 }
@@ -599,24 +599,50 @@ private fun CorrectionSlider(effect: VideoEffectSettings, parameter: EffectParam
  * be), and a palette taken from one frame of a recording.
  */
 internal class EffectTools(
-    val pickPicture: (picked: (String?) -> Unit) -> Unit = { it(null) },
+    /** Picks an effect's picture, movie or clean plate from the phone, a plate for the recording [sourceID]. */
+    val pickMedia: (kind: EffectMediaKind, sourceID: String?, picked: (EffectMediaPicked) -> Unit) -> Unit = { _, _, picked -> picked(EffectMediaPicked.Unreadable) },
     /** Moves the playhead to a timeline second. */
     val seek: (Double) -> Unit = {},
     val samplePalette: suspend (sourceID: String, time: Double, count: Int) -> EffectPalette? = { _, _, _ -> null },
 )
 
-/** A picture control: a Chroma Key's Image background, chosen from the phone. */
+/**
+ * A media control chosen from the phone: a background's picture or, with the Video background, its movie, and a
+ * Chroma Key's clean plate, a picture of the recording [sourceID]'s shape; Remove once one is set.
+ * VideoEffectsEditor.swift:808-835, 951, 1306-1311.
+ */
 @Composable
-private fun PictureControl(effect: VideoEffectSettings, parameter: EffectParameter, at: Double, set: (String, EffectValue) -> Unit, tools: EffectTools) {
+internal fun MediaControl(effect: VideoEffectSettings, parameter: EffectParameter, at: Double, set: (String, EffectValue) -> Unit, sourceID: String?, tools: EffectTools) {
     val file = (effect.value(parameter.id, at) as? EffectValue.Media)?.file
-    var failed by remember { mutableStateOf(false) }
+    var refused by remember { mutableStateOf<EffectMediaPicked?>(null) }
+    val kind = when {
+        parameter.id == "cleanPlate" -> EffectMediaKind.Plate
+        effect.choice("background", at) == "Video" -> EffectMediaKind.Movie
+        else -> EffectMediaKind.Picture
+    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(controlName(effect.kind, parameter), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
         TextButton(onClick = {
-            tools.pickPicture { name -> if (name != null) { failed = false; set(parameter.id, EffectValue.Media(name)) } else failed = true }
-        }) { Text(stringResource(if (file == null) R.string.effects_pick_picture else R.string.effects_change_picture)) }
+            tools.pickMedia(kind, sourceID) { picked ->
+                refused = picked.takeIf { it !is EffectMediaPicked.Kept }
+                if (picked is EffectMediaPicked.Kept) set(parameter.id, EffectValue.Media(picked.name))
+            }
+        }, modifier = Modifier.heightIn(min = 44.dp)) {
+            Text(stringResource(when {
+                kind == EffectMediaKind.Movie -> if (file == null) R.string.effects_pick_movie else R.string.effects_change_movie
+                else -> if (file == null) R.string.effects_pick_picture else R.string.effects_change_picture
+            }))
+        }
+        if (file != null) TextButton(onClick = { refused = null; set(parameter.id, EffectValue.Media(null)) }, modifier = Modifier.heightIn(min = 44.dp)) {
+            Text(stringResource(R.string.effects_remove_media))
+        }
     }
-    if (failed) Text(stringResource(R.string.effects_picture_failed), color = Color(0xFFFF9F0A), fontSize = 12.sp)
+    if (kind == EffectMediaKind.Plate && file != null) Text(stringResource(R.string.effects_plate_set), color = Color(0xFF63E6BE), fontSize = 12.sp)
+    when (refused) {
+        EffectMediaPicked.Mismatch -> R.string.effects_plate_mismatch
+        EffectMediaPicked.Unreadable -> if (kind == EffectMediaKind.Movie) R.string.effects_movie_failed else R.string.effects_picture_failed
+        else -> null
+    }?.let { Text(stringResource(it), color = Color(0xFFFF9F0A), fontSize = 12.sp) }
 }
 
 /**

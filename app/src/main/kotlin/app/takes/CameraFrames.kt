@@ -152,6 +152,14 @@ class CameraFrames(context: Context) {
     /** Takes a palette from the next frame for the Quantization [id]. */
     fun samplePalette(id: String) = live.samplePalette(id)
 
+    /** Captures a clean plate from the next second of the preview's frames, [told] on the main thread. LiveVideoEffects.swift:264-272. */
+    internal fun capturePlate(told: (LiveEffectRendering.PlateEvent) -> Unit) = preview.handler.post {
+        live.capturePlate { event -> main.post { told(event) } }
+    }
+
+    /** Ends a clean plate's capture under way. */
+    fun cancelPlate() = preview.handler.post { live.cancelPlate() }
+
     /** The looks start afresh: a new chain, camera or take. */
     fun resetLooks() = preview.handler.post { live.reset() }
 

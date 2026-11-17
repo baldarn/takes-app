@@ -53,6 +53,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -134,7 +136,8 @@ internal fun LiveEffectsPanel(capture: CaptureController, modifier: Modifier, in
     LaunchedEffect(selected, page) { capture.endStrobe(); capture.cancelFrameTools() }
     DisposableEffect(Unit) { onDispose { capture.endStrobe(); capture.cancelFrameTools(); capture.effectWarning = null } }
     fun update(change: (VideoEffectSettings) -> VideoEffectSettings) {
-        capture.setLiveEffects(capture.liveEffects.map { if (it.id == selected) change(it) else it })
+        // A background keeps only media of its kind. LiveEffectsPanel.swift:279-282.
+        capture.setLiveEffects(capture.liveEffects.map { if (it.id == selected) change(it).sanitizedBackgroundMedia(0.0) else it })
     }
     fun remove(id: String) {
         val left = capture.liveEffects.filter { it.id != id }
@@ -230,11 +233,24 @@ private fun FrameToolBar(capture: CaptureController, modifier: Modifier) {
         return
     }
     Row(modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        run {
-            Icon(Icons.Outlined.Colorize, null, tint = Color.White, modifier = Modifier.size(18.dp))
-            Text(stringResource(R.string.live_effects_tap_color), color = Color.White, fontSize = 14.sp, maxLines = 2, modifier = Modifier.weight(1f))
-            TextButton(onClick = capture::cancelFrameTools, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.common_cancel)) }
+        val countdown = capture.plateCountdown
+        val progress = capture.plateProgress
+        when {
+            // The clean plate: the countdown, announced, then the capture's progress. LiveEffectsPanel.swift:50, 96-99.
+            countdown != null -> {
+                val said = stringResource(R.string.live_effects_plate_countdown, countdown)
+                Text(said, color = Color.White, fontSize = 14.sp, maxLines = 2, modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Assertive })
+            }
+            progress != null -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(stringResource(R.string.live_effects_plate_capturing), color = Color.White, fontSize = 14.sp, maxLines = 2)
+                LinearProgressIndicator(progress = { progress.toFloat() }, modifier = Modifier.fillMaxWidth())
+            }
+            else -> {
+                Icon(Icons.Outlined.Colorize, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Text(stringResource(R.string.live_effects_tap_color), color = Color.White, fontSize = 14.sp, maxLines = 2, modifier = Modifier.weight(1f))
+            }
         }
+        TextButton(onClick = capture::cancelFrameTools, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.common_cancel)) }
     }
 }
 
@@ -332,17 +348,28 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
     var help by remember { mutableStateOf(false) }
     val view = LocalView.current
     val scope = rememberCoroutineScope()
-    var pictureFailed by remember { mutableStateOf(false) }
+    // A picture or a movie for the background, or a clean plate, from the phone. LiveEffectsPanel.swift:56, 300-320.
+    var refused by remember { mutableStateOf<Pair<EffectMediaKind, EffectMediaPicked>?>(null) }
+    var picking by remember { mutableStateOf<Pair<String, EffectMediaKind>?>(null) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val (parameter, kind) = picking ?: return@rememberLauncherForActivityResult
+        picking = null
         if (uri == null) return@rememberLauncherForActivityResult
         val target = effect.id
         scope.launch {
-            val file = capture.importLivePicture(uri)
-            pictureFailed = file == null
-            if (file != null) capture.setLiveEffects(capture.liveEffects.map {
-                if (it.id == target) it.with("background", EffectValue.Choice("Image")).with("media", EffectValue.Media(file)) else it
+            val picked = capture.importLiveMedia(uri, kind)
+            refused = if (picked is EffectMediaPicked.Kept) null else kind to picked
+            if (picked is EffectMediaPicked.Kept) capture.setLiveEffects(capture.liveEffects.map {
+                if (it.id != target) it
+                else if (parameter == "media") it.with("background", EffectValue.Choice(if (kind == EffectMediaKind.Movie) "Video" else "Image")).with("media", EffectValue.Media(picked.name))
+                else it.with(parameter, EffectValue.Media(picked.name))
             })
         }
+    }
+    fun choose(parameter: String, kind: EffectMediaKind) {
+        picking = parameter to kind
+        val type = if (kind == EffectMediaKind.Movie) ActivityResultContracts.PickVisualMedia.VideoOnly else ActivityResultContracts.PickVisualMedia.ImageOnly
+        pick.launch(PickVisualMediaRequest.Builder().setMediaType(type).build())
     }
     // A control set: Lock palette takes the palette of this frame, and a new number of colours with it locked takes it
     // again; a screen colour chosen turns detection off. LiveEffectsPanel.swift:283-292.
@@ -385,7 +412,7 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
         Text(dollyHint(capture.dollyHint), color = Soft, fontSize = 12.sp)
     }
     // A picked picture is placed on the preview with the fingers. LiveEffectsPanel.swift:158-160.
-    if ((effect.kind == VideoEffectID.ChromaKey || effect.kind == VideoEffectID.AutoBackground) && effect.choice("background") == "Image" &&
+    if ((effect.kind == VideoEffectID.ChromaKey || effect.kind == VideoEffectID.AutoBackground) && effect.choice("background") in listOf("Image", "Video") &&
         (effect.value("media", 0.0) as? EffectValue.Media)?.file != null) {
         TextButton(onClick = { capture.beginBackgroundPosition(effect.id) }, modifier = Modifier.heightIn(min = 44.dp)) {
             Icon(Icons.Outlined.OpenWith, null, Modifier.size(18.dp))
@@ -415,13 +442,42 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
                     when {
                         parameter.kind is EffectParameterKind.Media -> {
                             val file = (effect.value(parameter.id, 0.0) as? EffectValue.Media)?.file
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text(controlName(effect.kind, parameter), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                                TextButton(onClick = {
-                                    pick.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly).build())
-                                }) { Text(stringResource(if (file == null) R.string.effects_pick_picture else R.string.effects_change_picture)) }
+                            val kind = when {
+                                parameter.id == "cleanPlate" -> EffectMediaKind.Plate
+                                effect.choice("background") == "Video" -> EffectMediaKind.Movie
+                                else -> EffectMediaKind.Picture
                             }
-                            if (pictureFailed) Text(stringResource(R.string.effects_picture_failed), color = Orange, fontSize = 12.sp)
+                            // The clean plate: captured from the empty screen, or a picture of the frame's shape. LiveEffectsPanel.swift:258-271.
+                            if (kind == EffectMediaKind.Plate) {
+                                Text(controlName(effect.kind, parameter), color = Color.White, fontSize = 14.sp)
+                                Text(stringResource(R.string.live_effects_plate_hint), color = Soft, fontSize = 12.sp)
+                                TextButton(onClick = { refused = null; capture.captureCleanPlate(effect.id) }, enabled = capture.plateProgress == null, modifier = Modifier.heightIn(min = 44.dp)) {
+                                    Icon(Icons.Outlined.CenterFocusWeak, null, Modifier.size(18.dp))
+                                    Text(stringResource(R.string.live_effects_capture_plate), Modifier.padding(start = 6.dp))
+                                }
+                                if (file != null) {
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(stringResource(R.string.effects_plate_set), color = Color(0xFF63E6BE), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                        TextButton(onClick = { set(parameter.id, EffectValue.Media(null)) }, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.effects_remove_media)) }
+                                    }
+                                    val fits = capture.plateFits(file)
+                                    Text(stringResource(if (fits) R.string.live_effects_plate_again else R.string.live_effects_plate_mismatch), color = if (fits) Soft else Orange, fontSize = 12.sp)
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                if (kind != EffectMediaKind.Plate) Text(controlName(effect.kind, parameter), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { choose(parameter.id, kind) }, modifier = Modifier.heightIn(min = 44.dp)) {
+                                    Text(stringResource(when {
+                                        kind == EffectMediaKind.Movie -> if (file == null) R.string.effects_pick_movie else R.string.effects_change_movie
+                                        else -> if (file == null || kind == EffectMediaKind.Plate) R.string.effects_pick_picture else R.string.effects_change_picture
+                                    }))
+                                }
+                            }
+                            when (refused?.takeIf { it.first == kind }?.second) {
+                                EffectMediaPicked.Mismatch -> R.string.effects_plate_mismatch
+                                EffectMediaPicked.Unreadable -> if (kind == EffectMediaKind.Movie) R.string.effects_movie_failed else R.string.effects_picture_failed
+                                else -> null
+                            }?.let { Text(stringResource(it), color = Orange, fontSize = 12.sp) }
                         }
                         parameter.id == "screenColor" -> ScreenColor(effect, parameter, set) { capture.beginColorPick(effect.id, parameter.id) }
                         else -> {

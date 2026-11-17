@@ -238,7 +238,7 @@ private val CHOICES: Map<String, Int> = mapOf(
     "Ordered 4x4" to R.string.effect_choice_ordered_4, "Ordered 8x8" to R.string.effect_choice_ordered_8, "From scene" to R.string.effect_choice_from_scene, "Pop 1" to R.string.effect_choice_pop_1,
     "Pop 2" to R.string.effect_choice_pop_2, "Pop 3" to R.string.effect_choice_pop_3, "Saved" to R.string.effect_choice_saved, "Auto" to R.string.effect_choice_auto,
     "Green" to R.string.effect_choice_green, "Result" to R.string.effect_choice_result, "Matte" to R.string.effect_choice_matte, "Original" to R.string.effect_choice_original,
-    "Solid" to R.string.effect_choice_solid, "Image" to R.string.effect_choice_image, "Blur original" to R.string.effect_choice_blur_original,
+    "Solid" to R.string.effect_choice_solid, "Image" to R.string.effect_choice_image, "Video" to R.string.effect_choice_video, "Blur original" to R.string.effect_choice_blur_original,
     "Studio" to R.string.effect_choice_studio, "Window" to R.string.effect_choice_window, "Fill" to R.string.effect_choice_fill,
     "Fit" to R.string.effect_choice_fit, "Fast" to R.string.effect_choice_fast, "Precise" to R.string.effect_choice_precise,
     "Clean" to R.string.effect_choice_clean, "Print" to R.string.effect_choice_print, "Cut" to R.string.effect_choice_cut,

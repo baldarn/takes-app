@@ -122,6 +122,7 @@ internal class LiveEffectRendering(private val context: Context) {
             heldIndex = hold?.index ?: -1
             upright.bind()
             drawCamera(w, h)
+            capturing(time, sourceWidth, sourceHeight)
             val timing = timer.begin()
             analyse(effects, time)
             chain.clip = clip(effects)
@@ -266,6 +267,85 @@ internal class LiveEffectRendering(private val context: Context) {
     /** Takes a palette from the next frame for the Quantization [id]: Save palette from this frame. LiveVideoEffects.swift:244-249, 578-589. */
     fun samplePalette(id: String) { paletteRequest = id }
 
+    /** What a clean plate's capture tells: its progress, the plate kept under a name in [folder], or why it ended. */
+    sealed interface PlateEvent {
+        data class Progress(val fraction: Double) : PlateEvent
+        data class Ready(val name: String) : PlateEvent
+        data class Failed(val failure: app.takes.core.CleanPlateAverage.Failure?) : PlateEvent
+    }
+
+    // The clean plate being captured, on the frames' thread, and when its progress was told.
+    private var plate: app.takes.core.CleanPlateAverage? = null
+    private var plateListener: ((PlateEvent) -> Unit)? = null
+    private var plateToldAt = Double.NEGATIVE_INFINITY
+
+    /**
+     * Captures a clean plate from the frames drawn from now: a second of the empty screen averaged, at most
+     * [PLATE_LONG_SIDE] pixels on its longer side, kept as a PNG in [folder]; [listener] is told on this thread.
+     * LiveVideoEffects.swift:264-272, 472-494.
+     */
+    fun capturePlate(listener: (PlateEvent) -> Unit) {
+        plate = app.takes.core.CleanPlateAverage()
+        plateListener = listener
+        plateToldAt = Double.NEGATIVE_INFINITY
+    }
+
+    /** Ends a capture under way without its plate. */
+    fun cancelPlate() {
+        plate = null
+        plateListener = null
+    }
+
+    /**
+     * Adds the upright picture drawn at [time] to the plate being captured, at a size of its own from the camera's
+     * [sourceWidth] × [sourceHeight], which the budget's smaller pictures do not change.
+     */
+    private fun capturing(time: Double, sourceWidth: Int, sourceHeight: Int) {
+        val average = plate ?: return
+        val listener = plateListener ?: return
+        val scale = minOf(1.0, PLATE_LONG_SIDE.toDouble() / max(sourceWidth, sourceHeight))
+        val w = max(2, (sourceWidth * scale).roundToInt())
+        val h = max(2, (sourceHeight * scale).roundToInt())
+        val pixels = readSmall(w, h)
+        val rgba = ByteArray(w * h * 4)
+        // Rows from the bottom, read back; kept from the top.
+        for (row in 0 until h) {
+            pixels.position((h - 1 - row) * w * 4)
+            pixels.get(rgba, row * w * 4, w * 4)
+        }
+        val finished = try {
+            average.append(rgba, w, h, time)
+        } catch (failed: app.takes.core.CleanPlateAverage.Failed) {
+            cancelPlate()
+            listener(PlateEvent.Failed(failed.failure))
+            return
+        }
+        if (time - plateToldAt >= 0.1 || finished) {
+            plateToldAt = time
+            listener(PlateEvent.Progress(average.progress))
+        }
+        if (!finished) return
+        cancelPlate()
+        val bytes = average.encoded() ?: return listener(PlateEvent.Failed(null))
+        val (pw, ph) = average.width to average.height
+        val target = File(folder, "clean-plate-${java.util.UUID.randomUUID()}.png")
+        worker.execute {
+            val event = try {
+                val colours = IntArray(pw * ph) { i ->
+                    (0xff shl 24) or ((bytes[i * 4].toInt() and 0xff) shl 16) or ((bytes[i * 4 + 1].toInt() and 0xff) shl 8) or (bytes[i * 4 + 2].toInt() and 0xff)
+                }
+                val picture = Bitmap.createBitmap(colours, pw, ph, Bitmap.Config.ARGB_8888)
+                val png = java.io.ByteArrayOutputStream().also { picture.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+                app.takes.core.ProjectDisk.writeAtomically(png, target)
+                PlateEvent.Ready(target.name)
+            } catch (problem: Exception) {
+                Log.w("LiveEffects", "clean plate", problem)
+                PlateEvent.Failed(null)
+            }
+            listener(event)
+        }
+    }
+
     /** Starts the looks afresh: the person, the palettes and the held frame. LiveVideoEffects.swift:168-200. */
     fun reset() {
         person = null
@@ -404,6 +484,20 @@ internal class LiveEffectRendering(private val context: Context) {
             val name = (effect.value("media", 0.0) as? EffectValue.Media)?.file ?: return null
             return EffectPictures.get(File(folder, name))
         }
+
+        override fun movie(effect: VideoEffectSettings): File? = EffectPictures.movie(folder, effect)
+
+        // The camera's frames do not wait for a movie's: they show the last frame read.
+        override val waitsForMovies: Boolean get() = false
+
+        // The plate of the camera's picture as it is drawn, standing upright. LiveVideoEffects.swift:472-498.
+        override fun plate(effect: VideoEffectSettings): CleanPlate? {
+            val name = (effect.value("cleanPlate", 0.0) as? EffectValue.Media)?.file ?: return null
+            if (width == 0 || height == 0) return null
+            // By the picture's shape, which the budget's smaller pictures keep, so that the plate is not read again for them.
+            val shape = app.takes.core.Size((width * 100.0 / height).roundToInt() * 10.0, 1000.0)
+            return CleanPlates.plate(File(folder, name), shape, null, null, wait = false)
+        }
     }
 
     private val blit = Blit()
@@ -494,6 +588,9 @@ internal class LiveEffectRendering(private val context: Context) {
          * second, the rest left to the camera and the display, as the budget allows the whole frame (VideoEffectLiveBudget).
          */
         private const val GPU_SECONDS = 0.026
+
+        /** The longer side of a clean plate captured: it is blurred by 8 pixels at 1080 where it is used. */
+        private const val PLATE_LONG_SIDE = 1280
 
         fun folder(context: Context): File = File(context.filesDir, "LiveEffects").apply { mkdirs() }
 

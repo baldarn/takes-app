@@ -283,6 +283,11 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
         case("Person: Auto Background, Studio, blurred, brighter", auto(mapOf("background" to "Studio", "backgroundBlur" to 4.0, "backgroundBrightness" to 0.3)), ALLOWED),
         case("Person: Auto Background, Window, grown, soft", auto(mapOf("background" to "Window", "grow" to 3.0, "softness" to 0.8, "wrap" to 1.0)), ALLOWED),
         case("Person: Auto Background, the matte", auto(mapOf("view" to "Matte")), ALLOWED),
+        // Match colour, as a Chroma Key's: the subject brought toward the new background's light. Metal:409-413, Renderer:536-541.
+        case("Person: Auto Background, match colour to a warm solid", auto(mapOf(
+            "background" to "Solid", "backgroundColor" to app.takes.core.EffectRGB.hex("#D2783C"), "matchColor" to true, "matchStrength" to 0.8,
+        )), ALLOWED),
+        case("Person: Auto Background, match colour to Studio, darker", auto(mapOf("background" to "Studio", "backgroundBrightness" to -0.4, "matchColor" to true)), ALLOWED),
         case("Person: Auto Background, the matte, turned 90° and mirrored", auto(mapOf("view" to "Matte")), ALLOWED, rotation = 90, mirrored = true),
         // Dolly Zoom: the person kept, the background with its fill magnified about the subject (Metal:366-369).
         case("Person: Dolly Zoom, Stretch half way", listOf(settings(VideoEffectID.DollyZoom, emptyMap())), ALLOWED, time = 1.25),
