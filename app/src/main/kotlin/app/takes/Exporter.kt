@@ -74,6 +74,7 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import androidx.media3.muxer.Muxer
 import app.takes.core.Project
 import app.takes.core.RenderPlan
 import app.takes.core.TimelineClip
@@ -287,9 +288,13 @@ fun frameRate(file: File): Double? {
 class ClockedEncoders(private val encoders: Codec.EncoderFactory, private val framesPerSecond: Int, private val hdr: Boolean = false) : Codec.EncoderFactory {
     override fun createForAudioEncoding(format: Format, logSessionId: LogSessionId?): Codec = encoders.createForAudioEncoding(format, logSessionId)
 
-    override fun createForVideoEncoding(format: Format, logSessionId: LogSessionId?): Codec =
-        if (!hdr) encoders.createForVideoEncoding(format.buildUpon().setFrameRate(framesPerSecond.toFloat()).build(), logSessionId)
+    override fun createForVideoEncoding(format: Format, logSessionId: LogSessionId?): Codec {
+        ExportTimes.mark("encoder")
+        val codec = if (!hdr) encoders.createForVideoEncoding(format.buildUpon().setFrameRate(framesPerSecond.toFloat()).build(), logSessionId)
         else TenBitEncoderInput(encoders.createForVideoEncoding(format.buildUpon().setFrameRate(framesPerSecond.toFloat()).setColorInfo(HdrMovie.COLOR).build(), logSessionId))
+        ExportTimes.mark("encoder made")
+        return codec
+    }
 
     override fun audioNeedsEncoding(): Boolean = encoders.audioNeedsEncoding()
 
@@ -682,27 +687,40 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             }
         }
 
-        // The picture, a section at a time. One that is saved is not rendered again.
+        // The picture, a section at a time, in one run of the encoder over every section that is not saved
+        // (SectionMuxer): each is saved as soon as its last frame is written, and one that is saved is not rendered again.
         var tracks: List<ExportTrack> = emptyList()
         var again = false
         while (true) {
-            for (section in checkpoint.remaining(duration)) {
-                var saved = false
-                for (attempt in 1..ATTEMPTS) {
-                    val file = partial()
-                    withContext(Dispatchers.IO) { ExportSpace.require(ExportSpace.section(canvas.first, canvas.second, section.length), scratch) }
-                    render(movie.picture(section), file, codec, movie.rate, movie.hdr) { report(ExportProgress.picture(section.start, it, section.length, duration)) }
+            var idle = 0
+            while (true) {
+                val missing = checkpoint.remaining(duration)
+                val run = ExportSections.run(sections, missing, movie.rate) ?: break
+                val muxer = SectionMuxer(
+                    run, skip = { checkpoint.section(it.index).isFile }, file = ::partial,
+                    starting = { ExportSpace.require(ExportSpace.section(canvas.first, canvas.second, it.length), scratch) },
+                ) { section, file ->
                     // A file that opens proves nothing, an interrupted one opens too: a section is whole when it
-                    // holds every one of its frames. An encoder may end one frame short; it is then asked again.
-                    saved = withContext(Dispatchers.IO) {
-                        val track = ExportTrack.read(file, "video/")
-                        val whole = track != null && track.startsOnKey && ExportSections.isComplete(track.samples, section.lengthTicks, movie.rate)
-                        if (whole) checkpoint.publish(file, checkpoint.section(section.index)) else file.delete()
-                        whole
-                    }
-                    if (saved) break
+                    // holds every one of its frames. An encoder may end one frame short; it is then rendered again.
+                    val track = ExportTrack.read(file, "video/")
+                    val whole = track != null && track.startsOnKey && ExportSections.isComplete(track.samples, section.lengthTicks, movie.rate)
+                    if (whole) checkpoint.publish(file, checkpoint.section(section.index)) else file.delete()
+                    ExportTimes.mark("saved")
                 }
-                if (!saved) throw ExportProblem(ExportProblem.Reason.SectionIncomplete)
+                ExportTimes.mark("run from section ${run.span.index}")
+                val composition = movie.picture(run.span)
+                ExportTimes.mark("built")
+                try {
+                    render(composition, partial(), codec, movie.rate, movie.hdr, muxer) { report(ExportProgress.picture(run.span.start, it, run.span.length, duration)) }
+                } catch (stopped: ExportException) {
+                    // No room for the next section: said as when a section is refused before it is begun.
+                    generateSequence<Throwable>(stopped) { it.cause }.take(8).firstOrNull { it is ExportSpaceException }?.let { throw it }
+                    // A section that would not begin on a key frame: the next run begins with it.
+                    if (muxer.stoppedAt == null) throw stopped
+                }
+                // A run that saves nothing is tried again, as often as a section is.
+                idle = if (withContext(Dispatchers.IO) { checkpoint.remaining(duration) }.size < missing.size) 0 else idle + 1
+                if (idle >= ATTEMPTS) throw ExportProblem(ExportProblem.Reason.SectionIncomplete)
             }
             // First pass of the join: every section is looked at. They must hold the frames the movie needs and
             // agree on the codec's setup data, of which the movie holds one copy.
@@ -723,7 +741,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             withContext(Dispatchers.IO) { sections.forEach { checkpoint.section(it.index).delete() } }
         }
 
+        ExportTimes.mark("pictures")
         sounding.await()
+        ExportTimes.mark("sound")
 
         // The join: the sections end to end and the sound beside them, nothing encoded again.
         val joined = partial()
@@ -740,6 +760,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             )
         }
 
+        ExportTimes.mark("joined")
         // The recordings the movie was made from, as they are now: their checksums go on the receipt.
         val used = ExportReceipts.usedSources(project)
         val checksums = withContext(Dispatchers.IO) {
@@ -757,6 +778,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             ExportCheck.verify(joined, duration, movie.rate) { report(ExportProgress.of(ExportProgress.Step.Verifying, 0.5)) }
         }
 
+        ExportTimes.mark("verified")
         report(ExportProgress.of(ExportProgress.Step.Saving))
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
         val name = project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().take(60).ifEmpty { context.getString(R.string.export_fallback_name) } + " $stamp.mp4"
@@ -798,9 +820,12 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
     /**
      * Runs one pass of the transformer to [file] and tells [progress] how much of it is done, 0 to 1.
      * Cancelling the coroutine cancels the pass. [framesPerSecond] is the movie's frame rate, which the
-     * encoder has to be told ([ClockedEncoders]).
+     * encoder has to be told ([ClockedEncoders]). A [muxer], when given, writes what is encoded in place of [file]
+     * ([SectionMuxer]).
      */
-    private suspend fun render(composition: Composition, file: File, codec: String, framesPerSecond: Int, hdr: Boolean, progress: (Double) -> Unit) = coroutineScope {
+    private suspend fun render(
+        composition: Composition, file: File, codec: String, framesPerSecond: Int, hdr: Boolean, muxer: Muxer.Factory? = null, progress: (Double) -> Unit,
+    ) = coroutineScope {
         var running: Transformer? = null
         val watching = launch {
             val holder = ProgressHolder()
@@ -812,8 +837,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         try {
             suspendCancellableCoroutine<Unit> { continuation ->
                 val transformer = movieTransformer(context, codec, framesPerSecond, hdr)
+                    .apply { muxer?.let(::setMuxerFactory) }
                     .addListener(object : Transformer.Listener {
-                        override fun onCompleted(composition: Composition, exportResult: ExportResult) = continuation.resume(Unit)
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) { ExportTimes.mark("completed"); continuation.resume(Unit) }
 
                         override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) =
                             continuation.resumeWithException(exportException)
@@ -821,6 +847,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 running = transformer
                 continuation.invokeOnCancellation { transformer.cancel() }
                 transformer.start(composition, file.path)
+                ExportTimes.mark("started")
             }
         } finally {
             watching.cancel()

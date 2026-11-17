@@ -86,6 +86,45 @@ object ExportSections {
         return pictures > 0 && covered >= lengthTicks - frame && (last || covered == lengthTicks)
     }
 
+    /**
+     * The sections one run of the encoder makes, from the first of [missing] to the last of them, of the movie's
+     * [all] sections: the encoder is started once for them and its output cut into section files at their
+     * boundaries ([Run]). A saved section between two missing ones is drawn again and not kept.
+     */
+    fun run(all: List<Section>, missing: List<Section>, framesPerSecond: Int): Run? {
+        if (missing.isEmpty()) return null
+        return Run(all.subList(missing.first().index, missing.last().index + 1), framesPerSecond)
+    }
+
+    /**
+     * Consecutive [sections] made by one run of the encoder: rendered as one stretch ([span]), whose frames are
+     * numbered from zero, and cut at the section boundaries into one file each. Every section but the last of the
+     * movie is a whole number of frames long, so a boundary falls on a frame.
+     */
+    class Run(val sections: List<Section>, private val framesPerSecond: Int) {
+        init {
+            require(sections.isNotEmpty() && sections.zipWithNext().all { (a, b) -> b.index == a.index + 1 && b.startTicks == a.startTicks + a.lengthTicks })
+        }
+
+        /** The stretch of the movie the run renders. */
+        val span: Section = Section(sections.first().index, sections.first().startTicks, sections.sumOf { it.lengthTicks })
+
+        /** The frame of the run each section begins at. */
+        private val firsts: List<Int> = sections.map { ((it.startTicks - span.startTicks) / frameTicks(framesPerSecond)).toInt() }
+
+        /** The frames of the run. */
+        val frames: Int = pictures(span.lengthTicks, framesPerSecond)
+
+        /** The position in [sections] of the one that frame [frame] of the run belongs to, or null outside the run. */
+        fun position(frame: Int): Int? = if (frame < 0 || frame >= frames) null else firsts.indexOfLast { it <= frame }
+
+        /** The time in the run, in microseconds, at which the section at [position] begins: its frames are timed from it. */
+        fun beginsMicros(position: Int): Long = Math.round(firsts[position] * 1e6 / framesPerSecond)
+
+        /** The frame of the run, the nearest one, at time [micros] of the run. */
+        fun frame(micros: Long): Int = Math.round(micros * framesPerSecond / 1e6).toInt()
+    }
+
     /** Seconds of picture that are safe when the first [complete] sections are, in a movie of [total] seconds. */
     fun savedSeconds(complete: Int, total: Double): Double {
         var index = 0

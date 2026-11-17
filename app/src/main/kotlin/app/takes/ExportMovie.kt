@@ -40,14 +40,24 @@ import java.io.File
  */
 class SectionFramesEffect(private val first: Int, private val count: Int, private val framesPerSecond: Int) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = object : PassthroughShaderProgram() {
+        private var drawn = false
         override fun queueInputFrame(glObjectsProvider: GlObjectsProvider, inputTexture: GlTextureInfo, presentationTimeUs: Long) {
             val index = Math.round(presentationTimeUs * framesPerSecond / 1e6).toInt() - first
+            if (!drawn) { drawn = true; ExportTimes.mark("drawn") }
+            if (index == 0) ExportTimes.mark("first")
+            if (index == count - 1) ExportTimes.mark("last")
             if (index in 0 until count) super.queueInputFrame(glObjectsProvider, inputTexture, Math.round(index * 1e6 / framesPerSecond)) else {
                 inputListener.onInputFrameProcessed(inputTexture)
                 inputListener.onReadyToAcceptInputFrame()
             }
         }
     }
+}
+
+/** Marks of an export's phases, for the measurement of docs/EXPORT-SECTIONS-PROBE.md section 10 (ExportSectionsRunner); nothing listens in the app. */
+object ExportTimes {
+    @Volatile var listener: ((String) -> Unit)? = null
+    fun mark(what: String) { listener?.invoke(what) }
 }
 
 /** What an export renders a movie's picture from: its frame rate and the picture of any section of it. Its sound is the audio engine's ([mixedSound]). */

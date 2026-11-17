@@ -47,4 +47,9 @@
         android:name="app.takes.sound.DeepFilterRunner"
         android:label="DeepFilterNet3 on a recording"
         android:targetPackage="app.takes.dev" />
+    <!-- An export in sections against one pass, phase by phase: adb shell am instrument -w -e case plain app.takes.dev.test/app.takes.effects.ExportSectionsRunner -->
+    <instrumentation
+        android:name="app.takes.effects.ExportSectionsRunner"
+        android:label="Export sections timing"
+        android:targetPackage="app.takes.dev" />
 </manifest>

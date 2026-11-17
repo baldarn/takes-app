@@ -134,6 +134,40 @@ class ExportCheckpointTest {
         assertNull(ExportSections.lastPictureTime(0.1, 0.1, 30))
     }
 
+    // ---- One run of the encoder over several sections (the sections stay those of ExportCheckpoint.swift:23, 112-139) ----
+
+    // CoreTests.swift:865: the movie of 31.12 s has sections of 12, 12 and 7.12 s; at 30 fps 360, 360 and 214 frames.
+    @Test fun aRunCoversTheMissingSectionsAndCutsAtTheirBoundaries() {
+        val all = ExportSections.sections(31.12)
+        val run = ExportSections.run(all, all, 30)!!
+        assertEquals(Triple(0, 0L, ExportSections.ticks(31.12)), Triple(run.span.index, run.span.startTicks, run.span.lengthTicks))
+        assertEquals(934, run.frames)
+        assertEquals(listOf(0, 0, 1, 1, 2, 2), listOf(0, 359, 360, 719, 720, 933).map { run.position(it) })
+        assertNull(run.position(934))
+        assertNull(run.position(-1))
+        assertEquals(listOf(0L, 12_000_000L, 24_000_000L), (0..2).map { run.beginsMicros(it) })
+        // An encoder's time a microsecond off still names its frame.
+        assertEquals(360, run.frame(11_999_999))
+        assertEquals(360, run.frame(12_000_001))
+    }
+
+    @Test fun aResumedRunBeginsAtTheFirstMissingSectionAndEndsAtTheLast() {
+        val all = ExportSections.sections(31.12)
+        assertNull(ExportSections.run(all, emptyList(), 30))
+        val tail = ExportSections.run(all, all.drop(1), 30)!!
+        assertEquals(listOf(1, 2), tail.sections.map { it.index })
+        assertEquals(Triple(1, ExportSections.ticks(12.0), ExportSections.ticks(19.12)), Triple(tail.span.index, tail.span.startTicks, tail.span.lengthTicks))
+        assertEquals(574, tail.frames)
+        assertEquals(listOf(0, 1), listOf(359, 360).map { tail.position(it) })
+        // A saved section between two missing ones is in the run.
+        val gap = ExportSections.run(all, listOf(all[0], all[2]), 30)!!
+        assertEquals(listOf(0, 1, 2), gap.sections.map { it.index })
+        // At 24 fps a section is 288 frames.
+        val slow = ExportSections.run(all, all, 24)!!
+        assertEquals(listOf(0, 1, 1, 2), listOf(287, 288, 575, 576).map { slow.position(it) })
+        assertEquals(12_000_000L, slow.beginsMicros(1))
+    }
+
     // ---- The saved work on disk ----
 
     // ExportCheckpoint.swift:26.

@@ -203,3 +203,41 @@ At 4K on the phone (H.265 and H.264) the forty-second movie with dissolves was a
 - **Sound against picture** is the single pass's, the sound being the same: in the movie of plain cuts each clip's sound lies 10 to 42 ms after where the edit puts it, more with every clip (section 6), and its picture within half a frame of it.
 
 **Still open.** A device that fills up in the middle of an export was not run.
+
+## 10. Where the time per section went (issue #117)
+
+Added when the export in sections was measured against one pass on the Galaxy A54 of section 9, where it had been slower (34 s against 20 s for the 73 s of plain cuts). `main` at `6c8f7aa`, Media3 1.11.1, the phone's hardware H.264 encoder.
+
+**How.** `ExportSectionsRunner` (`app/src/androidTest/.../effects`) imports a recording, makes a 73.5 s edit of four pieces of it (cut off the section boundaries), as plain cuts or joined by a dissolve, a wipe and a fade through black (71.5 s), and either runs the app's whole export (`-e mode export`) or renders only the picture in sections of any length (`-e mode picture -e lengths 12,24,0`, 0 being one pass), timing each phase from marks the export leaves (`ExportTimes`): the Transformer built and started, the encoder made, the first frame drawn (of the half second before a section), the section's first and last frame, the Transformer done, the section checked and kept, the join, the checks. The footage is `front.mp4` of section 9 (the front camera, 1080 by 1920, HEVC, 30.001 fps, a key frame a second) and the same recording scaled to 2160 by 3840 with ffmpeg (`front4k.mp4`, HEVC at 45 Mb/s). Timed in a build that is not debuggable and compiled ahead of time (`cmd package compile -m speed`), as a release runs; the picture took the same time in the debuggable build, the join and the counting of samples did not.
+
+**Where it went.** For the 73.5 s of plain cuts at 1080p, 30 s in all:
+
+| | Before | One pass of the picture alone |
+|---|---|---|
+| Picture, 7 sections | 24.1 s (22.1 s without the sound beside it) | 18.5 s |
+| Join | 4.3 to 5.3 s | |
+| Checksums of the recordings, the checks of the movie | 1.2 to 1.4 s | |
+
+- **Starting again, every section: about 0.6 s.** From `Transformer.start` to the section's first frame 0.30 to 0.40 s (decoders, the compositor's shaders, the clock, seeking into the clip; 0.29 s for the one pass too), of which 0.09 s is drawing the half second before the section; from the last frame to the end 0.15 to 0.20 s (the half second after it, the encoder drained, the file closed); 0.13 s reading the file back. The encoder itself started in 0.05 s. In between, the frames came at the one pass's rate, 124 a second. Sections of 24 s took 20.5 s, of 12 s 22.1 s, one pass 18.5 s. At 4K a section cost about a second more than its frames.
+- **Counting samples through the media service: about 5 s.** `MediaExtractor` hands each sample over from the media extractor service, a call across processes for each (simpleperf: 93 % of the join's time in `BpMediaSource::readMultiple` and the binder). The export counted every section after writing it, all of them again before the join, the sound, the first section and the sound again in the join, and the finished movie: some 14 000 samples, and the join read 5 653 more. Reading alone the 80 MB of the sections and writing them to a file took 0.7 s; the join took 3.0 s; the media3 muxer's options (batching, no streamable index) changed nothing.
+
+**What changed.**
+
+1. **One run of the encoder for the sections still to make** (`SectionMuxer`, `ExportSections.run`). The picture of all of them is rendered as one stretch, as the single pass rendered the whole movie, and the muxer cuts the encoded frames into one file a section at the section boundaries, each timed from zero and kept the moment its last frame is written, after the same check as before (whole, a key frame first). The sections stay those of the original, twelve seconds with a checkpoint each (`YouRec/ExportCheckpoint.swift:23-146`); a pause loses only the section being made, and a resumed export starts a run at the first section not saved. A section must begin on a key frame: Media3 asks for one a second at the movie's rate, and a section is a whole number of seconds, so with this encoder every boundary had one; where an encoder places them otherwise the run stops at that boundary and the next run starts there, which is what every section did before. Longer sections were not needed (24 s would have saved 1.6 s of the 5.6 and given up the original's twelve).
+2. **Samples counted and read from the files' own tables** (`Mp4Samples`). The count, the first key frame and the largest sample come from `stsz` and `stss`; the join reads each sample where `stco`/`stsc` put it, at the time `stts`, `ctts` and `elst` give it (the sound's lead-in before zero included), and hands the picture to the muxer as the files hold it, with no Annex B round trip. A file whose tables are not the plain ones read here goes through the extractor as before. On every file of these runs the tables gave the extractor's count, times, sizes and key frames sample for sample, and the movie joined from them was the one joined through the extractor, sample for sample (a digest of every sample's bytes, time and flags).
+
+**After**, two runs of each, alternated with the build before (whole export, wall time):
+
+| Movie | Before | After |
+|---|---|---|
+| 1080p, 73.5 s of plain cuts | 29.9, 31.0 s | 20.4, 20.9 s |
+| 1080p, 71.5 s with transitions | 28.8, 31.1 s | 19.7, 20.2 s |
+| 4K, 73.5 s of plain cuts | 68.7, 83.9 s | 53.3, 54.8 s |
+| 4K, 71.5 s with transitions | 67.6, 70.1 s | 54.1, 54.4 s |
+
+The picture now takes 19.0 to 19.3 s at 1080p, the one pass's 18.5 s with the sound beside it; the join 0.4 to 0.9 s at 1080p and 0.7 to 1.9 s at 4K (where it was 4.3 to 5.3 s and 4.9 to 7.8 s); the checksums and the checks 0.5 to 0.6 s at 1080p. Every movie had all its frames on the grid of n / 30 s (2205; 2145 with transitions), and the check (`ExportCheck`) passed.
+
+- **Paused** 9 s into the export of the movie with transitions, with sections 0 and 1 saved, then resumed: a run from section 2 to the end, 2145 frames on the grid, and the sound equal sample for sample to the uninterrupted export's. The picture of the sections made after the pause is not the same bytes as in an uninterrupted export, the encoder having started there afresh; before, each section always started its own.
+- **HDR**: the HLG movie of the HDR work over 30 s (three sections in one run) came out HEVC Main 10 in HLG as before.
+
+**Not run**: the other phone of the issue, where the two were within ten percent; an encoder that does not put a key frame at every boundary (the fallback was not met on this phone); a kill in the middle of a run (what it leaves in `Processing` is reclaimed as before, and nothing unfinished is ever moved into `.paused-export`).
