@@ -87,6 +87,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.MainScope
@@ -533,6 +534,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
 
         val sound = prepareSound(project, files)
+        preparePeople(project, files)
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
         // The movie lasts as long as its longest item, as in the original: past the last clip it goes on in black under the sound.
         val duration = sound.duration(asked.duration, store.soundLength(project))
@@ -550,6 +552,30 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
         orSdr(used.associateWith { files.getValue(it) }, duration, checkpoint, { withContext(Dispatchers.IO) { movie(it) } }) {
             finish(project, it, duration, canvas, folder, exports, scratch, checkpoint, published, sound)
+        }
+    }
+
+    /**
+     * The person masks the clips' effects read ([app.takes.core.VideoEffectPersonInputs.personSpan]), made before the
+     * picture is drawn, as the original's renderer prepares them (MediaRenderer.swift:361-404): made on the frames'
+     * thread, a chunk of ten seconds takes longer than the Transformer waits between samples written. Where none can
+     * be made, the effects draw without them.
+     */
+    private suspend fun preparePeople(project: Project, files: Map<String, File>) {
+        if (!PersonMasks.available()) return
+        val media = project.sources.associateBy { it.id }
+        withContext(Dispatchers.IO) {
+            for (clip in project.edit.clips) {
+                val span = app.takes.core.VideoEffectPersonInputs.personSpan(clip) ?: continue
+                val source = media[clip.sourceID] ?: continue
+                val folder = files[clip.sourceID]?.parentFile ?: continue
+                try {
+                    PersonMasks.analyse(context, source, folder, from = span.start, to = span.endInclusive, cancel = { !isActive })
+                } catch (problem: Exception) {
+                    if (problem is CancellationException) throw problem
+                    android.util.Log.w("Exporter", "person masks of ${source.filename}", problem)
+                }
+            }
         }
     }
 
@@ -600,6 +626,7 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             if (!scratch.mkdirs() && !scratch.isDirectory) throw ExportProblem(ExportProblem.Reason.NotPrepared)
         }
         val sound = prepareSound(project, files)
+        preparePeople(project, files)
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
         val duration = sound.duration(plan.duration)
         val used = plan.pictures.map { it.sourceID }.distinct()
