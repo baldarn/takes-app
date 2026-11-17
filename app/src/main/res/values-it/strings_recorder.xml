@@ -93,7 +93,9 @@
     <string name="recorder_color_hdr">HDR</string>
     <string name="recorder_color_note_pause">Metti in pausa per cambiare il colore di registrazione o la stabilizzazione.</string>
     <string name="recorder_color_note_not_ready">Il colore di registrazione è disponibile quando la camera è pronta.</string>
-    <string name="recorder_color_note_sdr_only">Questa camera supporta solo SDR.</string>
+    <string name="recorder_color_note_dual">La registrazione con due fotocamere usa l\'SDR.</string>
+    <string name="recorder_color_note_dual_pause">Le due fotocamere registrano in SDR. Metti in pausa per cambiare la coppia o la stabilizzazione.</string>
+    <string name="recorder_color_note_sdr_only">Questa configurazione della fotocamera supporta solo SDR.</string>
     <string name="recorder_color_note_size">Questa camera non ha l\'HDR alla qualità scelta. Si registra in SDR.</string>
     <string name="recorder_color_note_hdr">L\'HDR conserva più dettaglio nelle luci e nei colori.</string>
     <string name="recorder_color_note_sdr">L\'SDR è pronto da condividere su qualsiasi schermo.</string>

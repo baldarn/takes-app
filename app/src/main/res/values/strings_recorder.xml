@@ -93,7 +93,9 @@
     <string name="recorder_color_hdr">HDR</string>
     <string name="recorder_color_note_pause">Pause to change recording color or stabilization.</string>
     <string name="recorder_color_note_not_ready">Recording color is available when the camera is ready.</string>
-    <string name="recorder_color_note_sdr_only">This camera supports SDR only.</string>
+    <string name="recorder_color_note_dual">Two-camera recording uses SDR.</string>
+    <string name="recorder_color_note_dual_pause">Two cameras record in SDR. Pause to change the pair or stabilization.</string>
+    <string name="recorder_color_note_sdr_only">This camera setup supports SDR only.</string>
     <string name="recorder_color_note_size">This camera has no HDR at the chosen quality. Recording in SDR.</string>
     <string name="recorder_color_note_hdr">HDR keeps more highlight and color detail.</string>
     <string name="recorder_color_note_sdr">SDR is ready to share on any display.</string>

@@ -220,7 +220,8 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
         }
         // Only where the phone runs two cameras at once, as the original offers it (RecorderView.swift:819-833).
         if (capture.dualPairs.isNotEmpty()) TwoCameras(capture)
-        if (capture.offersHDR) RecordingColor(capture)
+        // Always, as the original (RecorderView.swift:7-40): HDR greyed out where the camera has SDR only, with a note.
+        RecordingColor(capture)
     }
     help?.let { text ->
         AlertDialog(
@@ -325,7 +326,7 @@ private fun DualCameraMenu(
     }
 }
 
-/** "Recording color", as in the original without Log: SDR or HDR, changed before a take or while it is paused. */
+/** "Recording color", as in the original without Log: SDR or HDR, changed before a take or while it is paused; HDR greyed out where the camera has none. */
 @Composable
 private fun RecordingColor(capture: CaptureController) {
     val hdr = capture.format.hdr
@@ -345,7 +346,9 @@ private fun RecordingColor(capture: CaptureController) {
             }
         }
         SettingsNote(stringResource(when {
+            capture.hasActiveTake && capture.dualActive -> R.string.recorder_color_note_dual_pause
             capture.hasActiveTake -> R.string.recorder_color_note_pause
+            capture.dualActive -> R.string.recorder_color_note_dual
             !capture.ready -> R.string.recorder_color_note_not_ready
             !capture.offers.hdr -> R.string.recorder_color_note_sdr_only
             // The level horizon and follow face draw the frames in 8 bits.
