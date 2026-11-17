@@ -237,12 +237,32 @@ internal object MatteWindowShaders {
         void main() { gl_Position = aFramePosition; }
     """
 
+    /**
+     * The passes' common head. toHalf rounds to the nearest half: the guide written and each guide sampled, as the
+     * original's r16Float texture and its `half` reads keep them (Metal:603, 616, 631), where a device may keep
+     * an R16F texture in full floats, as SwiftShader does, and filter it in them.
+     */
     private const val HEAD = """#version 300 es
         precision highp float;
         precision highp int;
         precision highp sampler2D;
         precision highp sampler2DArray;
         out vec4 o;
+        float toHalf(float v) { return unpackHalf2x16(packHalf2x16(vec2(v, 0.0))).x; }
+    """
+
+    /**
+     * Layer [i] of the window, newest first. The uniform array is read only at constant indices: SwiftShader, the
+     * emulators' GL, reads `uLayers[i]` at an index that differs between the pixels of a 2 × 2 quad as the index of
+     * the quad's first pixel, so the cut test gave two neighbouring boundaries one answer.
+     */
+    private const val LAYER = """
+        uniform int uLayers[8];
+        int layer(int i) {
+            int l = 0;
+            for (int k = 0; k < 8; k++) if (k == i) l = uLayers[k];
+            return l;
+        }
     """
 
     /** ve_matteGuide (Metal:598-604): the mean linear luma of each 4 × 4 block, held in 0…1 and sRGB-encoded. */
@@ -269,28 +289,27 @@ internal object MatteWindowShaders {
                     count++;
                 }
             }
-            o = vec4(vec3(srgb(clamp(sum / float(max(1, count)), 0.0, 1.0))), 1.0);
+            o = vec4(vec3(toHalf(srgb(clamp(sum / float(max(1, count)), 0.0, 1.0)))), 1.0);
         }
     """
 
     /** ve_matteCuts (Metal:605-625), a fresh analysis: boundary i, between guide i and the older i + 1, is a cut. */
-    const val CUTS = HEAD + """
+    const val CUTS = HEAD + LAYER + """
         uniform sampler2DArray uGuides;
-        uniform int uLayers[8];
         uniform int uCount;
         void main() {
             int i = int(gl_FragCoord.x);
             if (i + 1 >= uCount) { o = vec4(0.0); return; }
-            float a = float(uLayers[i]);
-            float b = float(uLayers[i + 1]);
+            float a = float(layer(i));
+            float b = float(layer(i + 1));
             float difference = 0.0;
             int ha[16];
             int hb[16];
             for (int k = 0; k < 16; k++) { ha[k] = 0; hb[k] = 0; }
             for (int y = 0; y < 18; y++) for (int x = 0; x < 32; x++) {
                 vec2 uv = (vec2(float(x), float(y)) + 0.5) / vec2(32.0, 18.0);
-                float current = texture(uGuides, vec3(uv, a)).r;
-                float previous = texture(uGuides, vec3(uv, b)).r;
+                float current = toHalf(texture(uGuides, vec3(uv, a)).r);
+                float previous = toHalf(texture(uGuides, vec3(uv, b)).r);
                 difference += abs(current - previous);
                 ha[min(15, int(current * 16.0))]++;
                 hb[min(15, int(previous * 16.0))]++;
@@ -303,18 +322,22 @@ internal object MatteWindowShaders {
         }
     """
 
-    /** ve_matteWindow (Metal:626-639): the EMA of the window's mattes, newest first, none across a cut; for the key, faded by motion. */
-    const val WINDOW = HEAD + """
+    /**
+     * ve_matteWindow (Metal:626-639): the EMA of the window's mattes, newest first, none across a cut; for the key,
+     * faded by motion. The loop runs to the end where the original's stops once nothing remains, which adds only
+     * zeros: every pixel of a quad then reads the same layers, as SwiftShader needs, which fetched from the layer of
+     * a pixel that had left the loop (the frame of the slot reused) for the pixels still in it.
+     */
+    const val WINDOW = HEAD + LAYER + """
         uniform sampler2D uCurrent;
         uniform sampler2DArray uMattes;
         uniform sampler2DArray uGuides;
         uniform sampler2D uCuts;
-        uniform int uLayers[8];
         uniform int uCount;
         uniform float uPrior;
         uniform float uKey;
         uniform vec2 uOut;
-        float matte(int i, ivec2 q) { return i == 0 ? texelFetch(uCurrent, q, 0).r : texelFetch(uMattes, ivec3(q, uLayers[i]), 0).r; }
+        float matte(int i, ivec2 q) { return i == 0 ? texelFetch(uCurrent, q, 0).r : texelFetch(uMattes, ivec3(q, layer(i)), 0).r; }
         void main() {
             ivec2 q = ivec2(gl_FragCoord.xy);
             vec2 uv = gl_FragCoord.xy / uOut;
@@ -323,12 +346,11 @@ internal object MatteWindowShaders {
             for (int i = 0; i + 1 < uCount; i++) {
                 float prior = texelFetch(uCuts, ivec2(i, 0), 0).r > 0.5 ? 0.0 : uPrior;
                 if (uKey > 0.5) {
-                    float motion = abs(texture(uGuides, vec3(uv, float(uLayers[i]))).r - texture(uGuides, vec3(uv, float(uLayers[i + 1]))).r);
+                    float motion = abs(toHalf(texture(uGuides, vec3(uv, float(layer(i)))).r) - toHalf(texture(uGuides, vec3(uv, float(layer(i + 1)))).r));
                     prior *= 1.0 - smoothstep(0.01, 0.02, motion);
                 }
                 sum += remaining * (1.0 - prior) * matte(i, q);
                 remaining *= prior;
-                if (remaining == 0.0) break;
             }
             sum += remaining * matte(uCount - 1, q);
             o = vec4(vec3(clamp(sum, 0.0, 1.0)), 1.0);
