@@ -437,6 +437,8 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
                 }
             }
             if (effect.kind == VideoEffectID.Kaleidoscope) {
+                // The guide on the picture moves the split and the source (LiveKaleidoscopeGuide). KaleidoscopeGuide.swift:283.
+                Text(stringResource(R.string.kaleidoscope_controls_hint), color = Soft, fontSize = 12.sp)
                 Row(Modifier.fillMaxWidth()) {
                     TextButton(onClick = { update { it.with("centerX", EffectValue.Number(0.5)).with("centerY", EffectValue.Number(0.5)).with("splitAngle", EffectValue.Number(0.0)) } }) {
                         Text(stringResource(R.string.kaleidoscope_reset_split))
@@ -704,4 +706,33 @@ internal fun BackgroundPlacing(capture: CaptureController, view: android.view.Vi
             )
         },
     )
+}
+
+/**
+ * The Kaleidoscope's guide on the recorder's picture while its controls are open: the recorded frame as the preview
+ * shows it, filling the view or fitted in it, mirrored where the selfie preview is shown mirrored against the
+ * recording. RecorderView.swift:179-185, CaptureController.swift:501-504.
+ */
+@Composable
+internal fun LiveKaleidoscopeGuide(capture: CaptureController, modifier: Modifier) {
+    val split = capture.liveEffects.firstOrNull { it.kind == VideoEffectID.Kaleidoscope && it.enabled } ?: return
+    val settings = capture.settings
+    val front = capture.cameras.firstOrNull { it.id == capture.cameraID }?.front == true
+    val unmirror = front && settings.mirrorPreview != settings.mirrorRecording
+    Box(modifier) {
+        KaleidoscopeGuideView(
+            app.takes.core.KaleidoscopePose.of(split), split.number("divisions").toInt(),
+            projection = { width, height, _ ->
+                val aspect = if (width < height) 9.0 / 16 else 16.0 / 9
+                val scale = if (!settings.fitFrame) maxOf(width / aspect, height.toDouble()) else minOf(width / aspect, height.toDouble())
+                val shownWidth = scale * aspect
+                val x0 = (width - shownWidth) / 2
+                val y0 = (height - scale) / 2
+                if (unmirror) app.takes.core.Affine(-shownWidth, 0.0, 0.0, scale, x0 + shownWidth, y0) else app.takes.core.Affine(shownWidth, 0.0, 0.0, scale, x0, y0)
+            },
+        ) { pose, target ->
+            val values = pose.parameters(target)
+            capture.setLiveEffects(capture.liveEffects.map { e -> if (e.id == split.id) values.entries.fold(e) { a, (id, v) -> a.with(id, EffectValue.Number(v)) } else e })
+        }
+    }
 }

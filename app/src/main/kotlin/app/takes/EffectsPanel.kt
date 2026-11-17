@@ -300,7 +300,9 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
         VideoEffectID.ColorCorrection -> CorrectionControls(effect, at, set) { change(work.resetting()) }
         VideoEffectID.Kaleidoscope -> {
             effect.parameters.firstOrNull { it.id == "divisions" }?.let { EffectControl(effect, it, at, set, keys) }
-            var fine by rememberSaveable { mutableStateOf(true) }
+            // The guide on the picture moves the split and the source (KaleidoscopeGuideOverlay.kt); the numbers are under Fine adjustments. KaleidoscopeGuide.swift:283-299.
+            Text(stringResource(R.string.kaleidoscope_controls_hint), color = Soft, fontSize = 12.sp)
+            var fine by rememberSaveable { mutableStateOf(false) }
             Disclosure(stringResource(R.string.kaleidoscope_fine), fine) { fine = !fine }
             if (fine) {
                 for (id in listOf("sourceAngle", "sourcePanX", "sourcePanY", "splitAngle", "centerX", "centerY")) {

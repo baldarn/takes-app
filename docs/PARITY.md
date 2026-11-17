@@ -31,8 +31,8 @@ In sections 1 and 2, the rows on the tabs during an import, the selected project
 
 | Status | Count |
 |---|---|
-| DONE | 172 |
-| PARTIAL | 22 |
+| DONE | 173 |
+| PARTIAL | 21 |
 | CORE ONLY | 2 |
 | MISSING | 7 |
 | N/A | 6 |
@@ -51,7 +51,7 @@ Per area:
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 19 | 0 | 0 | 2 | 0 |
 | 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
-| 10. Video effects | 8 | 6 | 0 | 0 | 1 |
+| 10. Video effects | 9 | 5 | 0 | 0 | 1 |
 | 11. Export | 11 | 1 | 0 | 0 | 0 |
 | 12. Settings, credits, localisation, accessibility | 5 | 0 | 0 | 0 | 2 |
 
@@ -303,7 +303,7 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 | Effects editor: library in four sections, applied list, add, remove, enable/disable, compare with original | O/VideoEffects/VideoEffectsEditor.swift:38-208, 911-1055 | DONE | A/EffectsPanel.kt (effects at the playhead with their switches, sections with what is offered, controls from each effect's parameters, compare), A/EffectsWork.kt; on the clips of a marked range, a selection or the whole project, one Undo step | Effects not drawn yet are left out of the library | | |
 | Parameter keyframes ("Animate", per-parameter diamond, previous/next key) | O/VideoEffects/VideoEffectsEditor.swift:535-560, 1209-1336; O/VideoEffects/VideoEffectModel.swift:122-141 | DONE | A/EffectsPanel.kt:267, 637-660 (Animate, the diamond, previous and next key), C/VideoEffectModel.kt | — | | |
 | Simple colour effects: RGB Offset (with pads), Negative Strobe, Silent Tint, Three-Strip, Bleach Bypass, Day for Night, Expressionism, Noir, Color Isolation "A color" | O/VideoEffects/VideoEffectCatalog.swift:193-259, O/VideoEffects/RGBOffsetPads.swift:3-69 | DONE | Batch A (A/EffectsWork.kt:23-27), drawn by A/EffectRendering.kt in export and preview, with Color Correction; RGB Offset's three pads in place of its six sliders, in the editor and the recorder, dragged and double-tapped, mirrored as the recorder's selfie preview shows the picture (A/RgbOffsetPads.kt, C/RGBOffsetPad.kt); Noir's grain in the preview too, the export's lattice made by the core in the background (C/VideoEffectFormulas.kt `VideoEffectGrain.monochromeLevels`, A/EffectRendering.kt `EffectPreview.grainInput`) | — | | |
-| Kaleidoscope with on-preview guide | O/VideoEffects/VideoEffectCatalog.swift:287, O/VideoEffects/KaleidoscopeGuide.swift:41-300 | PARTIAL | Batch A, its mapping from C/VideoEffectFormulas.kt `kaleidoscope` | The guide on the picture | M | Yes |
+| Kaleidoscope with on-preview guide | O/VideoEffects/VideoEffectCatalog.swift:287, O/VideoEffects/KaleidoscopeGuide.swift:41-300 | DONE | Batch A, its mapping from C/VideoEffectFormulas.kt `kaleidoscope`; the guide on the editor's preview while its controls are open (A/KaleidoscopeGuideOverlay.kt, laid as the deck lays the clip) and on the recorder's picture (A/LiveEffectsPanel.kt `LiveKaleidoscopeGuide`): the boundaries, the cyan arc of the source wedge, the centre and the handle that turns the split, a drag on the picture that pans the source through the wedge it lands on, a twist of two fingers that turns it and settles at 0°, and the screen reader's actions, with the original's numbers (C/KaleidoscopeGuide.kt); the numbers under Fine adjustments, closed, as in the original | The recorder's preview is not made smaller to keep the guide clear of the panel, as the original's optical inspector does (RecorderView.swift:150-185): the panel covers the lower part of the picture | | |
 | Crash Zoom | O/VideoEffects/VideoEffectCatalog.swift:276, O/VideoEffects/VideoEffectMath.swift:224 | PARTIAL | Batch B (A/EffectsWork.kt:29-36), its move, map and radial blur | The target follows a face in the original; here it is set by hand | M | Yes |
 | Widescreen 1953 (bars, blur fill, flares) | O/VideoEffects/VideoEffectCatalog.swift:296 | DONE | Batch B, bars, flares and blur fill (the preview's flares and fill simplified) | Oval bokeh needs Cinematic depth: N/A | | |
 | Film texture: Halation, 16mm, Super 8 | O/VideoEffects/VideoEffectCatalog.swift:321-335 | DONE | Batch B, multi-pass with grain and weave in the export (A/EffectPasses.kt); Super 8's cadence held by the movie's clock (A/TimeEffectRendering.kt); simplified in the preview, without grain | — | | |

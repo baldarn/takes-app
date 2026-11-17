@@ -297,6 +297,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         FocusBox(capture.focus)
         bracket?.let { SubjectBracket(it) }
         if (capture.positioning != null) BackgroundPlacing(capture, previewView, Modifier.matchParentSize())
+        // The Kaleidoscope's guide while its controls are open. RecorderView.swift:179-185.
+        if (effectsOpen && inspected == VideoEffectID.Kaleidoscope && !capture.frameToolActive) LiveKaleidoscopeGuide(capture, Modifier.matchParentSize())
         // Over the picture and under the controls. It is part of the interface: the camera never sees it.
         if (frontLight) FrontLightRing(settings, screenCornerRadius()) { frontLight = false }
         CompositionLocalProvider(LocalControlPlate provides if (frontLight) LitPlate else ControlPlate) {
