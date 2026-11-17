@@ -111,12 +111,11 @@ The port is still in progress. What works today is listed under
 
 ## Not ported yet
 
-More than one video layer, unlinking a clip's sound from its picture,
-importing fonts for titles, Log footage
-and highlight recovery, subtitles for sound on the audio tracks or for a selected range
-only, placing captions by dragging them, caption designs and motion, a movie shape chosen in the crop tool, video
-effects, audio restoration models, stabilization, dual camera, follow face, HDR and Log
-capture, manual focus.
+Dual camera (two cameras into one picture), Night fix's Medium and Precise modes, a
+Chroma Key's clean plate and video background, and HDR in the editor's preview (the
+exported movie keeps it). Apple Log capture and the speech restoration models (LavaSR,
+VoiceFixer) are left out on purpose. What differs in detail is listed in
+[docs/PARITY.md](docs/PARITY.md).
 
 The project file format is this port's own and is not interchangeable with the iPhone
 app.
