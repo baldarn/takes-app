@@ -6,10 +6,13 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-# A copy left on the device by another build (an emulator snapshot from another CI runner, whose
-# debug key differs) would refuse the install as an incompatible update: take it off first.
-adb uninstall app.takes.dev.test > /dev/null 2>&1 || true
-adb uninstall app.takes.dev > /dev/null 2>&1 || true
+# On the CI only, a copy left on the emulator by another build (a snapshot from another runner,
+# whose debug key differs) would refuse the install as an incompatible update: take it off first.
+# Never on a phone of one's own, where it would delete the development build's projects.
+if [ "${CI:-}" = "true" ]; then
+  adb uninstall app.takes.dev.test > /dev/null 2>&1 || true
+  adb uninstall app.takes.dev > /dev/null 2>&1 || true
+fi
 ./gradlew :app:installDebug :app:installDebugAndroidTest
 
 report="$(mktemp)"
