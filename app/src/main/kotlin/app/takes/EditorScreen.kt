@@ -705,7 +705,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     var choosingExport by remember { mutableStateOf(false) }
     var covering by remember { mutableStateOf<CoverPick.Source?>(null) }
-    var editingAudio by remember { mutableStateOf(false) }
+    // The clip the Sound dialog was opened on; null while it is closed.
+    var editingAudio by remember { mutableStateOf<String?>(null) }
     var leveling by remember { mutableStateOf<Leveling?>(null) }
     val levelMeasuring = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
     var chosenSound by remember { mutableStateOf<String?>(null) }   // the audio item being edited
@@ -1758,7 +1759,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     enabled = splits, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
                 // With a range or a selection these four apply to the clips in it; a scope that holds no clip has nothing for them.
                 val scopeHasClips = toolScope == null || toolSubject != null
-                TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = located != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
+                TextButton(onClick = { editor.pause(); editingAudio = current?.id }, compact, enabled = located != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
                 TextButton(onClick = {
                     editor.pause()
                     // On the clips of the range or the selection, cut at the ends of a range, else on the clip under the playhead.
@@ -1966,19 +1967,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
 
-    if (editingAudio && located != null && current != null) {
-        // The clip under the playhead; in a scope its clips, cut at the ends of a range, and the sounds on the audio tracks
-        // selected with them, which have no noise reduction.
+    val audioClip = editingAudio
+    if (audioClip != null && located != null && current != null) {
+        // The clip under the playhead when the dialog opened, kept while a fade being listened to moves the playhead onto the next;
+        // in a scope its clips, cut at the ends of a range, and the sounds on the audio tracks selected with them, which have no noise reduction.
         val base = toolScope?.state ?: edit
         val clipName = stringResource(R.string.sound_target_clip)
-        val targets = soundTargets(base, toolScope?.clips ?: listOf(current.id), toolSounds, { clipName.format(it + 1) }) { names[it.sourceID] ?: soundName }
+        val targets = soundTargets(base, toolScope?.clips ?: listOf(audioClip), toolSounds, { clipName.format(it + 1) }) { names[it.sourceID] ?: soundName }
         SoundDialog(
             targets,
             // Enhance audio and Censor act on the same sounds, in the marked range when there is one.
             tools = { kind ->
-                val selection = soundSelection(edit, toolScope?.clips ?: listOf(current.id), toolSounds, marks.range?.let { EditInterval.of(it.start, it.end) })
+                val selection = soundSelection(edit, toolScope?.clips ?: listOf(audioClip), toolSounds, marks.range?.let { EditInterval.of(it.start, it.end) })
                 stopListening()
-                editingAudio = false
+                editingAudio = null
                 audioTool = kind to AudioToolWork(edit, null, selection)
             },
             measure = { change ->
@@ -1992,9 +1994,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 commit(next, playhead)
                 // As the original after Volume on a range: the range is let go.
                 if (next != null && marks.range != null) marks = marks.cleared()
-                editingAudio = false
+                editingAudio = null
             },
-            dismiss = { stopListening(); editingAudio = false },
+            dismiss = { stopListening(); editingAudio = null },
             appliesTo = toolScopeLabel,
             listen = listenTo(base, targets), playing = editor.playing, pause = { auditionEnd = null; editor.pause() },
         )
