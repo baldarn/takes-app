@@ -49,6 +49,11 @@
     <string name="effects_section_time_summary">Freeze, repeat or speed up motion</string>
     <string name="effects_section_background">Background</string>
     <string name="effects_section_background_summary">Replace or blur what is behind you</string>
+    <string name="effects_heading_effect">Effect</string>
+    <string name="effects_heading_screen">Screen</string>
+    <string name="effects_heading_edges">Edges</string>
+    <string name="effects_heading_clean_plate">Clean plate</string>
+    <string name="effects_heading_background">Background</string>
 
     <!-- Color Correction -->
     <string name="correction_light">Light</string>

@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import app.takes.core.EffectParameter
 import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectLibrarySection
+import app.takes.core.VideoEffectParameterSection
 import app.takes.core.historicalHelp
 import app.takes.core.summary
 import app.takes.core.usageHelp
@@ -278,6 +279,18 @@ internal val VideoEffectLibrarySection.look: SectionLook
         VideoEffectLibrarySection.Time -> SectionLook(R.string.effects_section_time, R.string.effects_section_time_summary, Icons.Outlined.Timer, Color(0xFFBF5AF2))
         VideoEffectLibrarySection.Background -> SectionLook(R.string.effects_section_background, R.string.effects_section_background_summary, Icons.Outlined.Wallpaper, Color(0xFF6AC4DC))
     }
+
+/** The heading an inspector shows over a group of its controls, in the reader's language. YouRec/VideoEffects/VideoEffectCatalog.swift:173. */
+@Composable
+internal fun sectionTitle(section: VideoEffectParameterSection): String = stringResource(
+    when (section) {
+        VideoEffectParameterSection.General -> R.string.effects_heading_effect
+        VideoEffectParameterSection.Screen -> R.string.effects_heading_screen
+        VideoEffectParameterSection.Edges -> R.string.effects_heading_edges
+        VideoEffectParameterSection.CleanPlate -> R.string.effects_heading_clean_plate
+        VideoEffectParameterSection.Background -> R.string.effects_heading_background
+    },
+)
 
 /** Up to two decimals, in the reader's way of writing numbers. */
 internal fun effectNumber(value: Double): String =

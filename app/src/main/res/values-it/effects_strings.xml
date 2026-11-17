@@ -50,6 +50,11 @@
     <string name="effects_section_time_summary">Ferma, ripeti o accelera il movimento</string>
     <string name="effects_section_background">Sfondo</string>
     <string name="effects_section_background_summary">Sostituisci o sfoca ciò che hai dietro</string>
+    <string name="effects_heading_effect">Effetto</string>
+    <string name="effects_heading_screen">Schermo</string>
+    <string name="effects_heading_edges">Bordi</string>
+    <string name="effects_heading_clean_plate">Fondale vuoto</string>
+    <string name="effects_heading_background">Sfondo</string>
 
     <string name="correction_light">Luce</string>
     <string name="correction_color">Colore</string>

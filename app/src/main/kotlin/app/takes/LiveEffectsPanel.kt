@@ -410,7 +410,7 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
                         (effect.kind in LiveMoves.KINDS || !AndroidVideoEffects.hides(effect.kind, parameter.id))
                 }
                 if (parameters.isEmpty()) continue
-                if (section != VideoEffectParameterSection.General) Text(section.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                if (section != VideoEffectParameterSection.General) Text(sectionTitle(section), color = Color.White, fontWeight = FontWeight.SemiBold)
                 for (parameter in parameters) {
                     when {
                         parameter.kind is EffectParameterKind.Media -> {

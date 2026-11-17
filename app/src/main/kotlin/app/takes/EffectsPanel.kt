@@ -324,7 +324,7 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
         }
         else -> {
             for (section in VideoEffectParameterSection.sections(effect, at)) {
-                if (section != VideoEffectParameterSection.General) Text(section.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                if (section != VideoEffectParameterSection.General) Text(sectionTitle(section), color = Color.White, fontWeight = FontWeight.SemiBold)
                 for (parameter in effect.parameters) {
                     if (VideoEffectParameterSection.section(parameter, effect) != section) continue
                     if (!VideoEffectParameterVisibility.visible(parameter, AndroidVideoEffects.asDrawn(effect), at) || AndroidVideoEffects.hides(effect.kind, parameter.id)) continue
