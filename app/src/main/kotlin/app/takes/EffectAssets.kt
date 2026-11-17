@@ -44,16 +44,35 @@ interface EffectAssets {
     /** The picture of a Chroma Key's Image background, upright and decoded; null without one. */
     fun picture(effect: VideoEffectSettings): Bitmap? = null
 
+    /**
+     * Where the subject [effect] follows is at source second [sourceTime], on the recording stood upright; null when
+     * it is not followed there, or not analysed yet. VideoEffectAssets.swift:476-486.
+     */
+    fun subject(effect: VideoEffectSettings, sourceTime: Double): EffectSubject? = null
+
     companion object {
         val NONE: EffectAssets = object : EffectAssets {}
 
         /** The palettes of the frame at [sourceTime] for each Quantization of [effects], as its choices make them ([EffectPaletteAnalysis.displayPalette]). */
-        fun inputs(assets: EffectAssets, effects: List<VideoEffectSettings>?, sourceTime: Double): Map<String, EffectFrameInputs> =
-            effects.orEmpty().filter { it.kind == VideoEffectID.Quantization && it.enabled && sourceTime >= it.start && sourceTime < it.end }.mapNotNull { effect ->
+        fun inputs(assets: EffectAssets, effects: List<VideoEffectSettings>?, sourceTime: Double, placing: ((GeometrySize) -> app.takes.core.Affine)? = null): Map<String, EffectFrameInputs> {
+            val active = effects.orEmpty().filter { it.enabled && sourceTime >= it.start && sourceTime < it.end }
+            val palettes = active.filter { it.kind == VideoEffectID.Quantization }.mapNotNull { effect ->
                 EffectPaletteAnalysis.displayPalette(effect, sourceTime, assets.analysed(effect, sourceTime))?.let { effect.id to EffectFrameInputs(palette = it) }
-            }.toMap()
+            }
+            // The subject followed, laid on the frame the effect draws on: [placing] takes the upright recording of a size
+            // in pixels to that frame, 0…1. VideoEffectAssets.swift:481-484.
+            val targets = if (placing == null) emptyList() else active.filter { app.takes.core.EffectSubjectAnalysis.follows(it, sourceTime) }.mapNotNull { effect ->
+                val subject = assets.subject(effect, sourceTime) ?: return@mapNotNull null
+                val point = app.takes.core.Point(subject.center.x * subject.upright.width, subject.center.y * subject.upright.height).applying(placing(subject.upright))
+                effect.id to EffectFrameInputs(target = app.takes.core.Point(point.x.coerceIn(0.0, 1.0), point.y.coerceIn(0.0, 1.0)))
+            }
+            return (palettes + targets).toMap()
+        }
     }
 }
+
+/** Where a followed subject's centre is, 0…1 on the recording stood [upright], of that size in pixels. */
+class EffectSubject(val center: app.takes.core.Point, val upright: GeometrySize)
 
 /**
  * A person mask as it was stored ([PersonMaskChunks.Mask], in the decoded frame's coordinates), with what lays it
@@ -90,6 +109,18 @@ class SourceAssets(
         val file = source ?: return null
         val track = if (wait) ScenePalettes.track(file, clip, effect) else ScenePalettes.cached(file, clip, effect, ready)
         return track?.palette(sourceTime)
+    }
+
+    private val upright by lazy { source?.let(::displaySize)?.let { GeometrySize(it.first.toDouble(), it.second.toDouble()) } }
+
+    override fun subject(effect: VideoEffectSettings, sourceTime: Double): EffectSubject? {
+        val file = source ?: return null
+        val recording = media ?: return null
+        val app = context?.applicationContext ?: return null
+        val size = upright ?: return null
+        val track = if (wait) SubjectTracks.track(app, file, recording, clip, effect) else SubjectTracks.cached(app, file, recording, clip, effect, ready)
+        val sample = track?.sample(sourceTime) ?: return null
+        return EffectSubject(sample.center, size)
     }
 
     override fun picture(effect: VideoEffectSettings): Bitmap? {

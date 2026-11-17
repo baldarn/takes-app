@@ -950,7 +950,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         palettesReady.let { } // read, so that the picture is drawn again once a palette or a person mask is ready
                         restored = effectPreviews?.get(deck)?.nightFix(shown, sourceTime)
                         // A held frame pushes in on the hold's clock; a cadence's held frames and Step Printing's blends the preview does not draw.
-                        val passes = EffectShader.passes(shown, sourceTime, movieRate, EffectAssets.inputs(assets, shown, sourceTime), clip.frozenFrame?.let { it.offset + offset })
+                        // A followed subject laid on the deck as the deck fits the clip, before its crop.
+                        val placing = previewBounds?.let { b -> { upright: app.takes.core.Size -> PictureFraming.fit(upright, app.takes.core.Size(b.width.toDouble(), b.height.toDouble())).concatenating(app.takes.core.Affine.scale(1.0 / b.width, 1.0 / b.height)) } }
+                        val passes = EffectShader.passes(shown, sourceTime, movieRate, EffectAssets.inputs(assets, shown, sourceTime, placing), clip.frozenFrame?.let { it.offset + offset })
                         previewBounds?.takeIf { passes.isNotEmpty() }?.let { bounds ->
                             effectPreviews?.get(deck)?.effect(
                                 passes, bounds.width, bounds.height,

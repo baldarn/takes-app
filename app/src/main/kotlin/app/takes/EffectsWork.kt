@@ -28,7 +28,7 @@ internal object AndroidVideoEffects {
     /**
      * The second batch, drawn in several passes: Super 8 without its
      * cadence, Widescreen without its oval bokeh (which needs depth), Crash
-     * Zoom with its target set by hand.
+     * Zoom following a face from its target, or moving to the target itself.
      */
     val BATCH_B: List<VideoEffectID> = listOf(
         VideoEffectID.Halation, VideoEffectID.SixteenMM, VideoEffectID.SuperEight, VideoEffectID.Widescreen, VideoEffectID.CrashZoom,
@@ -57,7 +57,7 @@ internal object AndroidVideoEffects {
      * The effects that read the person in the frame, with the parts of the others that do (Color Isolation's
      * subject, Chroma Key's person hint, Quantization's face detail): offered where LiteRT runs (PersonMasks.kt).
      * Auto Background without its video background and match colour; Dolly Zoom, the subject separated by the person
-     * (there is no imported depth here), its target set by hand.
+     * (there is no imported depth here), its target followed from the point set (SubjectTracks.kt).
      */
     val BATCH_PERSON: List<VideoEffectID> = listOf(VideoEffectID.AutoBackground, VideoEffectID.DollyZoom)
 
@@ -71,8 +71,6 @@ internal object AndroidVideoEffects {
 
     /** Controls of an offered effect that this release does not draw, by effect. */
     private val HIDDEN: Map<VideoEffectID, Set<String>> = mapOf(
-        // Following a face needs face detection; the target is set by hand.
-        VideoEffectID.CrashZoom to setOf("trackFace"),
         VideoEffectID.ChromaKey to setOf("cleanPlate", "matchColor", "matchStrength", "backgroundAudio"),
         VideoEffectID.AutoBackground to setOf("matchColor", "matchStrength", "backgroundAudio"),
         // Medium and Precise need optical flow.
@@ -111,9 +109,8 @@ internal object AndroidVideoEffects {
         else -> false
     }
 
-    /** [effect] as this release draws it, for what its controls show: a Crash Zoom moves to its target set by hand, even one made to follow a face. */
-    fun asDrawn(effect: VideoEffectSettings): VideoEffectSettings =
-        if (effect.kind == VideoEffectID.CrashZoom) effect.with("trackFace", EffectValue.Toggle(false)) else effect
+    /** [effect] as this release draws it, for what its controls show: every effect is drawn as it is set. */
+    fun asDrawn(effect: VideoEffectSettings): VideoEffectSettings = effect
 
     /** The choices of a picker this release offers: a Chroma Key's and an Auto Background's backgrounds without video. */
     fun choices(kind: VideoEffectID, parameter: String, choices: List<String>): List<String> =
@@ -183,8 +180,6 @@ internal data class EffectsWork(
             val clip = piece.clip
             // Color Isolation and Chroma Key are made with the temporal matte, algorithm 2 (VideoEffectModel.swift:200-202).
             var effect = VideoEffectSettings(kind, clip.start, clip.end).copy(id = id)
-            // A Crash Zoom moves towards the target set by hand.
-            if (kind == VideoEffectID.CrashZoom) effect = effect.with("trackFace", EffectValue.Toggle(false))
             if (kind == VideoEffectID.NegativeStrobe) effect = effect.copy(phaseOffset = maxOf(0.0, piece.start - on.start), strobeTimeMap = strobeClock(clip))
             next[clip.id] = next[clip.id].orEmpty() + effect
         }

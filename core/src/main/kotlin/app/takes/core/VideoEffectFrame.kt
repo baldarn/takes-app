@@ -58,6 +58,11 @@ data class EffectFrameInputs(
     val cleanPlate: Boolean = false,
     val depthMap: Boolean = false,
     val palette: EffectPalette? = null,
+    /**
+     * Where the subject a Dolly Zoom or a Crash Zoom following a face moves to is on the frame, 0…1 from the
+     * top left, where the analysis followed it; null to use the target set by hand. VideoEffectAssets.swift:476-486.
+     */
+    val target: Point? = null,
 )
 
 /**
@@ -214,7 +219,8 @@ object EffectFrame {
             val given = inputs[settings.id] ?: EffectFrameInputs()
             // A camera move's target is where the picture's point is after the moves drawn before it.
             val target = if (settings.kind == VideoEffectID.DollyZoom || settings.kind == VideoEffectID.CrashZoom) {
-                targetTransform.applied(settings.number("targetX", sourceTime), settings.number("targetY", sourceTime))
+                val followed = given.target
+                targetTransform.applied(followed?.x ?: settings.number("targetX", sourceTime), followed?.y ?: settings.number("targetY", sourceTime))
             } else {
                 null
             }

@@ -570,6 +570,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
      * be made, the effects draw without them.
      */
     private suspend fun preparePeople(project: Project, files: Map<String, File>) {
+        // The subjects the camera moves follow, analysed before the frames are drawn as the masks are.
+        withContext(Dispatchers.IO) { SubjectTracks.prepare(context, project, files) }
         if (!PersonMasks.available()) return
         val media = project.sources.associateBy { it.id }
         withContext(Dispatchers.IO) {

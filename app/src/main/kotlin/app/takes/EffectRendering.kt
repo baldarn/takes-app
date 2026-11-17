@@ -362,7 +362,7 @@ object EffectShader {
             else if (uP3.x > 0.5) tint = vec3(1.0, 0.6, 0.25);
             return c + auxAt(uv) * tint * uP2.x;
         }
-        // Metal:87-94, :361-366, the target set by hand: uX0.x the magnification, uX0.y the radial blur's reach.
+        // Metal:87-94, :361-366, the target, the followed subject or the one set: uX0.x the magnification, uX0.y the radial blur's reach.
         vec3 crashZoom(vec2 uv) {
             vec2 target = vec2(uP5.x, uP6.x);
             vec2 point = (uv - target) / uX0.x + target;
@@ -1145,7 +1145,12 @@ class VideoEffectChain(
             frameNumber++
             personFrames.clear()
             placed.clear()
-            val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime), shown.holdTime)
+            // A followed subject laid on the frame as the picture is framed, as the person mask is.
+            val frameSize = EffectSize(size.width.toDouble(), size.height.toDouble())
+            val placing = { upright: EffectSize ->
+                app.takes.core.PictureFraming.frame(clip, offset, upright, frameSize).transform.concatenating(app.takes.core.Affine.scale(1 / frameSize.width, 1 / frameSize.height))
+            }
+            val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime, placing), shown.holdTime)
             if (passes.isEmpty()) {
                 // The picture as it is, pixel for pixel: read without filtering, which some GPUs let a hair of a
                 // neighbour into at a pixel's centre.
