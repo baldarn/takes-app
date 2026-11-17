@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The development build asks for a large heap: the pixel tests run in its process and some 4K cases hold
+    several frames of 3840 × 2160 at once, more than the 192 MB an emulator gives an app by default (the CI's).
+    The release and smoke builds are unchanged.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:largeHeap="true" />
+</manifest>
