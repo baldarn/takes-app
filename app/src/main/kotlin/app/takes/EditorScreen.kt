@@ -257,6 +257,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val pausingShown = pausing?.shown
     // The Color and Speed tools, and the edit they show: their setting, or Before it (A/ColorPanel.kt, A/SpeedPanel.kt).
     var coloring by remember { mutableStateOf<Coloring?>(null) }
+    val inspection = remember { InspectionZoom() }
     val coloringShown = coloring?.shown
     var pacing by remember { mutableStateOf<Pacing?>(null) }
     val pacingShown = pacing?.shown
@@ -860,9 +861,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             EditorSettingsButton(snap, enabled = subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null)
             Button(onClick = { editor.pause(); choosingExport = true }, modifier = Modifier.padding(start = 4.dp), enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Text(stringResource(R.string.editor_export)) }
         }
-        Box(Modifier.layoutId(EditorSlot.Preview).background(Color.Black), Alignment.Center) {
+        // The inspection zoom of the preview (EditorView.swift:1586-1601, PreviewZoom.kt): off while a tool works on the
+        // picture with its own gestures, and back to 1× when the edit changes, as the original's player gets a new item.
+        val inspectable = titling == null && transitioning?.settings?.style != TransitionStyle.Split && cropping == null && effecting == null &&
+            placementWork == null && subtitling == null && moving == null && clips.isNotEmpty()
+        LaunchedEffect(inspectable, saved) { inspection.reset() }
+        LaunchedEffect(canvas) { inspection.canvas = canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) } }
+        Box(Modifier.layoutId(EditorSlot.Preview).background(Color.Black).clipToBounds().inspecting(inspection, inspectable, inspectionLabels()), Alignment.Center) {
             // The export canvas: the first clip's shape. Other clips fit inside it.
-            Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).clipToBounds().onGloballyPositioned { previewBounds = it.boundsInWindow() }) {
+            Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).onGloballyPositioned { previewBounds = it.boundsInWindow() }.inspected(inspection).clipToBounds()) {
                 val grades = deckColors.map { color ->
                     remember(color, folder) {
                         if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color.first, folder, color.second) else null
@@ -1035,6 +1042,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     )
                 }
             }
+            // A tool's preview says how much it is magnified, as the original's (EditorView.swift:1526, 1541).
+            InspectionReset(inspection, named = coloring != null || pacing != null || pausing != null || transitioning != null, Modifier.align(Alignment.BottomEnd))
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
             else {
                 ReviewSpeed(reviewSpeed, reviewSpeedsOpen, Modifier.align(Alignment.BottomStart).padding(8.dp), toggle = { reviewSpeedsOpen = !reviewSpeedsOpen }, choose = chooseReviewSpeed)

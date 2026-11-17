@@ -146,6 +146,10 @@
     <string name="editor_bookmark_remove">Rimuovi segnalibro</string>
     <string name="editor_pause">Pausa</string>
     <string name="editor_quick_review">Revisione rapida</string>
+    <string name="preview_zoom_in">Ingrandisci l\'anteprima</string>
+    <string name="preview_zoom_out">Riduci l\'anteprima</string>
+    <string name="preview_zoom_reset">Ripristina lo zoom dell\'anteprima</string>
+    <string name="preview_zoom_named">%1$s× · Anteprima</string>
     <string name="full_preview_open">Apri l\'anteprima a schermo intero</string>
     <string name="full_preview_position">Posizione dell\'anteprima</string>
     <string name="editor_review_speed">Velocità di revisione</string>

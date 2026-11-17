@@ -27,10 +27,10 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 | Status | Count |
 |---|---|
-| DONE | 155 |
+| DONE | 156 |
 | PARTIAL | 34 |
 | CORE ONLY | 4 |
-| MISSING | 10 |
+| MISSING | 9 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -41,7 +41,7 @@ Per area:
 | 1. App shell and project list | 20 | 3 | 0 | 0 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
-| 4. Editor: timeline, playback, structure | 23 | 7 | 0 | 4 | 0 |
+| 4. Editor: timeline, playback, structure | 24 | 7 | 0 | 3 | 0 |
 | 5. Editor: picture tools | 10 | 3 | 3 | 2 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
@@ -151,8 +151,8 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Timecode and duration | O/EditorTimeline.swift:1052-1055 | DONE | A/EditorScreen.kt:656 | — | | |
 | Review speed 1–3× with pitch kept | O/EditorView.swift:454-465 | DONE | A/Transport.kt (`ReviewSpeed`), A/EditorPlayer.kt (`play(time, speed)`); reviews of a cut, a transition or the playhead play at 1× | — | | |
 | Double-tap play "quick review" with pre/post-roll and return; preview a cut | O/EditorView.swift:526-547, O/EditorController.swift:408-467 | DONE | A/EditorScreen.kt (`playTapped`, `quickReview`), C/ReviewWindows.kt; with a screen reader Play plays at once and the review is an action of the button | — | | |
-| Full-screen preview | O/TrackEditors.swift:22-86 | DONE | A/FullPreview.kt: the editor's players in a full-screen window that turns with the phone, with speed, position, changes, Play and bookmarks; the controls hide while playing | No inspection zoom (missing in the editor too) | | |
-| Preview inspection zoom (pinch 1–8×) | O/EditorView.swift:1586-1601 | MISSING | — | | S | Yes |
+| Full-screen preview | O/TrackEditors.swift:22-86 | DONE | A/FullPreview.kt: the editor's players in a full-screen window that turns with the phone, with speed, position, changes, Play and bookmarks; the controls hide while playing; pinch to inspect (A/PreviewZoom.kt) | — | | |
+| Preview inspection zoom (pinch 1–8×) | O/EditorView.swift:1380-1601, 1621-1628 | DONE | A/PreviewZoom.kt on the editor's preview and the full-screen preview (A/FullPreview.kt), from C/PreviewInspection.kt: a pinch magnifies from 1 to 8 times about the fingers, a drag moves the picture once magnified and never past the view's edges, Reset preview zoom in the corner while magnified (with "2.0× · Preview" while a tool is open, as the original's tool previews), the screen reader's Zoom in, Zoom out (steps of 1.5) and Reset; back to 1× when the view changes size, the movie its shape or the edit changes. The export is unchanged | Off, and back to 1×, while a tool works on the picture with gestures of its own (Title, a split screen's Transition, Crop, Video effects, Placement, Subtitles, Move), where the original's tools are screens of their own; the original lets Subtitles inspect beside placing the captions | | |
 | Previous/next change (cuts and effects) | O/TimelineNavigation.swift:56-165 | DONE | A/Transport.kt (`ChangeButton`), C/TimelineNavigation.kt: tap for cuts and changes, hold for changes only | — | | |
 | Split at the playhead | O/TimelineEditing.swift:45-62 | DONE | A/EditorScreen.kt (Split), C/TimelineEditing.kt `split`: everything under the playhead, the sounds on the audio tracks too, each in two pieces on its track that play on without a break (`split-cuts-sound-items`, docs/TRACKS-PARITY-DECISIONS.md, "At S5") | Not frame-quantised (original snaps to 1/30 s); the selection is not looked at, where the original cuts only a selected item under the playhead (`TrackEditing.splitAtPlayhead` takes it, the editor does not pass it) | | |
 | Trim handles | O/EditorTimeline.swift:583-602, 718-747 | DONE | A/EditorScreen.kt:484-510, 947-988 | No edge auto-scroll | | |
@@ -268,7 +268,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Correct or delete a caption's text in place ("Cancel edit", "Save text"); "Following playback" block of five captions; full list where a first tap seeks and a second edits | O/SubtitleEditor.swift:73-75, 143-147, 306-347 | DONE | A/SubtitlesPanel.kt (`CueRow`), C/SubtitleEditing.kt (`correct`, `delete`); an empty text removes the caption, as in the original | — | | |
 | Copy full transcript | O/SubtitleEditor.swift:256-274 | DONE | A/SubtitlesPanel.kt (`subtitles_copy`) | — | | |
 | Remove all subtitles | O/SubtitleEditor.swift:178-181 | DONE | A/SubtitlesPanel.kt (`subtitles_remove_all`) | — | | |
-| Placement by dragging and pinching on the preview, outline of the largest caption, screen reader actions | O/SubtitleEditor.swift:84-89, 183-200, O/EditorView.swift:1413-1422, 1540-1550 | DONE | A/SubtitlePlacing.kt, C/SubtitleEditing.kt (`SubtitlePlacement.envelope`, `moved`, `pinched`); sliders and reset as well (A/SubtitlesPanel.kt). Departure: no switch to inspect the picture with a pinch, as the port's preview has no inspection zoom | — | | |
+| Placement by dragging and pinching on the preview, outline of the largest caption, screen reader actions | O/SubtitleEditor.swift:84-89, 183-200, O/EditorView.swift:1413-1422, 1540-1550 | DONE | A/SubtitlePlacing.kt, C/SubtitleEditing.kt (`SubtitlePlacement.envelope`, `moved`, `pinched`); sliders and reset as well (A/SubtitlesPanel.kt). Departure: while the tool is open a pinch places the captions only; the preview's inspection zoom is off (A/PreviewZoom.kt) | — | | |
 | Styles plain/bold/box/highlight, six colours, five fonts | O/Subtitles.swift:15-47 | DONE | A/SubtitleRendering.kt (`SubtitleLayout`, a series without a design); as in the original, they are no longer chosen in the tool but are where the title designer starts from (C/Subtitles.kt `design`) | — | | |
 | Full title inspector for captions (looks, fonts, fill, outline, shadow, background) and per-caption motion | O/SubtitleEditor.swift:279-294, O/SubtitleRenderer.swift:42-49, 75-83, 134-138 | DONE | C/Subtitles.kt (`appearance` a `TitleDesign`, `motion` a `TitleMotion`, both checked by `valid`), C/SubtitleEditing.kt (`SubtitlePlacement.moving`, `pose`); A/SubtitlesPanel.kt (Appearance holds `TitleInspector` from A/TitlePanel.kt, with the replay of the caption in focus), A/SubtitleRendering.kt (`StyledText` from A/TitleRendering.kt, the same in preview and export). A series nobody has styled is drawn and saved as before (C/SubtitleDesignTest.kt). Older versions of the port keep the two fields and draw the old style, as before | — | | |
 | Same drawing in preview and export, two stacked captions | O/SubtitleRenderer.swift:93-203 | DONE | A/SubtitleRendering.kt:33-131, A/Exporter.kt:249-254 | — | | |

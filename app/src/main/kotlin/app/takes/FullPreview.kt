@@ -104,13 +104,18 @@ internal fun FullPreview(
         }
         val tap by rememberUpdatedState({ togglePlay(); shown() })
         val playLabel = stringResource(if (playing) R.string.editor_pause else R.string.common_play)
+        // Pinch to inspect, as the original's full screen preview (TrackEditors.swift:35, EditorView.swift:1586-1601).
+        val inspection = remember { InspectionZoom() }
+        LaunchedEffect(aspect) { inspection.canvas = aspect?.let { app.takes.core.Size(it.toDouble(), 1.0) } }
         Box(
-            Modifier.fillMaxSize().background(Color.Black)
+            Modifier.fillMaxSize().background(Color.Black).clipToBounds()
+                .inspecting(inspection, enabled = true, inspectionLabels())
                 .pointerInput(Unit) { detectTapGestures(onTap = { tap() }) }
                 .semantics { onClick(playLabel) { tap(); true } },
             Alignment.Center,
         ) {
-            Box((aspect?.let { Modifier.aspectRatio(it) } ?: Modifier.fillMaxSize()).clipToBounds()) { picture() }
+            Box((aspect?.let { Modifier.aspectRatio(it) } ?: Modifier.fillMaxSize()).inspected(inspection).clipToBounds()) { picture() }
+            InspectionReset(inspection, named = false, Modifier.align(Alignment.CenterEnd))
             if (controls) Column(Modifier.fillMaxSize().safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     var speedsOpen by remember { mutableStateOf(false) }

@@ -143,6 +143,10 @@
     <string name="editor_bookmark_remove">Remove bookmark</string>
     <string name="editor_pause">Pause</string>
     <string name="editor_quick_review">Quick review</string>
+    <string name="preview_zoom_in">Zoom in preview</string>
+    <string name="preview_zoom_out">Zoom out preview</string>
+    <string name="preview_zoom_reset">Reset preview zoom</string>
+    <string name="preview_zoom_named">%1$s× · Preview</string>
     <string name="full_preview_open">Open full-screen preview</string>
     <string name="full_preview_position">Full preview position</string>
     <string name="editor_review_speed">Review speed</string>
