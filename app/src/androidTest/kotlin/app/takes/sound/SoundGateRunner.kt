@@ -84,7 +84,7 @@ class SoundGateRunner : Instrumentation() {
             }
             // The headroom of a sound over clips and another sound, from the same engine.
             val (_, under) = sequences()[2]
-            val headroom = runBlocking { app.takes.Headroom.measure(under, files, setOf("M1"), 1.0..9.0) }
+            val headroom = runBlocking { app.takes.Headroom.measure(under, files, folder, setOf("M1"), 1.0..9.0) }
             val said = "headroom of the first sound track over the clips and the second: " +
                 (headroom?.let { "${"%.2f".format(it.minimum)} to ${"%.2f".format(it.maximum)} dB over ${it.samples} samples" } ?: "not measured")
             Log.i(TAG, said)

@@ -19,6 +19,9 @@ import androidx.media3.common.util.UnstableApi
 import app.takes.core.ColorGrade
 import app.takes.core.ColorSettings
 import app.takes.core.EffectBackgroundLoop
+import app.takes.core.EffectBackgroundSound
+import app.takes.core.TrackMixPlan
+import app.takes.core.TrackTimeline
 import app.takes.core.EffectColorMath
 import app.takes.core.VideoEffectFormulasC
 import java.io.File
@@ -277,7 +280,8 @@ internal class BackgroundMovies(private val wait: Boolean, private val longSide:
 private class BackgroundMovie(private val file: File, private val longSide: Int, private val reuse: Boolean) : AutoCloseable {
     private val head = MovieReader(file, longSide, reuse)
     private var tail: MovieReader? = null
-    private val loop = EffectBackgroundLoop(head.duration)
+    // Over the asset's length, as its sound loops (VideoEffectAssets.swift:646).
+    private val loop = EffectBackgroundLoop(movieLength(file).takeIf { it > 0.001 } ?: head.duration)
     private val blended = arrayOfNulls<Bitmap>(2)
     private var turn = 0
 
@@ -545,5 +549,86 @@ private class MovieReader(file: File, private val longSide: Int, private val reu
         runCatching { codec.stop() }
         codec.release()
         extractor.release()
+    }
+}
+
+/**
+ * How long a movie is as the original's asset says (`AVAsset.duration`, VideoEffectAssets.swift:646,
+ * VideoEffectBackgroundAudio.swift:53): its longest track, else the container's length; 0 when unreadable.
+ */
+internal fun movieLength(file: File): Double {
+    var length = 0.0
+    val extractor = MediaExtractor()
+    try {
+        extractor.setDataSource(file.path)
+        for (track in 0 until extractor.trackCount) {
+            val format = extractor.getTrackFormat(track)
+            if (format.containsKey(MediaFormat.KEY_DURATION)) length = maxOf(length, format.getLong(MediaFormat.KEY_DURATION) / 1e6)
+        }
+    } catch (_: Exception) {
+    } finally {
+        runCatching { extractor.release() }
+    }
+    if (length > 0) return length
+    val retriever = MediaMetadataRetriever()
+    return try {
+        retriever.setDataSource(file.path)
+        (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toDoubleOrNull() ?: 0.0) / 1000
+    } catch (_: Exception) {
+        0.0
+    } finally {
+        runCatching { retriever.release() }
+    }
+}
+
+/**
+ * The sound of the effects' background movies in the mix ([EffectBackgroundSound]): which movies of the project's
+ * folder have sound, read once and kept, and the files the mix reads them from.
+ */
+internal object BackgroundSounds {
+    private val kept = ConcurrentHashMap<String, Result<EffectBackgroundSound.Movie?>>()
+
+    /** The movies of [names] in [folder] that have sound, read from their files: call off the main thread. */
+    fun movies(folder: File, names: Set<String>): Map<String, EffectBackgroundSound.Movie> =
+        names.mapNotNull { name -> movie(File(folder, name))?.let { name to it } }.toMap()
+
+    /** The movies the mix of [timeline] may play from [folder] ([movies]): call off the main thread. */
+    fun movies(folder: File, timeline: TrackTimeline): Map<String, EffectBackgroundSound.Movie> = movies(folder, EffectBackgroundSound.files(timeline))
+
+    /** [files] and the background movies of [movies] in [folder] under the sources the mix reads them by. */
+    fun files(files: Map<String, File>, folder: File, movies: Map<String, EffectBackgroundSound.Movie>): Map<String, File> =
+        if (movies.isEmpty()) files else files + movies.keys.associate { EffectBackgroundSound.sourceID(it) to File(folder, it) }
+
+    /** The mix of [timeline] with its background movies' sound, and the files it reads: call off the main thread. */
+    fun mix(base: TrackMixPlan, timeline: TrackTimeline, files: Map<String, File>, folder: File): Pair<TrackMixPlan, Map<String, File>> {
+        val movies = movies(folder, timeline)
+        return EffectBackgroundSound.plan(base, timeline, movies) to files(files, folder, movies)
+    }
+
+    /** A movie's length and the stretch its sound covers (the sound track's own length from 0); null without sound. */
+    private fun movie(file: File): EffectBackgroundSound.Movie? {
+        if (!file.isFile) return null
+        val key = "${file.path}:${file.lastModified()}:${file.length()}"
+        kept[key]?.let { return it.getOrNull() }
+        val movie = try {
+            val extractor = MediaExtractor()
+            try {
+                extractor.setDataSource(file.path)
+                val sound = (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }.firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+                val length = movieLength(file)
+                if (sound == null || !(length > 0.001)) null else {
+                    val end = if (sound.containsKey(MediaFormat.KEY_DURATION)) sound.getLong(MediaFormat.KEY_DURATION) / 1e6 else length
+                    EffectBackgroundSound.Movie(length, 0.0, end)
+                }
+            } finally {
+                runCatching { extractor.release() }
+            }
+        } catch (problem: Exception) {
+            android.util.Log.w("Takes", "background sound of ${file.name}", problem)
+            null
+        }
+        if (kept.size > 16) kept.clear()
+        kept[key] = Result.success(movie)
+        return movie
     }
 }

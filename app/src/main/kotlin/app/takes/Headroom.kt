@@ -47,18 +47,20 @@ object Headroom {
      * The headroom of the clips and sounds [chosen] (by id) in [state] over
      * [range] seconds of the movie. An empty measurement ([AudioHeadroom.silent])
      * when the chosen sound is silent or muted there; null when a recording
-     * cannot be decoded. [files] gives each source's file.
+     * cannot be decoded. [files] gives each source's file; the effects' background movies, which the mix plays
+     * too, are in [folder].
      */
-    suspend fun measure(state: EditState, files: Map<String, File>, chosen: Set<String>, range: ClosedFloatingPointRange<Double>): AudioHeadroom? = withContext(working) {
+    suspend fun measure(state: EditState, files: Map<String, File>, folder: File, chosen: Set<String>, range: ClosedFloatingPointRange<Double>): AudioHeadroom? = withContext(working) {
         val voiced = HashMap<String, Boolean>()
-        val plan = state.toTimeline().mixPlan { source -> voiced.getOrPut(source) { files[source]?.let(::hasSound) == true } }
+        val timeline = state.toTimeline()
+        val (plan, sounds) = BackgroundSounds.mix(timeline.mixPlan { source -> voiced.getOrPut(source) { files[source]?.let(::hasSound) == true } }, timeline, files, folder)
         val rate = AudioLevels.MEASURE_RATE
         val frames = AudioHeadroom.frames(range, plan.duration.seconds, rate) ?: return@withContext AudioHeadroom()
         val selection = AudioGainSelection(owners(state, chosen), EditInterval.of(range.start, range.endInclusive))
         val failures = ArrayList<String>()
-        val processed = Denoiser.input(files)
-        audioEngine(plan.gainMix(selection, AudioGainMix.Mode.Selected), files, processed, rate, failures = failures).use { selected ->
-            audioEngine(plan.gainMix(selection, AudioGainMix.Mode.Remainder), files, processed, rate, failures = failures).use { remainder ->
+        val processed = Denoiser.input(sounds)
+        audioEngine(plan.gainMix(selection, AudioGainMix.Mode.Selected), sounds, processed, rate, failures = failures).use { selected ->
+            audioEngine(plan.gainMix(selection, AudioGainMix.Mode.Remainder), sounds, processed, rate, failures = failures).use { remainder ->
                 var result = AudioHeadroom()
                 val block = 4096
                 val own = FloatArray(block * 2)

@@ -608,7 +608,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 report(ExportProgress.of(ExportProgress.Step.AudioEffects, (step + it.toDouble()) / requests.size))
             }
         }
-        return MovieSound(TrackMix.plan(timeline, voiced = { voiced[it] == true }), files)
+        // The effects' background movies with their sound on are mixed in too (VideoEffectBackgroundAudio.swift:27).
+        val (plan, sounds) = withContext(Dispatchers.IO) { BackgroundSounds.mix(TrackMix.plan(timeline, voiced = { voiced[it] == true }), timeline, files, folder(project)) }
+        return MovieSound(plan, sounds)
     }
 
     /**

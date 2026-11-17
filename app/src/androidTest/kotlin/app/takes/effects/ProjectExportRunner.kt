@@ -36,7 +36,8 @@ import java.io.File
  * what each does to an HDR movie: `-e case title` (a title), `look` (the Warm look), `night` (a Night fix in Fast),
  * `nightMedium` (in Medium, whose frames are fused) or `effect` (`-e effect <VideoEffectID>`, Halation by default);
  * `-e case sdrJoin -e sdr <name>` imports a second recording from /data/local/tmp after it and joins the two with a
- * dissolve.
+ * dissolve; `-e case backgroundSound -e background <name>` puts a Chroma Key on it whose Video background is that
+ * movie from /data/local/tmp, with its Background sound on.
  */
 class ProjectExportRunner : Instrumentation() {
     private lateinit var arguments: Bundle
@@ -105,6 +106,16 @@ class ProjectExportRunner : Instrumentation() {
                     else -> whole.copy(videoEffects = listOf(app.takes.core.VideoEffectSettings(app.takes.core.VideoEffectID.valueOf(arguments.getString("effect") ?: "Halation"), start = whole.start, end = whole.end)))
                 }
                 main { store.commit(made.id, EditState(listOf(clip))) }
+            } else if (arguments.getString("case") == "backgroundSound") {
+                // A Chroma Key over the whole recording with a Video background, the movie given with `-e background
+                // <name>`, and its Background sound on: the movie loops under the subject and its sound is mixed in.
+                val movie = File("/data/local/tmp", arguments.getString("background") ?: error("-e background <name>"))
+                movie.copyTo(File(store.disk.folder(made.id), "background.mp4"), overwrite = true)
+                val whole = imported.edit.clips.single()
+                val key = app.takes.core.VideoEffectSettings(app.takes.core.VideoEffectID.ChromaKey, start = whole.start, end = whole.end)
+                    .with("background", app.takes.core.EffectValue.Choice("Video")).with("media", app.takes.core.EffectValue.Media("background.mp4"))
+                    .with("backgroundAudio", app.takes.core.EffectValue.Toggle(true))
+                main { store.commit(made.id, EditState(listOf(whole.copy(videoEffects = listOf(key))))) }
             } else if (arguments.getString("case") == "sdrJoin") {
                 // The recording, then a dissolve into an SDR recording given with `-e sdr <name>`.
                 main { store.importVideos(made.id, listOf(Uri.fromFile(File("/data/local/tmp", arguments.getString("sdr") ?: error("-e sdr <name>"))))) }

@@ -153,6 +153,7 @@ import app.takes.core.EditScope
 import app.takes.core.EditTime
 import app.takes.core.ClipAudio
 import app.takes.core.EditState
+import app.takes.core.EffectBackgroundSound
 import app.takes.core.EditTargets
 import app.takes.core.Project
 import app.takes.core.RangeEditing
@@ -357,9 +358,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     LaunchedEffect(files) { voiced = withContext(Dispatchers.IO) { files.mapValues { hasSound(it.value) } } }
     // The sound a fade being listened to or a level being dragged would give, heard before it is saved: the mix plays it in place of the edit's.
     var soundTrial by remember { mutableStateOf<EditState?>(null) }
-    val mixOf = { trial: EditState?, heard: Map<String, Boolean> -> TrackMix.plan(trial?.toTimeline() ?: timeline, voiced = { heard[it] == true }) }
-    val mixPlan = remember(timeline, soundTrial, voiced) { voiced?.let { mixOf(soundTrial, it) } }
-    LaunchedEffect(mixPlan, cleaned) { mixPlan?.let { editor.loadSound(it, files, Denoiser.input(files)) } }
+    // The effects' background movies that have sound, read once their names are known: their sound is mixed in as the export mixes it.
+    val soundFolder = remember(project.id) { store.disk.folder(project.id) }
+    val backgroundNames = remember(timeline) { EffectBackgroundSound.files(timeline) }
+    var backgroundMovies by remember { mutableStateOf<Map<String, EffectBackgroundSound.Movie>>(emptyMap()) }
+    LaunchedEffect(backgroundNames, soundFolder) { backgroundMovies = withContext(Dispatchers.IO) { BackgroundSounds.movies(soundFolder, backgroundNames) } }
+    val soundFiles = remember(files, backgroundMovies) { BackgroundSounds.files(files, soundFolder, backgroundMovies) }
+    val mixOf = { trial: EditState?, heard: Map<String, Boolean> ->
+        val heardTimeline = trial?.toTimeline() ?: timeline
+        EffectBackgroundSound.plan(TrackMix.plan(heardTimeline, voiced = { heard[it] == true }), heardTimeline, backgroundMovies)
+    }
+    val mixPlan = remember(timeline, soundTrial, voiced, backgroundMovies) { voiced?.let { mixOf(soundTrial, it) } }
+    LaunchedEffect(mixPlan, cleaned) { mixPlan?.let { editor.loadSound(it, soundFiles, Denoiser.input(files)) } }
     // While an edit drawn by layers exports, its players let go of their decoders: the export needs one a lane as well.
     val exporting = exporter.progress != null
     LaunchedEffect(clips, sounds, layers, plan.duration, refusal != null, exporting && layers != null) {
@@ -1237,7 +1247,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
                 // How far the level can go, for the warning beside the finger: measured while the drag goes on.
                 levelMeasuring.set(scope.launch {
-                    val measured = try { Headroom.measure(base, files, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end }) } catch (stopped: kotlinx.coroutines.CancellationException) { throw stopped } catch (problem: Exception) { null }
+                    val measured = try { Headroom.measure(base, files, soundFolder, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end }) } catch (stopped: kotlinx.coroutines.CancellationException) { throw stopped } catch (problem: Exception) { null }
                     leveling?.let { if (it.targets === targets) leveling = it.copy(headroom = measured) }
                 })
                 true
@@ -2172,7 +2182,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val trial = withSound(base, targets, change) ?: base
             soundTrial = trial
             // Loaded before playing, so the first moment heard is already the fade being tried.
-            voiced?.let { editor.loadSound(mixOf(trial, it), files, Denoiser.input(files)) }
+            voiced?.let { editor.loadSound(mixOf(trial, it), soundFiles, Denoiser.input(files)) }
             auditionReturn = null
             auditionEnd = until.takeIf { it < duration - 0.0005 }
             playhead = from
@@ -2185,7 +2195,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val targets = soundTargets(edit, emptyList(), listOf(item.id), { "" }) { names[it.sourceID] ?: soundName }
             SoundDialog(
                 targets,
-                measure = { change -> Headroom.measure(withSound(edit, targets, change) ?: edit, files, setOf(item.id), item.start..item.end) },
+                measure = { change -> Headroom.measure(withSound(edit, targets, change) ?: edit, files, soundFolder, setOf(item.id), item.start..item.end) },
                 save = { change -> stopListening(); commit(withSound(edit, targets, change), playhead); shapingSound = false; chosenSound = null },
                 dismiss = { stopListening(); shapingSound = false }, title = stringResource(R.string.sound_volume_and_fades),
                 listen = listenTo(edit, targets), playing = editor.playing, pause = { auditionEnd = null; editor.pause() },
@@ -2224,7 +2234,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             },
             measure = { change ->
                 if (targets.isEmpty()) null
-                else Headroom.measure(withSound(base, targets, change) ?: base, files, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end })
+                else Headroom.measure(withSound(base, targets, change) ?: base, files, soundFolder, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end })
             },
             save = { change ->
                 stopListening()

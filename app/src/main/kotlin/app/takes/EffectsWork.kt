@@ -74,11 +74,7 @@ internal object AndroidVideoEffects {
     fun effects(section: VideoEffectLibrarySection): List<VideoEffectID> = section.kinds.filter { it in offered }
 
     /** Controls of an offered effect that this release does not draw, by effect. */
-    private val HIDDEN: Map<VideoEffectID, Set<String>> = mapOf(
-        // The background movie's sound is not mixed in.
-        VideoEffectID.ChromaKey to setOf("backgroundAudio"),
-        VideoEffectID.AutoBackground to setOf("backgroundAudio"),
-    )
+    private val HIDDEN: Map<VideoEffectID, Set<String>> = emptyMap()
 
     /** Controls that need a person mask, hidden where this phone cannot make one: Color Isolation keeps "A color" only. */
     private val PERSON: Map<VideoEffectID, Set<String>> = mapOf(
