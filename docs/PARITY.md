@@ -29,8 +29,8 @@ In section 5, the image overlay row was brought up to date on 2026-11-17 from th
 
 | Status | Count |
 |---|---|
-| DONE | 160 |
-| PARTIAL | 34 |
+| DONE | 161 |
+| PARTIAL | 33 |
 | CORE ONLY | 2 |
 | MISSING | 7 |
 | N/A | 6 |
@@ -40,7 +40,7 @@ Per area:
 
 | Area | DONE | PARTIAL | CORE ONLY | MISSING | N/A |
 |---|---|---|---|---|---|
-| 1. App shell and project list | 21 | 2 | 0 | 0 | 0 |
+| 1. App shell and project list | 22 | 1 | 0 | 0 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 24 | 7 | 0 | 3 | 0 |
@@ -62,7 +62,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Three destinations: Record, Projects, Edit | O/ContentView.swift:66-70 | DONE | A/MainActivity.kt:50-69 | — | | |
 | Tabs disabled during a take or an import | O/ContentView.swift:541-550 | DONE | A/MainActivity.kt (the tabs are off and dimmed while `hasActiveTake` or while the store's `importing` is set: an import of videos, photos or a sound, a duplicate, a ZIP made or opened, a relink or a recovered project, as the original's `store.importing`) | — | | |
 | Landscape interface (editor side-by-side layout, recorder rotates) | O/YouRecApp.swift:77-110, O/EditorView.swift:354-383, O/RecorderView.swift:141-280, 341-390 | DONE | The activity turns, except upside down, and is not made again (app/src/main/AndroidManifest.xml `configChanges`), so a take, the players and a tool's draft go on; A/EditorScreen.kt `EditorFrame` (the picture beside the transport and the tools, 52 % of the width, the timeline under both at 164 dp and scrolling), A/RecorderScreen.kt (the take buttons a rail at the end away from the cameras), A/RecorderSettingsSheet.kt (the quick panel at the end, as tall as the screen), A/MainActivity.kt `Tabbed` | Departures where the port has more on screen than the original: the tabs stand in a column at the start in landscape; the status bar is hidden in landscape, as the iPhone hides it; the editor's header (title, Undo, Redo, Snap, Settings, Export) stays above the picture instead of a compact one over it, and the selection row stays with the tools beside the picture instead of under the timeline; with the keyboard up in landscape the timeline goes, to leave room for the tool being typed into | | |
-| First launch creates a project; last project re-selected | O/ContentView.swift:341, O/ProjectStore.swift:64 | PARTIAL | A/CaptureController.kt:401 creates on first Record; A/ProjectStore.kt:95 `select` | Verify the selection is persisted across launches (not confirmed, see last section) | S | Yes |
+| First launch creates a project; last project re-selected | O/ContentView.swift:341, O/ProjectStore.swift:150-154, 256-279 | DONE | A/ProjectStore.kt (`init`, `select`, `delete`, `restore`), C/ProjectSelection.kt: the selection is kept in the app's preferences; at launch it comes back while its project is in the library, else the most recently updated project is selected, and an empty library gets a new project; deleting the selected project selects the most recent one left, and a project brought back from Recently deleted is selected. A/CaptureController.kt still makes one on Record when none is selected, as the original's `startRecording` | — | | |
 | New project | O/ContentView.swift:629 | DONE | A/ProjectsScreen.kt:123, A/ProjectStore.kt:100 | — | | |
 | Project list sorted by last update | O/ProjectStore.swift:328 | DONE | A/ProjectStore.kt:418 | — | | |
 | Card: thumbnail, title, takes and duration | O/ContentView.swift:636-678 | DONE | A/ProjectsScreen.kt (`ProjectCard`, `summary`) | — | | |

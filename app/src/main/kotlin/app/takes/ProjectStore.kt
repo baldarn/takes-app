@@ -31,6 +31,7 @@ import app.takes.core.ProjectDuplicate
 import app.takes.core.ProjectDuplicateException
 import app.takes.core.ProjectRestore
 import app.takes.core.ProjectRestoreException
+import app.takes.core.ProjectSelection
 import app.takes.core.RecoveredProject
 import app.takes.core.RecoveryRules
 import app.takes.core.SourceMedia
@@ -167,6 +168,10 @@ class ProjectStore(context: Context) {
         disk.finishPendingDeletions()
         reload()
         projects.forEach(::indexFinishedTakes)
+        // The project selected when the app was last used, else the most recent one, and a project to record into
+        // when there is none, as the original starts (ProjectStore.swift:150-154, ContentView.swift:341).
+        select(ProjectSelection.atLaunch(selectedID, projects.map { it.id }))
+        if (ProjectSelection.createsAtLaunch(projects.map { it.id })) create()
     }
 
     fun file(project: Project, source: SourceMedia) = File(disk.folder(project.id), source.filename)
@@ -861,7 +866,8 @@ class ProjectStore(context: Context) {
 
     fun delete(project: Project) = attempt(R.string.projects_delete_failed) {
         disk.moveToDeleted(project)
-        if (selectedID == project.id) select(null)
+        // The most recent project left is selected in its place, as in the original (ProjectStore.swift:269).
+        select(ProjectSelection.afterRemoving(selectedID, project.id, projects.map { it.id }))
     }
 
     /**
@@ -933,7 +939,11 @@ class ProjectStore(context: Context) {
         }
     }
 
-    fun restore(project: Project) = attempt(R.string.projects_restore_failed) { disk.restoreDeleted(project.id) }
+    /** Brings [project] back from Recently deleted and selects it, as the original (ProjectStore.swift:273-279). */
+    fun restore(project: Project) = attempt(R.string.projects_restore_failed) {
+        disk.restoreDeleted(project.id)
+        select(project.id)
+    }
 
     fun erase(project: Project) = attempt(R.string.projects_erase_failed) { disk.eraseDeleted(project.id) }
 
