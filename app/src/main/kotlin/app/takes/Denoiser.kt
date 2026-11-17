@@ -5,6 +5,7 @@ import app.takes.core.AudioChainProcessor
 import app.takes.core.AudioEffect
 import app.takes.core.AudioEffectKind
 import app.takes.core.AudioModel
+import app.takes.core.ProcessingCache
 import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMixPiece
 import app.takes.deepfilter.ChannelDeepFilter
@@ -84,9 +85,35 @@ object Denoiser {
         override fun close() { dfn?.close(); rnnoise?.close() }
     }
 
-    /** The processed sound of [file] through [effects], if it has already been made; null too for a chain that changes nothing. */
+    /**
+     * The processed sound of [file] through [effects], if it has already been made; null too for a chain that changes
+     * nothing. A file found is marked used now, as the original marks what it hands out (SourceMediaCache.swift:63-66),
+     * so that [makeRoom] keeps it.
+     */
     fun ready(file: File, effects: List<AudioEffect>): File? =
-        if (AudioChain.active(effects).isEmpty()) null else cached(file, effects).takeIf { it.isFile }
+        if (AudioChain.active(effects).isEmpty()) null else cached(file, effects).takeIf { it.isFile }?.also { it.setLastModified(System.currentTimeMillis()) }
+
+    // What was made or used since the app started is in use, and is never trimmed until it starts again.
+    private val sessionStart = System.currentTimeMillis()
+
+    /**
+     * Trims the processed sound of every project to the original's quota before [required] bytes are written for
+     * the recording [file], the cheapest to make again and the oldest first, as the original's cache does
+     * (SourceMediaCache.swift:68-122, [ProcessingCache.trim]). Whether there is room for them then.
+     */
+    private fun makeRoom(file: File, required: Long): Boolean {
+        val root = file.parentFile?.parentFile ?: return true
+        val entries = root.listFiles().orEmpty().flatMap { project -> File(project, "Cache").listFiles().orEmpty().toList() }
+            .filter { it.isFile && ProcessingCache.isProcessed(it.name) }
+            .map { found ->
+                val priority = runCatching { File(found.path + ".priority").readText().trim().toInt() }.getOrDefault(0)
+                ProcessingCache.Entry(found.path, found.length(), found.lastModified(), priority, pinned = found.lastModified() >= sessionStart)
+            }
+        val trim = ProcessingCache.trim(entries, root.usableSpace, required)
+        for (entry in trim.remove) if (File(entry.path).delete()) ProcessingCache.COMPANIONS.forEach { File(entry.path + it).delete() }
+        if (!trim.enough) android.util.Log.w("Takes", "Not enough free space to process ${file.name}")
+        return trim.enough
+    }
 
     /** The cleaned sound of a clip at [amount], if it has already been made. */
     fun ready(file: File, amount: Double): File? = ready(file, noiseReduction(amount))
@@ -151,6 +178,7 @@ object Denoiser {
         val base = cached(file, active)
         base.parentFile?.mkdirs()
         val partial = File(base.parentFile, ".${base.name}.window.tmp")
+        if (!makeRoom(file, ProcessingCache.required(span.end - span.start + SETTLE, active.size))) return@withContext null
         try {
             val context = coroutineContext
             var first = -1L
@@ -199,9 +227,14 @@ object Denoiser {
         output.parentFile?.mkdirs()
         // Hidden until complete: a half-written file must never be played.
         val partial = File(output.parentFile, ".${output.name}.tmp")
+        if (!makeRoom(file, ProcessingCache.required(mediaDuration(file) ?: 0.0, active.size))) return@withContext null
         try {
             val context = coroutineContext
-            if (render(file, active, partial, progress, { context.ensureActive() }) && partial.renameTo(output)) output else null
+            if (render(file, active, partial, progress, { context.ensureActive() }) && partial.renameTo(output)) {
+                // What it is worth keeping, beside it, as the original's (SourceMediaCache.swift:446-450).
+                runCatching { File(output.path + ".priority").writeText(ProcessingCache.priority(active.map { it.kind.isNeural }).toString()) }
+                output
+            } else null
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (problem: Exception) {

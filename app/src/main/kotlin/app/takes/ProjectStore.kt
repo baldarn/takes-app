@@ -32,6 +32,7 @@ import app.takes.core.ProjectDuplicateException
 import app.takes.core.ProjectRestore
 import app.takes.core.ProjectRestoreException
 import app.takes.core.ProjectSelection
+import app.takes.core.ProcessingCache
 import app.takes.core.RecoveredProject
 import app.takes.core.RecoveryRules
 import app.takes.core.SourceMedia
@@ -167,6 +168,9 @@ class ProjectStore(context: Context) {
         disk.root.mkdirs()
         disk.finishPendingDeletions()
         reload()
+        // What processing was writing when the app last stopped is never read: it goes, as the original wipes its
+        // Processing and Previews folders at launch (ProjectStore.swift:136-142).
+        for (project in projects) File(disk.folder(project.id), "Cache").listFiles().orEmpty().filter { ProcessingCache.isWorking(it.name) }.forEach { it.delete() }
         projects.forEach(::indexFinishedTakes)
         // The project selected when the app was last used, else the most recent one, and a project to record into
         // when there is none, as the original starts (ProjectStore.swift:150-154, ContentView.swift:341).

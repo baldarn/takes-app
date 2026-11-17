@@ -29,8 +29,8 @@ In section 5, the image overlay row was brought up to date on 2026-11-17 from th
 
 | Status | Count |
 |---|---|
-| DONE | 163 |
-| PARTIAL | 31 |
+| DONE | 164 |
+| PARTIAL | 30 |
 | CORE ONLY | 2 |
 | MISSING | 7 |
 | N/A | 6 |
@@ -41,7 +41,7 @@ Per area:
 | Area | DONE | PARTIAL | CORE ONLY | MISSING | N/A |
 |---|---|---|---|---|---|
 | 1. App shell and project list | 23 | 0 | 0 | 0 | 0 |
-| 2. Recovery and storage | 4 | 3 | 0 | 0 | 0 |
+| 2. Recovery and storage | 5 | 2 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 24 | 7 | 0 | 3 | 0 |
 | 5. Editor: picture tools | 13 | 3 | 1 | 1 | 0 |
@@ -93,7 +93,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | "Changes not saved" banner with Retry and an in-memory draft journal | O/ContentView.swift:76-85, O/ProjectRecovery.swift:373-401 | PARTIAL | A/ProjectStore.kt:416-423 shows a one-off error; when a journalled draft applies is in C/RecoveryRules.kt (`draftApplies`, `draftCommitted`) | Retry, draft kept and journalled | M | Yes (fill the disk) |
 | Free-space floor before recording | O/ProjectRecovery.swift:421-464 (75 MB / 170 MB per quality at O/CaptureController.swift:1357) | DONE | C/RecordingSpace.kt (the original's rule, `ORIGINAL`, and the numbers used, `ANDROID_FLAT`: no floor, 300 MiB to start, the pause during a take as in the original); A/CaptureController.kt:753-769 checks it before a segment and pauses the take while there is room to finish the file | The device floor of the original (`max(512 MB, min(2 GB, total/50))`) is left out on purpose | | |
 | Free-space checks for zip, duplicate, restore | O/ProjectStore.swift:628-646, O/ProjectArchive.swift:80-91, 135-144, 191, 232-240 | DONE | A/ProjectStore.kt (`archive`, `openArchive`, `duplicate`), C/ProjectArchive.kt (`requiredSpace`), C/RecoveryRules.kt (`room`, `spaceToFree`, `CHECK_INTERVAL`), C/ProjectRestore.kt and C/ProjectDuplicate.kt (NotEnoughSpace): a ZIP needs 256 MB and its media above the original's floor (`max(512 MB, min(2 GB, total / 50))`) before it begins, says how much to free in the original's words, and checks the floor again every 16 MB; a duplicate and an opened ZIP write no further than the floor | The ZIP goes straight to the document the person chose, so the phone's own storage is what is measured, where the original measures its temporary folder; a restore is not first copied whole, so it is the bytes written, not the ZIP's size, that meet the floor | | |
-| Processing caches wiped or trimmed (previews, cleaned audio) | O/ProjectStore.swift:138-141, O/SourceMediaCache.swift:108 | PARTIAL | A/Denoiser.kt:26 keeps cleaned WAVs in the project cache | No quota or trim found | S | Yes |
+| Processing caches wiped or trimmed (previews, cleaned audio) | O/ProjectStore.swift:136-142, O/SourceMediaCache.swift:63-122, 344, 446-452 | DONE | C/ProcessingCache.kt (the quota, the room asked, the worth of a file, the order of removal), A/Denoiser.kt (`makeRoom` before a chain or a stretch is processed, the `.priority` beside each chain, a file found ready marked used), A/ProjectStore.kt (`init`): the processed sound of every project counts against a tenth of what is free and of what it holds, within 2 and 8 GB; the stretches processed for listening go first, then by the original's worth (a hundred a model, ten more when the last stage is one), the least recently used first, until the quota is met and what is to be written and 256 MB are free; the half-written files of an interrupted run go at launch | What was made or used since the app started counts as in use and is kept, where the original counts the files leased at that moment; when even so there is no room, the chain is not made and the sound plays as recorded, as for any chain the phone cannot make, where the original stops with "There is not enough free space to process this take." | | |
 
 ## 3. Recorder and camera
 
