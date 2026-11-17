@@ -49,6 +49,7 @@ import app.takes.core.PauseDetector
 import android.os.Build
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import app.takes.core.ColorControl
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.LUTInput
@@ -2096,14 +2097,14 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
         if (uri != null) scope.launch { importLut(uri)?.let { color = color.copy(imported = it) } }
     }
     @Composable
-    fun Level(label: String, value: Double, range: ClosedFloatingPointRange<Float>, shown: String, change: (Double) -> Unit) {
+    fun Level(label: String, value: Double, control: ColorControl, change: (Double) -> Unit) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.SpaceBetween) {
             Text(label, color = Muted, fontSize = 13.sp)
-            Text(shown, color = Color.White, fontSize = 13.sp)
+            Text(control.label(value), color = Color.White, fontSize = 13.sp)
         }
-        // Steps of a twentieth of the range: fine enough to see, coarse enough to hit zero again.
-        Slider(value = value.toFloat(), onValueChange = { change((it * 20 / (range.endInclusive - range.start)).roundToInt() * (range.endInclusive - range.start) / 20.0) },
-            valueRange = range, modifier = Modifier.semantics { contentDescription = label })
+        // The original's ranges and steps (YouRec/ColorGradeControls.swift:25, 63, 70-72, 152).
+        Slider(value = value.toFloat(), onValueChange = { change(control.stepped(it.toDouble())) },
+            valueRange = control.low.toFloat()..control.high.toFloat(), modifier = Modifier.semantics { contentDescription = label })
     }
     AlertDialog(
         onDismissRequest = dismiss,
@@ -2121,18 +2122,14 @@ private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> Import
                     TextButton(onClick = { pickLut.launch("*/*") }) { Text(stringResource(if (lut == null) R.string.color_import_lut else R.string.color_choose_another_lut)) }
                     if (lut != null) TextButton(onClick = { color = color.copy(imported = null) }) { Text(stringResource(R.string.color_use_look)) }
                 }
-                Level(stringResource(R.string.color_strength), color.amount, 0f..1f, "${(color.amount * 100).roundToInt()}%") { color = color.copy(amount = it) }
+                Level(stringResource(R.string.color_strength), color.amount, ColorControl.Strength) { color = color.copy(amount = it) }
                 // A correction left at zero is stored as nothing, as in the original.
                 // Highlights sits above the balance, as in the original's colour controls (YouRec/ColorGradeControls.swift:52-66).
-                val highlights = color.highlights ?: 0.0
-                Level(stringResource(R.string.color_highlights), highlights, -1f..1f, "%+.0f".format(highlights * 100)) { color = color.copy(highlights = it.takeIf { it != 0.0 }) }
+                Level(stringResource(R.string.color_highlights), color.highlights ?: 0.0, ColorControl.Highlights) { color = color.copy(highlights = it.takeIf { it != 0.0 }) }
                 Text(stringResource(R.string.color_highlights_help), color = Muted, fontSize = 12.sp)
-                val exposure = color.exposure ?: 0.0
-                val warmth = color.warmth ?: 0.0
-                val tint = color.tint ?: 0.0
-                Level(stringResource(R.string.color_exposure), exposure, -2f..2f, "%+.1f".format(exposure)) { color = color.copy(exposure = it.takeIf { it != 0.0 }) }
-                Level(stringResource(R.string.color_warmth), warmth, -1f..1f, "%+.0f".format(warmth * 100)) { color = color.copy(warmth = it.takeIf { it != 0.0 }) }
-                Level(stringResource(R.string.color_tint), tint, -1f..1f, "%+.0f".format(tint * 100)) { color = color.copy(tint = it.takeIf { it != 0.0 }) }
+                Level(stringResource(R.string.color_exposure), color.exposure ?: 0.0, ColorControl.Exposure) { color = color.copy(exposure = it.takeIf { it != 0.0 }) }
+                Level(stringResource(R.string.color_warmth), color.warmth ?: 0.0, ColorControl.Warmth) { color = color.copy(warmth = it.takeIf { it != 0.0 }) }
+                Level(stringResource(R.string.color_tint), color.tint ?: 0.0, ColorControl.Tint) { color = color.copy(tint = it.takeIf { it != 0.0 }) }
             }
         },
         confirmButton = { TextButton(onClick = { save(color) }) { Text(stringResource(R.string.common_save)) } },

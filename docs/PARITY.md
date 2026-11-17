@@ -27,8 +27,8 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 | Status | Count |
 |---|---|
-| DONE | 150 |
-| PARTIAL | 37 |
+| DONE | 151 |
+| PARTIAL | 36 |
 | CORE ONLY | 4 |
 | MISSING | 12 |
 | N/A | 6 |
@@ -42,7 +42,7 @@ Per area:
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 22 | 7 | 0 | 5 | 0 |
-| 5. Editor: picture tools | 7 | 5 | 3 | 3 | 0 |
+| 5. Editor: picture tools | 8 | 4 | 3 | 3 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 19 | 0 | 0 | 2 | 0 |
@@ -191,8 +191,8 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Mirror (flip horizontally / vertically) | O/EditorTools.swift:1319-1322 | DONE | Two switches in A/CropPanel.kt rather than a Mirror tool of their own; `TimelineClip.mirror` (schema 20, C/Project.kt), C/TimelineEditing.kt `setMirror`; the export through `FramingEffect` and the preview through `PictureFrame.layer` | No Mirror badge of its own on the timeline | | |
 | Colour: 14 looks with strength | O/ColorGradeControls.swift:15-154, O/VideoToolCompositor.swift:456-529 | DONE | A/EditorScreen.kt:1206-1255, A/ColorLuts.kt, C/ColorGrade.kt | Preview needs Android 13 (A/EditorScreen.kt:621); look thumbnails | | |
 | Imported `.cube` LUT | O/ColorGrading.swift:39-128 | PARTIAL | A/ProjectStore.kt:196, C/CubeLUT.kt (3D and 1D) | LUT library (Imported / Favorites tabs), "LUT expects" input choice (`LUTInput`, C/ColorSettings.kt:28; what a log LUT is given is C/LogColor.kt `lutInput`) | M | Yes |
-| Exposure, warmth, tint | O/ColorGradeControls.swift | PARTIAL | A/EditorScreen.kt:1242-1244 (exposure ±2) | Exposure range ±4 | S | Yes |
-| Highlights slider | O/ColorGradeControls.swift:52-66 | DONE | The slider of the colour dialog (A/EditorScreen.kt `ColorDialog`, −1…1, above the balance as in the original), applied in C/ColorGrade.kt `balance` by the original's curve (C/LogColor.kt `highlights`); the export's LUT and the preview's shader checked against it in A/androidTest `PictureToolPixelCases` | Steps of 0.1 rather than 0.01, as the other sliders of the dialog | | |
+| Exposure, warmth, tint | O/ColorGradeControls.swift:68-75, 149-154 | DONE | The sliders of the colour dialog (A/EditorScreen.kt `ColorDialog`): exposure −4…4 EV, warmth and tint −1…1, in steps of 0.05 and written with two decimals as the original (C/ColorControls.kt `ColorControl`) | — | | |
+| Highlights slider | O/ColorGradeControls.swift:52-66 | DONE | The slider of the colour dialog (A/EditorScreen.kt `ColorDialog`, −1…1 in steps of 0.01 (C/ColorControls.kt), above the balance as in the original), applied in C/ColorGrade.kt `balance` by the original's curve (C/LogColor.kt `highlights`); the export's LUT and the preview's shader checked against it in A/androidTest `PictureToolPixelCases` | — | | |
 | Local highlight recovery for Log footage | O/ColorGradeControls.swift, README:136-139 | MISSING | Field only (C/ColorSettings.kt:52) | Spatial filter; only meaningful with Log sources | L | Yes |
 | Log-to-display conversion of Log footage | O/LogColor.swift:61-191, O/VideoToolCompositor.swift:505-529 | PARTIAL | C/ColorGrade.kt `applyLog` (decode, balance and Highlights on the light, the viewing transform, then the look or a LUT on what it expects) in the one colour table of the preview and the export (A/ColorLuts.kt); A/LogFootage.kt tells a recording by the `AppleLog`/`AppleLog2` name in its movie header, since Android's MediaFormat has no log transfer | The detection is not checked on a real Apple Log file; the table is 33 points on 8-bit code values, not the original's float pipeline: within a level on average, up to about 100 levels off on a few colours near black or out of gamut; the recording is decoded as Media3 decodes it (no HDR path) | S | Phone footage |
 | Saved named grades | O/ColorGradeControls.swift (`color.saveGrade`) | MISSING | — | | M | Yes |
