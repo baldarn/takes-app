@@ -165,6 +165,11 @@ import app.takes.core.TimelineEditing
 import app.takes.core.TimelineNavigation
 import app.takes.core.TimelineZoom
 import app.takes.core.ToolCompare
+import app.takes.core.EditorTool
+import app.takes.core.ToolRegion
+import app.takes.core.ToolRegions
+import app.takes.core.TrackPlacements
+import app.takes.core.TrackTimeline
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
@@ -1748,6 +1753,53 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     dismissButton = { TextButton(onClick = { pendingLink = null }) { Text(stringResource(R.string.common_cancel)) } },
                 )
             }
+            // What the tools left on the edit (VideoTools.swift:567-627): those at the playhead as chips beside Mark, every one
+            // in the tools' "In this project". Worked out again when the edit changes; which play at the playhead is a derived
+            // state, so that a scrub composes the editor again only when it crosses one.
+            val regions = remember(edit) { ToolRegions.of(edit) }
+            val here by remember(regions) {
+                derivedStateOf { ToolRegions.at(regions, playhead).filter { it.tool != EditorTool.Transition && it.tool != EditorTool.Placement } }
+            }
+            val removedNote = stringResource(R.string.effect_removed)
+            // A region opened in its tool on its own piece, as the original's badge does (VideoTools.swift:455-489): the
+            // clip it is on, the sound for a level, the sounds of a censor or a chain; the playhead goes into it first.
+            val openRegion: (ToolRegion) -> Unit = { region ->
+                cancelPendingPlay()
+                editor.pause()
+                if (playhead < region.start || playhead > region.end) jump(region.start.coerceIn(0.0, duration))
+                val index = clips.indexOfFirst { it.id == region.clipID }
+                val clip = clips.getOrNull(index)
+                when (region.tool) {
+                    EditorTool.Text -> clip?.texts?.firstOrNull { it.id == region.effectID }?.let { title ->
+                        TimelineEditing.titleRange(clips, index, title)?.let { range -> titling = Titling(title, range, clip.id, title, range) }
+                    }
+                    EditorTool.Image -> clip?.images?.firstOrNull { it.id == region.effectID }?.let { image -> Imaging.opening(clips, index, image)?.let { imaging = it } }
+                    EditorTool.Color -> clip?.let { coloring = Coloring(saved, edit, listOf(it.id), null, null, it.color ?: ColorSettings()) }
+                    EditorTool.Crop, EditorTool.Mirror -> clip?.let { cropping = Cropping.opening(edit, null, it) }
+                    EditorTool.Speed -> clip?.let { pacing = Pacing(saved, edit, listOf(it.id), null, null, it.rate) }
+                    EditorTool.VideoEffects -> clip?.let { effecting = EffectsWork.opening(edit, null, it) }
+                    EditorTool.Pauses -> clip?.let { pausing = Pausing(saved, edit, listOf(it.id), null) }
+                    EditorTool.Subtitles -> subtitling = edit
+                    EditorTool.CensorAudio, EditorTool.EnhanceAudio -> region.audio?.let { badge -> audioTool = badge.kind to AudioToolWork.of(edit, badge, TimelineSelection()) }
+                    EditorTool.Volume -> {
+                        // A picture's own sound in the clip's Sound, a sound of its own in Volume and fades.
+                        val follows = edit.toTimeline().audio.firstOrNull { it.id == region.clipID }?.followsVideo
+                        val owner = clips.firstOrNull { it.id == follows || TrackTimeline.counterpart(it.id) == region.clipID }
+                        if (owner != null) editingAudio = owner.id
+                        else edit.audio.orEmpty().firstOrNull { TrackSequenceView.soundID(edit, it.id) == region.clipID }?.let { chosenSound = it.id; shapingSound = true }
+                    }
+                    EditorTool.Transition -> region.join?.let { transitioning = Transitioning.at(edit, it, canvas) }
+                    EditorTool.Placement -> edit.layered?.let { timeline ->
+                        PlacementSpots.at(timeline, region.start)?.let { found ->
+                            PlacementDraft.open(timeline, found.participants, region.start)?.let { placementWork = Placing(it, found, timeline) }
+                        }
+                    }
+                    EditorTool.Stabilize -> Unit
+                }
+            }
+            val removeRegion: (ToolRegion, String) -> Unit = { region, label ->
+                ToolRegions.removing(edit, region)?.let { next -> commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(label) }
+            }
             // In landscape the tools scroll beside the picture.
             Column(Modifier.layoutId(EditorSlot.Tools).then(if (landscape) Modifier.verticalScroll(toolRows) else Modifier)) {
             SelectionBar(
@@ -1806,6 +1858,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val name = stringResource(style?.label ?: R.string.editor_transition)
                     TransitionChip(
                         name, if (style == null) stringResource(R.string.transition_chip_add) else stringResource(R.string.transition_chip_edit, name), adds = style == null,
+                        id = join.transition?.let { "transition-${it.id}" },
+                        remove = join.transition?.let { { TimelineEditing.setJoin(edit, join.index, null)?.let { next -> commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(name) } } },
                     ) { editor.pause(); jump(join.time.coerceIn(0.0, duration)); transitioning = Transitioning.at(edit, join.index, canvas) }
                 } + listOfNotNull(
                     // In time where nothing plays, Close gap (EditorView.swift:675-682).
@@ -1817,12 +1871,24 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 ),
                 // At an overlap, the Placement bubble (VideoTools.swift:612-622), offered beside a selection too (EditorView.swift:665).
                 placement = spot?.let { found ->
-                    TransitionChip(stringResource(if (found.placementID == null) R.string.placement_default else R.string.placement_title), placementLabel, adds = false, color = PlacementColor) {
+                    val name = stringResource(if (found.placementID == null) R.string.placement_default else R.string.placement_title)
+                    TransitionChip(
+                        name, placementLabel, adds = false, color = PlacementColor, id = "placement-${found.placementID}",
+                        remove = found.placementID?.let { id -> { withTimeline(edit) { TrackPlacements.removing(it, id) }?.let { next -> commit(next, playhead); feedback = removedNote.format(name) } } },
+                    ) {
                         editor.pause()
                         val timeline = edit.layered
                         val draft = timeline?.let { PlacementDraft.open(it, found.participants, playhead) }
                         if (timeline != null && draft != null) placementWork = Placing(draft, found, timeline)
                     }
+                },
+                // The rest of what the tools left at the playhead: a tap opens it, a touch and hold offers to take it away (EditorView.swift:803-835).
+                effects = here.map { region ->
+                    val name = regionLabel(region)
+                    TransitionChip(
+                        name, stringResource(R.string.effect_chip_edit, name), adds = false, color = toolTint(region.tool),
+                        id = region.id, remove = { removeRegion(region, name) },
+                    ) { openRegion(region) }
                 },
             )
             // Whether Split cuts at the playhead. Knowing it means making the cut, too much for every frame of a scrub on the

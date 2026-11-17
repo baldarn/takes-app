@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- What the tools left on the edit, as chips at the playhead and in the tools' "In this project" (YouRec/VideoTools.swift:567-627, YouRec/EditorView.swift:1676-1710). -->
+    <string name="region_mirror">Mirror</string>
+    <string name="region_stabilize">Stabilize</string>
+    <string name="region_censor">Censor audio</string>
+    <string name="region_volume">Volume</string>
+    <string name="region_flip_both">Flip H + V</string>
+    <string name="region_flip_horizontal">Flip horizontal</string>
+    <string name="region_flip_vertical">Flip vertical</string>
+    <string name="region_crop_turned">Crop · %1$s°</string>
+    <string name="region_fill">Fill</string>
+    <string name="region_rate">%1$s×</string>
+    <string name="effect_chip_edit">Edit %1$s</string>
+    <string name="effect_chip_hold">Show removal controls</string>
+    <string name="effect_chip_remove">Remove %1$s</string>
+    <string name="effect_chip_cancel">Cancel removal</string>
+    <string name="effect_removed">Removed %1$s · Undo available</string>
+</resources>

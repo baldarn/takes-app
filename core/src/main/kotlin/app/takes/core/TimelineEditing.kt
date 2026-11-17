@@ -699,7 +699,7 @@ object TimelineEditing {
      * timeline ([TrackSequenceView.merging]), as the original's tools do
      * through `replaceVideoContents`. Null when the merge changes nothing.
      */
-    private fun recipes(state: EditState, clips: List<TimelineClip>): EditState? =
+    internal fun recipes(state: EditState, clips: List<TimelineClip>): EditState? =
         TrackWrapping.edit(state, sound = false) { TrackSequenceView.merging(it, clips) }
 
     // MARK: Titles

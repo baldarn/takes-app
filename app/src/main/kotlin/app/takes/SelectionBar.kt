@@ -178,7 +178,12 @@ private fun selectionCount(videos: Int, sounds: Int): String = listOfNotNull(
  * it there: one to add on the join the playhead is on, or the one the
  * playhead is on or inside, to open.
  */
-internal class TransitionChip(val label: String, val description: String, val adds: Boolean, val color: Color = TransitionColor, val open: () -> Unit)
+internal class TransitionChip(
+    val label: String, val description: String, val adds: Boolean, val color: Color = TransitionColor,
+    /** What a touch and hold offers to take away (YouRec/EditorView.swift:1676-1710), by the region's [id]; null when it cannot be. */
+    val id: String? = null, val remove: (() -> Unit)? = null,
+    val open: () -> Unit,
+)
 
 /**
  * The row between the timeline and the tools. Mark is always there. Beside it,
@@ -202,6 +207,8 @@ internal fun SelectionBar(
     editSound: (() -> Unit)? = null,
     transitions: List<TransitionChip> = emptyList(),
     placement: TransitionChip? = null,
+    /** What the tools left at the playhead, after the transitions and Placement (EditorView.swift:803-826). */
+    effects: List<TransitionChip> = emptyList(),
     unavailable: String? = null, explain: (String) -> Unit = {},
     deleteLabel: Int = R.string.selection_delete, restoreSync: SyncAction? = null,
 ) {
@@ -274,18 +281,19 @@ internal fun SelectionBar(
                 PasteButton(canPaste, replacesTransition, because ?: it, off = because != null, pasteTargets.takeIf { because == null }.orEmpty())
                 BarIcon(Icons.Filled.Close, R.string.clipboard_clear, Color.White.copy(alpha = 0.8f), clearClipboard)
             }
-            val chips = transitions + listOfNotNull(placement)
-            if (chips.isEmpty()) Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val chips = transitions + listOfNotNull(placement) + effects
+            // A chip held for removal stands alone until it is removed or let go, as in the original (EditorView.swift:639-640).
+            var armed by remember { mutableStateOf<String?>(null) }
+            val shown = chips.firstOrNull { it.id != null && it.id == armed }?.let(::listOf) ?: chips
+            if (shown.isEmpty()) Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             else Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 4.dp), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) {
-                for (chip in chips) {
-                    TextButton(
-                        onClick = chip.open, Modifier.semantics { contentDescription = chip.description }, shape = CircleShape,
-                        colors = ButtonDefaults.textButtonColors(containerColor = chip.color.copy(alpha = 0.12f), contentColor = chip.color),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                    ) {
-                        Icon(if (chip.adds) Icons.Filled.Add else Icons.Outlined.Tune, null, Modifier.size(18.dp))
-                        Text(chip.label, Modifier.padding(start = 4.dp), maxLines = 1)
-                    }
+                for (chip in shown) {
+                    val held = chip.id != null && chip.id == armed
+                    EffectChipButton(
+                        chip.label, chip.color, held, edit = { armed = null; chip.open() },
+                        arm = chip.remove?.let { { armed = chip.id } }, cancel = { armed = null },
+                        remove = { armed = null; chip.remove?.invoke() }, description = chip.description, adds = chip.adds,
+                    )
                 }
             }
         }

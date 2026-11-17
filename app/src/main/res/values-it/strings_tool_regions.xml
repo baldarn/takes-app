@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="region_mirror">Specchio</string>
+    <string name="region_stabilize">Stabilizza</string>
+    <string name="region_censor">Censura audio</string>
+    <string name="region_volume">Volume</string>
+    <string name="region_flip_both">Capovolgi O + V</string>
+    <string name="region_flip_horizontal">Capovolgi in orizzontale</string>
+    <string name="region_flip_vertical">Capovolgi in verticale</string>
+    <string name="region_crop_turned">Ritaglio · %1$s°</string>
+    <string name="region_fill">Riempi</string>
+    <string name="region_rate">%1$s×</string>
+    <string name="effect_chip_edit">Modifica %1$s</string>
+    <string name="effect_chip_hold">Mostra i comandi per rimuovere</string>
+    <string name="effect_chip_remove">Rimuovi %1$s</string>
+    <string name="effect_chip_cancel">Annulla la rimozione</string>
+    <string name="effect_removed">Rimosso: %1$s · Annulla disponibile</string>
+</resources>
