@@ -497,7 +497,8 @@ internal fun Timeline(
                                     .then(if (item.id in movingSounds) Modifier.border(2.dp, GhostColor, RoundedCornerShape(4.dp)) else Modifier)
                                     .pointerInput(item.id) {
                                         detectTapGestures(
-                                            onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(null, item.id) },
+                                            // Not while the hold on a handle has become a trim of this sound: the finger held still past 0.3 s would toggle it out of the selection.
+                                            onLongPress = { if (soundTrim?.id != item.id) { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(null, item.id) } },
                                             onTap = { onSelect(null, item.id) },
                                         )
                                     }
