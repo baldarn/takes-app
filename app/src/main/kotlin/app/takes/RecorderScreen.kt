@@ -189,6 +189,9 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     // The live video effects, over the picture in place of the controls, as in the original (RecorderView.swift:252-267).
     var effectsOpen by remember { mutableStateOf(false) }
     var inspected by remember { mutableStateOf<VideoEffectID?>(null) }
+    // The panel stood taller in portrait; a frame tool brings it back down. RecorderView.swift:63, 338-340.
+    var effectsExpanded by remember { mutableStateOf(false) }
+    LaunchedEffect(capture.frameToolActive) { if (capture.frameToolActive) effectsExpanded = false }
     // Where the subject of a camera move was tapped, shown for a moment.
     var bracket by remember { mutableStateOf<Offset?>(null) }
     LaunchedEffect(bracket) { if (bracket != null) { delay(800); bracket = null } }
@@ -373,13 +376,24 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 // A touch on the panel is the panel's: it neither closes it nor reaches the picture under it.
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { if (it.changedToDown()) it.consume() } } }
             val sides = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom + WindowInsetsSides.Top)
+            // In portrait the panel stands 340 points tall, or 85 % of the screen when expanded; an optical effect's controls
+            // keep it within 45 % so its picture shows. RecorderView.swift:150-153, 259.
+            val optical = inspected in OPTICAL_EFFECTS
+            val screen = LocalConfiguration.current.screenHeightDp.toFloat()
+            val canExpand = !landscape && !capture.frameToolActive && !optical
+            val panelHeight = when {
+                optical -> minOf(340f, screen * 0.45f)
+                else -> minOf(screen, if (effectsExpanded && canExpand) screen * 0.85f else 340f)
+            }
             LiveEffectsPanel(
                 capture,
                 // A frame tool's bar stands at the bottom, over as little of the picture as it can. RecorderView.swift:258-266.
                 if (capture.frameToolActive) Modifier.align(Alignment.BottomCenter).windowInsetsPadding(sides).padding(8.dp).widthIn(max = 520.dp).fillMaxWidth().then(panel)
                 else if (landscape) Modifier.align(if (controlsOnLeft) Alignment.CenterStart else Alignment.CenterEnd).windowInsetsPadding(sides).padding(8.dp)
                     .width(360.dp).fillMaxHeight().then(panel)
-                else Modifier.align(Alignment.BottomCenter).windowInsetsPadding(sides).padding(8.dp).fillMaxWidth().height(340.dp).then(panel),
+                else Modifier.align(Alignment.BottomCenter).windowInsetsPadding(sides).padding(8.dp).fillMaxWidth().height(panelHeight.dp).then(panel),
+                expanded = effectsExpanded.takeIf { canExpand },
+                expand = { effectsExpanded = !effectsExpanded },
                 inspect = { inspected = it },
             ) { effectsOpen = false; inspected = null }
         }
@@ -617,6 +631,9 @@ private fun StripDivider() {
 
 /** The width the rail of take buttons takes in landscape, with its margins. */
 private val RailWidth = 124.dp
+
+/** The effects whose controls show the picture above them, so the panel stays short (CaptureController.swift:260-265). */
+private val OPTICAL_EFFECTS = setOf(VideoEffectID.Kaleidoscope, VideoEffectID.RgbOffset, VideoEffectID.NegativeStrobe)
 
 /**
  * The bottom row, as in the original, or in landscape the rail at one end (RecorderView.swift:423-425): the same

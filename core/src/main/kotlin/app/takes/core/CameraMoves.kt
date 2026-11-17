@@ -205,8 +205,16 @@ object CaptureEffectsFile {
         null
     }
 
+    /** Deletes the effects saved for [movie] and the analysis they name, as the original discards both (LiveVideoEffects.swift:326). */
     fun delete(movie: File) {
-        beside(movie).delete()
+        val file = beside(movie)
+        val analysis = try {
+            if (file.isFile) documentJson.decodeFromString(SupportedVideoEffects, file.readText()).flatMap { listOfNotNull(it.analysisFile, it.analysisDataFile) } else emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        analysis.distinct().filter(::isProjectFileName).forEach { File(movie.parentFile, it).delete() }
+        file.delete()
     }
 }
 

@@ -35,6 +35,7 @@ import app.takes.core.FaceFraming
 import app.takes.core.FaceTarget
 import app.takes.core.HorizonEstimate
 import app.takes.core.CameraFraming
+import app.takes.core.CapturedEffectAnalysis
 import app.takes.core.HorizonFraming
 import app.takes.core.HorizonLine
 import app.takes.core.LiveCrashZooms
@@ -128,6 +129,8 @@ class CameraFrames(context: Context) {
     data class Looks(val effects: List<VideoEffectSettings> = emptyList(), val recording: Boolean = false, val tool: Boolean = false)
 
     @Volatile var looks = Looks()
+    /** Where the palettes the looks show while a segment is recorded are kept, to be saved beside it (LiveVideoEffects.swift:643-646). */
+    @Volatile var capturedLooks: CapturedEffectAnalysis.Recorder? = null
     /** Android's thermal status, for the lighter processing when the phone is warm. */
     @Volatile var thermal = 0
     /** Called on the main thread when the note on the looks' quality changes, and whether the phone is warm. */
@@ -393,6 +396,7 @@ class CameraFrames(context: Context) {
                     false
                 }
                 looksShown = drewLooks
+                if (drewLooks && looking.recording) capturedLooks?.append(lookTime, live.shownPalettes(shown, lookTime))
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, eglContext)) continue
@@ -1026,6 +1030,7 @@ class CameraFrames(context: Context) {
                     false
                 }
                 looksShown = drewLooks
+                if (drewLooks && looking.recording) capturedLooks?.append(lookTime, live.shownPalettes(shown, lookTime))
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, preview.eglContext)) continue

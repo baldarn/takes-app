@@ -7,6 +7,8 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import app.takes.core.CaptureEffectsFile
+import app.takes.core.CapturedEffectAnalysis
 import app.takes.core.EffectColorMath
 import app.takes.core.EffectFrameInputs
 import app.takes.core.EffectImage
@@ -119,8 +121,20 @@ class SourceAssets(
 
     override fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? {
         val file = source ?: return null
+        // What the recorder's preview showed, while nothing it was drawn from has changed. MediaRenderer.swift:413-419.
+        captured(file, effect)?.let { return it.palette(sourceTime) }
         val track = if (wait) ScenePalettes.track(file, clip, effect) else ScenePalettes.cached(file, clip, effect, ready)
         return track?.palette(sourceTime)
+    }
+
+    private fun captured(file: File, effect: VideoEffectSettings): EffectPaletteTrack? {
+        val name = effect.analysisFile ?: return null
+        val plain = clip.color == null && clip.crop == null && clip.mirror == null && clip.stabilization == null
+        // The recipe beside the take, within the length its clip was given it for.
+        val length = clip.videoEffects.orEmpty().filter { it.analysisFile == name }.maxOfOrNull { it.end } ?: return null
+        val recipe = CaptureEffectsFile.read(file, length)
+        if (!CapturedEffectAnalysis.palettesHold(effect, clip.videoEffects.orEmpty(), recipe, plain)) return null
+        return CapturedPalettes.track(File(file.parentFile, name), effect.analysisID)
     }
 
     private val upright by lazy { source?.let(::displaySize)?.let { GeometrySize(it.first.toDouble(), it.second.toDouble()) } }
@@ -246,6 +260,20 @@ internal object EffectPictures {
  * it; here it is the recording's own frame, before its colour, crop and those
  * effects.
  */
+/** The palettes saved with a take by the recorder (CapturedEffectAnalysis), read once each. */
+object CapturedPalettes {
+    private val read = ConcurrentHashMap<String, Map<String, EffectPaletteTrack>>()
+
+    fun track(file: File, id: String): EffectPaletteTrack? {
+        val key = file.path + "|" + file.lastModified()
+        val tracks = read.getOrPut(key) {
+            if (read.size > 16) read.clear()
+            CapturedEffectAnalysis.read(file)?.palettes?.mapValues { it.value.track }.orEmpty()
+        }
+        return tracks[id]?.takeIf { it.frames.isNotEmpty() }
+    }
+}
+
 object ScenePalettes {
     private val tracks = ConcurrentHashMap<String, EffectPaletteTrack>()
     private val working = ConcurrentHashMap.newKeySet<String>()

@@ -61,6 +61,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import app.takes.core.CaptureEffectsFile
+import app.takes.core.CapturedEffectAnalysis
 import app.takes.core.ChromaScreen
 import app.takes.core.EffectPalette
 import app.takes.core.EffectValue
@@ -141,6 +142,7 @@ class CaptureController(private val context: Context, private val store: Project
         var indexed = false // in the project
         var microphone: String? = null // the microphone it began with, whose recording gain it is given
         var moves = emptyList<VideoEffectSettings>() // its live effects and Crash Zooms, as last saved beside it
+        var analysis: CapturedEffectAnalysis.Recorder? = null // what its live looks showed, saved with them
     }
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
@@ -864,9 +866,21 @@ class CaptureController(private val context: Context, private val store: Project
      * Saves the live effects and the Crash Zooms of [current] beside its movie, at once, as the original does when the
      * segment begins and at each Crash Zoom; a picture they show is copied beside it. LiveVideoEffects.swift:281-310, 375-382.
      */
-    private fun saveRecipe(current: Segment) {
-        val recipe = LiveVideoEffects.recipe(liveEffects, crash.moves)
-        if (recipe.isEmpty()) return
+    /**
+     * Saves the segment's effects beside it, with what the looks showed while it was recorded so that the editor
+     * draws them the same way: when it begins, at each Crash Zoom, and when it ends ([last]), when the analysis is
+     * complete (LiveVideoEffects.swift:303-336, 374-382).
+     */
+    private fun saveRecipe(current: Segment, first: Boolean = false, last: Boolean = false) {
+        if (first) {
+            current.analysis = if (CapturedEffectAnalysis.wanted(liveEffects)) CapturedEffectAnalysis.Recorder() else null
+            frames.capturedLooks = current.analysis
+        }
+        val analysis = current.analysis
+        if (last && frames.capturedLooks === analysis) frames.capturedLooks = null
+        val made = LiveVideoEffects.recipe(liveEffects, crash.moves)
+        if (made.isEmpty()) return
+        val recipe = analysis?.label(made) ?: made
         current.moves = recipe
         val pictures = LiveVideoEffects.mediaFiles(liveEffects)
         val source = frames.effectsFolder
@@ -876,6 +890,7 @@ class CaptureController(private val context: Context, private val store: Project
                     val target = File(current.file.parentFile, name)
                     if (!target.exists()) File(source, name).takeIf { it.isFile }?.copyTo(target)
                 }
+                analysis?.save(current.file.parentFile)
                 CaptureEffectsFile.write(recipe, current.file)
             }
         }
@@ -1935,7 +1950,7 @@ class CaptureController(private val context: Context, private val store: Project
         if (dualActive) frames.resetDualReport()
         publishMoves()
         publishLooks()
-        saveRecipe(next)
+        saveRecipe(next, first = true)
         if (dollyFollower != null) note(next, CaptureEvent(time = 0.0, kind = "dollyStart", detail = "Dolly Zoom continuing from the preview"))
         recording = pending.start(ContextCompat.getMainExecutor(context)) { event -> handle(next, event) }
     }
@@ -1982,7 +1997,7 @@ class CaptureController(private val context: Context, private val store: Project
         current.requested = next
         stopDolly(immediate = false, reason = if (next == Phase.Paused) DollyHint.MovePaused else DollyHint.RecordingStopped)
         // The moves of the segment are saved with it; one under way goes on in the preview.
-        saveRecipe(current)
+        saveRecipe(current, last = true)
         crash = crash.carried(effectTime())
         phase = Phase.Saving
         movesOrigin = SystemClock.elapsedRealtimeNanos()

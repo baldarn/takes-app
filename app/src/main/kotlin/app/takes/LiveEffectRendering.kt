@@ -477,6 +477,15 @@ internal class LiveEffectRendering(private val context: Context) {
         return LiveVideoEffects.medianColor(bytes, w, h)
     }
 
+    /**
+     * The palettes each Quantization of [effects] shows at [time], as the analysis saved with a take keeps them
+     * (LiveVideoEffects.swift:617-619, 643-646).
+     */
+    fun shownPalettes(effects: List<VideoEffectSettings>, time: Double): Map<String, EffectPalette> =
+        effects.filter { it.enabled && it.kind == VideoEffectID.Quantization && time >= it.start && time < it.end }.mapNotNull { effect ->
+            EffectPaletteAnalysis.displayPalette(effect, time, synchronized(palettes) { palettes[effect.id] })?.let { effect.id to it }
+        }.toMap()
+
     private inner class Assets : EffectAssets {
         override fun person(sourceTime: Double, smoothed: Boolean): PersonFrame? = if (smoothed) this@LiveEffectRendering.smoothed else person
         override fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? = synchronized(palettes) { palettes[effect.id] }

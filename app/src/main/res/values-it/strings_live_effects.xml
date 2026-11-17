@@ -3,6 +3,8 @@
     <!-- Gli effetti video dal vivo del registratore: i look disegnati sull'anteprima e i loro strumenti (YouRec/VideoEffects/LiveEffectsPanel.swift). -->
     <string name="live_effects_adaptive_quality">Qualità adattiva</string>
     <string name="live_effects_warm_banner">Telefono caldo · anteprima adattiva</string>
+    <string name="live_effects_expand">Espandi i controlli</string>
+    <string name="live_effects_collapse">Riduci i controlli</string>
     <string name="live_effects_quality_warm">Il telefono è caldo. La risoluzione dell\'anteprima è ridotta; la registrazione continua.</string>
     <string name="live_effects_quality_warm_lite">Il telefono è caldo. Gli effetti dal vivo usano un\'elaborazione più leggera; la registrazione continua.</string>
     <string name="live_effects_quality_lite">L\'anteprima dal vivo usa un\'elaborazione più leggera. Registrazione ed esportazione restano a piena risoluzione.</string>

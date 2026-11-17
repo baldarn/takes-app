@@ -3,6 +3,8 @@
     <!-- The recorder's live video effects: the looks drawn over the preview and their frame tools (YouRec/VideoEffects/LiveEffectsPanel.swift). -->
     <string name="live_effects_adaptive_quality">Adaptive quality</string>
     <string name="live_effects_warm_banner">Phone is warm · adaptive preview</string>
+    <string name="live_effects_expand">Expand controls</string>
+    <string name="live_effects_collapse">Collapse controls</string>
     <string name="live_effects_quality_warm">The phone is warm. Preview resolution is reduced; recording continues.</string>
     <string name="live_effects_quality_warm_lite">The phone is warm. Live effects use lighter processing; recording continues.</string>
     <string name="live_effects_quality_lite">Live preview uses lighter processing. Recording and export stay at full resolution.</string>

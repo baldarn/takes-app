@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.ZoomInMap
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CenterFocusWeak
@@ -121,10 +123,18 @@ private sealed interface LivePage {
 /**
  * The recorder's Video effects panel, as the original's (YouRec/VideoEffects/LiveEffectsPanel.swift): the effects
  * applied, the library to add from and the controls of one; in place of all that, while a frame tool is open, its bar.
- * [inspect] is told the effect whose controls are open.
+ * [inspect] is told the effect whose controls are open. [expanded] is whether the panel stands taller, null where it
+ * cannot (LiveEffectsPanel.swift:59-70); [expand] turns it over.
  */
 @Composable
-internal fun LiveEffectsPanel(capture: CaptureController, modifier: Modifier, inspect: (VideoEffectID?) -> Unit, close: () -> Unit) {
+internal fun LiveEffectsPanel(
+    capture: CaptureController,
+    modifier: Modifier,
+    expanded: Boolean?,
+    expand: () -> Unit,
+    inspect: (VideoEffectID?) -> Unit,
+    close: () -> Unit,
+) {
     val effects = capture.liveEffects
     var page by remember { mutableStateOf<LivePage>(if (effects.isEmpty()) LivePage.Library else LivePage.Applied) }
     var selected by remember { mutableStateOf(effects.firstOrNull()?.id) }
@@ -151,7 +161,18 @@ internal fun LiveEffectsPanel(capture: CaptureController, modifier: Modifier, in
     }
     Column(modifier) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.weight(1f))
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (expanded != null) {
+                    val label = stringResource(if (expanded) R.string.live_effects_collapse else R.string.live_effects_expand)
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.06f))
+                            .clickable(role = Role.Button, onClick = expand).semantics { contentDescription = label },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(if (expanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp, null, tint = Color.White)
+                    }
+                }
+            }
             Text(stringResource(R.string.editor_effects), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.semantics { heading() })
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                 TextButton(onClick = close, modifier = Modifier.heightIn(min = 44.dp)) { Text(stringResource(R.string.common_done), fontWeight = FontWeight.SemiBold) }
