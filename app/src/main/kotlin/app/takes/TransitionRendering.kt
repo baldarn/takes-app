@@ -220,8 +220,10 @@ object TransitionShader {
         }
     """
 
-    /** What comes after `side()`: the drawing of every style from the two sides. */
-    internal const val TAIL = """
+    // What comes after `side()`, in parts: the blurs, each a loop over the samples of a side, then the drawing of
+    // every style from the two sides ([TAIL]).
+    private const val PAN = """
+
         // One side moved by an offset and blurred evenly along an axis, a radius to each side: in linear light. The
         // samples lie a pixel apart, up to 128 of them: on the reduced picture the export blurs, at most 960 pixels
         // long, a smear without gaps. A larger picture drawn in one pass (a preview's view longer than that) takes
@@ -237,6 +239,9 @@ object TransitionShader {
             }
             return sum / n;
         }
+    """
+
+    private const val DISC = """
         // One side through an aperture: the even disc a lens out of focus makes of every point, a little brighter
         // at its rim, in linear light so highlights spread as discs. The 96 points lie on a sunflower spiral; the
         // side has been spread by a Gaussian as wide as the space between them, so they make a disc and not dots.
@@ -258,6 +263,9 @@ object TransitionShader {
             }
             return sum / total;
         }
+    """
+
+    private const val REDUCE = """
         // One side reduced: the average, in linear light, of the uA.x by uA.y pixels a pixel of the reduced picture
         // covers, each read at its middle (a read between pixels would mix them as they are encoded), up to 8 by 8.
         vec3 reduce(float kind, vec2 q) {
@@ -271,6 +279,9 @@ object TransitionShader {
             }
             return enc(sum / (reads.x * reads.y));
         }
+    """
+
+    private const val SPREAD = """
         // One side blurred along the direction uA.yz by a Gaussian of uA.x pixels, in linear light, out to three of them.
         vec3 spread(float kind, vec2 q) {
             float sigma = uA.x;
@@ -287,6 +298,9 @@ object TransitionShader {
             }
             return enc(sum / total);
         }
+    """
+
+    private const val REST = """
         // Whether a pixel is in a rectangle given as left, top, width, height.
         bool within(vec2 p, vec4 r) { return p.x >= r.x && p.y >= r.y && p.x < r.x + r.z && p.y < r.y + r.w; }
         vec3 scene(vec2 q) {
@@ -327,7 +341,39 @@ object TransitionShader {
             if (uF.z > 0.0) sum += uF.z * lin(side(uKind.y, q));
             return enc(sum);
         }
-    """
+        """
+
+    /** What comes after `side()`: the drawing of every style from the two sides. */
+    internal const val TAIL = PAN + DISC + REDUCE + SPREAD + REST
+
+    /**
+     * One part of the preview's program, for Android 13, whose shader compiler refuses a program past a size it counts
+     * with every loop unrolled ("program is too large"): the drawing of every style but the blurs ([PLAIN]), of a
+     * whip pan ([WHIP]), of a defocus ([DEFOCUS]), or a spread before a blur ([SPREAD]). The others' blurs are
+     * stood in for by a side as it is, which their modes never reach; the pixels are those of the whole program.
+     */
+    enum class Part { PLAIN, WHIP, DEFOCUS, SPREAD }
+
+    private const val PAN_STUB = "vec3 pan(float kind, vec2 q, vec2 offset, vec2 axis, float radius) { return lin(side(kind, q - offset)); }\n"
+    private const val DISC_STUB = "vec3 disc(float kind, vec2 q, float radius, float ring, float rim) { return lin(side(kind, q)); }\n"
+    private const val REDUCE_STUB = "vec3 reduce(float kind, vec2 q) { return side(kind, q); }\n"
+    private const val SPREAD_STUB = "vec3 spread(float kind, vec2 q) { return side(kind, q); }\n"
+
+    /** [TAIL] with only the blur [part] draws; the preview never reduces a picture. */
+    internal fun tail(part: Part): String =
+        (if (part == Part.WHIP) PAN else PAN_STUB) + (if (part == Part.DEFOCUS) DISC else DISC_STUB) + REDUCE_STUB +
+            (if (part == Part.SPREAD) SPREAD else SPREAD_STUB) + REST
+
+    /** Whether the preview's program is made in [Part]s: on Android 13, where the whole one is too large to compile. */
+    val previewInParts: Boolean get() = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
+    /** The part of the preview's program that draws [mode] of [SceneDrawing]. */
+    fun part(mode: Int): Part = when (mode) {
+        SceneDrawing.WHIP -> Part.WHIP
+        SceneDrawing.DEFOCUS -> Part.DEFOCUS
+        SceneDrawing.SPREAD -> Part.SPREAD
+        else -> Part.PLAIN
+    }
 
     internal const val UNIFORMS = """
         uniform vec2 uSize;
@@ -387,8 +433,8 @@ object TransitionShader {
         void main() { gl_Position = aPosition; vTex = aPosition.xy * 0.5 + 0.5; }
     """
 
-    /** For the preview: the layer holds the two deck views one above the other; the frame is drawn over the upper one. */
-    const val PREVIEW = """
+    /** For the preview: the layer holds the two deck views one above the other; the frame is drawn over the upper one; [tail] is the whole program's or a [Part]'s. */
+    fun preview(tail: String = TAIL): String = """
         uniform shader content;
         $UNIFORMS
         vec3 deck(float kind, vec2 p) { return content.eval(vec2(p.x, p.y + kind * uSize.y)).rgb; }
@@ -397,7 +443,7 @@ object TransitionShader {
         vec4 title(float which, vec2 p) { return vec4(0.0); }
         $PREVIEW_HEAD
         $SIDE
-        $TAIL
+        $tail
         vec4 main(vec2 xy) {
             // A spread is made of both decks, each in its half, for the frame drawn after it.
             if (uMode > 8.5) {
@@ -421,9 +467,16 @@ object TransitionShader {
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class TransitionPreviewShader {
-    private val shader = RuntimeShader(TransitionShader.PREVIEW)
-    private val across = RuntimeShader(TransitionShader.PREVIEW)
-    private val down = RuntimeShader(TransitionShader.PREVIEW)
+    // On Android 13 a program of each part, made when first needed ([TransitionShader.Part]); later, the whole one.
+    private val parts = HashMap<TransitionShader.Part, RuntimeShader>()
+    private val whole by lazy { RuntimeShader(TransitionShader.preview()) }
+    private val across by lazy { RuntimeShader(if (TransitionShader.previewInParts) TransitionShader.preview(TransitionShader.tail(TransitionShader.Part.SPREAD)) else TransitionShader.preview()) }
+    private val down by lazy { RuntimeShader(if (TransitionShader.previewInParts) TransitionShader.preview(TransitionShader.tail(TransitionShader.Part.SPREAD)) else TransitionShader.preview()) }
+
+    /** The program that draws [drawing]'s frame. */
+    private fun frame(drawing: SceneDrawing): RuntimeShader =
+        if (!TransitionShader.previewInParts) whole
+        else TransitionShader.part(drawing.mode).let { part -> parts.getOrPut(part) { RuntimeShader(TransitionShader.preview(TransitionShader.tail(part))) } }
 
     private fun RuntimeShader.set(drawing: SceneDrawing, width: Float, height: Float): RenderEffect {
         setFloatUniform("uSize", width, height)
@@ -436,7 +489,7 @@ class TransitionPreviewShader {
 
     /** The effect for a layer [width] pixels wide holding the two decks, each [height] pixels tall. */
     fun effect(drawing: SceneDrawing, width: Float, height: Float): RenderEffect {
-        val frame = shader.set(drawing, width, height)
+        val frame = frame(drawing).set(drawing, width, height)
         if (drawing.mode != SceneDrawing.DEFOCUS || !drawing.blurs) return frame
         // The shader takes half the samples of a disc on a picture longer than 1920 pixels.
         val samples = if (maxOf(width, height) > 1920f) TransitionGeometry.DEFOCUS_SAMPLES / 2 else TransitionGeometry.DEFOCUS_SAMPLES

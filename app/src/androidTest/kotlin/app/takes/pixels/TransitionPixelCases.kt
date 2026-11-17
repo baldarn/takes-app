@@ -343,7 +343,33 @@ class TransitionPixelCases(private val bench: Bench) {
             Case("Defocus: no copies of a square at ${width}x$height, default amount") { defocusSamples(width, height, null) },
         )
     } + Case("Whip pan and defocus: the time a frame takes at 3840x2160") { blurCost(3840, 2160) } +
-        Case("Defocus in the preview: the decks spread, then the disc") { previewDefocus() }
+        Case("Defocus in the preview: the decks spread, then the disc") { previewDefocus() } +
+        Case("Every preview shader compiles on this device") { previewCompiles() }
+
+    /**
+     * Every program the preview runs, made as the editor makes them: the transition's and the layers' for every style
+     * with its blur and spreads, and each effect's. Android 13 refuses a program past a size it counts with every
+     * loop unrolled ("program is too large"), where the editor crashed on opening; there the transition's program is
+     * made in parts.
+     */
+    private fun Checks.previewCompiles() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return note("no preview shader below Android 13")
+        note(if (app.takes.TransitionShader.previewInParts) "the transition's program in parts" else "the transition's program whole")
+        val transition = TransitionPreviewShader()
+        val layers = app.takes.LayerPreviewShader()
+        for (mode in SceneDrawing.SINGLE..SceneDrawing.DEFOCUS) {
+            val values = FloatArray(24).also { it[0] = 40f; it[4] = 1f; it[6] = 40f }
+            val drawing = SceneDrawing(mode, 0f, 1f, FloatArray(3), values)
+            transition.effect(drawing, 1920f, 1080f)
+            layers.effect(app.takes.LayerDrawing(drawing, true, 0, FloatArray(app.takes.LayerDrawing.MOST * app.takes.LayerDrawing.STRIDE)), 1920f, 1080f)
+        }
+        var effects = 0
+        for (kind in -1..40) {
+            android.graphics.RuntimeShader(app.takes.EffectShader.preview(kind))
+            effects++
+        }
+        note("transition and layer programs for modes ${SceneDrawing.SINGLE} to ${SceneDrawing.DEFOCUS} made, and $effects effect programs")
+    }
 
     /**
      * The preview's shader, compiled and run by the platform as the editor runs it, on a layer of two decks: a
