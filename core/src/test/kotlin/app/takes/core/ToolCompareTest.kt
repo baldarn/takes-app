@@ -32,6 +32,18 @@ class ToolCompareTest {
         assertEquals(base, ToolCompare.paced(base, listOf("missing"), 2.0))
     }
 
+    // YouRec/EditorTools.swift:428, 703: one speed under the tool's one id on every clip of its scope, whatever id a clip
+    // had, so the clips share one effect and "In this project" lists it once (YouRec/EditorView.swift:977-989).
+    @Test fun aSpeedOverSeveralClipsIsOneEffect() {
+        val base = TimelineEditing.setSpeed(EditState(listOf(a, b)), 1, 0.5)!!
+        val after = ToolCompare.paced(base, listOf("a", "b"), 2.0, id = "pace")
+        assertEquals(listOf("pace", "pace"), after.clips.map { it.speed?.id })
+        assertEquals(1, ToolRegions.listed(ToolRegions.of(after), 0.0).count { it.tool == EditorTool.Speed })
+        // Split, both pieces keep it.
+        val split = TimelineEditing.split(after, 1.0)!!
+        assertEquals(listOf("pace", "pace", "pace"), split.clips.map { it.speed?.id })
+    }
+
     @Test fun thePlayheadStaysOnTheSameFootage() {
         val before = EditState(listOf(a, b))
         val after = ToolCompare.paced(before, listOf("a"), 2.0)

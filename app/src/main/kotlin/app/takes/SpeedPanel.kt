@@ -37,6 +37,7 @@ import app.takes.core.EditState
 import app.takes.core.RangeEditing
 import app.takes.core.SpeedSettings
 import app.takes.core.ToolCompare
+import app.takes.core.newID
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -53,6 +54,8 @@ private val RemoveRed = Color(0xFFFF6961)
  */
 internal class Pacing(
     val from: EditState, val base: EditState, val ids: List<String>, val scoped: RangeEditing.Scoped?, val label: String?, initial: Double,
+    /** The id the speed is saved under on every clip: the one opened from its chip, else a new one (EditorTools.swift:428, 703). */
+    val id: String = newID(),
 ) {
     var rate by mutableDoubleStateOf(SpeedSettings.stepped(initial))
     var settled by mutableDoubleStateOf(rate)
@@ -72,7 +75,7 @@ internal class Pacing(
         }
 
     /** The edit with the rate applied, or with the speed removed. */
-    fun applied(removing: Boolean = false): EditState = ToolCompare.paced(base, ids, if (removing) 1.0 else rate)
+    fun applied(removing: Boolean = false): EditState = ToolCompare.paced(base, ids, if (removing) 1.0 else rate, id)
 }
 
 /**

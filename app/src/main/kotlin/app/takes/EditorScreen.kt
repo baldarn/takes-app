@@ -463,15 +463,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The last thing that happened, said beside the Mark button for a moment.
     var feedback by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(feedback) { if (feedback != null) { kotlinx.coroutines.delay(3000); feedback = null } }
-    // What Sound, Color, Crop and Speed apply to while something is marked or selected: the clips inside,
-    // cut at the two ends of a range. Null: the clip under the playhead, as always.
-    val toolScope = remember(edit, marks) { if (marks.scope == EditScope.Whole) null else RangeEditing.scoped(edit, marks.scope) }
-    // The sounds on the audio tracks a tool for sound applies to as well: the ones selected whole.
-    val toolSounds = (marks.scope as? EditScope.Selected)?.targets?.audio.orEmpty()
+    // What the tools apply to, as the original's scope (EditorView.swift:518-522, 998-1002): while something is marked or
+    // selected the clips inside, cut at the two ends of a range, and with nothing marked the whole project.
+    val toolScope = remember(edit, marks) { RangeEditing.scoped(edit, marks.scope) }
+    // The sounds on the audio tracks a tool for sound applies to as well: the ones selected whole, or all of them.
+    val toolSounds = when (val scope = marks.scope) {
+        is EditScope.Selected -> scope.targets.audio
+        EditScope.Whole -> edit.audio.orEmpty().map { it.id }.toSet()
+        else -> emptySet()
+    }
     val toolScopeLabel = when (val scope = marks.scope) {
         is EditScope.Range -> stringResource(R.string.selection_tool_range, preciseLabel(scope.range.start), preciseLabel(scope.range.end))
         is EditScope.Selected -> stringResource(R.string.selection_tool_selected, selectionCount(edit, scope.targets))
-        EditScope.Whole -> null
+        EditScope.Whole -> stringResource(R.string.selection_tool_whole, preciseLabel(duration))
     }
     // A tool cuts the clips at the ends of the range, and the pieces inside are new clips: a range limited
     // to some clips takes them in, as the original carries a range from the clips to their pieces.
@@ -482,7 +486,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The clip a tool shows the settings of: the one of its scope under the playhead, else the first.
     val toolSubject by remember(toolScope) {
         derivedStateOf {
-            toolScope?.let { scoped ->
+            toolScope.let { scoped ->
                 val under = TimelineEditing.locate(scoped.state.clips, playhead)?.let { scoped.state.clips[it.index] }?.takeIf { it.id in scoped.clips }
                 under ?: scoped.state.clips.firstOrNull { it.id == scoped.clips.firstOrNull() }
             }
@@ -725,6 +729,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var covering by remember { mutableStateOf<CoverPick.Source?>(null) }
     // The clip the Sound dialog was opened on; null while it is closed.
     var editingAudio by remember { mutableStateOf<String?>(null) }
+    // Whether the Sound dialog was opened from a level's chip, on that clip alone, rather than on the tools' scope.
+    var soundPiece by remember { mutableStateOf(false) }
     var leveling by remember { mutableStateOf<Leveling?>(null) }
     val levelMeasuring = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
     var chosenSound by remember { mutableStateOf<String?>(null) }   // the audio item being edited
@@ -1154,7 +1160,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // which becomes what is selected (EditorTimeline.swift:617-625).
                 val range = marks.range?.takeIf { time >= it.start && time < it.end }
                 val aimed = marks.rangeTargets
-                val ranged = toolScope?.takeIf { range != null && (clip != null && aimed?.clips?.contains(clip) != false || sound != null && aimed?.audio?.contains(sound) != false) }
+                val ranged = toolScope.takeIf { range != null && (clip != null && aimed?.clips?.contains(clip) != false || sound != null && aimed?.audio?.contains(sound) != false) }
                 val selected = marks.range == null && marks.start == null && (clip != null && clip in marks.selected.clips || sound != null && sound in marks.selected.audio)
                 val base = ranged?.state ?: edit
                 // In a range, the sounds on the audio tracks in it too, as the original's range holds every lane in it.
@@ -1776,7 +1782,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     EditorTool.Image -> clip?.images?.firstOrNull { it.id == region.effectID }?.let { image -> Imaging.opening(clips, index, image)?.let { imaging = it } }
                     EditorTool.Color -> clip?.let { coloring = Coloring(saved, edit, listOf(it.id), null, null, it.color ?: ColorSettings()) }
                     EditorTool.Crop, EditorTool.Mirror -> clip?.let { cropping = Cropping.opening(edit, null, it) }
-                    EditorTool.Speed -> clip?.let { pacing = Pacing(saved, edit, listOf(it.id), null, null, it.rate) }
+                    EditorTool.Speed -> clip?.let { pacing = Pacing(saved, edit, listOf(it.id), null, null, it.rate, id = region.effectID) }
                     EditorTool.VideoEffects -> clip?.let { effecting = EffectsWork.opening(edit, null, it) }
                     EditorTool.Pauses -> clip?.let { pausing = Pausing(saved, edit, listOf(it.id), null) }
                     EditorTool.Subtitles -> subtitling = edit
@@ -1785,7 +1791,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         // A picture's own sound in the clip's Sound, a sound of its own in Volume and fades.
                         val follows = edit.toTimeline().audio.firstOrNull { it.id == region.clipID }?.followsVideo
                         val owner = clips.firstOrNull { it.id == follows || TrackTimeline.counterpart(it.id) == region.clipID }
-                        if (owner != null) editingAudio = owner.id
+                        if (owner != null) { soundPiece = true; editingAudio = owner.id }
                         else edit.audio.orEmpty().firstOrNull { TrackSequenceView.soundID(edit, it.id) == region.clipID }?.let { chosenSound = it.id; shapingSound = true }
                     }
                     EditorTool.Transition -> region.join?.let { transitioning = Transitioning.at(edit, it, canvas) }
@@ -1896,39 +1902,38 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val splits by produceState(remember { TimelineEditing.split(edit, Snapshot.withoutReadObservation { playhead }) != null }, edit) {
                 snapshotFlow { playhead }.conflate().collect { at -> value = withContext(Dispatchers.Default) { TimelineEditing.split(edit, at) != null } }
             }
+            // These apply to the clips of the scope: of a range or a selection, else of the whole project; a scope that holds no clip has nothing for them.
+            val scopeHasClips = toolScope.clips.isNotEmpty()
+            val scopeFramed = remember(toolScope, sizes) { toolScope.state.clips.any { it.id in toolScope.clips && sizes[it.sourceID] != null } }
             ToolRow(Modifier.fillMaxWidth()) {
                 TextButton(onClick = { TimelineEditing.split(edit, playhead)?.let { commit(it, playhead); marks = marks.cleared() } }, compact,
                     enabled = splits, contentPadding = tight) { Text(stringResource(R.string.editor_split)) }
-                // With a range or a selection these four apply to the clips in it; a scope that holds no clip has nothing for them.
-                val scopeHasClips = toolScope == null || toolSubject != null
-                TextButton(onClick = { editor.pause(); editingAudio = current?.id }, compact, enabled = located != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
+                TextButton(onClick = { editor.pause(); soundPiece = false; editingAudio = current?.id }, compact, enabled = located != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
                 TextButton(onClick = {
                     editor.pause()
-                    // On the clips of the range or the selection, cut at the ends of a range, else on the clip under the playhead.
-                    val initial = (toolSubject ?: current)?.color ?: ColorSettings()
-                    if (current != null) coloring = toolScope?.let { Coloring(saved, it.state, it.clips, it, toolScopeLabel, initial) } ?: Coloring(saved, edit, listOf(current.id), null, null, initial)
-                }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
+                    // On the clips of the range, the selection or the whole project, cut at the ends of a range.
+                    val initial = toolSubject?.color ?: ColorSettings()
+                    coloring = Coloring(saved, toolScope.state, toolScope.clips, toolScope, toolScopeLabel, initial)
+                }, compact, enabled = scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
                 TextButton(onClick = {
                     editor.pause()
                     // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.
-                    val shownAt = toolScope?.let { scoped ->
+                    val shownAt = toolScope.let { scoped ->
                         val start = scoped.state.clips.indexOfFirst { it.id == toolSubject?.id }.takeIf { it >= 0 }?.let { TimelineEditing.clipStart(scoped.state.clips, it) }
                         if (start != null && (playhead < start || playhead >= start + toolSubject!!.duration)) start else null
                     }
                     shownAt?.let(jump)
-                    val framed = toolSubject ?: current
-                    if (framed != null) cropping = Cropping.opening(edit, toolScope, framed)
-                }, compact, enabled = current != null && sizes[current.sourceID] != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
+                    toolSubject?.let { framed -> cropping = Cropping.opening(edit, toolScope, framed) }
+                }, compact, enabled = scopeFramed, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
                 TextButton(onClick = {
                     editor.pause()
-                    val initial = (toolSubject ?: current)?.rate ?: 1.0
-                    if (current != null) pacing = toolScope?.let { Pacing(saved, it.state, it.clips, it, toolScopeLabel, initial) } ?: Pacing(saved, edit, listOf(current.id), null, null, initial)
-                }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
+                    val initial = toolSubject?.rate ?: 1.0
+                    pacing = Pacing(saved, toolScope.state, toolScope.clips, toolScope, toolScopeLabel, initial)
+                }, compact, enabled = scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
                 TextButton(onClick = {
                     editor.pause()
-                    val subject = toolSubject ?: current
-                    if (subject != null) effecting = EffectsWork.opening(edit, toolScope, subject)
-                }, compact, enabled = current != null && scopeHasClips, contentPadding = tight) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.editor_effects)) }
+                    toolSubject?.let { subject -> effecting = EffectsWork.opening(edit, toolScope, subject) }
+                }, compact, enabled = scopeHasClips, contentPadding = tight) { Icon(Icons.Outlined.AutoAwesome, stringResource(R.string.editor_effects)) }
             }
             ToolRow(Modifier.fillMaxWidth()) {
                 TextButton(
@@ -1941,10 +1946,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     },
                     compact, enabled = located != null, contentPadding = tight,
                 ) { Text(stringResource(R.string.editor_title)) }
-                // A picture over the footage, beside Title as in the original's tools (EditorTools.swift:54): over the marked range, else three seconds from the playhead.
+                // A picture over the footage, beside Title as in the original's tools (EditorTools.swift:54): over the marked range,
+                // over the clips selected and on them alone, else three seconds from the playhead (EditorView.swift:1012-1016).
                 TextButton(onClick = {
                     editor.pause()
-                    if (clips.isNotEmpty()) imaging = Imaging.adding(newImageRange(clips, playhead, marks.range?.let { it.start..it.end }))
+                    val selected = marks.selected.clips.takeIf { marks.range == null && marks.start == null && it.isNotEmpty() }
+                    val spans = selected?.let { ids -> clips.indices.filter { clips[it].id in ids }.mapNotNull { at -> TrackEditState.clipStart(edit, at)?.let { it..it + clips[at].duration } } }
+                    val over = spans?.takeIf { it.isNotEmpty() }?.let { it.minOf { span -> span.start }..it.maxOf { span -> span.endInclusive } }
+                    if (clips.isNotEmpty()) imaging = Imaging.adding(over ?: newImageRange(clips, playhead, marks.range?.let { it.start..it.end }), selected.takeIf { over != null })
                 }, compact, enabled = located != null, contentPadding = tight) { Text(stringResource(R.string.image_tool)) }
                 // On the join nearest to the playhead: between two clips, or the opening or the close of the movie.
                 // Off a row of clips a join has no number: drawn as off, a tap says why.
@@ -1955,9 +1964,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }, content = { Text(stringResource(R.string.editor_transition)) }, modifier = compact)
                 TextButton(onClick = {
                     editor.pause()
-                    // On the clips of the range or the selection, cut at the ends of a range, else on the clip under the playhead.
-                    if (current != null) pausing = toolScope?.let { Pausing(saved, it.state, it.clips, toolScopeLabel) } ?: Pausing(saved, edit, listOf(current.id), null)
-                }, compact, enabled = located != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
+                    // On the clips of the range, the selection or the whole project, cut at the ends of a range.
+                    if (toolScope.clips.isNotEmpty()) pausing = Pausing(saved, toolScope.state, toolScope.clips, toolScopeLabel)
+                }, compact, enabled = scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
                 TextButton(onClick = { editor.pause(); addingAudio = playhead }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
                 // Select cover, beside the media added, as in the original's tools (EditorTools.swift:39-48): frames of the range, of the selection or of the whole project.
                 TextButton(onClick = {
@@ -2118,14 +2127,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     if (audioClip != null && located != null && current != null) {
         // The clip under the playhead when the dialog opened, kept while a fade being listened to moves the playhead onto the next;
         // in a scope its clips, cut at the ends of a range, and the sounds on the audio tracks selected with them, which have no noise reduction.
-        val base = toolScope?.state ?: edit
+        val base = if (soundPiece) edit else toolScope.state
+        val scopeClips = if (soundPiece) listOf(audioClip) else toolScope.clips
+        val scopeSounds = if (soundPiece) emptySet() else toolSounds
         val clipName = stringResource(R.string.sound_target_clip)
-        val targets = soundTargets(base, toolScope?.clips ?: listOf(audioClip), toolSounds, { clipName.format(it + 1) }) { names[it.sourceID] ?: soundName }
+        val targets = soundTargets(base, scopeClips, scopeSounds, { clipName.format(it + 1) }) { names[it.sourceID] ?: soundName }
         SoundDialog(
             targets,
             // Enhance audio and Censor act on the same sounds, in the marked range when there is one.
             tools = { kind ->
-                val selection = soundSelection(edit, toolScope?.clips ?: listOf(audioClip), toolSounds, marks.range?.let { EditInterval.of(it.start, it.end) })
+                val selection = soundSelection(edit, scopeClips, scopeSounds, marks.range?.let { EditInterval.of(it.start, it.end) })
                 stopListening()
                 editingAudio = null
                 audioTool = kind to AudioToolWork(edit, null, selection)
@@ -2144,7 +2155,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 editingAudio = null
             },
             dismiss = { stopListening(); editingAudio = null },
-            appliesTo = toolScopeLabel,
+            appliesTo = if (soundPiece) null else toolScopeLabel,
             listen = listenTo(base, targets), playing = editor.playing, pause = { auditionEnd = null; editor.pause() },
         )
     }

@@ -16,4 +16,5 @@
     <string name="effect_chip_remove">Remove %1$s</string>
     <string name="effect_chip_cancel">Cancel removal</string>
     <string name="effect_removed">Removed %1$s · Undo available</string>
+    <string name="selection_tool_whole">Whole project · %1$s</string>
 </resources>

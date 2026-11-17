@@ -106,6 +106,8 @@ class OverlayPictures(private val folder: File, private val longest: Int = Image
  *
  * @param clipID the clip of the piece an existing picture was opened on; null for a new one, which goes on every clip.
  * @param opened the seconds the picture had when it was opened.
+ * @param clips the clips selected when a new picture was added, which alone it goes on (YouRec/EditorView.swift:1012-1016,
+ *   YouRec/EditorTools.swift:655); null for every clip its seconds cover.
  */
 internal data class Imaging(
     val draft: ImageDraft,
@@ -115,10 +117,11 @@ internal data class Imaging(
     val opened: ClosedFloatingPointRange<Double>?,
     val imported: List<String> = emptyList(),
     val loading: Boolean = false,
+    val clips: Set<String>? = null,
 ) {
     val duration: Double get() = range.endInclusive - range.start
     val chosen: Boolean get() = draft.image.filename.isNotEmpty()
-    private val scope: Set<String>? get() = clipID?.let(::setOf)
+    private val scope: Set<String>? get() = clipID?.let(::setOf) ?: clips
 
     /** The edit as the preview shows it while the tool is open: an end being edited still, else the motion as it runs. */
     fun shown(edit: EditState): EditState? =
@@ -139,7 +142,8 @@ internal data class Imaging(
 
     companion object {
         /** A new picture, over the marked range or for three seconds from the playhead (YouRec/EditorView.swift:1016). */
-        fun adding(range: ClosedFloatingPointRange<Double>): Imaging = Imaging(ImageDraft(ImageOverlay(filename = "")), range, null, null, null)
+        fun adding(range: ClosedFloatingPointRange<Double>, clips: Set<String>? = null): Imaging =
+            Imaging(ImageDraft(ImageOverlay(filename = "")), range, null, null, null, clips = clips)
 
         /** The picture [image] of the clip at [index], opened from its bar on that piece. Null when the piece shows none of it. */
         fun opening(clips: List<app.takes.core.TimelineClip>, index: Int, image: ImageOverlay): Imaging? {

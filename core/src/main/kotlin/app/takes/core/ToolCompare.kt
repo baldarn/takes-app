@@ -39,9 +39,12 @@ object ToolCompare {
         }
     }
 
-    /** [base] with the clips [ids] played at [rate]; 1 plays them as recorded (Before). */
-    fun paced(base: EditState, ids: Collection<String>, rate: Double): EditState =
-        each(base, ids) { state, at -> TimelineEditing.setSpeed(state, at, rate) }
+    /**
+     * [base] with the clips [ids] played at [rate]; 1 plays them as recorded (Before). With [id], one speed under
+     * that id on all of them, as the original's tool saves it (YouRec/EditorTools.swift:703).
+     */
+    fun paced(base: EditState, ids: Collection<String>, rate: Double, id: String? = null): EditState =
+        each(base, ids) { state, at -> TimelineEditing.setSpeed(state, at, rate, id) }
 
     /**
      * The second of [to] that shows the frame [time] shows in [from], so that

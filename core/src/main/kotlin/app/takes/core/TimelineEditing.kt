@@ -1076,11 +1076,13 @@ object TimelineEditing {
      * setting. The clip keeps its footage and takes more or less time, so
      * later clips move. When its transitions then cost more than it lasts,
      * they are scaled together to fit, as in the original; a clip made
-     * slower does not give a shortened transition its length back.
+     * slower does not give a shortened transition its length back. With
+     * [id] the speed is saved under it, as the original saves one speed under
+     * one id on every clip a tool sets it on (YouRec/EditorTools.swift:703).
      */
-    fun setSpeed(state: EditState, index: Int, rate: Double): EditState? {
+    fun setSpeed(state: EditState, index: Int, rate: Double, id: String? = null): EditState? {
         val clip = state.clips.getOrNull(index) ?: return null
-        val speed = if (rate == 1.0) null else (clip.speed ?: SpeedSettings()).copy(rate = rate)
+        val speed = if (rate == 1.0) null else (clip.speed ?: SpeedSettings()).copy(rate = rate).let { if (id != null) it.copy(id = id) else it }
         if (speed?.valid == false || speed == clip.speed) return null
         // The speed is merged as an edited recipe, with its ripple ([TrackEditing.settingSpeed]); the clips keep their order.
         return retimed(state, index, { it.copy(speed = speed) }) { timeline -> TrackEditing.settingSpeed(timeline, clip.id, speed) }

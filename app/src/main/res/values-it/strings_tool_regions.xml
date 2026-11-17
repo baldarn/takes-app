@@ -15,4 +15,5 @@
     <string name="effect_chip_remove">Rimuovi %1$s</string>
     <string name="effect_chip_cancel">Annulla la rimozione</string>
     <string name="effect_removed">Rimosso: %1$s · Annulla disponibile</string>
+    <string name="selection_tool_whole">Intero progetto · %1$s</string>
 </resources>
