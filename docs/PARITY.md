@@ -31,8 +31,8 @@ In sections 1 and 2, the rows on the tabs during an import, the selected project
 
 | Status | Count |
 |---|---|
-| DONE | 167 |
-| PARTIAL | 27 |
+| DONE | 168 |
+| PARTIAL | 26 |
 | CORE ONLY | 2 |
 | MISSING | 7 |
 | N/A | 6 |
@@ -45,7 +45,7 @@ Per area:
 | 1. App shell and project list | 23 | 0 | 0 | 0 | 0 |
 | 2. Recovery and storage | 7 | 0 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
-| 4. Editor: timeline, playback, structure | 25 | 6 | 0 | 3 | 0 |
+| 4. Editor: timeline, playback, structure | 26 | 5 | 0 | 3 | 0 |
 | 5. Editor: picture tools | 13 | 3 | 1 | 1 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
@@ -169,7 +169,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Snap to cuts (toggle) | O/EditorView.swift:932-945, O/TrackTimeline.swift:1470-1491 | DONE | A/Transport.kt (`SnapToggle`, `SnapSetting`), A/EditorScreen.kt, C/TimelineSnapping.kt: the playhead, when a scroll ends | Moved parts snap too, in Move (see Reorder clips) | | |
 | Close gap | O/TrackTimeline.swift:1588-1604, O/EditorView.swift:675-682 | DONE | Time without picture drawn as a gap on the timeline (A/TimelineRows.kt, A/EditorTimeline.kt); with the playhead in time where nothing plays, Close gap beside Mark (A/EditorScreen.kt, `TrackEditState.closingGap`), one Undo step | Offered beside Mark when nothing is selected, as the transitions are, rather than in place of the hint | | |
 | Undo / redo, persistent | O/Project.swift:305-335 | DONE | A/EditorScreen.kt:612-613, C/Project.kt | Playhead not remembered per step | | |
-| Bookmarks: add/remove, previous/next, shown on the timeline | O/EditorView.swift:1259-1296 | PARTIAL | A/BookmarksPanel.kt, A/Transport.kt (`BookmarksMenu`) through C/TrackEditorEdits.kt (`addingBookmark`, `renamingBookmark`, `removingBookmark`, `bookmarks`): a bookmark on the picture in front or the one selected, on a selected sound, or in empty time and at the end; the menu adds or removes at the playhead, steps to the previous and next and lists each by its time and label; All bookmarks opens the list with Add at the playhead, rename (120 characters) and delete. Orange marks on the ruler for every bookmark, grouped within 12 dp with their count; a tap there goes to one or opens the list for several; the flags on the clips stay | No thumbnails in the list; rename and delete are buttons on each row where the original has a context menu and a swipe; Remove bookmark at the playhead is kept in the menu | S | Yes |
+| Bookmarks: add/remove, previous/next, shown on the timeline | O/EditorView.swift:1259-1296 | DONE | A/BookmarksPanel.kt, A/Transport.kt (`BookmarksMenu`) through C/TrackEditorEdits.kt (`addingBookmark`, `renamingBookmark`, `removingBookmark`, `bookmarks`): a bookmark on the picture in front or the one selected, on a selected sound, or in empty time and at the end; the menu adds or removes at the playhead, steps to the previous and next and lists each by its time and label; All bookmarks opens the list with Add at the playhead and each bookmark with a picture of the footage in front there (56 × 40, the bookmark's sign where no picture plays), its label and time; a touch and hold opens a menu with Rename (120 characters), a swipe to the left deletes, both also actions for a screen reader (EditorView.swift:1269-1295). Orange marks on the ruler for every bookmark, grouped within 12 dp with their count; a tap there goes to one or opens the list for several; the flags on the clips stay | The list is a dialog rather than a sheet; a swipe deletes once it is carried past the threshold, where the original's swipe shows a Delete button; Remove bookmark at the playhead is kept in the menu | | |
 | Add video or photo at the playhead from Photos | O/AddVideoPanel.swift:45-49, O/VideoBatchImport.swift:21-72 | DONE | The editor's Add video offers the system photo picker; what is picked goes in at the playhead as one Undo step and is selected (A/ProjectStore.kt `insertMedia` through `TrackEditorEdits.insertingFootage`); a photo becomes a silent 3 s H.264 movie (A/PhotoMovie.kt, C/InsertionSites.kt `PhotoClip`) | The order of choice is kept only where the system picker keeps it (ordered selection is asked for); the Android 13 emulator's picker returned videos before photos. Nothing is added when one item fails, where the original offers to retry the ones that failed | | |
 | Photos as 3 s clips | O/PhotoClip.swift:7-65 | MISSING | — | Encode a still to a clip, or model a still source | M | Yes |
 | "+" insertion sites at the start, end and gaps | O/EditorTimeline.swift:318-367, O/TimelineEditing.swift:3-32, O/AddVideoPanel.swift:51-58 | DONE | A/EditorTimeline.kt (`AddSiteButton`), A/TimelineRows.kt (`AddSite`), A/AddVideoDialog.kt: a "+" left of the start, right of where the last picture ends and in each gap, on the top row of pictures, off while a tool or Move is at work; it opens the add panel for that place with Paste here when the clipboard holds something (`TrackEditorEdits.pasteTarget`). Footage from the phone or the unused takes goes in with `TrackEditorEdits.insertingFootage` at the place, the free time first, and is selected afterwards; the Add video tool does the same at the playhead | A gap's button stays in the part of the gap on the screen and is not there while that part is narrower than 44 dp; the end's is not brought into view when it is off the screen. Record here from a "+" records at that place but opens time there as a recording at the playhead does, rather than using the gap first. Photos keep their silent sound, as before | | |

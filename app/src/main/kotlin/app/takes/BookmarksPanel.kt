@@ -1,6 +1,27 @@
 package app.takes
 
-import androidx.compose.foundation.clickable
+import android.graphics.Bitmap
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import java.io.File
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,11 +33,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkAdd
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,15 +62,20 @@ import app.takes.core.TrackBookmarks
 
 /**
  * The list of bookmarks, as the original's Bookmarks panel
- * (EditorView.swift:1274-1295): "Add at" the playhead, then every bookmark
- * in time order by its label and time; a tap goes there, and each can be
- * renamed or deleted. Bookmarks on a picture, on a sound or in empty time are
- * all here.
+ * (EditorView.swift:1269-1295): "Add at" the playhead, then every bookmark
+ * in time order with a picture of the footage it marks, its label and its
+ * time; a tap goes there, a touch and hold opens a menu with Rename, as the
+ * original's context menu, and a swipe to the left deletes it, as its swipe
+ * action. Both are actions for a screen reader too. Bookmarks on a picture,
+ * on a sound or in empty time are all here. [frame] is the recording and its
+ * second shown at a timeline second, none where no picture plays.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun BookmarksPanel(
     marks: List<ResolvedBookmark>, playhead: Double,
     add: () -> Unit, go: (Double) -> Unit, rename: (id: String, label: String) -> Unit, remove: (id: String) -> Unit, dismiss: () -> Unit,
+    frame: (Double) -> Pair<File, Double>? = { null },
 ) {
     var renaming by remember { mutableStateOf<ResolvedBookmark?>(null) }
     AlertDialog(
@@ -64,16 +88,50 @@ internal fun BookmarksPanel(
                     Text(stringResource(R.string.bookmarks_add_at, preciseLabel(playhead)), Modifier.weight(1f).padding(start = 8.dp))
                 }
                 if (marks.isEmpty()) Text(stringResource(R.string.bookmarks_none), color = Color(0xFFA0A4AB), fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                for (mark in marks) {
+                val renameLabel = stringResource(R.string.bookmark_rename)
+                val deleteLabel = stringResource(R.string.bookmark_delete)
+                for (mark in marks) key(mark.id) {
                     val seconds = mark.time.seconds
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { go(seconds) }, verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Bookmark, null, Modifier.padding(horizontal = 8.dp).size(20.dp), tint = BookmarkColor)
-                        Column(Modifier.weight(1f)) {
-                            Text(mark.bookmark.label.ifEmpty { stringResource(R.string.bookmark_default) }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(preciseLabel(seconds), color = Color(0xFFA0A4AB), fontSize = 12.sp)
+                    var menu by remember { mutableStateOf(false) }
+                    val swipe = rememberSwipeToDismissBoxState()
+                    SwipeToDismissBox(
+                        swipe,
+                        backgroundContent = {
+                            Box(Modifier.fillMaxSize().background(RecordRed, RoundedCornerShape(6.dp)).padding(end = 16.dp), Alignment.CenterEnd) {
+                                Text(deleteLabel, color = Color.White)
+                            }
+                        },
+                        enableDismissFromStartToEnd = false,
+                        onDismiss = { remove(mark.id) },
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .combinedClickable(onLongClick = { menu = true }, onLongClickLabel = renameLabel) { go(seconds) }
+                                .semantics {
+                                    customActions = listOf(
+                                        CustomAccessibilityAction(renameLabel) { renaming = mark; true },
+                                        CustomAccessibilityAction(deleteLabel) { remove(mark.id); true },
+                                    )
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val shown = remember(mark.time) { frame(seconds) }
+                            val image by produceState<Bitmap?>(null, shown) { value = shown?.let { Thumbnails.frame(it.first, it.second) } }
+                            Box(Modifier.padding(end = 8.dp).size(56.dp, 40.dp).clip(RoundedCornerShape(5.dp)), Alignment.Center) {
+                                image?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                                    ?: Icon(Icons.Filled.Bookmark, null, Modifier.size(20.dp), tint = BookmarkColor)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(mark.bookmark.label.ifEmpty { stringResource(R.string.bookmark_default) }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(preciseLabel(seconds), color = Color(0xFFA0A4AB), fontSize = 12.sp)
+                            }
+                            DropdownMenu(menu, { menu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(renameLabel) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                                    onClick = { menu = false; renaming = mark },
+                                )
+                            }
                         }
-                        IconButton(onClick = { renaming = mark }) { Icon(Icons.Outlined.Edit, stringResource(R.string.bookmark_rename)) }
-                        IconButton(onClick = { remove(mark.id) }) { Icon(Icons.Outlined.Delete, stringResource(R.string.bookmark_delete), tint = RecordRed) }
                     }
                 }
             }
@@ -150,7 +208,10 @@ internal fun rememberBookmarks(
 
 /** The Bookmarks button of the transport with its menu, and the list it opens ([open]). */
 @Composable
-internal fun EditorBookmarks(bookmarks: EditorBookmarkActions, playhead: () -> Double, opened: Boolean, open: (Boolean) -> Unit, go: (Double) -> Unit) {
+internal fun EditorBookmarks(
+    bookmarks: EditorBookmarkActions, playhead: () -> Double, opened: Boolean, open: (Boolean) -> Unit, go: (Double) -> Unit,
+    frame: (Double) -> Pair<File, Double>? = { null },
+) {
     BookmarksMenu(
         under = bookmarks.under != null, canToggle = bookmarks.editable,
         toggle = bookmarks.toggle, previous = bookmarks.previous, next = bookmarks.next,
@@ -159,6 +220,6 @@ internal fun EditorBookmarks(bookmarks: EditorBookmarkActions, playhead: () -> D
     )
     if (opened) BookmarksPanel(
         bookmarks.list, playhead(), add = bookmarks.add, go = { open(false); go(it) },
-        rename = bookmarks.rename, remove = bookmarks.remove, dismiss = { open(false) },
+        rename = bookmarks.rename, remove = bookmarks.remove, dismiss = { open(false) }, frame = frame,
     )
 }

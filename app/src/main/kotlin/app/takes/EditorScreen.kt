@@ -1111,7 +1111,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // next change, which a tap takes to the nearest cut or change of treatment and a hold to the nearest change only.
             val toChange = { forward: Boolean, effectsOnly: Boolean -> navigation.destination(playhead, forward, effectsOnly)?.let(jump); Unit }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                EditorBookmarks(bookmarks, { playhead }, bookmarksOpen, open = { editor.pause(); bookmarksOpen = it }, go = jump)
+                EditorBookmarks(bookmarks, { playhead }, bookmarksOpen, open = { editor.pause(); bookmarksOpen = it }, go = jump, frame = { time ->
+                    // The picture in front at the bookmark, at the second of its recording shown there (EditorView.swift:1269-1273).
+                    TrackEditState.locate(saved, time)?.let { at -> saved.clips[at.index].let { clip -> files[clip.sourceID]?.let { it to clip.sourceTime(at.offset) } } }
+                })
                 ChangeButton(forward = false, enabled = changeBack) { toChange(false, it) }
             }
             val reviewLabel = stringResource(R.string.editor_quick_review)
