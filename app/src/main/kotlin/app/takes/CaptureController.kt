@@ -89,6 +89,7 @@ import app.takes.core.RecorderCamera
 import app.takes.core.RecorderCameras
 import app.takes.core.RecordingSpace
 import app.takes.core.SourceMedia
+import app.takes.core.TakeReceipt
 import app.takes.core.ZoomTransition
 import app.takes.core.newID
 import kotlinx.coroutines.Dispatchers
@@ -1397,18 +1398,42 @@ class CaptureController(private val context: Context, private val store: Project
         if (phase != Phase.Idle && phase != Phase.Paused) return
         if (camera == null) { message = context.getString(R.string.recorder_camera_not_ready); return }
         val projectID = segmentProject ?: (store.selected ?: store.create())?.id ?: return
+        // As the original (ContentView.swift:557-566): not into a project whose last take is still being brought back,
+        // nor into one whose edits could not be saved, until they are.
+        if (projectID in store.recoveringIDs) { message = context.getString(R.string.recovery_busy); return }
+        if (projectID in store.unsavedDrafts) {
+            store.retrySaves()
+            if (projectID in store.unsavedDrafts) return
+        }
         val folder = store.disk.folder(projectID)
         val short = space.shortBy(freeBytes(folder), folder.totalSpace, format.ultraHD)
         if (short > 0) {
             message = context.getString(R.string.recorder_storage_short, Formatter.formatShortFileSize(context, short))
             return
         }
-        segmentProject = projectID
+        if (phase == Phase.Idle) { takeID = newID(); segmentSequence = 0 }
         val id = newID()
-        begin(Segment(id, projectID, File(folder, "${System.currentTimeMillis()}-$id.mp4")))
+        val file = File(folder, "${System.currentTimeMillis()}-$id.mp4")
+        // The receipt beside the segment, with room kept to finish it, so that a take whose app stops is put back
+        // where it was going (CaptureController.swift:1420-1426, ProjectRecovery.swift:259-303).
+        try {
+            store.projects.firstOrNull { it.id == projectID }?.let { project ->
+                val gain = settings.recordingGain(microphoneKey ?: PHONE_MICROPHONE)
+                TakeReceipt.write(TakeReceipt.of(project, file, takeID, id, segmentSequence, System.currentTimeMillis(), gain), file)
+            }
+        } catch (problem: Exception) {
+            message = context.getString(R.string.recorder_receipt_failed, problem.message.orEmpty())
+            return
+        }
+        segmentSequence++
+        segmentProject = projectID
+        begin(Segment(id, projectID, file))
     }
 
     private var segmentProject: String? = null
+    // The take the segments belong to, and the next segment's number in it, for their receipts.
+    private var takeID = ""
+    private var segmentSequence = 0
 
     // MARK: Free storage. The original's rule with a flat figure to start and no floor.
 
@@ -1591,12 +1616,14 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     private suspend fun finalize(current: Segment, event: VideoRecordEvent.Finalize) {
+        // The room kept to finish the file is not needed any more (CaptureSegmentWriter.swift:291).
+        TakeReceipt.releaseReserve(current.file)
         val seconds = withContext(Dispatchers.IO) {
             // An empty file holds nothing to preserve; any other one is kept.
             if (current.file.length() == 0L) { current.file.delete(); null } else mediaDuration(current.file)
         }
         // After the last write of its events, which may still be on its way.
-        if (!current.file.exists()) withContext(eventFiles) { CaptureEventsFile.delete(current.file); CaptureEffectsFile.delete(current.file) }
+        if (!current.file.exists()) withContext(eventFiles) { CaptureEventsFile.delete(current.file); CaptureEffectsFile.delete(current.file); TakeReceipt.remove(current.file) }
         // The take went on without waiting for this segment: it only joins the project.
         if (current.abandoned) { index(current, seconds); return }
         if (segment === current) { segment = null; recording = null }
@@ -1619,6 +1646,8 @@ class CaptureController(private val context: Context, private val store: Project
         // The live effects and Crash Zooms of the take arrive as effects of its clip: the movie itself is clean.
         val effects = current.moves.takeIf { it.isNotEmpty() }?.let { VideoEffectSettings.capturedRecipe(it, seconds).ifEmpty { null } }
         current.indexed = store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events), gain, effects)
+        // In its project: the receipt has done its work.
+        if (current.indexed) TakeReceipt.remove(current.file)
     }
 
     /** The segment has ended: the take is paused or over, as was asked, and the camera returns. */

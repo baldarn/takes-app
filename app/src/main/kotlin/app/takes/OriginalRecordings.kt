@@ -134,6 +134,12 @@ internal fun OriginalRecordings(projectID: String, store: ProjectStore, close: (
                         Text(stringResource(R.string.originals_retry_open), color = SettingsCyan)
                     }
                 }
+                // A take whose automatic repair was interrupted twice waits for the person (OriginalRecordingsView.swift:23-30).
+                if (project != null && store.interruptedRepairs(project).isNotEmpty()) {
+                    TextButton(onClick = { store.retryInterruptedRepairs(project) }, enabled = !store.recovering) {
+                        Text(stringResource(R.string.originals_retry_interrupted), color = SettingsCyan)
+                    }
+                }
                 message?.let { Text(it, color = Color.White, modifier = Modifier.padding(12.dp)) }
                 if (items.isEmpty()) Text(stringResource(R.string.originals_none), color = Secondary, modifier = Modifier.padding(12.dp))
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp).background(RowGrey, RoundedCornerShape(12.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {

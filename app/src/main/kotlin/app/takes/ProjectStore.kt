@@ -36,6 +36,8 @@ import app.takes.core.ProcessingCache
 import app.takes.core.RecoveredProject
 import app.takes.core.RecoveryRules
 import app.takes.core.SourceMedia
+import app.takes.core.TakeReceipt
+import app.takes.core.indexTake
 import app.takes.core.VideoEffectSettings
 import app.takes.core.SubtitleScratch
 import app.takes.core.TimelineClip
@@ -174,6 +176,10 @@ class ProjectStore(context: Context) {
     var journaledDrafts by mutableStateOf(emptySet<String>()); private set
     /** What the person is told about a project's recovery, by project id, with Review, as the original's banner (ContentView.swift:86-93). */
     val recoveryMessages = mutableStateMapOf<String, String>()
+    /** Whether the takes found at launch are being brought back. */
+    var recovering by mutableStateOf(false); private set
+    /** The projects whose takes found at launch are still being brought back; no take is recorded into them meanwhile. */
+    var recoveringIDs by mutableStateOf(emptySet<String>()); private set
 
     init {
         disk.root.mkdirs()
@@ -195,11 +201,18 @@ class ProjectStore(context: Context) {
         // What processing was writing when the app last stopped is never read: it goes, as the original wipes its
         // Processing and Previews folders at launch (ProjectStore.swift:136-142).
         for (project in projects) File(disk.folder(project.id), "Cache").listFiles().orEmpty().filter { ProcessingCache.isWorking(it.name) }.forEach { it.delete() }
-        projects.forEach(::indexFinishedTakes)
+        // Space kept for takes that never finished goes back, and what a repair left unpublished goes
+        // (ProjectStore.swift:113-119, RecordingSalvage.swift:58-69).
+        for (folder in disk.root.listFiles().orEmpty()) {
+            if (!folder.isDirectory || folder.name.startsWith(".")) continue
+            if (TakeReceipt.reclaimAbandonedReserves(folder) > 0) recoveryMessages[folder.name] = context.getString(R.string.recovery_interrupted_before_file)
+            File(folder, ".repair-work").listFiles().orEmpty().filter { RecoveryRules.isUnpublishedCopy(it.name) }.forEach { it.delete() }
+        }
         // The project selected when the app was last used, else the most recent one, and a project to record into
         // when there is none, as the original starts (ProjectStore.swift:150-154, ContentView.swift:341).
         select(ProjectSelection.atLaunch(selectedID, projects.map { it.id }))
         if (ProjectSelection.createsAtLaunch(projects.map { it.id })) create()
+        recoverUnindexedRecordings()
     }
 
     fun file(project: Project, source: SourceMedia) = File(disk.folder(project.id), source.filename)
@@ -1118,18 +1131,164 @@ class ProjectStore(context: Context) {
         error = failures.joinToString("\n").ifEmpty { null }
     }
 
-    // A take is never removed from a manifest, so a playable movie the manifest
-    // does not list was finished just before its project could be saved.
-    private fun indexFinishedTakes(project: Project) {
-        for (file in disk.unindexedRecordings(project)) {
-            val duration = mediaDuration(file)
-            if (duration == null) { setAside(file, project); continue }
-            // The marks and camera changes saved beside the take while it was recorded come back with it.
-            val events = CaptureEventsFile.read(file, duration)
-            // And its Crash Zooms, saved beside it as they were made (YouRec/ProjectStore.swift:360-376).
-            val effects = CaptureEffectsFile.read(file, duration)
-            addRecording(project.id, SourceMedia(filename = file.name, duration = duration, recordedAt = file.lastModified(), events = events), videoEffects = effects)
+    // MARK: Takes found at launch, as the original's recoverUnindexedRecordings (ProjectStore.swift:485-566).
+
+    /**
+     * Brings back the recordings in the projects' folders that their manifests do not list: takes whose app stopped
+     * before they joined their project. A take is never removed from a manifest, so such a movie was being written,
+     * or was finished just before its project could be saved. One that reads whole joins its project where its
+     * receipt says ([indexTake]); one that does not is repaired into a copy beside it, `recovered-<hash>.mov`,
+     * within the original's automatic limits ([RecoveryRules.AUTO_FILE_LIMIT], [RecoveryRules.AUTO_TOTAL_LIMIT]),
+     * and the copy joins the project while the original is set aside in `Recovery/`; what cannot be read is set
+     * aside. A take whose repair was interrupted twice is left for the person. Each project's notice is shown in the
+     * recovery bar, with Review.
+     */
+    fun recoverUnindexedRecordings() {
+        if (recovering) return
+        // Taken before anything waits, so that a take begun meanwhile is never one of them.
+        val candidates = projects.map { it to runCatching { disk.unindexedRecordings(it) }.getOrDefault(emptyList()) }
+        if (candidates.all { it.second.isEmpty() }) return
+        recovering = true
+        recoveringIDs = candidates.filter { it.second.isNotEmpty() }.map { it.first.id }.toSet()
+        scope.launch {
+            try {
+                // What the automatic copies already hold counts against their total, in the library and in Recently deleted.
+                var autoBudget = withContext(Dispatchers.IO) {
+                    val held = listOf(disk.root, disk.deletedRoot).flatMap { parent -> parent.listFiles().orEmpty().toList() }
+                        .flatMap { folder -> folder.listFiles().orEmpty().filter { it.name.startsWith("recovered-") && it.extension == "mov" } }
+                        .sumOf { it.length() }
+                    maxOf(0L, RecoveryRules.AUTO_TOTAL_LIMIT - held)
+                }
+                for ((project, files) in candidates) {
+                    var unresolved = false
+                    for (file in files) {
+                        val (resolved, used) = recoverTake(project, file, autoBudget)
+                        autoBudget = maxOf(0L, autoBudget - used)
+                        if (!resolved) unresolved = true
+                    }
+                    // The run of takes the app stopped in is over: takes go to the end again (ProjectStore.swift:561-563).
+                    if (!unresolved && project.recordingInsertion != null && projects.firstOrNull { it.id == project.id }?.recordingInsertion != null) recordAtEnd(project.id)
+                    recoveringIDs = recoveringIDs - project.id
+                }
+            } finally {
+                recovering = false
+                recoveringIDs = emptySet()
+                recoveryChanges++
+            }
         }
+    }
+
+    /** Brings back one take of [project] found at launch; whether it was dealt with, and the bytes its automatic copy took. */
+    private suspend fun recoverTake(project: Project, file: File, autoBudget: Long): Pair<Boolean, Long> {
+        val folder = disk.folder(project.id)
+        // An empty file holds nothing and goes, as when a take ends with one.
+        if (withContext(Dispatchers.IO) { file.length() == 0L }) {
+            if (file.delete()) { CaptureEventsFile.delete(file); CaptureEffectsFile.delete(file); TakeReceipt.remove(file) }
+            return true to 0L
+        }
+        TakeReceipt.releaseReserve(file)
+        val key = RecoveredProject.automaticCopy(file.name).removePrefix("recovered-").removeSuffix(".mov")
+        val marker = File(File(folder, ".recovery-attempts"), key)
+        val attempts = try {
+            withContext(Dispatchers.IO) { if (marker.isFile) marker.readText().trim().toIntOrNull() ?: 1 else 0 }
+        } catch (_: Exception) {
+            return false to 0L
+        }
+        if (attempts >= 2) {
+            recoveryMessages[project.id] = context.getString(R.string.recovery_repair_interrupted)
+            return false to 0L
+        }
+        var used = 0L
+        try {
+            withContext(Dispatchers.IO) { marker.parentFile?.mkdirs(); ProjectDisk.writeAtomically((attempts + 1).toString().toByteArray(), marker) }
+            try {
+                var url = file
+                var partial = false
+                var media = withContext(Dispatchers.IO) { try { RecordingSalvage.inspect(file) } catch (_: RecordingSalvage.Unreadable) { null } }
+                if (media == null) {
+                    url = File(folder, RecoveredProject.automaticCopy(file.name))
+                    val estimated = RecoveryRules.copyBudget(file.length())
+                    if (!url.exists() && estimated > minOf(RecoveryRules.AUTO_FILE_LIMIT, autoBudget)) {
+                        setAside(file, project, R.string.recovery_needs_copy)
+                        return true to 0L
+                    }
+                    media = try {
+                        withContext(Dispatchers.IO) { RecordingSalvage.repair(file, url, {}, ::shortOfSpace) }.also { partial = true; used = url.length() }
+                    } catch (_: RecordingSalvage.Unreadable) {
+                        setAside(file, project, R.string.recorder_unfinished_notice)
+                        return true to 0L
+                    }
+                }
+                val saved = addRecovered(project.id, url, file, media)
+                if (saved && partial) {
+                    setAside(file, project, null)
+                    val seconds = String.format(java.util.Locale.getDefault(), "%.1f", media.duration)
+                    recoveryMessages[project.id] = context.getString(if (media.audioOnly) R.string.recovery_recovered_audio else R.string.recovery_recovered_footage, seconds)
+                }
+                return saved to used
+            } finally {
+                withContext(Dispatchers.IO) { marker.delete(); marker.parentFile?.takeIf { it.list().isNullOrEmpty() }?.delete() }
+            }
+        } catch (problem: Exception) {
+            recoveryMessages[project.id] = context.getString(R.string.recovery_pending, describe(problem))
+            return false to used
+        }
+    }
+
+    /**
+     * Adds [url], a take of the project [projectID] found at launch or its repaired copy, as the original's
+     * addRecording when recovering (ProjectStore.swift:330-408): placed by the receipt of [capture], the file
+     * that was being written, with the marks and moves saved beside it. Whether the project was saved with it.
+     */
+    private suspend fun addRecovered(projectID: String, url: File, capture: File, media: RecordingSalvage.Media): Boolean {
+        var uncertain = false
+        val receipt = withContext(Dispatchers.IO) {
+            try { TakeReceipt.read(capture, projectID) } catch (_: Exception) { uncertain = true; null }
+        }
+        // The marks and camera changes saved beside the take while it was recorded come back with it,
+        // and its Crash Zooms, saved beside it as they were made (ProjectStore.swift:360-376).
+        val events = withContext(Dispatchers.IO) { CaptureEventsFile.read(capture, media.duration) }
+        val effects = if (media.audioOnly) null else withContext(Dispatchers.IO) { CaptureEffectsFile.read(capture, media.duration) }
+        val project = projects.firstOrNull { it.id == projectID } ?: return false
+        val source = SourceMedia(
+            id = receipt?.segmentID ?: newID(), filename = url.name, duration = media.duration,
+            recordedAt = receipt?.started ?: capture.lastModified(), events = events, audioOnly = if (media.audioOnly) true else null,
+        )
+        val indexed = try {
+            project.indexTake(source, receipt, uncertain, effects)
+        } catch (problem: Exception) {
+            recoveryMessages[projectID] = context.getString(R.string.recovery_pending, describe(problem))
+            return false
+        }
+        if (indexed.project == project) return true
+        if (!update(indexed.project) || projectID in unsavedDrafts) return false
+        withContext(Dispatchers.IO) { TakeReceipt.remove(capture) }
+        val notices = listOfNotNull(
+            context.getString(R.string.recovery_recovered, String.format(java.util.Locale.getDefault(), "%.1f", media.duration)),
+            if (indexed.placed) null else context.getString(R.string.recovery_choose_place),
+        )
+        recoveryMessages[projectID] = notices.joinToString(" ")
+        return true
+    }
+
+    /** Takes whose automatic repair was interrupted twice, by their markers (ProjectStore.swift:573-579). */
+    fun interruptedRepairs(project: Project): List<File> {
+        recoveryChanges
+        val directory = File(disk.folder(project.id), ".recovery-attempts")
+        if (directory.list().isNullOrEmpty()) return emptyList()
+        return disk.unindexedRecordings(project).map { File(directory, RecoveredProject.automaticCopy(it.name).removePrefix("recovered-").removeSuffix(".mov")) }.filter { it.isFile }
+    }
+
+    /** Tries the interrupted repairs again, as the original's "Retry interrupted recovery" (ProjectStore.swift:580-585). */
+    fun retryInterruptedRepairs(project: Project) {
+        if (recovering) return
+        try {
+            interruptedRepairs(project).forEach { if (!it.delete()) throw IOException("Cannot delete ${it.path}") }
+        } catch (problem: Exception) {
+            error = describe(problem)
+            return
+        }
+        recoverUnindexedRecordings()
     }
 
     // MARK: Unfinished recordings. What could not be read is kept in the project's Recovery folder, as in the original.
@@ -1141,19 +1300,15 @@ class ProjectStore(context: Context) {
     }
 
     /**
-     * A recording left by a take that was interrupted and that cannot be read. An empty file holds nothing
-     * and goes, as when a take ends with one; any other is moved aside with its events, never deleted, and
-     * the person is told once, in the original's words.
+     * Moves a recording left by an interrupted take into the project's Recovery folder with its events, never
+     * deleting it, and tells the person [notice] in the project's recovery notice, in the original's words.
+     * A file that cannot be moved stays where it is and is tried again at the next launch.
      */
-    private fun setAside(file: File, project: Project) {
-        if (file.length() == 0L) {
-            if (file.delete()) { CaptureEventsFile.delete(file); CaptureEffectsFile.delete(file) }
-            return
-        }
-        // A file that cannot be moved stays where it is and is tried again at the next launch.
-        if (runCatching { disk.quarantineRecording(file, project) }.isSuccess) {
+    private fun setAside(file: File, project: Project, notice: Int?) {
+        val current = projects.firstOrNull { it.id == project.id } ?: project
+        if (runCatching { disk.quarantineRecording(file, current) }.isSuccess) {
             recoveryChanges++
-            error = context.getString(R.string.recorder_unfinished_notice)
+            notice?.let { recoveryMessages[project.id] = context.getString(it) }
         }
     }
 

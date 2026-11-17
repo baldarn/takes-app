@@ -137,6 +137,16 @@
     <string name="recovery_dismiss">Chiudi l\'avviso di recupero</string>
     <string name="recovery_pending_recovered">Recuperate le modifiche in sospeso. Riprova a salvare per confermarle.</string>
     <string name="recovery_journal_unreadable">Il progetto salvato si è aperto. Non è stato possibile leggere il registro delle modifiche in sospeso.</string>
+    <string name="recovery_interrupted_before_file">Una registrazione si è interrotta prima che ci fosse un file del filmato.</string>
+    <string name="recovery_repair_interrupted">La riparazione automatica si è interrotta. Puoi rivedere e salvare le registrazioni originali.</string>
+    <string name="recovery_needs_copy">Questa ripresa interrotta richiede una copia riparata. Rivedi l\'originale per vedere lo spazio necessario.</string>
+    <string name="recovery_recovered">Recuperati %1$s s. La durata di un eventuale finale mancante non è nota.</string>
+    <string name="recovery_recovered_footage">Recuperati %1$s s di riprese riproducibili. Il file interrotto è stato conservato. La durata mancante non è nota.</string>
+    <string name="recovery_recovered_audio">Recuperati %1$s s di audio. Il file interrotto è stato conservato. La durata mancante non è nota.</string>
+    <string name="recovery_choose_place">La ripresa è nelle registrazioni originali. Scegli dove inserirla.</string>
+    <string name="recovery_pending">Il recupero è in sospeso. %1$s</string>
+    <string name="recovery_busy">Recupero dell\'ultima ripresa di questo progetto in corso. Puoi iniziare un nuovo progetto nel frattempo.</string>
+    <string name="originals_retry_interrupted">Riprova il recupero interrotto</string>
 
     <!-- Project problems (texts of the core module's ProjectException.Reason) -->
     <string name="project_error_invalid_document">Questo progetto contiene dati di montaggio non supportati o non validi. I suoi file sono stati conservati.</string>

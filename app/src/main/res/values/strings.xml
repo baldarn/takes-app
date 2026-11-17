@@ -134,6 +134,16 @@
     <string name="recovery_dismiss">Dismiss recovery notice</string>
     <string name="recovery_pending_recovered">Recovered your pending edits. Retry save to commit them.</string>
     <string name="recovery_journal_unreadable">The saved project opened. Its pending edit journal could not be read.</string>
+    <string name="recovery_interrupted_before_file">A recording was interrupted before a movie file was available.</string>
+    <string name="recovery_repair_interrupted">Automatic repair was interrupted. You can review and save the original recordings.</string>
+    <string name="recovery_needs_copy">This interrupted take needs a repair copy. Review the original to see the space required.</string>
+    <string name="recovery_recovered">Recovered %1$s s. The length of any missing ending is unknown.</string>
+    <string name="recovery_recovered_footage">Recovered %1$s s of playable footage. The interrupted file was kept. The missing duration is unknown.</string>
+    <string name="recovery_recovered_audio">Recovered %1$s s of audio. The interrupted file was kept. The missing duration is unknown.</string>
+    <string name="recovery_choose_place">The take is in Original recordings. Choose where to insert it.</string>
+    <string name="recovery_pending">Recovery is pending. %1$s</string>
+    <string name="recovery_busy">Recovering the last take in this project. You can start a new project while it finishes.</string>
+    <string name="originals_retry_interrupted">Retry interrupted recovery</string>
 
     <!-- Project problems (texts of the core module's ProjectException.Reason) -->
     <string name="project_error_invalid_document">This project has unsupported or invalid editing data. Its files have been preserved.</string>

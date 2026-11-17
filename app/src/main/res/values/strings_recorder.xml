@@ -181,4 +181,5 @@
     <string name="recorder_gain_value">%1$s dB</string>
     <string name="recorder_gain_reset">Reset to 0</string>
     <string name="recorder_gain_note">Changes the volume of new recordings, including during a take. Remembered for each microphone. The level is given to each new clip, where the editor can change it again. Red means the signal may distort; lowering gain cannot repair distortion already present in the microphone.</string>
+    <string name="recorder_receipt_failed">Could not save the recording information. %1$s</string>
 </resources>

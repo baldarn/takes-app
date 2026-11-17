@@ -181,4 +181,5 @@
     <string name="recorder_gain_value">%1$s dB</string>
     <string name="recorder_gain_reset">Riporta a 0</string>
     <string name="recorder_gain_note">Cambia il volume delle nuove registrazioni, anche durante una ripresa. Ricordato per ogni microfono. Il livello va a ogni nuova clip, dove l\'editor può cambiarlo di nuovo. Il rosso indica che il segnale può distorcere; abbassare il guadagno non ripara la distorsione già presente nel microfono.</string>
+    <string name="recorder_receipt_failed">Non è stato possibile salvare le informazioni della registrazione. %1$s</string>
 </resources>
