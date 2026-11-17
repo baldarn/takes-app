@@ -17,7 +17,9 @@ import androidx.media3.effect.GlShaderProgram
 import androidx.media3.effect.SingleColorLut
 import app.takes.core.ColorGrade
 import app.takes.core.ColorSettings
+import app.takes.core.GradeMotion
 import app.takes.core.LUTInput
+import app.takes.core.TimelineClip
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -55,38 +57,83 @@ class HdrSignalEffect(private val conversion: Conversion) : GlEffect {
 class HlgColorLut(private val table: FloatArray) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = HdrPass(
         """
-        uniform sampler2D uLut;
-        const float N = ${ColorGrade.DIMENSION}.0;
-        // The table at a signal inside 0…1: blue slices side by side, red across each and green down, filtered.
-        vec3 cube(vec3 v) {
-            vec3 p = clamp(v, 0.0, 1.0) * (N - 1.0);
-            float slice = floor(p.b);
-            float next = min(slice + 1.0, N - 1.0);
-            vec2 at = vec2(p.r + 0.5, p.g + 0.5);
-            vec3 low = texture2D(uLut, vec2((at.x + slice * N) / (N * N), at.y / N)).rgb;
-            vec3 high = texture2D(uLut, vec2((at.x + next * N) / (N * N), at.y / N)).rgb;
-            return mix(low, high, p.b - slice);
-        }
-        vec3 looked(vec3 v) {
-            vec3 inside = clamp(v, 0.0, 1.0);
-            vec3 res = cube(inside);
-            float h = 1.0 / (N - 1.0);
-            for (int i = 0; i < 3; i++) {
-                vec3 e = vec3(0.0);
-                e[i] = h;
-                if (v[i] > 1.0) res += (cube(inside) - cube(inside - e)) / h * (v[i] - 1.0);
-                if (v[i] < 0.0) res += (cube(inside + e) - cube(inside)) / h * v[i];
-            }
-            return res;
-        }
+        ${lookup("uLut", "")}
         vec3 sdrLinX(vec3 v) { vec3 a = abs(v); return sign(v) * mix(a / 4.5, pow((a + 0.099) / 1.099, vec3(1.0 / 0.45)), step(0.081, a)); }
         vec3 converted(vec3 c) {
             vec3 v = sdrEnc(BT2020_TO_BT709 * hlgLin(c));
             return hlgEnc(BT709_TO_BT2020 * sdrLinX(looked(v)));
         }
         """,
-        table,
+        listOf(table),
     )
+
+    companion object {
+        /**
+         * In GLSL, a table in [sampler] as `cube$suffix`, read inside 0…1, and `looked$suffix`, which goes on past its
+         * ends from the slope of its last step.
+         */
+        fun lookup(sampler: String, suffix: String) = """
+        uniform sampler2D $sampler;
+        const float N$suffix = ${ColorGrade.DIMENSION}.0;
+        // The table at a signal inside 0…1: blue slices side by side, red across each and green down, filtered.
+        vec3 cube$suffix(vec3 v) {
+            vec3 p = clamp(v, 0.0, 1.0) * (N$suffix - 1.0);
+            float slice = floor(p.b);
+            float next = min(slice + 1.0, N$suffix - 1.0);
+            vec2 at = vec2(p.r + 0.5, p.g + 0.5);
+            vec3 low = texture2D($sampler, vec2((at.x + slice * N$suffix) / (N$suffix * N$suffix), at.y / N$suffix)).rgb;
+            vec3 high = texture2D($sampler, vec2((at.x + next * N$suffix) / (N$suffix * N$suffix), at.y / N$suffix)).rgb;
+            return mix(low, high, p.b - slice);
+        }
+        vec3 looked$suffix(vec3 v) {
+            vec3 inside = clamp(v, 0.0, 1.0);
+            vec3 res = cube$suffix(inside);
+            float h = 1.0 / (N$suffix - 1.0);
+            for (int i = 0; i < 3; i++) {
+                vec3 e = vec3(0.0);
+                e[i] = h;
+                if (v[i] > 1.0) res += (cube$suffix(inside) - cube$suffix(inside - e)) / h * (v[i] - 1.0);
+                if (v[i] < 0.0) res += (cube$suffix(inside + e) - cube$suffix(inside)) / h * v[i];
+            }
+            return res;
+        }
+        """
+    }
+}
+
+/**
+ * A grade that moves between two ends ([GradeMotion]) in the export, as the original draws it
+ * (`YouRec/VideoToolCompositor.swift:145-152`): the picture graded by A's table ([a]) and by B's ([b]), dissolved as
+ * light by the fraction of the motion at each frame ([fraction], from the frame's time in microseconds), A alone
+ * before the motion starts and B alone once it is there. On SDR video's signal ([hdr] false) the two are looked up
+ * and mixed as SDR video's light ([GradeMotion.dissolve]); on an HLG picture each is looked up as [HlgColorLut] does,
+ * past SDR white too, and mixed as the light that comes out, so that at either end it is that grade's [HlgColorLut].
+ */
+class MovingColorLut(private val a: FloatArray, private val b: FloatArray, private val hdr: Boolean, private val fraction: (Long) -> Double) : GlEffect {
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = HdrPass(
+        if (hdr) """
+        ${HlgColorLut.lookup("uLut", "")}
+        ${HlgColorLut.lookup("uLutB", "B")}
+        uniform float uFraction;
+        vec3 sdrLinX(vec3 v) { vec3 a = abs(v); return sign(v) * mix(a / 4.5, pow((a + 0.099) / 1.099, vec3(1.0 / 0.45)), step(0.081, a)); }
+        vec3 converted(vec3 c) {
+            vec3 v = sdrEnc(BT2020_TO_BT709 * hlgLin(c));
+            vec3 light = sdrLinX(looked(v));
+            if (uFraction > 0.0) light = mix(light, sdrLinX(lookedB(v)), min(uFraction, 1.0));
+            return hlgEnc(BT709_TO_BT2020 * light);
+        }
+        """ else """
+        ${HlgColorLut.lookup("uLut", "")}
+        ${HlgColorLut.lookup("uLutB", "B")}
+        uniform float uFraction;
+        vec3 converted(vec3 c) {
+            if (uFraction <= 0.0) return cube(c);
+            if (uFraction >= 1.0) return cubeB(c);
+            return sdrEnc(mix(sdrLin(cube(c)), sdrLin(cubeB(c)), uFraction));
+        }
+        """,
+        listOf(a, b),
+    ) { program, time -> program.setFloatUniform("uFraction", fraction(time).toFloat()) }
 }
 
 /**
@@ -114,14 +161,31 @@ class ClipColor(private val effects: MutableList<Effect>, private val hdr: Boole
         sdr = !hdr
     }
 
-    /** The look of [settings], on the picture as it is here ([ColorLuts]). */
-    fun look(settings: ColorSettings, folder: File, log: LUTInput?) {
+    /**
+     * The look of [settings], on the picture as it is here ([ColorLuts]). A grade that moves ([GradeMotion]) is drawn
+     * at each frame of [clip], which begins at second [begins] of its sequence, as its framing is ([FramingEffect]).
+     */
+    fun look(settings: ColorSettings, folder: File, log: LUTInput?, clip: TimelineClip? = null, begins: Double = 0.0) {
+        val ends = GradeMotion.ends(settings)
+        if (ends != null && clip != null) {
+            val a = ColorLuts.table(ends.first, folder, log)
+            val b = ColorLuts.table(ends.second, folder, log)
+            effects += MovingColorLut(a, b, hdr = !sdr) { us -> GradeMotion.fraction(clip, us / 1e6 - begins, settings) ?: 0.0 }
+            return
+        }
         effects += if (sdr) SingleColorLut.createFromCube(ColorLuts.cube(settings, folder, log)) else HlgColorLut(ColorLuts.table(settings, folder, log))
     }
 }
 
-/** One pass over the picture by `converted(c)`, with the table of [HlgColorLut] when there is one. */
-private class HdrPass(body: String, private val table: FloatArray? = null) : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
+/**
+ * One pass over the picture by `converted(c)`, with [tables] in the samplers `uLut` and `uLutB` ([HlgColorLut]) and
+ * [uniforms] set for each frame from its time.
+ */
+private class HdrPass(
+    body: String,
+    private val tables: List<FloatArray> = emptyList(),
+    private val uniforms: (GlProgram, Long) -> Unit = { _, _ -> },
+) : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
     private val fragment = """
         #ifdef GL_FRAGMENT_PRECISION_HIGH
         precision highp float;
@@ -135,7 +199,7 @@ private class HdrPass(body: String, private val table: FloatArray? = null) : Bas
         void main() { gl_FragColor = vec4(converted(texture2D(uTex, vTex).rgb), 1.0); }
     """
     private var program: GlProgram? = null
-    private var lut = 0
+    private var luts = IntArray(0)
 
     override fun configure(inputWidth: Int, inputHeight: Int): Size = Size(inputWidth, inputHeight)
 
@@ -143,11 +207,12 @@ private class HdrPass(body: String, private val table: FloatArray? = null) : Bas
         val program = program ?: GlProgram(VERTEX, fragment).also {
             it.setBufferAttribute("aFramePosition", GlUtil.getNormalizedCoordinateBounds(), GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE)
             program = it
-            if (table != null) lut = texture(table)
+            luts = IntArray(tables.size) { index -> texture(tables[index]) }
         }
         program.use()
         program.setSamplerTexIdUniform("uTex", inputTexId, 0)
-        if (lut != 0) program.setSamplerTexIdUniform("uLut", lut, 1)
+        luts.forEachIndexed { index, lut -> program.setSamplerTexIdUniform(SAMPLERS[index], lut, index + 1) }
+        uniforms(program, presentationTimeUs)
         program.bindAttributesAndUniforms()
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GlUtil.checkGlError()
@@ -175,10 +240,11 @@ private class HdrPass(body: String, private val table: FloatArray? = null) : Bas
     override fun release() {
         super.release()
         program?.delete()
-        if (lut != 0) GlUtil.deleteTexture(lut)
+        for (lut in luts) GlUtil.deleteTexture(lut)
     }
 
     private companion object {
+        val SAMPLERS = listOf("uLut", "uLutB")
         const val VERTEX = """
             attribute vec4 aFramePosition;
             varying vec2 vTex;

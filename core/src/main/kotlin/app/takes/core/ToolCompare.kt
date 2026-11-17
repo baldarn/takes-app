@@ -12,6 +12,33 @@ object ToolCompare {
     fun colored(base: EditState, ids: Collection<String>, color: ColorSettings?): EditState =
         each(base, ids) { state, at -> TimelineEditing.setColor(state, at, color ?: ColorSettings()) }
 
+    /**
+     * The stretch of [state] the clips [ids] cover, from the start of the first to the end of the last, which a
+     * grade's motion runs over (YouRec/VideoTools.swift:642-650, `videoPreviewRange`).
+     */
+    fun stretch(state: EditState, ids: Collection<String>): ClosedFloatingPointRange<Double> {
+        val placed = state.clips.indices.filter { state.clips[it].id in ids }.mapNotNull { index ->
+            TrackEditState.clipStart(state, index)?.let { it to it + state.clips[index].duration }
+        }
+        val lower = (placed.minOfOrNull { it.first } ?: 0.0).coerceIn(0.0, maxOf(0.0, state.duration))
+        return lower..maxOf(lower, minOf(state.duration, placed.maxOfOrNull { it.second } ?: lower))
+    }
+
+    /**
+     * [base] with the clips [ids] given the Color tool's grade, a moving one tied to each clip's footage from where
+     * the clip begins in the tool's stretch (YouRec/EditorTools.swift:704-712); null takes their color away (Before).
+     */
+    fun graded(base: EditState, ids: Collection<String>, draft: GradeDraft?): EditState {
+        if (draft == null) return colored(base, ids, null)
+        val stretch = stretch(base, ids)
+        val duration = stretch.endInclusive - stretch.start
+        return each(base, ids) { state, at ->
+            val clip = state.clips[at]
+            val offset = (TrackEditState.clipStart(state, at) ?: stretch.start) - stretch.start
+            TimelineEditing.setColor(state, at, draft.placed(clip.color, clip.playbackSpans, offset, duration))
+        }
+    }
+
     /** [base] with the clips [ids] played at [rate]; 1 plays them as recorded (Before). */
     fun paced(base: EditState, ids: Collection<String>, rate: Double): EditState =
         each(base, ids) { state, at -> TimelineEditing.setSpeed(state, at, rate) }

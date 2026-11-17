@@ -66,9 +66,11 @@ import app.takes.core.ColorControl
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.EditState
+import app.takes.core.GradeDraft
 import app.takes.core.GradeLibrary
 import app.takes.core.ImportedLUT
 import app.takes.core.LUTInput
+import app.takes.core.PauseDetector
 import app.takes.core.RangeEditing
 import app.takes.core.ToolCompare
 import kotlinx.coroutines.launch
@@ -88,24 +90,45 @@ private val Selected = Color(0xFF64D2FF)
 internal class Coloring(
     val from: EditState, val base: EditState, val ids: List<String>, val scoped: RangeEditing.Scoped?, val label: String?, initial: ColorSettings,
 ) {
-    var color by mutableStateOf(initial)
+    /** The grade, and with a motion its two ends and the one being edited (EditorTools.swift:259-310). */
+    var draft by mutableStateOf(GradeDraft.opening(initial))
+    /** The grade the controls show and change: with a motion, the end being edited. */
+    var color: ColorSettings
+        get() = draft.color
+        set(next) { draft = draft.adjusted(next) }
     /** Before: the clips without their grade (EditorTools.swift:369, 721). */
     var original by mutableStateOf(false)
     /** Whether the clips had a grade when the tool opened: it can then be removed (EditorTools.swift:1096-1100). */
     val existing = base.clips.any { it.id in ids && it.color != null }
 
-    private var made: Pair<ColorSettings?, EditState>? = null
+    /** The stretch of the timeline the tool works on, which a motion runs over (EditorTools.swift:436, 265). */
+    val stretch = ToolCompare.stretch(base, ids)
+    val duration: Double get() = stretch.endInclusive - stretch.start
 
-    /** What the editor shows: the clips with the grade, or Before without it. */
+    private var made: Pair<GradeDraft?, EditState>? = null
+
+    /** What the editor shows: the clips with the grade, a moving one tied to their footage, or Before without it. */
     val shown: EditState
         get() {
-            val grade = if (original) null else color
+            val grade = if (original) null else draft
             made?.let { if (it.first == grade) return it.second }
-            return ToolCompare.colored(base, ids, grade).also { made = grade to it }
+            return ToolCompare.graded(base, ids, grade).also { made = grade to it }
         }
 
     /** The edit with the grade applied, or with it removed. */
-    fun applied(removing: Boolean = false): EditState = ToolCompare.colored(base, ids, if (removing) null else color)
+    fun applied(removing: Boolean = false): EditState = ToolCompare.graded(base, ids, if (removing) null else draft)
+
+    /** The timeline second the picture stands at while parked on an end of the motion; null when it is not parked. */
+    fun parkedAt(time: Double): Double? =
+        if (draft.previewEndpoint == null || draft.animation == null) null
+        else stretch.start + minOf(maxOf(0.0, duration - PauseDetector.FRAME), draft.previewPosition(time - stretch.start, duration))
+
+    /**
+     * Where Play starts from with the playhead at [time]: the start of the stretch while an end of the motion is
+     * being edited, or when the playhead is outside it or at its end; else where it is.
+     */
+    fun playFrom(time: Double): Double =
+        if (draft.endpoint != null || time < stretch.start || time >= stretch.endInclusive - 0.05) stretch.start else time
 }
 
 /**
@@ -128,11 +151,28 @@ internal fun ColorPanel(
             }
             TextButton(onClick = apply) { Text(stringResource(R.string.crop_apply), fontWeight = FontWeight.Bold) }
         }
-        BeforeAfter(work.original, { work.original = it })
+        // "Animate" beside Before and After, as in the original's Color tool (EditorTools.swift:1266).
+        val draft = work.draft
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            AnimationEndpointMenu(
+                draft.animation, draft.endpoint, select = { work.draft = work.draft.selecting(it, work.duration) },
+                remove = { work.draft = work.draft.removingAnimation() }, done = { work.draft = work.draft.finishing(work.duration) },
+            )
+            BeforeAfter(work.original, { work.original = it }, Modifier.weight(1f))
+        }
         Column(
             Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // With a motion, its curve and timing above the grade (EditorTools.swift:1094, EffectAnimationControls.swift).
+            if (draft.animation != null) {
+                AnimationControls(
+                    draft.animation, draft.endpoint, work.duration,
+                    select = { work.draft = work.draft.selecting(it, work.duration) }, remove = { work.draft = work.draft.removingAnimation() },
+                    done = { work.draft = work.draft.finishing(work.duration) }, update = { work.draft = work.draft.retimed(it, work.duration) },
+                    showsEndpointMenu = false,
+                )
+            }
             ColorGradeControls(work, folder, importLut)
             if (work.existing) {
                 // Remove look, when the tool was opened on clips with a grade (EditorTools.swift:1096-1100).

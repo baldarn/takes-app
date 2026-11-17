@@ -493,7 +493,31 @@ private fun Capsule(label: String, spoken: String, icon: ImageVector? = null, tr
  * that can move: "Animate" opens the two ends, A and B; choosing one shows
  * it and lets the controls change it. With a motion there is its curve, and
  * for the curves that rise and hold their ramp and the times of the rise and
- * the return.
+ * the return. This is "Animate" and its menu (YouRec/EffectAnimationControls.swift:14-35).
+ */
+@Composable
+internal fun AnimationEndpointMenu(
+    motion: EffectAnimation?, endpoint: EffectEndpoint?, select: (EffectEndpoint) -> Unit, remove: () -> Unit, done: () -> Unit,
+) {
+    val label = endpoint?.let { stringResource(R.string.motion_edit_end, it.name) } ?: stringResource(R.string.motion_animate)
+    Capsule(label, label, icon = if (motion == null) Icons.Outlined.Diamond else Icons.Filled.Diamond) { close ->
+        for (end in EffectEndpoint.entries) {
+            DropdownMenuItem(
+                { Text(end.name) }, { close(); select(end) },
+                leadingIcon = { Icon(if (end == endpoint) Icons.Filled.Diamond else Icons.Outlined.Diamond, null) },
+                modifier = Modifier.semantics { selected = end == endpoint },
+            )
+        }
+        if (motion != null) {
+            DropdownMenuItem({ Text(stringResource(R.string.motion_remove), color = RecordRed) }, { close(); remove() })
+            DropdownMenuItem({ Text(stringResource(R.string.common_done)) }, { close(); done() })
+        }
+    }
+}
+
+/**
+ * The motion's controls: "Animate" ([AnimationEndpointMenu]) and with a motion its curve, and for a curve that rises
+ * its ramp and times (YouRec/EffectAnimationControls.swift:37-130).
  *
  * @param duration the length of what the tool works on, which the motion runs over.
  */
@@ -501,25 +525,15 @@ private fun Capsule(label: String, spoken: String, icon: ImageVector? = null, tr
 internal fun AnimationControls(
     motion: EffectAnimation?, endpoint: EffectEndpoint?, duration: Double,
     select: (EffectEndpoint) -> Unit, remove: () -> Unit, done: () -> Unit, update: (EffectTiming) -> Unit,
+    /** False where the tool shows [AnimationEndpointMenu] elsewhere, as the Color tool does beside Before and After. */
+    showsEndpointMenu: Boolean = true,
 ) {
     val ends: @Composable () -> Unit = {
-        val label = endpoint?.let { stringResource(R.string.motion_edit_end, it.name) } ?: stringResource(R.string.motion_animate)
-        Capsule(label, label, icon = if (motion == null) Icons.Outlined.Diamond else Icons.Filled.Diamond) { close ->
-            for (end in EffectEndpoint.entries) {
-                DropdownMenuItem(
-                    { Text(end.name) }, { close(); select(end) },
-                    leadingIcon = { Icon(if (end == endpoint) Icons.Filled.Diamond else Icons.Outlined.Diamond, null) },
-                    modifier = Modifier.semantics { selected = end == endpoint },
-                )
-            }
-            if (motion != null) {
-                DropdownMenuItem({ Text(stringResource(R.string.motion_remove), color = RecordRed) }, { close(); remove() })
-                DropdownMenuItem({ Text(stringResource(R.string.common_done)) }, { close(); done() })
-            }
-        }
+        if (showsEndpointMenu) AnimationEndpointMenu(motion, endpoint, select, remove, done)
+        else Text(stringResource(R.string.motion_curve), color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(vertical = 12.dp))
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (motion == null) ends() else {
+        if (motion == null) { if (showsEndpointMenu) ends() } else {
             val timing = motion.timing
             // The curve goes under the end where the two do not fit side by side.
             FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Arrangement.spacedBy(8.dp)) {

@@ -11,6 +11,7 @@ import androidx.annotation.RequiresApi
 import app.takes.core.ColorGrade
 import app.takes.core.ColorSettings
 import app.takes.core.CubeLUT
+import app.takes.core.GradeMotion
 import app.takes.core.LUTInput
 import java.io.File
 import kotlin.math.roundToInt
@@ -78,6 +79,65 @@ object ColorLuts {
             return half4(mix(low, high, half(position.b - slice)) * color.a, color.a);
         }
     """
+
+    // The two ends of a moving grade looked up as above, and dissolved as light ([GradeMotion.dissolve]).
+    private const val MOVING = """
+        uniform shader content;
+        uniform shader lutA;
+        uniform shader lutB;
+        uniform float size;
+        uniform float fraction;
+        float3 light(float3 v) { return mix(v / 4.5, pow((v + 0.099) / 1.099, float3(1.0 / 0.45)), step(0.081, v)); }
+        float3 signal(float3 l) { return mix(l * 4.5, 1.099 * pow(l, float3(0.45)) - 0.099, step(0.018, l)); }
+        half4 main(float2 xy) {
+            half4 color = content.eval(xy);
+            if (color.a <= 0.0) return color;
+            float3 position = clamp(color.rgb / color.a, 0.0, 1.0) * (size - 1.0);
+            float slice = floor(position.b);
+            float next = min(slice + 1.0, size - 1.0);
+            float2 low = float2(position.r + slice * size + 0.5, position.g + 0.5);
+            float2 high = float2(position.r + next * size + 0.5, position.g + 0.5);
+            float3 a = mix(float3(lutA.eval(low).rgb), float3(lutA.eval(high).rgb), position.b - slice);
+            float3 b = mix(float3(lutB.eval(low).rgb), float3(lutB.eval(high).rgb), position.b - slice);
+            float3 mixed = signal(clamp(mix(light(clamp(a, 0.0, 1.0)), light(clamp(b, 0.0, 1.0)), fraction), 0.0, 1.0));
+            return half4(half3(mixed) * color.a, color.a);
+        }
+    """
+
+    /**
+     * A deck's grade in the preview. A fixed grade is one effect; a moving one ([GradeMotion]) is drawn at the
+     * fraction of its motion at the moment shown: A's table alone before it starts, B's alone once there, and between
+     * the two the picture graded by both and dissolved, as the export draws it ([MovingColorLut]).
+     */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    class Preview(settings: ColorSettings, private val folder: File, private val sourceLog: LUTInput?) {
+        private val ends = GradeMotion.ends(settings)
+        private val fixed by lazy { previewEffect(ends?.first ?: settings, folder, sourceLog) }
+        private val atB by lazy { previewEffect(ends!!.second, folder, sourceLog) }
+        private val between by lazy {
+            fun lookup(grade: ColorSettings) = BitmapShader(strip(grade, folder, sourceLog), Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+                filterMode = BitmapShader.FILTER_MODE_LINEAR
+            }
+            RuntimeShader(MOVING).apply {
+                setInputShader("lutA", lookup(ends!!.first))
+                setInputShader("lutB", lookup(ends.second))
+                setFloatUniform("size", SIZE.toFloat())
+            }
+        }
+
+        /** Whether the grade moves, so that what it draws depends on the moment shown. */
+        val moves: Boolean get() = ends != null
+
+        /** The effect at [fraction] of the way from A to B; a fixed grade ignores it. */
+        fun effect(fraction: Double = 0.0): RenderEffect = when {
+            ends == null || fraction <= 0 -> fixed
+            fraction >= 1 -> atB
+            else -> {
+                between.setFloatUniform("fraction", fraction.toFloat())
+                RenderEffect.createRuntimeShaderEffect(between, "content")
+            }
+        }
+    }
 
     /** The grade as an effect for a view showing the video. Older Android versions preview without color; the export is unaffected. */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)

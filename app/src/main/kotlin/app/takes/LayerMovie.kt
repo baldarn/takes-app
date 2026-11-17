@@ -79,7 +79,7 @@ class LayerMovie(
         val effects = buildList<Effect> {
             // In an HDR movie each picture ends in HLG, as a sequence's clips do (ExportMovie).
             val color = ClipColor(this, hdr, transfers[shown.sourceID])
-            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log) }
+            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log, clip, begins) }
             if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
             val source = size(shown.sourceID)
             if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, begins, source, frame))

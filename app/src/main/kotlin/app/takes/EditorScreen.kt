@@ -51,6 +51,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
+import app.takes.core.GradeMotion
 import app.takes.core.LUTInput
 import app.takes.core.ImportedLUT
 import app.takes.core.CropSettings
@@ -405,6 +406,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 editor.seek(time)
                 // Moving the picture by hand leaves the end of a crop's motion it was parked on: the motion is shown as it runs.
                 cropping?.let { if (it.draft.previewEndpoint != null) cropping = it.copy(draft = it.draft.scrubbed()) }
+                coloring?.let { if (it.draft.previewEndpoint != null) it.draft = it.draft.scrubbed() }
             }
         }
     }
@@ -787,11 +789,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val togglePlay: () -> Unit = {
         auditionEnd = null
         val framed = cropping
+        val colored = coloring
         if (editor.playing) { editor.pause(); auditionReturn?.let { auditionReturn = null; jump(it) } }
         // The Crop tool plays what it works on and stops at its end, as the original's preview does.
         else if (framed != null) {
             auditionEnd = (framed.on.end - PauseDetector.FRAME / 2).takeIf { framed.on.end < duration - 0.0005 }
             val from = framed.playFrom(playhead)
+            playhead = from
+            editor.play(from, reviewSpeed)
+        // The Color tool too, over the stretch its grade's motion runs (EditorTools.swift:808-814).
+        } else if (colored != null) {
+            auditionEnd = (colored.stretch.endInclusive - PauseDetector.FRAME / 2).takeIf { colored.stretch.endInclusive < duration - 0.0005 }
+            val from = colored.playFrom(playhead)
             playhead = from
             editor.play(from, reviewSpeed)
         } else editor.play(if (playhead >= duration - 0.05) 0.0 else playhead, reviewSpeed)
@@ -889,7 +898,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             Box((canvas?.let { Modifier.aspectRatio(it.first.toFloat() / it.second) } ?: Modifier.fillMaxSize()).onGloballyPositioned { previewBounds = it.boundsInWindow() }.inspected(inspection).clipToBounds()) {
                 val grades = deckColors.map { color ->
                     remember(color, folder) {
-                        if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.previewEffect(color.first, folder, color.second) else null
+                        if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.Preview(color.first, folder, color.second) else null
                     }
                 }
                 // The video effects after the color, as the export draws them: at the source second the deck shows.
@@ -898,8 +907,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 var palettesReady by remember { mutableIntStateOf(0) }
                 // Made where the pictures are composed: at each frame only while a clip on view has effects, whose passes change with the time.
                 fun effects() = List(EditRendering.LANES) { deck ->
-                    val grade = grades[deck]
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List grade?.asComposeRenderEffect()
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List null
+                    // A moving grade at the source second the deck shows, as its crop: read at each frame only while one is on view.
+                    val grade = grades[deck]?.let { preview ->
+                        if (!preview.moves) preview.effect() else shownClips[deck]?.let { (clip, start) ->
+                            preview.effect(GradeMotion.fraction(clip, playhead - start, deckColors[deck]?.first) ?: 0.0)
+                        }
+                    }
                     var restored: android.graphics.RenderEffect? = null
                     val shaded = shownClips[deck]?.takeIf { (clip, _) -> effecting != null || !clip.videoEffects.isNullOrEmpty() }?.let { (clip, start) ->
                         val offset = (playhead - start).coerceIn(0.0, clip.duration)
@@ -1576,6 +1590,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val work = coloring!!
             // An edit made meanwhile, such as a take that arrives, ends the tool.
             LaunchedEffect(saved) { if (work.from != saved) coloring = null }
+            // Parked on an end of the grade's motion, the picture stands where that end shows, following the peak as the
+            // timing changes; playing shows the motion run, and stopping goes back to the end being edited (EditorTools.swift:278-310).
+            LaunchedEffect(work.draft.previewEndpoint, work.draft.animation?.timing) {
+                work.parkedAt(playhead)?.coerceIn(0.0, duration)?.let { if (editor.playing || abs(it - playhead) > 0.0005) { auditionEnd = null; jump(it) } }
+            }
+            LaunchedEffect(editor.playing) { work.draft = if (editor.playing) work.draft.scrubbed() else work.draft.stopped() }
             val done = { next: EditState ->
                 editor.pause()
                 coloring = null

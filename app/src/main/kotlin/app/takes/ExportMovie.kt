@@ -154,7 +154,7 @@ class ExportMovie(
                 add(NightFixEffect(plan.clips[part.index], shown.start - origin)) // on the raw frame
             }
             // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
-            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log) }
+            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log, plan.clips[part.index], shown.start - origin) }
             val clip = plan.clips[part.index]
             // Before the fitting where nothing after it needs SDR: an effect after a deck's Presentation is best avoided (docs/EXPORT-TWO-SEQUENCES.md, section 8).
             if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
