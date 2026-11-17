@@ -23,12 +23,15 @@ import kotlin.math.abs
  * of it begins partway into the file: the music of [DecodedSourceRunner] (a 44.1 kHz mono AAC file of a tone with
  * a click every half second) imported at second 0 as Add audio does, then split at 7.033 s (`-e case split`) or
  * trimmed to begin at 5.833 s (`-e case trim`), or left whole (`-e case whole`). The movie's sound is decoded and
- * must be free of silence from the sound's first second to its last, and its clicks must lie on the half seconds.
+ * must be free of silence from the sound's first second to its last, and its clicks must lie on the half seconds,
+ * within a millisecond. `-e pause <seconds>` pauses the export that long after it starts, as leaving the app does,
+ * and resumes it.
  *
  *     adb shell am instrument -w -e clip clip.mp4 -e music music.m4a -e case split app.takes.dev.test/app.takes.sound.SoundItemExportRunner
  *
  * Both files are read from /data/local/tmp; the recording must last as long as the music. The project is deleted
- * afterwards unless `-e keep true`.
+ * afterwards unless `-e keep true`. The music must keep its clicks sharp: ffmpeg's AAC at its default 128 kbit/s
+ * smears one of them, at 192 kbit/s (`-b:a 192k`) none.
  */
 class SoundItemExportRunner : Instrumentation() {
     private lateinit var arguments: Bundle
@@ -88,6 +91,14 @@ class SoundItemExportRunner : Instrumentation() {
             val current = main { store.projects.first { it.id == made.id } }
             project = current
             main { exporter.start(current) }
+            arguments.getString("pause")?.toDouble()?.let { seconds ->
+                Thread.sleep(Math.round(seconds * 1000))
+                main { exporter.pause() }
+                waitFor(60, "the pause") { exporter.status == null }
+                val paused = main { exporter.paused } ?: error("Not paused")
+                say("paused after %.1f s with %.0f s saved".format(seconds, paused.savedSeconds))
+                main { exporter.start(current) }
+            }
             waitFor(600, "the export") { exporter.status == null }
             val movie = main { exporter.result } ?: error("No movie: ${main { store.error }}")
             val start = cut.audio.orEmpty().minOf { it.start }
@@ -110,8 +121,9 @@ class SoundItemExportRunner : Instrumentation() {
         val (samples, rate) = decode(movie)
         val first = (start * rate).toInt()
         val last = minOf(samples.size, (end * rate).toInt())
-        // Clicks: where each falls from its half second. The sound of every export lies a few milliseconds late
-        // in the movie, the same throughout (its encoding, after the mix), so that delay is measured and allowed.
+        // Clicks: where each falls from its half second, which must be within a millisecond: the sound lay 9.4 ms
+        // late in every movie while the edit list skipped the 1600 frames Media3 says Android's AAC encoder primes
+        // where it primes 2048 (AacPriming).
         val late = mutableListOf<Double>()
         var frame = first
         while (frame < last) {
@@ -136,8 +148,8 @@ class SoundItemExportRunner : Instrumentation() {
             }
         }
         val spread = (late.maxOrNull() ?: 0.0) - (late.minOrNull() ?: 0.0)
-        val ok = gaps.isEmpty() && late.size >= ((end - start) * 2).toInt() - 1 && spread < 1.0 && delay in -1.0..25.0
-        return "%d Hz; silence %s; %d clicks, %.1f ms late, %.1f ms apart".format(rate, gaps.ifEmpty { listOf("none") }, late.size, delay, spread) to ok
+        val ok = gaps.isEmpty() && late.size >= ((end - start) * 2).toInt() - 1 && spread < 1.0 && delay in -1.0..1.0
+        return "%d Hz; silence %s; %d clicks, %.2f ms late, %.2f ms apart".format(rate, gaps.ifEmpty { listOf("none") }, late.size, delay, spread) to ok
     }
 
     /** The first channel of [movie]'s sound, decoded, with its rate; frame 0 at second 0 as the decoder times it. */

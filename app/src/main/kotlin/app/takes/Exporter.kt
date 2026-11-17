@@ -286,7 +286,8 @@ fun frameRate(file: File): Double? {
  * encoded as one of 30 frames a second, with the bitrate Media3 picks for 30. This states the movie's own.
  */
 class ClockedEncoders(private val encoders: Codec.EncoderFactory, private val framesPerSecond: Int, private val hdr: Boolean = false) : Codec.EncoderFactory {
-    override fun createForAudioEncoding(format: Format, logSessionId: LogSessionId?): Codec = encoders.createForAudioEncoding(format, logSessionId)
+    // With the priming it has, which Media3 does not know (AacPriming).
+    override fun createForAudioEncoding(format: Format, logSessionId: LogSessionId?): Codec = PrimedAudioEncoder(encoders.createForAudioEncoding(format, logSessionId))
 
     override fun createForVideoEncoding(format: Format, logSessionId: LogSessionId?): Codec {
         ExportTimes.mark("encoder")
