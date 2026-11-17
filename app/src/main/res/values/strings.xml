@@ -182,7 +182,6 @@
     <string name="crop_remove">Remove crop</string>
 
     <!-- Color -->
-    <string name="color_dialog_title">Clip color</string>
     <string name="color_look">Look</string>
     <string name="color_lut_name">LUT: %1$s</string>
     <string name="color_import_lut">Import a .cube LUT</string>
@@ -195,6 +194,13 @@
     <string name="color_warmth">Warmth</string>
     <string name="color_tint">Tint</string>
     <string name="color_balance">Color balance</string>
+    <string name="color_tool_title">Color LUTs</string>
+    <string name="color_balance_group">Exposure &amp; white balance</string>
+    <string name="color_reset_balance">Reset balance</string>
+    <string name="color_reset_highlights">Reset highlights</string>
+    <string name="color_remove">Remove look</string>
+    <string name="common_expanded">Expanded</string>
+    <string name="common_collapsed">Collapsed</string>
     <string name="color_lut_default_name">Imported LUT</string>
     <string name="color_lut_unreadable">The LUT file could not be read.</string>
     <string name="color_lut_rejected">%1$s</string>
@@ -579,9 +585,9 @@
     <string name="recorder_inserting_at">Inserting at %1$s</string>
     <string name="recorder_at_end">Record at the end</string>
     <string name="editor_speed">Speed</string>
-    <string name="speed_title">Clip speed</string>
     <string name="speed_note">The whole clip plays slower or faster, picture and sound, and the pitch of voices is kept. Later clips move.</string>
     <string name="speed_apply">Apply</string>
+    <string name="speed_remove">Remove speed</string>
     <string name="speed_slider">Playback speed</string>
     <string name="editor_subtitles">Subtitles</string>
     <string name="subtitles_title">Subtitles</string>

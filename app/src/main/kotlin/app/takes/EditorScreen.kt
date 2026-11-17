@@ -49,7 +49,6 @@ import app.takes.core.PauseDetector
 import android.os.Build
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
-import app.takes.core.ColorControl
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.LUTInput
@@ -162,6 +161,7 @@ import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TimelineNavigation
 import app.takes.core.TimelineZoom
+import app.takes.core.ToolCompare
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.heightIn
 import android.content.res.Configuration
@@ -255,8 +255,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // The Pauses tool, and the edit it shows: its choices, or Before them (A/PausesPanel.kt).
     var pausing by remember { mutableStateOf<Pausing?>(null) }
     val pausingShown = pausing?.shown
-    val edit = remember(saved, transitioning?.join, transitioning?.shown, auditioning, moveShown, placementShown, pausingShown) {
-        moveShown ?: placementShown ?: auditioning?.state ?: pausingShown ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved
+    // The Color and Speed tools, and the edit they show: their setting, or Before it (A/ColorPanel.kt, A/SpeedPanel.kt).
+    var coloring by remember { mutableStateOf<Coloring?>(null) }
+    val coloringShown = coloring?.shown
+    var pacing by remember { mutableStateOf<Pacing?>(null) }
+    val pacingShown = pacing?.shown
+    val edit = remember(saved, transitioning?.join, transitioning?.shown, auditioning, moveShown, placementShown, pausingShown, coloringShown, pacingShown) {
+        moveShown ?: placementShown ?: auditioning?.state ?: pausingShown ?: coloringShown ?: pacingShown ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved
     }
     val clips = edit.clips
     // The movie lasts until its sound ends, past the last picture in black, once the project takes that length ([MovieLength]).
@@ -526,7 +531,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val rate: (TransitionLayout.Join) -> Double = { movie }
         rate
     }
-    var pacing by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     // The add button of the timeline the panel was opened from; null for the Add video tool, which adds at the playhead.
     var addSite by remember { mutableStateOf<VideoInsertionSite?>(null) }
@@ -700,7 +704,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     var choosingExport by remember { mutableStateOf(false) }
     var covering by remember { mutableStateOf<CoverPick.Source?>(null) }
-    var editingColor by remember { mutableStateOf(false) }
     var editingAudio by remember { mutableStateOf(false) }
     var leveling by remember { mutableStateOf<Leveling?>(null) }
     val levelMeasuring = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
@@ -839,7 +842,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val toolWeight = when {
         moving != null -> 0f
         placementWork != null || effecting != null || cropping != null -> 1f
-        titling != null || transitioning != null || pausing != null || subtitling != null -> 1.5f
+        titling != null || transitioning != null || pausing != null || subtitling != null || coloring != null -> 1.5f
+        pacing != null -> 1f
         else -> 0f
     } * LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val timelineRows = rememberScrollState()
@@ -1522,6 +1526,42 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 cancel = { editor.pause(); auditionEnd = null; auditionReturn = null; pausing = null },
                 modifier = Modifier.layoutId(EditorSlot.Tools),
             )
+        } else if (coloring != null) {
+            val work = coloring!!
+            // An edit made meanwhile, such as a take that arrives, ends the tool.
+            LaunchedEffect(saved) { if (work.from != saved) coloring = null }
+            val done = { next: EditState ->
+                editor.pause()
+                coloring = null
+                // One undo step for the whole tool; with a range, the cuts at its ends only when something changed.
+                if (next != work.base) work.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
+            }
+            ColorPanel(
+                work, importLut = { uri -> store.importLut(project.id, uri) },
+                apply = { done(work.applied()) }, remove = { done(work.applied(removing = true)) },
+                cancel = { editor.pause(); coloring = null },
+                modifier = Modifier.layoutId(EditorSlot.Tools),
+            )
+        } else if (pacing != null) {
+            val work = pacing!!
+            LaunchedEffect(saved) { if (work.from != saved) pacing = null }
+            // A new rate moves the footage: the playhead stays on the frame it showed (ToolCompare.mapped).
+            var lastShown by remember(work) { mutableStateOf(work.from) }
+            LaunchedEffect(work, pacingShown) {
+                val now = pacingShown ?: return@LaunchedEffect
+                if (now != lastShown) { jump(ToolCompare.mapped(lastShown, now, playhead)); lastShown = now }
+            }
+            val done = { next: EditState ->
+                val time = ToolCompare.mapped(edit, next, playhead)
+                editor.pause()
+                pacing = null
+                if (next != work.base) work.scoped?.let { applyScoped(it, next, time) } ?: commit(next, time)
+            }
+            SpeedPanel(
+                work, apply = { done(work.applied()) }, remove = { done(work.applied(removing = true)) },
+                cancel = { editor.pause(); pacing = null },
+                modifier = Modifier.layoutId(EditorSlot.Tools),
+            )
         } else if (subtitling != null) {
             SubtitlesPanel(
                 saved = edit, draft = subtitling ?: edit, change = { subtitling = it },
@@ -1710,7 +1750,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // With a range or a selection these four apply to the clips in it; a scope that holds no clip has nothing for them.
                 val scopeHasClips = toolScope == null || toolSubject != null
                 TextButton(onClick = { editor.pause(); editingAudio = true }, compact, enabled = located != null && (scopeHasClips || toolSounds.isNotEmpty()), contentPadding = tight) { Text(stringResource(R.string.editor_sound)) }
-                TextButton(onClick = { editor.pause(); editingColor = true }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
+                TextButton(onClick = {
+                    editor.pause()
+                    // On the clips of the range or the selection, cut at the ends of a range, else on the clip under the playhead.
+                    val initial = (toolSubject ?: current)?.color ?: ColorSettings()
+                    if (current != null) coloring = toolScope?.let { Coloring(saved, it.state, it.clips, it, toolScopeLabel, initial) } ?: Coloring(saved, edit, listOf(current.id), null, null, initial)
+                }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_color)) }
                 TextButton(onClick = {
                     editor.pause()
                     // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.
@@ -1722,7 +1767,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val framed = toolSubject ?: current
                     if (framed != null) cropping = Cropping.opening(edit, toolScope, framed)
                 }, compact, enabled = current != null && sizes[current.sourceID] != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_crop)) }
-                TextButton(onClick = { editor.pause(); pacing = true }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
+                TextButton(onClick = {
+                    editor.pause()
+                    val initial = (toolSubject ?: current)?.rate ?: 1.0
+                    if (current != null) pacing = toolScope?.let { Pacing(saved, it.state, it.clips, it, toolScopeLabel, initial) } ?: Pacing(saved, edit, listOf(current.id), null, null, initial)
+                }, compact, enabled = located != null && scopeHasClips, contentPadding = tight) { Text(stringResource(R.string.editor_speed)) }
                 TextButton(onClick = {
                     editor.pause()
                     val subject = toolSubject ?: current
@@ -1840,22 +1889,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     dismissButton = { TextButton(onClick = { choosing = null }) { Text(stringResource(R.string.common_cancel)) } },
                 )
             }
-            if (pacing && current != null) TrackEditState.locate(edit, playhead)?.let { location ->
-                SpeedDialog((toolSubject ?: current).rate, toolScopeLabel, dismiss = { pacing = false }, apply = { rate ->
-                    // The same frame stays under the playhead.
-                    val frame = current.sourceTime(location.offset)
-                    if (toolScope != null) {
-                        val under = TimelineEditing.locate(toolScope.state.clips, playhead)?.let { toolScope.state.clips[it.index].id }
-                        val next = applied(toolScope) { state, at -> TimelineEditing.setSpeed(state, at, rate) }
-                        val at = next?.clips?.indexOfFirst { it.id == under }?.takeIf { it >= 0 }
-                        applyScoped(toolScope, next, if (next != null && at != null) TimelineEditing.clipStart(next.clips, at) + next.clips[at].offset(frame).coerceIn(0.0, next.clips[at].duration) else playhead)
-                    } else {
-                        val next = TimelineEditing.setSpeed(edit, location.index, rate)
-                        commit(next, next?.let { TimelineEditing.clipStart(it.clips, location.index) + it.clips[location.index].offset(frame) } ?: playhead)
-                    }
-                    pacing = false
-                })
-            }
             val nothingToMove = stringResource(R.string.move_nothing)
             ArrangeTools(
                 TrackEditState.unavailable(edit, SequenceOnly.Reorder)?.text(), explain = { store.error = it },
@@ -1885,20 +1918,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
 
     store.importing?.let { step ->
         AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text(stringResource(R.string.common_importing)) }, text = { Text(step) })
-    }
-    val colored = located
-    if (editingColor && colored != null && current != null) {
-        ColorDialog(
-            (toolSubject ?: current).color ?: ColorSettings(),
-            importLut = { uri -> store.importLut(project.id, uri) },
-            save = { color ->
-                if (toolScope != null) applyScoped(toolScope, applied(toolScope) { state, at -> TimelineEditing.setColor(state, at, color) }, playhead)
-                else commit(TimelineEditing.setColor(edit, colored, color), playhead)
-                editingColor = false
-            },
-            dismiss = { editingColor = false },
-            appliesTo = toolScopeLabel,
-        )
     }
     // Listening to a fade of the Sound dialog (TrackEditors.swift:381-390): the sound it would save, at 1×, from [from] to [until].
     val listenTo = { base: EditState, targets: List<SoundTarget> ->
@@ -1994,26 +2013,6 @@ private fun applied(scoped: RangeEditing.Scoped, change: (EditState, Int) -> Edi
 /** A cut being previewed: the edit without what would be removed, and the stretch of it to play. */
 private data class Audition(val state: EditState, val review: ReviewWindows.Review)
 
-/** The look names of the core module, which only has them in English. */
-private val ColorLook.label: Int
-    get() = when (this) {
-        ColorLook.Natural -> R.string.color_look_natural
-        ColorLook.Warm -> R.string.color_look_warm
-        ColorLook.Cool -> R.string.color_look_cool
-        ColorLook.Cinema -> R.string.color_look_cinema
-        ColorLook.Mono -> R.string.color_look_mono
-        ColorLook.Portrait -> R.string.color_look_portrait
-        ColorLook.Daylight -> R.string.color_look_daylight
-        ColorLook.GoldenHour -> R.string.color_look_golden_hour
-        ColorLook.MutedFilm -> R.string.color_look_muted_film
-        ColorLook.RichContrast -> R.string.color_look_rich_contrast
-        ColorLook.Pastel -> R.string.color_look_pastel
-        ColorLook.Night -> R.string.color_look_night
-        ColorLook.Silver -> R.string.color_look_silver
-        ColorLook.Ink -> R.string.color_look_ink
-    }
-
-/** As [ColorSettings.title], from the resources. */
 /** The parts of the editor's screen, which [EditorFrame] lays out for the orientation. */
 private enum class EditorSlot { Header, Preview, Transport, Timeline, Tools }
 
@@ -2086,60 +2085,6 @@ internal fun <T> Choices(label: String, options: List<Pair<String, T>>, selected
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (name, value) -> FilterChip(selected = value == selected, onClick = { choose(value) }, label = { Text(name) }) }
     }
-}
-
-/** The clip's color: a look or an imported LUT at some strength, over highlights, exposure, warmth and tint. */
-@Composable
-private fun ColorDialog(saved: ColorSettings, importLut: suspend (Uri) -> ImportedLUT?, save: (ColorSettings) -> Unit, dismiss: () -> Unit, appliesTo: String? = null) {
-    var color by remember { mutableStateOf(saved) }
-    val scope = rememberCoroutineScope()
-    val pickLut = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch { importLut(uri)?.let { color = color.copy(imported = it) } }
-    }
-    @Composable
-    fun Level(label: String, value: Double, control: ColorControl, change: (Double) -> Unit) {
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), Arrangement.SpaceBetween) {
-            Text(label, color = Muted, fontSize = 13.sp)
-            Text(control.label(value), color = Color.White, fontSize = 13.sp)
-        }
-        // The original's ranges and steps (YouRec/ColorGradeControls.swift:25, 63, 70-72, 152).
-        Slider(value = value.toFloat(), onValueChange = { change(control.stepped(it.toDouble())) },
-            valueRange = control.low.toFloat()..control.high.toFloat(), modifier = Modifier.semantics { contentDescription = label })
-    }
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(stringResource(R.string.color_dialog_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                appliesTo?.let { Text(it, color = Muted, fontSize = 13.sp) }
-                val lut = color.imported
-                if (lut == null) {
-                    Choices(stringResource(R.string.color_look), ColorLook.entries.map { stringResource(it.label) to it }, color.look) { color = color.copy(look = it) }
-                } else {
-                    Text(stringResource(R.string.color_lut_name, lut.name), color = Color.White, modifier = Modifier.padding(top = 12.dp))
-                }
-                Row {
-                    TextButton(onClick = { pickLut.launch("*/*") }) { Text(stringResource(if (lut == null) R.string.color_import_lut else R.string.color_choose_another_lut)) }
-                    if (lut != null) TextButton(onClick = { color = color.copy(imported = null) }) { Text(stringResource(R.string.color_use_look)) }
-                }
-                Level(stringResource(R.string.color_strength), color.amount, ColorControl.Strength) { color = color.copy(amount = it) }
-                // A correction left at zero is stored as nothing, as in the original.
-                // Highlights sits above the balance, as in the original's colour controls (YouRec/ColorGradeControls.swift:52-66).
-                Level(stringResource(R.string.color_highlights), color.highlights ?: 0.0, ColorControl.Highlights) { color = color.copy(highlights = it.takeIf { it != 0.0 }) }
-                Text(stringResource(R.string.color_highlights_help), color = Muted, fontSize = 12.sp)
-                Level(stringResource(R.string.color_exposure), color.exposure ?: 0.0, ColorControl.Exposure) { color = color.copy(exposure = it.takeIf { it != 0.0 }) }
-                Level(stringResource(R.string.color_warmth), color.warmth ?: 0.0, ColorControl.Warmth) { color = color.copy(warmth = it.takeIf { it != 0.0 }) }
-                Level(stringResource(R.string.color_tint), color.tint ?: 0.0, ColorControl.Tint) { color = color.copy(tint = it.takeIf { it != 0.0 }) }
-            }
-        },
-        confirmButton = { TextButton(onClick = { save(color) }) { Text(stringResource(R.string.common_save)) } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = { color = ColorSettings(id = color.id) }, enabled = !color.isIdentity) { Text(stringResource(R.string.common_reset)) }
-                TextButton(onClick = dismiss) { Text(stringResource(R.string.common_cancel)) }
-            }
-        },
-    )
 }
 
 /** What can be done to a sound on an audio track. Each edit is given ready, or null when it does not apply at the playhead. */

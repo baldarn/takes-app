@@ -185,7 +185,6 @@
     <string name="crop_remove">Rimuovi ritaglio</string>
 
     <!-- Color -->
-    <string name="color_dialog_title">Colore della clip</string>
     <string name="color_look">Look</string>
     <string name="color_lut_name">LUT: %1$s</string>
     <string name="color_import_lut">Importa una LUT .cube</string>
@@ -198,6 +197,13 @@
     <string name="color_warmth">Calore</string>
     <string name="color_tint">Tinta</string>
     <string name="color_balance">Bilanciamento colore</string>
+    <string name="color_tool_title">LUT di colore</string>
+    <string name="color_balance_group">Esposizione e bilanciamento del bianco</string>
+    <string name="color_reset_balance">Azzera il bilanciamento</string>
+    <string name="color_reset_highlights">Azzera le alte luci</string>
+    <string name="color_remove">Rimuovi il look</string>
+    <string name="common_expanded">Espanso</string>
+    <string name="common_collapsed">Compresso</string>
     <string name="color_lut_default_name">LUT importata</string>
     <string name="color_lut_unreadable">Non è stato possibile leggere il file LUT.</string>
     <string name="color_lut_rejected">Questa LUT non si può usare: %1$s</string>
@@ -585,9 +591,9 @@
     <string name="recorder_inserting_at">Inserimento a %1$s</string>
     <string name="recorder_at_end">Registra in coda</string>
     <string name="editor_speed">Velocità</string>
-    <string name="speed_title">Velocità della clip</string>
     <string name="speed_note">Tutta la clip scorre più lenta o più veloce, immagine e audio, e l\'intonazione delle voci resta la stessa. Le clip successive si spostano.</string>
     <string name="speed_apply">Applica</string>
+    <string name="speed_remove">Rimuovi la velocità</string>
     <string name="speed_slider">Velocità di riproduzione</string>
     <string name="editor_subtitles">Sottotitoli</string>
     <string name="subtitles_title">Sottotitoli</string>
