@@ -17,4 +17,15 @@
     <string name="effect_chip_cancel">Cancel removal</string>
     <string name="effect_removed">Removed %1$s · Undo available</string>
     <string name="selection_tool_whole">Whole project · %1$s</string>
+    <!-- The Tools sheet (YouRec/EditorTools.swift:33-106). -->
+    <string name="tools_title">Tools</string>
+    <string name="tools_add_media_at">Add media at %1$s</string>
+    <string name="tools_overlays">Overlays</string>
+    <string name="tools_overlay_scope">At %1$s · 3 s long</string>
+    <string name="tools_adjust">Adjust</string>
+    <string name="tools_in_project">In this project</string>
+    <string name="tools_tap_to_edit">Tap to edit or remove</string>
+    <string name="tools_cover_hint">Browse frames to share as a JPEG.</string>
+    <string name="tools_censor_help_title">Mark the sound to censor</string>
+    <string name="tools_censor_help">In the timeline, use Mark start and Mark end around the word or sound, then open Censor audio. Select an audio item first to affect only that track; otherwise all audio in the marked range is censored.</string>
 </resources>

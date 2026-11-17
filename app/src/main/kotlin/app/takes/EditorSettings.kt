@@ -12,16 +12,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TextFormat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,25 +46,17 @@ private val Muted = Color(0xFFA0A4AB)
 private val CardFill = Color.White.copy(alpha = 0.07f)
 
 /**
- * The editor's Settings, as the Settings section of the original's tools (YouRec/EditorTools.swift:79-106): Snap
- * to cuts, kept with the magnet beside Undo and Redo ([SnapSetting]), Match listening levels ([ListeningLevels]),
- * and the font library. A touch and hold on a setting gives its explanation, as in the original.
+ * The editor's Settings, as the Settings section of the original's tools (YouRec/EditorTools.swift:79-106), at the foot
+ * of the Tools sheet ([ToolsSheet]): Snap to cuts, kept with the magnet beside Undo and Redo ([SnapSetting]), Match
+ * listening levels ([ListeningLevels]), and the font library. A touch and hold on a setting gives its explanation, as
+ * in the original.
  */
 @Composable
-internal fun EditorSettingsButton(snap: SnapSetting, enabled: Boolean) {
-    var open by remember { mutableStateOf(false) }
-    IconButton(onClick = { open = true }, enabled = enabled) {
-        Icon(Icons.Outlined.Settings, stringResource(R.string.settings_title), tint = if (enabled) Color.White else Muted)
-    }
-    if (open) EditorSettingsDialog(snap) { open = false }
-}
-
-@Composable
-private fun EditorSettingsDialog(snap: SnapSetting, close: () -> Unit) {
+internal fun EditorSettingsSection(snap: SnapSetting) {
     var fonts by remember { mutableStateOf(false) }
     var help by remember { mutableStateOf<Pair<String, String>?>(null) }
-    // The original pushes its Fonts screen over the tools; here it takes the dialog's place until it is closed.
-    if (fonts) { FontLibraryDialog(use = null, draftFace = null) { fonts = false }; return }
+    // The original pushes its Fonts screen over the tools; here it opens over them until it is closed.
+    if (fonts) FontLibraryDialog(use = null, draftFace = null) { fonts = false }
     help?.let { (title, explanation) ->
         AlertDialog(
             onDismissRequest = { help = null },
@@ -76,7 +64,6 @@ private fun EditorSettingsDialog(snap: SnapSetting, close: () -> Unit) {
             text = { Text(explanation) },
             confirmButton = { TextButton(onClick = { help = null }) { Text(stringResource(R.string.settings_got_it)) } },
         )
-        return
     }
     val snapTitle = stringResource(R.string.editor_snap)
     val snapExplanation = stringResource(R.string.settings_snap_explanation)
@@ -84,32 +71,25 @@ private fun EditorSettingsDialog(snap: SnapSetting, close: () -> Unit) {
     var matching by remember { mutableStateOf(ListeningLevels.matching(context)) }
     val matchTitle = stringResource(R.string.enhance_match)
     val matchExplanation = stringResource(R.string.settings_match_explanation)
-    AlertDialog(
-        onDismissRequest = close,
-        title = { Text(stringResource(R.string.settings_title)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingCard(snapTitle, stringResource(R.string.settings_snap_hint), snap.on, snap::toggle) { help = snapTitle to snapExplanation }
-                SettingCard(matchTitle, stringResource(R.string.settings_match_hint), matching, { matching = !matching; ListeningLevels.match(context, matching) }) {
-                    help = matchTitle to matchExplanation
-                }
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp).background(CardFill, RoundedCornerShape(14.dp))
-                        .combinedClickable(role = Role.Button, onClick = { fonts = true }).padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Outlined.TextFormat, null, Modifier.size(24.dp))
-                    Column(Modifier.weight(1f).padding(start = 10.dp, top = 6.dp, bottom = 6.dp)) {
-                        Text(stringResource(R.string.fonts_title), fontWeight = FontWeight.SemiBold)
-                        Text(stringResource(R.string.settings_fonts_hint), color = Muted, fontSize = 12.sp)
-                    }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
-                }
-                Text(stringResource(R.string.settings_hold_note), color = Muted, fontSize = 12.sp)
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SettingCard(snapTitle, stringResource(R.string.settings_snap_hint), snap.on, snap::toggle) { help = snapTitle to snapExplanation }
+        SettingCard(matchTitle, stringResource(R.string.settings_match_hint), matching, { matching = !matching; ListeningLevels.match(context, matching) }) {
+            help = matchTitle to matchExplanation
+        }
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).background(CardFill, RoundedCornerShape(14.dp))
+                .combinedClickable(role = Role.Button, onClick = { fonts = true }).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.TextFormat, null, Modifier.size(24.dp))
+            Column(Modifier.weight(1f).padding(start = 10.dp, top = 6.dp, bottom = 6.dp)) {
+                Text(stringResource(R.string.fonts_title), fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.settings_fonts_hint), color = Muted, fontSize = 12.sp)
             }
-        },
-        confirmButton = { TextButton(onClick = close) { Text(stringResource(R.string.common_done)) } },
-    )
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+        }
+        Text(stringResource(R.string.settings_hold_note), color = Muted, fontSize = 12.sp)
+    }
 }
 
 /** A setting as the original's card: its name and a switch; a tap turns it, a touch and hold explains it. */

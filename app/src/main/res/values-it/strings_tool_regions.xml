@@ -16,4 +16,14 @@
     <string name="effect_chip_cancel">Annulla la rimozione</string>
     <string name="effect_removed">Rimosso: %1$s · Annulla disponibile</string>
     <string name="selection_tool_whole">Intero progetto · %1$s</string>
+    <string name="tools_title">Strumenti</string>
+    <string name="tools_add_media_at">Aggiungi media a %1$s</string>
+    <string name="tools_overlays">Sovrimpressioni</string>
+    <string name="tools_overlay_scope">A %1$s · lunga 3 s</string>
+    <string name="tools_adjust">Regola</string>
+    <string name="tools_in_project">In questo progetto</string>
+    <string name="tools_tap_to_edit">Tocca per modificare o rimuovere</string>
+    <string name="tools_cover_hint">Sfoglia i fotogrammi da condividere come JPEG.</string>
+    <string name="tools_censor_help_title">Segna il suono da censurare</string>
+    <string name="tools_censor_help">Nella timeline, usa Segna inizio e Segna fine attorno alla parola o al suono, poi apri Censura audio. Seleziona prima un elemento audio per agire solo su quella traccia; altrimenti viene censurato tutto l\'audio nell\'intervallo segnato.</string>
 </resources>
