@@ -27,10 +27,10 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 | Status | Count |
 |---|---|
-| DONE | 154 |
+| DONE | 155 |
 | PARTIAL | 34 |
 | CORE ONLY | 4 |
-| MISSING | 11 |
+| MISSING | 10 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -42,7 +42,7 @@ Per area:
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 23 | 7 | 0 | 4 | 0 |
-| 5. Editor: picture tools | 9 | 3 | 3 | 3 | 0 |
+| 5. Editor: picture tools | 10 | 3 | 3 | 2 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 19 | 0 | 0 | 2 | 0 |
@@ -195,7 +195,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Highlights slider | O/ColorGradeControls.swift:52-66 | DONE | The slider of the Color tool (A/ColorPanel.kt, −1…1 in steps of 0.01 (C/ColorControls.kt), above the balance as in the original), applied in C/ColorGrade.kt `balance` by the original's curve (C/LogColor.kt `highlights`); the export's LUT and the preview's shader checked against it in A/androidTest `PictureToolPixelCases` | — | | |
 | Local highlight recovery for Log footage | O/ColorGradeControls.swift, README:136-139 | MISSING | Field only (C/ColorSettings.kt:52) | Spatial filter; only meaningful with Log sources | L | Yes |
 | Log-to-display conversion of Log footage | O/LogColor.swift:61-191, O/VideoToolCompositor.swift:505-529 | PARTIAL | C/ColorGrade.kt `applyLog` (decode, balance and Highlights on the light, the viewing transform, then the look or a LUT on what it expects) in the one colour table of the preview and the export (A/ColorLuts.kt); A/LogFootage.kt tells a recording by the `AppleLog`/`AppleLog2` name in its movie header, since Android's MediaFormat has no log transfer | The detection is not checked on a real Apple Log file; the table is 33 points on 8-bit code values, not the original's float pipeline: within a level on average, up to about 100 levels off on a few colours near black or out of gamut; the recording is decoded as Media3 decodes it (no HDR path) | S | Phone footage |
-| Saved named grades | O/ColorGradeControls.swift (`color.saveGrade`) | MISSING | — | | M | Yes |
+| Saved named grades | O/ColorGradeControls.swift:79-83, 112-131, O/ColorGrading.swift:131-150, O/EditorTools.swift:544-570 | DONE | Save grade in the Color tool (A/ColorPanel.kt): a name, offered as the grade's title and kept to 80 characters, for the look, LUT, strength, Highlights, exposure and white balance, kept in the app's colour library with its LUT file (A/ColorLibrary.kt, C/GradeLibrary.kt `saving`, `SavedGrade`); the Grades tab lists them, and a tap gives the grade being edited their settings, its LUT copied into the project | As in the original, a saved grade cannot be renamed or deleted | | |
 | Animated grade (A/B) | O/EffectAnimation.swift | CORE ONLY | C/ColorSettings.kt:55 (`motion`), `pose`/`applying` | UI; a per-frame LUT in preview and export | L | Yes |
 | Colour Correction (exposure, contrast, tonal ranges, white balance, saturation, vibrance, hue; Light/Color tabs; keyframes) | O/VideoEffects/VideoEffectCatalog.swift:209, O/VideoEffects/VideoEffectsEditor.swift:1344-1419 | MISSING | — | Part of video effects; could be folded into the LUT pipeline | M | Yes |
 | Stabilisation: Off / Light / Standard / Strong, compare, crop factor | O/StabilizationEditor.swift:325-335, O/StabilizationPath.swift:4-196, O/VideoStabilizer.swift:119-206, O/StabilizationMotion.cpp:140-179 | CORE ONLY | C/StabilizationPath.kt (levels, pose algebra, the path with one crop, the transform at a time, the reference range kept by splits) | Motion analysis (the C++ compiles under the NDK), the clip field, per-frame transform in preview and export, cache, the tool | L | Yes |

@@ -23,12 +23,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -144,7 +148,8 @@ internal fun ColorPanel(
 /**
  * The controls of the original's Color tool, in its order (YouRec/ColorGradeControls.swift:12-121): the name of the
  * look or LUT with its favourite star and Import, its strength, Highlights, exposure and white balance behind a
- * disclosure, the library in tabs (built-in looks, imported LUTs, favourites) and, for a LUT, what it expects.
+ * disclosure, the library in tabs (built-in looks, imported LUTs, favourites, saved grades), for a LUT what it
+ * expects, and Save grade.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -220,6 +225,20 @@ private fun ColorGradeControls(work: Coloring, folder: File, importLut: suspend 
             }
         }
     }
+    // The grades saved, each a tap away (ColorGradeControls.swift:79-83).
+    if (category == GradeLibrary.Category.Grades) {
+        if (library.grades.isEmpty()) Text(stringResource(R.string.color_grades_empty), color = Soft, fontSize = 12.sp)
+        for (grade in library.grades) {
+            TextButton(onClick = {
+                // Its LUT from the library into the project (EditorTools.swift:546).
+                val lut = grade.settings.imported
+                if (lut == null || store.copy(lut, store.folder, folder)) change(grade.applied(work.color)) else failed = true
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+                Icon(Icons.Outlined.Tune, null, tint = Color.White)
+                Text(grade.name, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 10.dp))
+            }
+        }
+    }
     FlowRow(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), Arrangement.spacedBy(8.dp)) {
         for (look in library.looks(category)) {
             val id = GradeLibrary.id(look)
@@ -248,6 +267,35 @@ private fun ColorGradeControls(work: Coloring, folder: File, importLut: suspend 
             if (library.imported.any { it.filename == next.filename }) keep(library.expecting(next))
         }
         Text(stringResource(R.string.color_lut_expects_note), color = Soft, fontSize = 12.sp)
+    }
+    // Save grade, under a name the person gives it (ColorGradeControls.swift:112-114, 127-131).
+    var naming by remember { mutableStateOf<String?>(null) }
+    val title = color.label()
+    TextButton(onClick = { naming = title }, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
+        Icon(Icons.Outlined.BookmarkBorder, null)
+        Text(stringResource(R.string.color_save_grade), modifier = Modifier.padding(start = 6.dp))
+    }
+    naming?.let { name ->
+        AlertDialog(
+            onDismissRequest = { naming = null },
+            title = { Text(stringResource(R.string.color_save_grade)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.color_save_grade_message))
+                    OutlinedTextField(name, { naming = it.take(GradeLibrary.MAXIMUM_NAME) }, label = { Text(stringResource(R.string.color_grade_name)) }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    naming = null
+                    // Its LUT file goes into the library with it, so that the grade works in other projects (EditorTools.swift:568).
+                    val lut = work.color.imported
+                    val saved = library.saving(name, work.color.copy(motion = null))
+                    if (saved != null) { if (lut == null || store.copy(lut, folder, store.folder)) keep(saved) else failed = true }
+                }) { Text(stringResource(R.string.common_save)) }
+            },
+            dismissButton = { TextButton(onClick = { naming = null }) { Text(stringResource(R.string.common_cancel)) } },
+        )
     }
     if (failed) Text(stringResource(R.string.color_library_failed), color = Color(0xFFFF9F0A), fontSize = 12.sp)
 }
@@ -323,4 +371,5 @@ private val GradeLibrary.Category.label: Int
         GradeLibrary.Category.BuiltIn -> R.string.color_tab_builtin
         GradeLibrary.Category.Imported -> R.string.color_tab_imported
         GradeLibrary.Category.Favorites -> R.string.color_tab_favorites
+        GradeLibrary.Category.Grades -> R.string.color_tab_grades
     }

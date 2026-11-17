@@ -49,6 +49,32 @@ class GradeLibraryTest {
         assertEquals(GradeLibrary(), GradeLibrary.decoded(null))
         // A reference outside the library's own names is dropped (ColorGrading.swift:16-20).
         val bad = """{"imported":[{"filename":"../escape.cube","name":"x"},{"filename":"effect-lut-aa.cube","name":"Film"}],"favorites":["mono"]}"""
-        assertEquals(GradeLibrary(listOf(film), setOf("mono")), GradeLibrary.decoded(bad))
+        assertEquals(GradeLibrary(imported = listOf(film), favorites = setOf("mono")), GradeLibrary.decoded(bad))
+    }
+
+    // YouRec/EditorTools.swift:565-570: a grade is saved under its name trimmed to 80 characters; an empty name saves nothing.
+    @Test fun gradesAreSavedUnderTheirName() {
+        val grade = ColorSettings(look = ColorLook.Cinema, amount = 0.6, exposure = -1.5, warmth = 0.2, highlights = -0.3, imported = film)
+        val library = GradeLibrary().saving("  Evening\n", grade)!!
+        assertEquals("Evening", library.grades.single().name)
+        assertEquals(grade, library.grades.single().settings)
+        assertEquals(null, library.saving(" \n ", grade))
+        assertEquals(80, library.saving("x".repeat(100), grade)!!.grades.last().name.length)
+        assertTrue(library.looks(GradeLibrary.Category.Grades).isEmpty() && library.luts(GradeLibrary.Category.Grades).isEmpty())
+        assertEquals(library, GradeLibrary.decoded(library.encoded()))
+    }
+
+    // YouRec/EditorTools.swift:544-553: choosing a grade takes its look, LUT, strength and balance, not the clip's grade id or motion.
+    @Test fun aGradeIsTakenOnTheGradeBeingEdited() {
+        val saved = SavedGrade(name = "Cool", settings = ColorSettings(id = "other", look = ColorLook.Cool, amount = 0.5, tint = 0.1, imported = log))
+        val current = ColorSettings(id = "mine", look = ColorLook.Warm, exposure = 2.0)
+        assertEquals(ColorSettings(id = "mine", look = ColorLook.Cool, amount = 0.5, tint = 0.1, imported = log), saved.applied(current))
+    }
+
+    // A grade that is not valid in the file is left out (YouRec/VideoTools.swift:151-157).
+    @Test fun anInvalidGradeIsLeftOut() {
+        val good = GradeLibrary().saving("Good", ColorSettings(exposure = 1.0))!!
+        val bad = good.copy(grades = good.grades + SavedGrade(name = "Bad", settings = ColorSettings(exposure = 9.0)))
+        assertEquals(good, GradeLibrary.decoded(bad.encoded()))
     }
 }

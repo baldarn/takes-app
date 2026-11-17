@@ -212,6 +212,11 @@
     <string name="color_lut_expects">La LUT si aspetta</string>
     <string name="color_lut_expects_note">Scegli l\'ingresso indicato dall\'autore della LUT. L\'uscita deve essere Rec.709. Le LUT da Log a Rec.709 includono la propria conversione della camera.</string>
     <string name="color_library_failed">Non è stato possibile salvare la libreria dei colori.</string>
+    <string name="color_tab_grades">Gradazioni</string>
+    <string name="color_grades_empty">Salva un look e il suo bilanciamento del colore per riusarli su un\'altra clip.</string>
+    <string name="color_save_grade">Salva gradazione</string>
+    <string name="color_grade_name">Nome</string>
+    <string name="color_save_grade_message">Salva il look, l\'intensità, le regolazioni delle alte luci, l\'esposizione e il bilanciamento del bianco per altre clip e progetti.</string>
     <string name="color_lut_default_name">LUT importata</string>
     <string name="color_lut_unreadable">Non è stato possibile leggere il file LUT.</string>
     <string name="color_lut_rejected">Questa LUT non si può usare: %1$s</string>
