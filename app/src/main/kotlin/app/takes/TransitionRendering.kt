@@ -365,8 +365,23 @@ object TransitionShader {
         (if (part == Part.WHIP) PAN else PAN_STUB) + (if (part == Part.DEFOCUS) DISC else DISC_STUB) + REDUCE_STUB +
             (if (part == Part.SPREAD) SPREAD else SPREAD_STUB) + REST
 
-    /** Whether the preview's program is made in [Part]s: on Android 13, where the whole one is too large to compile. */
-    val previewInParts: Boolean get() = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+    /**
+     * Whether the preview's program is made in [Part]s: where the whole one, or the layers' whole one, is too large
+     * for the device's Skia to compile ("program is too large"). Android 13, 14 and 15 refuse it; 16 and 17 take it.
+     * Asked once, by compiling both whole programs, so a device decides by what it can do rather than by its version.
+     */
+    val previewInParts: Boolean by lazy {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@lazy true
+        !compiles(preview()) || !compiles(LayerShader.preview())
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun compiles(program: String): Boolean = try {
+        RuntimeShader(program)
+        true
+    } catch (_: IllegalArgumentException) {
+        false
+    }
 
     /** The part of the preview's program that draws [mode] of [SceneDrawing]. */
     fun part(mode: Int): Part = when (mode) {
