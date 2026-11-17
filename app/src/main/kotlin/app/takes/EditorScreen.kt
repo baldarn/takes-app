@@ -174,6 +174,7 @@ import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMix
 import app.takes.core.MovieLength
 import app.takes.core.AudioToolKind
+import app.takes.core.TrackAudio
 import app.takes.core.TrackSequenceView
 import app.takes.core.EditInterval
 import app.takes.core.TimelineSelection
@@ -1078,19 +1079,35 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             begin = begin@{ clip, sound, time ->
                 if (subtitling != null || titling != null || transitioning != null || cropping != null || effecting != null || trim != null || moving != null || placementWork != null) return@begin false
                 // The marked range or the whole selection when the finger goes down inside it; else the one waveform under it,
-                // which becomes what is selected.
-                val ranged = toolScope?.takeIf { marks.range?.let { clip != null && time >= it.start && time < it.end } == true && marks.rangeTargets?.clips?.contains(clip) != false && it.clips.isNotEmpty() }
+                // which becomes what is selected (EditorTimeline.swift:617-625).
+                val range = marks.range?.takeIf { time >= it.start && time < it.end }
+                val aimed = marks.rangeTargets
+                val ranged = toolScope?.takeIf { range != null && (clip != null && aimed?.clips?.contains(clip) != false || sound != null && aimed?.audio?.contains(sound) != false) }
                 val selected = marks.range == null && marks.start == null && (clip != null && clip in marks.selected.clips || sound != null && sound in marks.selected.audio)
                 val base = ranged?.state ?: edit
+                // In a range, the sounds on the audio tracks in it too, as the original's range holds every lane in it.
+                val rangeSounds = if (ranged == null || range == null) emptyList() else edit.audio.orEmpty().filter { aimed?.audio?.contains(it.id) != false && it.start < range.end && it.end > range.start }.map { it.id }
                 val targets = when {
-                    ranged != null -> soundTargets(base, ranged.clips, emptyList(), { "" }) { "" }
+                    ranged != null -> soundTargets(base, ranged.clips, emptyList(), { "" }) { "" } + soundTargets(edit, emptyList(), rangeSounds, { "" }) { "" }
                     selected -> soundTargets(base, marks.selected.clips, marks.selected.audio, { "" }) { "" }
                     else -> soundTargets(base, listOfNotNull(clip), listOfNotNull(sound), { "" }) { "" }
                 }
                 if (targets.isEmpty()) return@begin false
                 if (ranged == null && !selected) marks = marks.selecting(clip, sound)
                 view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
-                leveling = Leveling(base, targets, AudioGainDrag.begin(targets.map { it.audio.volumeDB }))
+                val adjustment = AudioGainDrag.begin(targets.map { it.audio.volumeDB })
+                leveling = if (ranged == null || range == null) Leveling(base, targets, adjustment) else {
+                    // A range: its sounds cut at its two ends and given the level, the pieces selected afterwards (EditorView.swift:964-976).
+                    val clipsAimed = edit.clips.map { it.id }.filter { aimed?.clips?.contains(it) != false }
+                    val selection = soundSelection(edit, clipsAimed, rangeSounds, EditInterval.of(range.start, range.end))
+                    Leveling(base, targets, adjustment, applied = { level ->
+                        var picked: TimelineSelection? = null
+                        withTimeline(edit) { timeline -> TrackAudio.settingGain(timeline, level, selection)?.also { picked = it.selection }?.timeline ?: timeline }?.let { next ->
+                            val chosen = picked ?: TimelineSelection()
+                            Leveled(next, EditTargets(next.clips.map { it.id }.filter { it in chosen.video }.toSet(), next.audio.orEmpty().map { it.id }.filter { TrackSequenceView.soundID(next, it) in chosen.audio }.toSet()))
+                        }
+                    })
+                }
                 // How far the level can go, for the warning beside the finger: measured while the drag goes on.
                 levelMeasuring.set(scope.launch {
                     val measured = try { Headroom.measure(base, files, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end }) } catch (stopped: kotlinx.coroutines.CancellationException) { throw stopped } catch (problem: Exception) { null }
@@ -1102,7 +1119,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 leveling?.let { current ->
                     val next = current.adjustment.updated(up)
                     if (next.value != current.adjustment.value) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
-                    leveling = current.copy(adjustment = next, cancelling = AudioGainDrag.cancels(sideways), at = at, height = height)
+                    val now = current.copy(adjustment = next, cancelling = AudioGainDrag.cancels(sideways), at = at, height = height)
+                    leveling = now
+                    // The preview's mix follows the finger, the movie playing on (EditorTimeline.swift:662-670).
+                    if (now.tried != current.tried) soundTrial = now.heard()
                 }
             },
             rest = {
@@ -1113,18 +1133,23 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     @Suppress("DEPRECATION") val top = (insets?.systemWindowInsetTop ?: 0) / density
                     @Suppress("DEPRECATION") val bottom = (view.rootView.height - (insets?.systemWindowInsetBottom ?: 0)) / density
                     val delta = AudioGainDrag.edgeStep(current.height, top.toDouble(), bottom.toDouble())
-                    if (delta != 0.0) leveling = current.copy(adjustment = current.adjustment.steppedAtEdge(delta))
+                    if (delta != 0.0) {
+                        val now = current.copy(adjustment = current.adjustment.steppedAtEdge(delta))
+                        leveling = now
+                        if (now.tried != current.tried) soundTrial = now.heard()
+                    }
                 }
             },
             end = { lifted ->
                 levelMeasuring.get()?.cancel()
                 leveling?.let { current ->
                     leveling = null
+                    soundTrial = null
                     current.adjustment.committed(cancelled = !lifted || current.cancelling)?.let { level ->
-                        withSound(current.base, current.targets) { it.audio.copy(volumeDB = level) }?.let { next ->
-                            commit(next, playhead)
+                        current.applied(level)?.let { next ->
+                            commit(next.state, playhead)
                             // As in the original, what was changed is what is selected afterwards.
-                            marks = RangeMarks(selected = EditTargets(current.targets.filter { it.clip }.map { it.id }.toSet(), current.targets.filter { !it.clip }.map { it.id }.toSet()))
+                            marks = RangeMarks(selected = next.selected)
                             feedback = levelChanged.format(levelLabel(level))
                         }
                     }

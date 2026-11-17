@@ -67,6 +67,7 @@ import app.takes.core.AudioToolKind
 import app.takes.core.ClipAudio
 import app.takes.core.EditInterval
 import app.takes.core.EditState
+import app.takes.core.EditTargets
 import app.takes.core.EditTime
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
@@ -382,9 +383,9 @@ internal class LevelReadout(val text: String, val clipping: Boolean, val at: Off
  * or down than sideways, it is a drag of the level until it lifts, and
  * everything it does is reported to [gesture]. A finger that moves sideways
  * first is left to the timeline to scroll. [top] is the timeline's place down
- * the window, in pixels.
+ * the window, in pixels. True when it was a drag of the level.
  */
-internal suspend fun AwaitPointerEventScope.dragLevel(down: PointerInputChange, clip: String?, sound: String?, time: Double, top: Float, gesture: LevelGesture) {
+internal suspend fun AwaitPointerEventScope.dragLevel(down: PointerInputChange, clip: String?, sound: String?, time: Double, top: Float, gesture: LevelGesture): Boolean {
     var dragging = false
     var lifted = false
     try {
@@ -406,6 +407,7 @@ internal suspend fun AwaitPointerEventScope.dragLevel(down: PointerInputChange, 
     } finally {
         if (dragging) gesture.end(lifted)
     }
+    return dragging
 }
 
 /** The level beside the finger (QuickVolumeControl.swift:54-75): 100 by 32 points, up and to the left of it, kept inside the timeline's width. */
@@ -424,17 +426,29 @@ internal fun LevelReadoutLabel(readout: LevelReadout, width: Float) {
     }
 }
 
+/** What a level drag leaves: the edit, and what is selected in it afterwards, as in the original what was changed. */
+internal class Leveled(val state: EditState, val selected: EditTargets)
+
 /**
  * A level drag in progress: the edit it changes, cut at the ends of a marked
  * range when that is what it changes, the clips and sounds in it, and what
- * the finger has chosen so far.
+ * the finger has chosen so far. [applied] is the edit with a level given to
+ * them, null when that changes nothing; by default [targets] at that level.
  */
 internal data class Leveling(
     val base: EditState, val targets: List<SoundTarget>, val adjustment: AudioGainDrag,
     val cancelling: Boolean = false, val at: Offset = Offset.Zero, val height: Double = 0.0, val headroom: AudioHeadroom? = null,
+    val applied: (Double) -> Leveled? = { level ->
+        withSound(base, targets) { it.audio.copy(volumeDB = level) }?.let { next ->
+            Leveled(next, EditTargets(targets.filter { it.clip }.map { it.id }.toSet(), targets.filter { !it.clip }.map { it.id }.toSet()))
+        }
+    },
 ) {
     /** The level the waveforms show while the finger is down: none while it would be cancelled or has chosen nothing. */
-    private val tried: Double? get() = adjustment.value.takeIf { !cancelling }
+    val tried: Double? get() = adjustment.value.takeIf { !cancelling }
+
+    /** The edit as it sounds while the finger is down, heard in the preview's mix (EditorTimeline.swift:662-670); null for the edit as it is. */
+    fun heard(): EditState? = tried?.let { applied(it)?.state }
 
     /** [clips] with the level being tried on those of them it is for, so their waveforms answer the finger. */
     fun shown(clips: List<TimelineClip>): List<TimelineClip> {

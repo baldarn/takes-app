@@ -257,7 +257,11 @@ internal fun Timeline(
             // in a coordinate space that stays still.
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                onTouched() // scrubbing pauses playback; it stays paused after release
+                // Scrubbing pauses playback; it stays paused after release. A drag up or down on a waveform keeps the movie
+                // playing, as the original's quick volume does (Tests/EditorUITests.swift:2611-2633), so where one can begin
+                // the pause waits until the finger has shown it is no such drag.
+                val levelFirst = onLevel != null && latestBoundaries == null && onMove == null
+                if (!levelFirst) onTouched()
                 // While the boundary picker is on, a tap picks the dashed line under it; a drag still scrolls (EditorTimeline.swift:539-551).
                 latestBoundaries?.let { stops ->
                     var travelled = 0f
@@ -340,8 +344,12 @@ internal fun Timeline(
                     val underStrip = down.position.y - (StripTop + strip).toPx()
                     val track = if (underStrip >= 0) (underStrip / TrackHeight.toPx()).toInt() else -1
                     val sound = if (track in 0 until latestSoundRows) TimelineEditing.audioAt(latestSounds, track, time)?.id else null
-                    if (clip != null || sound != null) { dragLevel(down, clip, sound, time, windowTop, gesture); return@awaitEachGesture }
+                    if (clip != null || sound != null) {
+                        if (!dragLevel(down, clip, sound, time, windowTop, gesture)) onTouched()
+                        return@awaitEachGesture
+                    }
                 }
+                if (levelFirst) onTouched()
                 // Above and below the clips the timeline only scrolls.
                 if (!inStrip) return@awaitEachGesture
                 val leading = grip ?: return@awaitEachGesture

@@ -54,6 +54,21 @@ object TrackAudio {
     }
 
     /**
+     * A level chosen by dragging a waveform: the sounds of [scope], cut at
+     * the ends of its range when it has one (with what they are linked to,
+     * as any scope is cut), at [db], each keeping its mute. With the pieces
+     * it changed, as the selection that follows. Null when every one of them
+     * is at [db] already, or there is none: nothing is cut then either.
+     * YouRec/EditorView.swift:964-976.
+     */
+    fun settingGain(timeline: TrackTimeline, db: Double, scope: TimelineSelection): SelectedTimeline? {
+        val scoped = timeline.scoped(scope.copy(video = emptySet()))
+        val chosen = scoped.selection.audio
+        if (scoped.timeline.audio.none { it.id in chosen && it.volumeDB != db }) return null
+        return SelectedTimeline(scoped.timeline.copy(audio = scoped.timeline.audio.map { if (it.id in chosen) it.copy(volumeDB = db) else it }), scoped.selection)
+    }
+
+    /**
      * The one sound a fade at [edge] belongs to among those [selected]: the
      * first to begin for a fade in, the last to end for a fade out; of
      * several at the same place, the first in the timeline's order.

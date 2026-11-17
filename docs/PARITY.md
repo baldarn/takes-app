@@ -27,8 +27,8 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 | Status | Count |
 |---|---|
-| DONE | 145 |
-| PARTIAL | 38 |
+| DONE | 146 |
+| PARTIAL | 37 |
 | CORE ONLY | 5 |
 | MISSING | 15 |
 | N/A | 6 |
@@ -45,7 +45,7 @@ Per area:
 | 5. Editor: picture tools | 7 | 5 | 3 | 3 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
-| 8. Audio | 15 | 3 | 0 | 3 | 0 |
+| 8. Audio | 16 | 2 | 0 | 3 | 0 |
 | 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
 | 11. Export | 11 | 1 | 0 | 0 | 0 |
@@ -236,7 +236,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Clip volume on the half-decibel grid −40…+12 dB with a stepper, mute, "Mixed levels" for a selection or a range | O/TrackEditors.swift:272-293, O/AudioGain.swift:6-11 | DONE | A/SoundPanel.kt `SoundDialog`, C/AudioLevels.kt `AudioGainGrid`; applied per sample in the export (A/Titles.kt `SoundProcessor`, C/SoundEnvelope.kt) | No live audition of the level while the dialog is open; above 0 dB the preview uses a loudness enhancer, not a plain gain | | |
 | Fade in / fade out | O/TrackEditors.swift:88-150, 294-307, 381-390, O/TrackTimeline.swift:132-151, 188-203 | DONE | A/SoundPanel.kt `FadeRow` (any length up to the item, typed or on a logarithmic slider; the fade in on the first target, the fade out on the last); saved as the original saves it, schema 15 (C/Project.kt `ClipAudio`): a split, a trim and a range keep level and slope. Play beside each fade plays it as the dialog would save it, level and mute included, with the second after a fade in or before a fade out, and turns to Pause while it plays; a change of the fade stops it (C/AudioLevels.kt `AudioFadeEdge.listening`; A/EditorScreen.kt `listenTo`, the mix plan of the sound tried) | Departure: the editor behind the dialog plays it, picture and all, where the original's tool has a preview player of its own | | Phone (ears) |
 | Clipping warning from headroom analysis | O/AudioGain.swift:199-239 | DONE | A/Headroom.kt (the recordings decoded and mixed through the export's envelopes; C/AudioLevels.kt `AudioHeadroom`), shown in A/SoundPanel.kt and beside the finger of the waveform drag | An estimate of the export's mix, not a read of it: speed without the pitch kept, other sample rates resampled linearly | | |
-| Waveform vertical swipe to set gain | O/EditorTimeline.swift:617-688, O/AudioGain.swift:16-62 | PARTIAL | A/SoundPanel.kt `dragLevel`, `Leveling`, `LevelReadoutLabel`; A/EditorScreen.kt (`Timeline`'s `level`); C/AudioLevels.kt `AudioGainDrag` | The level is not heard while it is dragged (the editor pauses); a drag inside a marked range does not reach the sounds on the audio tracks | S | Yes |
+| Waveform vertical swipe to set gain | O/EditorTimeline.swift:617-688, O/AudioGain.swift:16-62, O/EditorView.swift:964-976 | DONE | A/SoundPanel.kt `dragLevel`, `Leveling`, `LevelReadoutLabel`; A/EditorScreen.kt (`Timeline`'s `level`); C/AudioLevels.kt `AudioGainDrag`. The movie plays on under a drag up or down, and the preview's mix plays the level under the finger (the edit it would leave, as the mix plan); a drag that starts sideways pauses as a scrub does (A/EditorTimeline.kt). A drag inside a marked range takes the sounds on the audio tracks in it as well as the clips', cut at the range's ends with what they are linked to, the pieces selected afterwards (C/TrackAudio.kt `settingGain`) | A level being tried changes the mix plan, so the mix takes it from the next stretch it makes, about a quarter of a second ahead, where the original's tap changes the gain of the next buffer | | Phone (ears) |
 | Automatic 8 ms fades at cuts | O/CutAudioEnvelope.swift:30-55, O/TrackRenderer.swift:281-296 | PARTIAL | Export: A/Titles.kt `SoundProcessor`, on the first and last samples of every run of sound, clips and sounds on the audio tracks; C/SoundEnvelope.kt | The preview has none (a player's volume, once a frame); in the export a split nobody trimmed still dips for some 30 ms, since each item is decoded afresh | M | Phone (ears) |
 | Add audio from Files as an independent layer | O/AudioToolsEditor.swift:5-65 | DONE | A/EditorScreen.kt (`pickSound`), from the Add audio sheet (A/VoiceRecorder.kt `AddAudio`); A/ProjectStore.kt `importAudio` | Two tracks; the original has no limit | | |
 | Move, trim, level and fades of an audio item | README:117-120 | PARTIAL | A/EditorScreen.kt `AudioItemDialog` (move to playhead, cut before/after), A/SoundPanel.kt (level and fades as for a clip, the level also by dragging the item up or down) | Drag to move, trim handles, split | M | Yes |

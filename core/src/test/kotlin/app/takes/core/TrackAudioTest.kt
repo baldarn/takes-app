@@ -77,6 +77,31 @@ class TrackAudioTest {
         assertAtRest("boosted", boosted, listOf(source))
     }
 
+    /**
+     * The waveform drag commits its level as YouRec/EditorView.swift:964-976 does: the sounds of the scope, cut at
+     * its range, the level alone; the pictures they are linked to are cut with them. Nothing when nothing changes.
+     */
+    @Test
+    fun aDraggedLevelIsSetOnTheSoundsOfItsScope() {
+        val muted = TrackAudio.settingVolume(baseline, -6.0, true, TrackLinking.selection(baseline, b.id))
+        val sounds = muted.sounds()
+        val whole = TrackAudio.settingGain(muted, 4.0, TimelineSelection(audio = sounds))!!
+        assertEquals(listOf(4.0, 4.0), whole.timeline.audio.map { it.volumeDB })
+        assertEquals(listOf(false, true), whole.timeline.audio.map { it.muted })
+        assertEquals(sounds, whole.selection.audio)
+        assertEquals(muted.video, whole.timeline.video)
+        // Tests/EditorUITests.swift:2634-2652, a marked range: only the sound inside it, cut at its two ends with its picture.
+        val ranged = TrackAudio.settingGain(baseline, 4.0, TimelineSelection(audio = baseline.sounds(), range = EditInterval.of(1.0, 3.0)))!!
+        assertEquals(listOf(0.0, 4.0, 4.0, 0.0), ranged.timeline.audio.sortedBy { it.start }.map { it.volumeDB })
+        assertEquals(4, ranged.timeline.video.size)
+        assertEquals(2, ranged.selection.audio.size)
+        assertTrue(ranged.timeline.audio.filter { it.id in ranged.selection.audio }.all { it.start >= ticks(1.0) && it.end <= ticks(3.0) })
+        assertAtRest("ranged", ranged.timeline, listOf(source))
+        // At the level it has, or with no sound in scope, nothing is cut.
+        assertNull(TrackAudio.settingGain(baseline, 0.0, TimelineSelection(audio = baseline.sounds(), range = EditInterval.of(1.0, 3.0))))
+        assertNull(TrackAudio.settingGain(baseline, 4.0, TimelineSelection(video = setOf(a.id))))
+    }
+
     /** Tests/TrackMediaTests.swift:545-555: "Whole-project fade targets are the first and last audio clips", "Intermediate audio keeps its level". */
     @Test
     fun aFadeBelongsToTheFirstSoundToBeginOrTheLastToEnd() {
