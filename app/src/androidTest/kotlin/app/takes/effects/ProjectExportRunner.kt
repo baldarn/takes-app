@@ -32,7 +32,11 @@ import java.io.File
  * The clip is read from /data/local/tmp. `-e case plain` exports the recording as imported; `-e runs <n>` exports it
  * n times (each from the start), for the times; `-e fallback true` takes the way of a device that writes no HDR
  * movie ([HdrMovie.refuse]), which must then export in SDR; `-e case dolly` exports its first four seconds under a
- * Dolly Zoom, which reads the person masks.
+ * Dolly Zoom, which reads the person masks. The whole recording can also be exported with one thing on it, to see
+ * what each does to an HDR movie: `-e case title` (a title), `look` (the Warm look), `night` (a Night fix in Fast),
+ * `nightMedium` (in Medium, whose frames are fused) or `effect` (`-e effect <VideoEffectID>`, Halation by default);
+ * `-e case sdrJoin -e sdr <name>` imports a second recording from /data/local/tmp after it and joins the two with a
+ * dissolve.
  */
 class ProjectExportRunner : Instrumentation() {
     private lateinit var arguments: Bundle
@@ -91,6 +95,23 @@ class ProjectExportRunner : Instrumentation() {
                     else -> listOf(dolly)
                 }
                 main { store.commit(made.id, EditState(listOf(whole.copy(end = minOf(whole.end, whole.start + 4.0), videoEffects = effects)))) }
+            } else if (arguments.getString("case") in setOf("title", "look", "night", "nightMedium", "effect")) {
+                val whole = imported.edit.clips.single()
+                val clip = when (arguments.getString("case")) {
+                    "title" -> whole.copy(texts = listOf(TextOverlay(id = "T", text = "HDR", y = 0.3, size = 0.2, start = whole.start, end = whole.end)))
+                    "look" -> whole.copy(color = ColorSettings(look = ColorLook.Warm))
+                    "night" -> whole.copy(videoEffects = listOf(app.takes.core.VideoEffectSettings(app.takes.core.VideoEffectID.NightFix, start = whole.start, end = whole.end)))
+                    "nightMedium" -> whole.copy(videoEffects = listOf(app.takes.core.VideoEffectSettings(app.takes.core.VideoEffectID.NightFix, start = whole.start, end = whole.end).with("mode", app.takes.core.EffectValue.Choice("Medium"))))
+                    else -> whole.copy(videoEffects = listOf(app.takes.core.VideoEffectSettings(app.takes.core.VideoEffectID.valueOf(arguments.getString("effect") ?: "Halation"), start = whole.start, end = whole.end)))
+                }
+                main { store.commit(made.id, EditState(listOf(clip))) }
+            } else if (arguments.getString("case") == "sdrJoin") {
+                // The recording, then a dissolve into an SDR recording given with `-e sdr <name>`.
+                main { store.importVideos(made.id, listOf(Uri.fromFile(File("/data/local/tmp", arguments.getString("sdr") ?: error("-e sdr <name>"))))) }
+                waitFor(60, "the second import") { store.importing == null && store.projects.first { it.id == made.id }.edit.clips.size == 2 }
+                val two = main { store.projects.first { it.id == made.id } }.edit
+                val joined = TimelineEditing.setJoin(two, 1, TransitionSettings(style = TransitionStyle.Dissolve, duration = 1.0))!!
+                main { store.commit(made.id, joined) }
             } else if (arguments.getString("case") != "plain") {
                 val whole = imported.edit.clips.single()
                 val first = whole.copy(id = "A", start = 0.0, end = minOf(3.0, whole.end), texts = listOf(TextOverlay(id = "T", text = "HDR", y = 0.3, size = 0.2, start = 0.0, end = 3.0)))
