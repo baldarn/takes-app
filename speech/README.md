@@ -17,8 +17,9 @@ Android permission and never opens a network connection by itself.
   which one is in use given what is on the phone and what the person picked.
 - `SpeechModelFetcher.kt`: puts a model into a folder through a `SpeechModelSource` the
   app supplies, resuming partial files. Plain JVM code, nothing from Android.
-- sherpa-onnx 2.0.1 itself: its Kotlin classes and `libsherpa-onnx-jni.so` for arm64-v8a,
-  armeabi-v7a and x86_64. Not stored in the repository, see "How sherpa-onnx gets in".
+- sherpa-onnx 2.0.1 itself: its Kotlin classes, `libsherpa-onnx-jni.so` and ONNX Runtime's
+  `libonnxruntime.so` for arm64-v8a, armeabi-v7a and x86_64. Not stored in the repository,
+  see "How sherpa-onnx gets in".
 
 ## Using it
 
@@ -262,7 +263,7 @@ passes in front on the first group and does not on the second. Not tried on Andr
 | Part | Version | License |
 |---|---|---|
 | sherpa-onnx | 2.0.1 (26 October 2026) | Apache 2.0 |
-| ONNX Runtime, linked into it | 1.28.2 | MIT |
+| ONNX Runtime, the library beside it | 1.28.2 | MIT |
 | Whisper weights (OpenAI), as converted by the sherpa-onnx project | revisions above | MIT |
 | Qwen3-ASR weights (Alibaba Cloud), as converted by Wasser1462 and published by the sherpa-onnx project | revision above | Apache 2.0 |
 
@@ -281,31 +282,40 @@ but is one more party to trust and one more repository in `settings.gradle.kts`.
 `build.gradle.kts` downloads the release file itself, once, into `speech/.sherpa-onnx/`
 (ignored by git), and refuses it unless the SHA-256 matches:
 
-- `sherpa-onnx-static-link-onnxruntime-2.0.1.aar`, 38,577,050 bytes,
-  SHA-256 `07e042d97f3a6bd5b7fe74d4eef0513dc01a714b16c15a903250095aba43a575`.
-  The variant with ONNX Runtime inside the one library, so there is no `libonnxruntime.so`
-  to clash with another copy if the app ever uses ONNX Runtime directly. From it:
-  `classes.jar` (sherpa-onnx's Kotlin API, packed into this module's library) and
-  `libsherpa-onnx-jni.so` for three phone types (x86 is left out, as in `:rnnoise`).
+- `sherpa-onnx-2.0.1.aar`, 49,441,341 bytes,
+  SHA-256 `a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7`.
+  The variant with ONNX Runtime 1.28.2 as a library of its own, `libonnxruntime.so`, which
+  `libsherpa-onnx-jni.so` loads: the deepfilter module runs DeepFilterNet3 with that same
+  copy, through ONNX Runtime's C API, so the app carries the runtime once. From it:
+  `classes.jar` (sherpa-onnx's Kotlin API, packed into this module's library; the same file
+  as in the variant with the runtime linked in), `libsherpa-onnx-jni.so` and
+  `libonnxruntime.so` for three phone types (x86 is left out, as in `:rnnoise`). Its C and
+  C++ APIs (`libsherpa-onnx-c-api.so`, `libsherpa-onnx-cxx-api.so`) are not taken.
 - For the tests, `sherpa-onnx-native-lib-linux-x64-2.0.1.jar` (10,417,663 bytes, SHA-256
   `744330a6…f1b4b2cb3f`) or its macOS or Linux arm64 sibling: the same code built for a
   computer.
 
 The first build of the module therefore needs the network, as any dependency does.
 
-| `libsherpa-onnx-jni.so` | Size | Compressed in the library | LOAD alignment |
-|---|---|---|---|
-| arm64-v8a | 24,177,488 bytes | 8,961,888 | 0x4000 (16 KB) |
-| armeabi-v7a | 16,498,184 bytes | 8,075,397 | 0x4000 |
-| x86_64 | 27,371,968 bytes | 9,978,129 | 0x4000 |
+| | `libsherpa-onnx-jni.so` | `libonnxruntime.so` | Compressed in the library, both | LOAD alignment |
+|---|---|---|---|---|
+| arm64-v8a | 4,609,320 bytes | 22,249,560 bytes | 9,854,026 | 0x4000 (16 KB) |
+| armeabi-v7a | 3,381,796 bytes | 15,359,592 bytes | 9,040,525 | 0x4000 |
+| x86_64 | 5,053,592 bytes | 25,581,120 bytes | 11,067,746 | 0x4000 |
 
-Checked with the NDK's `llvm-readelf -lW`: every LOAD segment of all three is aligned to
-0x4000, which is what phones with 16 KB memory pages need. `speech-release.aar` is 27.3 MB.
-The library needs Android 5 (API 21) or later; this module asks for 26 like the others.
+Checked with the NDK's `llvm-readelf -lW`: every LOAD segment of all six is aligned to
+0x4000, which is what phones with 16 KB memory pages need. The library needs Android 5
+(API 21) or later; this module asks for 26 like the others.
 
-Expected growth of the app: about 9 MB of download and 24 MB installed for an arm64
-phone, mostly ONNX Runtime; a single APK for all three phone types grows by about 27 MB
-compressed, 68 MB if native libraries are stored uncompressed. The library has every
+The variant with ONNX Runtime linked into `libsherpa-onnx-jni.so`
+(`sherpa-onnx-static-link-onnxruntime-2.0.1.aar`, which this module used until DeepFilterNet3
+came) is 24,177,488 bytes for arm64-v8a, 8,961,888 compressed: the runtime as a library of
+its own costs about 2.7 MB installed and 0.9 MB of download on an arm64 phone, and saves the
+app a second copy of ONNX Runtime of about 36 MB and 14 MB.
+
+Expected growth of the app: about 10 MB of download and 27 MB installed for an arm64
+phone, mostly ONNX Runtime; a single APK for all three phone types grows by about 30 MB
+compressed, 76 MB if native libraries are stored uncompressed. The library has every
 sherpa-onnx feature in it (speech synthesis, speaker detection, other recognizers), not
 only Whisper and Qwen3-ASR (which 2.0.1 already had: adding it changed nothing in the app's size); a build of sherpa-onnx with only offline recognition would be smaller and
 was not attempted. Not measured in a real APK: `:app` does not use the module yet.

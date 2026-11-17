@@ -1,2 +1,2 @@
-# ONNX Runtime's Java classes are reached from its native library by name.
--keep class ai.onnxruntime.** { *; }
+# The C++ code finds these methods by their full name, so they must keep it.
+-keepclasseswithmembernames class app.takes.deepfilter.OnnxSession { native <methods>; }

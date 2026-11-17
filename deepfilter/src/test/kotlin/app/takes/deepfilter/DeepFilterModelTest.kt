@@ -1,8 +1,5 @@
 package app.takes.deepfilter
 
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertEquals
@@ -12,6 +9,8 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.util.Random
 import kotlin.math.PI
@@ -22,8 +21,8 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Runs the real network through ONNX Runtime on this computer, with the same Kotlin code
- * the app uses. The weights are not in git: these tests are skipped unless the published
+ * Runs the real network through ONNX Runtime on this computer, with the same Kotlin and
+ * C++ code the app uses and sherpa-onnx's copy of the runtime for this computer. The weights are not in git: these tests are skipped unless the published
  * file is at `deepfilter/models/deepfilter.onnx` (`./gradlew :deepfilter:fetchModel`) or
  * where TAKES_DFN3_MODEL points. The signals are synthetic; the printed levels are what
  * was measured.
@@ -34,6 +33,7 @@ class DeepFilterModelTest {
 
     @Before fun needsTheModel() {
         assumeTrue("DeepFilterNet3 weights not found at $path", path.isFile)
+        assumeTrue("no ONNX Runtime for this computer", System.getProperty("takes.onnxruntime.library") != null)
     }
 
     private fun pinkNoise(count: Int, level: Float, seed: Long = 1): FloatArray {
@@ -103,19 +103,20 @@ class DeepFilterModelTest {
         val random = Random(147)
         val erb = FloatArray(frames * 32) { random.nextGaussian().toFloat() }
         val spec = FloatArray(2 * frames * 96) { random.nextGaussian().toFloat() }
-        val environment = OrtEnvironment.getEnvironment()
         val expectedMask = FloatArray(frames * 32)
         val expectedCoefs = FloatArray(5 * frames * 96 * 2)
-        environment.createSession(path.absolutePath, OrtSession.SessionOptions()).use { session ->
-            OnnxTensor.createTensor(environment, FloatBuffer.wrap(erb), longArrayOf(1, 1, frames.toLong(), 32)).use { erbTensor ->
-                OnnxTensor.createTensor(environment, FloatBuffer.wrap(spec), longArrayOf(1, 2, frames.toLong(), 96)).use { specTensor ->
-                    session.run(mapOf("feat_erb" to erbTensor, "feat_spec" to specTensor)).use { result ->
-                        (result.get("erb_mask").get() as OnnxTensor).floatBuffer.get(expectedMask)
-                        (result.get("df_coefs").get() as OnnxTensor).floatBuffer.get(expectedCoefs)
-                    }
-                }
-            }
+        fun direct(count: Int): FloatBuffer = ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        val maskOut = direct(expectedMask.size)
+        val coefsOut = direct(expectedCoefs.size)
+        OnnxSession(path.readBytes(), emptyList(), listOf("feat_erb", "feat_spec"), listOf("erb_mask", "df_coefs")).use { session ->
+            session.run(
+                arrayOf(direct(erb.size).put(erb).rewind() as FloatBuffer, direct(spec.size).put(spec).rewind() as FloatBuffer),
+                arrayOf(longArrayOf(1, 1, frames.toLong(), 32), longArrayOf(1, 2, frames.toLong(), 96)),
+                arrayOf(maskOut, coefsOut),
+            )
         }
+        maskOut.get(expectedMask)
+        coefsOut.get(expectedCoefs)
         var worst = 0f
         model.newNetwork().use { network ->
             network.reset()

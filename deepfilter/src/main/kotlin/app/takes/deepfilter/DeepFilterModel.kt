@@ -1,10 +1,5 @@
 package app.takes.deepfilter
 
-import ai.onnxruntime.OnnxJavaType
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OnnxTensorLike
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import java.io.File
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -44,45 +39,33 @@ class DeepFilterModel(bytes: ByteArray) : AutoCloseable {
         if (hash != SHA256) throw DeepFilterModelException("The DeepFilterNet3 model is not the expected version")
     }
 
-    private val environment = OrtEnvironment.getEnvironment()
-    private val session: OrtSession
+    private val session: OnnxSession
     private var closed = false
 
     init {
         // Resources are named by absolute path, which a minified build keeps when it renames this class.
         val graph = DeepFilterModel::class.java.getResourceAsStream("/app/takes/deepfilter/streaming-graph.onnx")?.use { it.readBytes() }
             ?: throw DeepFilterModelException("streaming-graph.onnx is missing from the app")
-        val weights = HashMap<String, OnnxTensorLike>()
-        try {
-            for (tensor in externalTensors(graph)) {
-                if (tensor.offset < 0 || tensor.length < 0 || tensor.offset + tensor.length > bytes.size) {
-                    throw DeepFilterModelException("streaming-graph.onnx points outside the model")
-                }
-                val type = when (tensor.type) {
-                    1 -> OnnxJavaType.FLOAT
-                    7 -> OnnxJavaType.INT64
-                    else -> throw DeepFilterModelException("streaming-graph.onnx has weights of unknown type ${tensor.type}")
-                }
-                // Direct, so ONNX Runtime reads the bytes where they are; it takes its own copy for the session.
-                val data = ByteBuffer.allocateDirect(tensor.length.toInt()).order(ByteOrder.nativeOrder())
-                data.put(bytes, tensor.offset.toInt(), tensor.length.toInt()).rewind()
-                weights[tensor.name] = OnnxTensor.createTensor(environment, data, tensor.dims, type)
+        val weights = externalTensors(graph).map { tensor ->
+            if (tensor.offset < 0 || tensor.length < 0 || tensor.offset + tensor.length > bytes.size) {
+                throw DeepFilterModelException("streaming-graph.onnx points outside the model")
             }
-            session = OrtSession.SessionOptions().use { options ->
-                // The original pins the processor so the result does not depend on the
-                // phone's accelerators. One 10 ms frame is too small for threads to help.
-                options.setIntraOpNumThreads(1)
-                options.setInterOpNumThreads(1)
-                options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                options.addExternalInitializers(weights)
-                environment.createSession(graph, options)
-            }
-        } catch (error: DeepFilterModelException) {
-            throw error
+            if (tensor.type != 1 && tensor.type != 7) throw DeepFilterModelException("streaming-graph.onnx has weights of unknown type ${tensor.type}")
+            // Direct, so ONNX Runtime reads the bytes where they are; it takes its own copy for the session.
+            val data = ByteBuffer.allocateDirect(tensor.length.toInt()).order(ByteOrder.nativeOrder())
+            data.put(bytes, tensor.offset.toInt(), tensor.length.toInt()).rewind()
+            OnnxSession.Weight(tensor.name, tensor.type, tensor.dims, data)
+        }
+        // The original pins the processor so the result does not depend on the phone's
+        // accelerators. One 10 ms frame is too small for threads to help: the session runs
+        // on one thread (OnnxSession), with every optimization of the graph.
+        session = try {
+            OnnxSession(graph, weights, INPUTS, OUTPUTS)
         } catch (error: Exception) {
             throw DeepFilterModelException("DeepFilterNet3 could not be loaded", error)
-        } finally {
-            for (tensor in weights.values) tensor.close()
+        } catch (error: LinkageError) {
+            // ONNX Runtime is missing, as on 32-bit x86, for which the app carries none.
+            throw DeepFilterModelException("DeepFilterNet3 could not be loaded", error)
         }
     }
 
@@ -102,37 +85,20 @@ class DeepFilterModel(bytes: ByteArray) : AutoCloseable {
     private inner class OnnxNetwork : Network {
         private val erbBuffer = floats(DeepFilter.ERB_BANDS)
         private val specBuffer = floats(2 * DeepFilter.DF_BINS)
-        private val states = STATES.map { floats(it.shape.fold(1L) { size, dim -> size * dim }.toInt()) }
+        private val maskBuffer = floats(DeepFilter.ERB_BANDS)
+        private val coefsBuffer = floats(DeepFilter.DF_ORDER * DeepFilter.DF_BINS * 2)
+        // What the network remembers goes in from one set and comes back into the other,
+        // which then goes in on the next frame.
+        private var states = Array(STATES.size) { floats(STATES[it].size) }
+        private var nextStates = Array(STATES.size) { floats(STATES[it].size) }
 
         override fun run(erb: FloatArray, spec: FloatArray, mask: FloatArray, coefs: FloatArray) {
             erbBuffer.clear(); erbBuffer.put(erb).rewind()
             specBuffer.clear(); specBuffer.put(spec).rewind()
-            val inputs = LinkedHashMap<String, OnnxTensorLike>()
-            try {
-                inputs["feat_erb"] = OnnxTensor.createTensor(environment, erbBuffer, ERB_SHAPE)
-                inputs["feat_spec"] = OnnxTensor.createTensor(environment, specBuffer, SPEC_SHAPE)
-                for ((index, state) in STATES.withIndex()) {
-                    states[index].rewind()
-                    inputs[state.name] = OnnxTensor.createTensor(environment, states[index], state.shape)
-                }
-                session.run(inputs, OUTPUTS).use { result ->
-                    read(result, "erb_mask", mask.size).get(mask)
-                    read(result, "df_coefs", coefs.size).get(coefs)
-                    for ((index, state) in STATES.withIndex()) {
-                        states[index].clear()
-                        states[index].put(read(result, state.name + "_out", states[index].capacity())).rewind()
-                    }
-                }
-            } finally {
-                for (tensor in inputs.values) tensor.close()
-            }
-        }
-
-        private fun read(result: OrtSession.Result, name: String, count: Int): FloatBuffer {
-            val tensor = result.get(name).orElse(null) as? OnnxTensor ?: error("DeepFilterNet3 did not return $name")
-            val values = tensor.floatBuffer
-            check(values.remaining() == count) { "DeepFilterNet3 returned ${values.remaining()} values for $name, expected $count" }
-            return values
+            session.run(arrayOf(erbBuffer, specBuffer, *states), INPUT_SHAPES, arrayOf(maskBuffer, coefsBuffer, *nextStates))
+            maskBuffer.rewind(); maskBuffer.get(mask)
+            coefsBuffer.rewind(); coefsBuffer.get(coefs)
+            states = nextStates.also { nextStates = states }
         }
 
         override fun reset() {
@@ -146,7 +112,9 @@ class DeepFilterModel(bytes: ByteArray) : AutoCloseable {
         override fun close() {}
     }
 
-    private class State(val name: String, vararg val shape: Long)
+    private class State(val name: String, vararg val shape: Long) {
+        val size = shape.fold(1L) { size, dim -> size * dim }.toInt()
+    }
 
     companion object {
         /** The name the weights are published under. */
@@ -172,7 +140,9 @@ class DeepFilterModel(bytes: ByteArray) : AutoCloseable {
             State("h0", 1, 1, 256), State("h1", 1, 1, 256), State("h2", 1, 1, 256), State("h3", 1, 1, 256), State("h4", 1, 1, 256),
             State("erb_cache", 1, 1, 2, 32), State("spec_cache", 1, 2, 2, 96), State("df_cache", 1, 64, 4, 96),
         )
-        private val OUTPUTS = LinkedHashSet(listOf("erb_mask", "df_coefs") + STATES.map { it.name + "_out" })
+        private val INPUTS = listOf("feat_erb", "feat_spec") + STATES.map { it.name }
+        private val OUTPUTS = listOf("erb_mask", "df_coefs") + STATES.map { it.name + "_out" }
+        private val INPUT_SHAPES = arrayOf(ERB_SHAPE, SPEC_SHAPE) + STATES.map { it.shape }
 
         private fun floats(count: Int): FloatBuffer =
             ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()

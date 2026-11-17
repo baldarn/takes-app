@@ -13,10 +13,12 @@ plugins {
 // checks their SHA-256 and unpacks them. Nothing of it is stored in the repository.
 val sherpaVersion = "2.0.1"
 val sherpaRelease = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion"
-// The variant with ONNX Runtime linked into the one native library: a single file for each
-// phone type, and no libonnxruntime.so that could clash with another copy in the app.
-val sherpaAar = "sherpa-onnx-static-link-onnxruntime-$sherpaVersion.aar"
-val sherpaAarSha256 = "07e042d97f3a6bd5b7fe74d4eef0513dc01a714b16c15a903250095aba43a575"
+// The variant with ONNX Runtime (1.28.2) as a library of its own, libonnxruntime.so beside
+// libsherpa-onnx-jni.so, so that the deepfilter module runs DeepFilterNet3 with the same copy
+// and the app carries one. Its Kotlin classes are those of the other variant, which links the
+// runtime inside sherpa-onnx's library, out of anyone else's reach.
+val sherpaAar = "sherpa-onnx-$sherpaVersion.aar"
+val sherpaAarSha256 = "a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7"
 val sherpaAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
 // The same library for the computer that runs the unit tests.
@@ -34,7 +36,7 @@ val hostNative: Pair<String, String>? = when {
     else -> null
 }
 
-// Outside build/, so that "clean" does not download 38 MB again.
+// Outside build/, so that "clean" does not download 49 MB again.
 val sherpaDir = layout.projectDirectory.dir(".sherpa-onnx/$sherpaVersion")
 
 /** Downloads [url] to [target] unless a file with the right SHA-256 is already there. */
@@ -79,11 +81,15 @@ val downloadSherpaOnnx by tasks.registering(VerifiedDownload::class) {
     target.set(sherpaDir.file(sherpaAar))
 }
 
-// classes.jar holds the Kotlin API of sherpa-onnx; jni/ holds its native libraries.
+// classes.jar holds the Kotlin API of sherpa-onnx; jni/ holds its native libraries. Its C
+// and C++ APIs (libsherpa-onnx-c-api.so, libsherpa-onnx-cxx-api.so) are not used.
 val unpackSherpaOnnx by tasks.registering(Sync::class) {
     from(zipTree(downloadSherpaOnnx.flatMap { it.target })) {
         include("classes.jar")
-        sherpaAbis.forEach { include("jni/$it/libsherpa-onnx-jni.so") }
+        sherpaAbis.forEach {
+            include("jni/$it/libsherpa-onnx-jni.so")
+            include("jni/$it/libonnxruntime.so")
+        }
     }
     into(sherpaDir.dir("android"))
 }
@@ -118,6 +124,8 @@ tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders"
     .configureEach { dependsOn(unpackSherpaOnnx) }
 
 val hostNativeDir = sherpaDir.dir("host")
+// sherpa-onnx's ONNX Runtime for this computer lies there too; the deepfilter module's tests use it.
+extra["onnxRuntimeHostDir"] = hostNativeDir
 if (hostNative != null) {
     val (platform, hash) = hostNative
     val jar = "sherpa-onnx-native-lib-$platform-$sherpaVersion.jar"

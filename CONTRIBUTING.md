@@ -18,7 +18,7 @@ You need:
 - JDK 17;
 - the Android SDK with platform 36 (`compileSdk` 36; the app runs on Android 8, API 26, or
   newer);
-- the NDK 29.0.14206865 and CMake 3.22.1, for the `rnnoise` module.
+- the NDK 29.0.14206865 and CMake 3.22.1, for the `rnnoise` and `deepfilter` modules.
 
 Install the SDK parts from Android Studio's SDK Manager, or with
 `sdkmanager "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"`. Gradle finds the
@@ -28,10 +28,11 @@ SDK through `ANDROID_HOME` or a `local.properties` file with `sdk.dir=…` (not 
     ./gradlew :app:installDebug      # onto a running emulator or a connected phone
 
 The first build downloads the Gradle distribution, the libraries from Google Maven and
-Maven Central, and sherpa-onnx (about 38 MB) from its GitHub release into
-`speech/.sherpa-onnx/`, and DeepFilterNet3's weights (8.6 MB) from Hugging Face into
-`deepfilter/models/`, which the app carries. Both downloads are checked against a SHA-256
-and survive `./gradlew clean`. Nothing else is fetched, and there are no submodules.
+Maven Central, sherpa-onnx (about 49 MB, with the ONNX Runtime the app carries) from its
+GitHub release into `speech/.sherpa-onnx/`, DeepFilterNet3's weights (8.6 MB) from Hugging
+Face into `deepfilter/models/`, which the app carries, and three C headers of ONNX Runtime
+(0.5 MB) from its repository into `deepfilter/.onnxruntime/`. These downloads are checked
+against a SHA-256 and survive `./gradlew clean`. Nothing else is fetched, and there are no submodules.
 
 An emulator is enough for most of the editor and for the recorder's logic: its camera is
 a virtual scene. What a real camera, a microphone or ears decide needs a phone; issues
@@ -66,8 +67,8 @@ Before a pull request, run what the maintainer and the CI run:
   in a comment, as a path in the original's repository with lines, for example
   `// Tests/TransitionTests.swift:14-16` or `YouRec/Transitions.swift:39-164`. New core
   tests do the same.
-- The `rnnoise` and `speech` tests run native code on your computer, so they need a C
-  compiler and are set up for Linux and macOS. The speech tests that recognize real
+- The `rnnoise`, `speech` and `deepfilter` tests run native code on your computer, so they
+  need a C and C++ compiler and are set up for Linux and macOS. The speech tests that recognize real
   recordings are skipped unless you pass a folder for their models; see
   [`speech/README.md`](speech/README.md).
 - `app` has no host tests. Logic that can be tested goes into `core` as a pure

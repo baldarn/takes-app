@@ -41,18 +41,21 @@ jobs:
         with:
           cache-provider: basic
 
-      # sherpa-onnx (about 38 MB) and its library for this computer, which the speech module
-      # downloads from the sherpa-onnx release and checks against a SHA-256.
+      # sherpa-onnx (about 49 MB, with ONNX Runtime) and its library for this computer, which the
+      # speech module downloads from the sherpa-onnx release and checks against a SHA-256.
       - uses: actions/cache@v6
         with:
           path: speech/.sherpa-onnx
           key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('speech/build.gradle.kts') }}
 
       # DeepFilterNet3's weights (8.6 MB), which the deepfilter module downloads from Hugging
-      # Face, checks against a SHA-256 and packs into the app.
+      # Face, checks against a SHA-256 and packs into the app, and the C headers of ONNX Runtime
+      # its native code is compiled against.
       - uses: actions/cache@v6
         with:
-          path: deepfilter/models
+          path: |
+            deepfilter/models
+            deepfilter/.onnxruntime
           key: deepfilter-model-${{ hashFiles('deepfilter/build.gradle.kts') }}
 
       # No keystore here: only the debug build is assembled, which needs none.
@@ -107,10 +110,13 @@ jobs:
           key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('speech/build.gradle.kts') }}
 
       # DeepFilterNet3's weights (8.6 MB), which the deepfilter module downloads from Hugging
-      # Face, checks against a SHA-256 and packs into the app.
+      # Face, checks against a SHA-256 and packs into the app, and the C headers of ONNX Runtime
+      # its native code is compiled against.
       - uses: actions/cache@v6
         with:
-          path: deepfilter/models
+          path: |
+            deepfilter/models
+            deepfilter/.onnxruntime
           key: deepfilter-model-${{ hashFiles('deepfilter/build.gradle.kts') }}
 
       # Built before the emulator starts, so that the emulator only installs and runs them.

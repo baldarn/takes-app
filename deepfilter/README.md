@@ -15,6 +15,8 @@ recorded audio at 48 kHz, never during capture, with an amount from 0 to 1.
 - `Denoise.kt` cleans a whole channel in place, as `DeepFilterVoiceProcessor.process` does
   in the iPhone app. `ChannelDeepFilter.kt` does the same for audio that arrives in pieces.
 - `DeepFilterModel.kt` loads the network. `Fft.kt` is the transform for 960 samples.
+- `OnnxSession.kt` and `src/main/cpp/onnx_session.cpp` run it: a few calls of ONNX Runtime's
+  C API, on the `libonnxruntime.so` the app carries for sherpa-onnx (see "Building").
 - `src/main/resources/app/takes/deepfilter/streaming-graph.onnx` (61 KB) describes the
   network frame by frame. It holds no weights; see below.
 
@@ -74,23 +76,37 @@ To stop early, throw from the progress callback of `deepFilter`, or stop calling
 The steps are the same, but the result is not bit for bit what an iPhone produces: the
 network there is a Core ML conversion working in 16-bit floats, here it is the 32-bit
 ONNX conversion, and the two start a recording slightly differently (see the comments in
-`DeepFilter.kt`). Nothing here has been run on a phone yet, so speed and memory on Android
-are not known.
+`DeepFilter.kt`).
+
+On a Galaxy A54 (Exynos 1380) a minute of mono speech with room and pink noise is cleaned
+in 9.7 s, 6.2 times faster than real time, on one thread; loading the network takes 130 ms
+(`DeepFilterRunner` in the app's instrumentation tests).
 
 ## Building
 
-`./gradlew :deepfilter:assembleRelease`. ONNX Runtime comes as
-`com.microsoft.onnxruntime:onnxruntime-android`, which brings its own native library: about
-36 MB for arm64-v8a, 26 MB for armeabi-v7a and 45 MB for x86_64, uncompressed. It cannot share
-the copy sherpa-onnx carries (`speech/`): that one is linked inside sherpa-onnx's library, and
-sherpa-onnx's other variant (still in sherpa-onnx 2.0.1), with the runtime as a library of its
-own, is version 1.28.2, whose exported symbols the Java API's bridge (built for 1.28.0) does not
-accept. ONNX Runtime's 32-bit x86 library is left out of the app (`packaging` in
-`app/build.gradle.kts`), since RNNoise and sherpa-onnx have none either.
+`./gradlew :deepfilter:assembleRelease`, with the NDK the build file names. This module
+carries no ONNX Runtime of its own. `src/main/cpp/onnx_session.cpp` (240 KB for arm64-v8a,
+84 KB compressed) opens the `libonnxruntime.so` that sherpa-onnx brings into the app
+(`speech/`, ONNX Runtime 1.28.2) and calls its C API, which runtimes from 1.28 on serve. So the
+app has one copy of the runtime, used by the speech recognizers and by DeepFilterNet3 alike.
+The C headers come from ONNX Runtime's repository at the commit tagged v1.28.2
+(`33ca9628233dc8f002435e868d4c2e9f82766ca1`); the build fetches the three it needs once
+(`fetchOnnxRuntimeHeaders`) into `.onnxruntime/`, which git ignores, and checks their SHA-256.
 
-In the Play bundle the runtime and the weights add about 22 MB to an arm64-v8a phone's download
-(13.7 MB of compressed runtime for arm64-v8a, 12.5 MB for armeabi-v7a, 16.5 MB for x86_64, and
-8.0 MB of weights) and about 45 MB to the installed app on arm64-v8a.
+ONNX Runtime's Java API (`com.microsoft.onnxruntime:onnxruntime-android`) would bring a second
+runtime of about 36 MB for arm64-v8a: its bridge cannot be pointed at sherpa-onnx's copy,
+whose exported symbols are versioned 1.28.2 where the bridge wants 1.28.0, and sherpa-onnx
+publishes no build on a newer runtime. sherpa-onnx's own speech enhancement (GTCRN, DPDFNet)
+cannot run this network either. The runtime as a library of its own makes sherpa-onnx's
+part of the app about 2.7 MB larger than the variant with the runtime linked in (see
+`speech/README.md`).
+
+There is no ONNX Runtime for 32-bit x86 in the app, as there is no RNNoise or sherpa-onnx:
+there `DeepFilterModel` cannot be made and the app plays the recording as it is.
+
+In the Play bundle DeepFilterNet3 adds about 9 MB to an arm64-v8a phone's download (8.0 MB of
+weights, 0.9 MB for the runtime as a library of its own, 0.08 MB for this module's library)
+and about 12 MB to the installed app.
 
 ## Testing
 
@@ -98,7 +114,14 @@ In the Play bundle the runtime and the weights add about 22 MB to an arm64-v8a p
 everything around the network with a stand-in for it. `DeepFilterModelTest` runs the real
 network on this computer and is skipped when the weights are missing; fetch them once with
 `./gradlew :deepfilter:fetchModel` (into `deepfilter/models/`, which git ignores), or point
-`TAKES_DFN3_MODEL` at the file.
+`TAKES_DFN3_MODEL` at the file. It builds `src/main/cpp` for this computer with the system C++
+compiler and the SDK's CMake, and runs it on sherpa-onnx's ONNX Runtime for this computer,
+which the speech module unpacks; on a computer sherpa-onnx has no library for, it is skipped.
+It gives the same samples, bit for bit, as ONNX Runtime 1.32's Java API did.
+
+On a phone, beside sherpa-onnx's recognizers in the same process:
+
+    adb shell am instrument -w -e clip /data/local/tmp/take.mp4 app.takes.dev.test/app.takes.sound.DeepFilterRunner
 
 ## Licenses
 

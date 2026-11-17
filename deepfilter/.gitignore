@@ -1,2 +1,4 @@
-# The network's weights are downloaded, never committed.
+# The network's weights and ONNX Runtime's C headers are downloaded, never committed.
 models/
+.onnxruntime/
+.cxx/
