@@ -843,10 +843,23 @@
     <string name="crop_across_slider">Posizione orizzontale del ritaglio</string>
     <string name="crop_down_slider">Posizione verticale del ritaglio</string>
     <string name="crop_edges_note">L\'inquadratura cambia di colpo ai bordi di questa selezione.</string>
+    <string name="crop_frame">Fotogramma</string>
+    <string name="crop_preview">Anteprima</string>
+    <string name="crop_preview_note">L\'anteprima include i testi e gli altri strumenti video.</string>
+    <string name="crop_play">Riproduci l\'anteprima del ritaglio</string>
+    <string name="crop_pause">Metti in pausa l\'anteprima del ritaglio</string>
+    <string name="crop_previous_clip">Clip precedente del ritaglio</string>
+    <string name="crop_next_clip">Clip successiva del ritaglio</string>
+    <string name="crop_position_slider">Posizione dell\'anteprima del ritaglio</string>
+    <string name="crop_canvas">Inquadratura del ritaglio</string>
+    <string name="crop_canvas_hint">Pizzica per ritagliare e trascina per posizionare. I comandi di zoom e posizione sono anche qui sotto.</string>
+    <string name="crop_canvas_value">Rotazione %1$.1f gradi, zoom %2$.1f volte, centro al %3$d per cento da sinistra, al %4$d per cento dall\'alto</string>
+    <string name="crop_zoom_in">Ingrandisci</string>
+    <string name="crop_zoom_out">Riduci</string>
     <plurals name="crop_clips_note">
         <item quantity="one">Le modifiche all\'inquadratura valgono per la clip selezionata.</item>
-        <item quantity="many">Le modifiche all\'inquadratura valgono per tutte le %1$d clip selezionate.</item>
-        <item quantity="other">Le modifiche all\'inquadratura valgono per tutte le %1$d clip selezionate.</item>
+        <item quantity="many">Le modifiche all\'inquadratura valgono per tutte le %1$d clip selezionate. Controllale una a una con le frecce.</item>
+        <item quantity="other">Le modifiche all\'inquadratura valgono per tutte le %1$d clip selezionate. Controllale una a una con le frecce.</item>
     </plurals>
     <string name="motion_animate">Anima</string>
     <string name="motion_edit_end">Modifica %1$s</string>

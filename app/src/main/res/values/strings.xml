@@ -834,9 +834,22 @@
     <string name="crop_across_slider">Crop horizontal position</string>
     <string name="crop_down_slider">Crop vertical position</string>
     <string name="crop_edges_note">Framing changes instantly at the edges of this selection.</string>
+    <string name="crop_frame">Frame</string>
+    <string name="crop_preview">Preview</string>
+    <string name="crop_preview_note">Preview includes text and other video tools.</string>
+    <string name="crop_play">Play crop preview</string>
+    <string name="crop_pause">Pause crop preview</string>
+    <string name="crop_previous_clip">Previous crop clip</string>
+    <string name="crop_next_clip">Next crop clip</string>
+    <string name="crop_position_slider">Crop preview position</string>
+    <string name="crop_canvas">Crop framing</string>
+    <string name="crop_canvas_hint">Pinch to crop and drag to position. Zoom and position controls are also below.</string>
+    <string name="crop_canvas_value">Rotation %1$.1f degrees, Zoom %2$.1f times, centre %3$d percent from left, %4$d percent from top</string>
+    <string name="crop_zoom_in">Zoom in</string>
+    <string name="crop_zoom_out">Zoom out</string>
     <plurals name="crop_clips_note">
         <item quantity="one">Framing changes apply to the selected clip.</item>
-        <item quantity="other">Framing changes apply to all %1$d selected clips.</item>
+        <item quantity="other">Framing changes apply to all %1$d selected clips. Check each with the arrows.</item>
     </plurals>
     <string name="motion_animate">Animate</string>
     <string name="motion_edit_end">Edit %1$s</string>

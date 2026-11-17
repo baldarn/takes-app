@@ -1,5 +1,41 @@
 package app.takes
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.media.MediaMetadataRetriever
+import android.os.Build
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import app.takes.core.at
+import app.takes.core.matrixValues
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.PaddingValues
@@ -116,6 +152,16 @@ internal class CropScope(val base: EditState, val scoped: RangeEditing.Scoped?, 
 
     /** The clip of the tool at timeline second [time], or the nearest one: the picture the controls measure against. */
     fun active(time: Double): Piece? = pieces.minByOrNull { maxOf(0.0, it.start - time, time - it.start - it.clip.duration + 0.000001) }
+
+    /** The number of [active] among [pieces], from 0. */
+    fun index(time: Double): Int = active(time)?.let { pieces.indexOf(it) }?.coerceAtLeast(0) ?: 0
+
+    /** Where the clip [delta] places after the one at [time] begins: the original's arrows (YouRec/CropEditor.swift:244-248). */
+    fun step(time: Double, delta: Int): Double? =
+        pieces.getOrNull((index(time) + delta).coerceIn(0, maxOf(0, pieces.size - 1)))?.start
+
+    /** The second of the movie the tool's picture stands at for the playhead at [time]: inside what it works on, not on its last frame. */
+    fun position(time: Double): Double = time.coerceIn(start, maxOf(start, end - PauseDetector.FRAME))
 }
 
 /**
@@ -131,6 +177,8 @@ internal data class Cropping(
     val draft: CropDraft, val on: CropScope,
     val mirror: MirrorSettings = MirrorSettings(), val mirrorChanged: Boolean = false,
     val aspect: Double? = on.base.outputSize?.let { it.width / it.height }, val shape: OutputShape? = null,
+    /** Preview, the movie as it will play with every tool, rather than Frame, the footage under the frame (YouRec/CropEditor.swift:78, :385-391). */
+    val reviewing: Boolean = false,
 ) {
     /** The piece of the tool's edit that shows source second [sourceTime] of [clip]'s footage at timeline second [time]. */
     private fun piece(clip: TimelineClip, sourceTime: Double, time: Double): CropScope.Piece? =
@@ -155,7 +203,7 @@ internal data class Cropping(
     val shapeChoice: OutputShape?
         get() = shape ?: if (aspect == null) OutputShape.Original else OutputShape.entries.firstOrNull { shape -> shape.aspect?.let { abs(it - aspect) < 0.001 } == true }
 
-    fun reshaped(chosen: OutputShape): Cropping = copy(shape = chosen, aspect = chosen.aspect)
+    fun reshaped(chosen: OutputShape): Cropping = copy(shape = chosen, aspect = chosen.aspect, reviewing = false)
 
     fun flipped(next: MirrorSettings): Cropping = copy(mirror = next, mirrorChanged = true)
 
@@ -269,17 +317,6 @@ internal suspend fun PointerInputScope.cropGestures(viewport: () -> CropViewport
     }
 }
 
-/** The frame's edge and its thirds, drawn over the picture while framing as the original draws them. */
-internal fun DrawScope.cropGuides() {
-    val thin = 0.5.dp.toPx()
-    val line = Color.White.copy(alpha = 0.3f)
-    for (third in 1..2) {
-        drawLine(line, Offset(size.width * third / 3, 0f), Offset(size.width * third / 3, size.height), thin)
-        drawLine(line, Offset(0f, size.height * third / 3), Offset(size.width, size.height * third / 3), thin)
-    }
-    drawRect(Color.White, style = Stroke(1.5.dp.toPx()))
-}
-
 /** An angle as the original writes it: whole when it is, else with one decimal. */
 private fun degrees(value: Double): String {
     val tenths = (value * 10).roundToLong()
@@ -287,8 +324,9 @@ private fun degrees(value: Double): String {
 }
 
 /**
- * The Crop tool, in place of the tools under the timeline, so the picture
- * stays in view and follows the controls. A crop fills the movie's frame
+ * The Crop tool, a workspace of its own as the original's (YouRec/CropEditor.swift:331-480): its header
+ * ([headerModifier]), the picture, the switch between Frame and Preview with Play, the arrows between the
+ * clips and the position ([playbackModifier]), and the settings ([modifier]). A crop fills the movie's frame
  * with part of the clip: zoomed, turned and moved.
  *
  * @param work the tool's state; [change] takes the framing after every control.
@@ -296,12 +334,17 @@ private fun degrees(value: Double): String {
  * @param whole whether the tool works on the whole movie, so its framing has no edge to change at.
  * @param apply saves the framing, or with true takes the crop off the clips.
  * @param reshape takes the shape chosen for the movie's frame, and [flip] the clips' flip.
+ * @param playhead the second of the movie the picture stands at, read only where it is shown; [playing] whether it plays.
+ * @param review switches between Frame and Preview, [togglePlay] plays or pauses, [seek] moves the picture to a second of the movie.
  */
 @Composable
 internal fun CropPanel(
     work: Cropping, source: FrameSize?, canvas: FrameSize?, whole: Boolean, change: (CropDraft) -> Unit,
     apply: (removing: Boolean) -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier, appliesTo: String? = null,
     reshape: (OutputShape) -> Unit = {}, flip: (MirrorSettings) -> Unit = {},
+    headerModifier: Modifier = Modifier, playbackModifier: Modifier = Modifier,
+    playhead: () -> Double = { 0.0 }, playing: Boolean = false,
+    review: (Boolean) -> Unit = {}, togglePlay: () -> Unit = {}, seek: (Double) -> Unit = {},
 ) {
     val draft = work.draft
     val crop = draft.crop
@@ -309,24 +352,25 @@ internal fun CropPanel(
     val adjust = { next: CropSettings -> if (ready) change(draft.adjusted(next)) }
     var showPosition by remember { mutableStateOf(false) }
 
-    Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = cancel) { Text(stringResource(R.string.common_cancel)) }
-            Column(Modifier.weight(1f).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(stringResource(R.string.editor_crop), color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                appliesTo?.let { Text(it, color = Soft, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            }
-            if (work.on.pieces.any { it.clip.crop != null }) {
-                val remove = stringResource(R.string.crop_remove)
-                TextButton(onClick = { apply(true) }, modifier = Modifier.semantics { contentDescription = remove }) { Icon(Icons.Outlined.Delete, null, tint = Color.White.copy(alpha = 0.7f)) }
-            }
-            TextButton(onClick = { apply(false) }, enabled = ready) { Text(stringResource(R.string.crop_apply), fontWeight = FontWeight.Bold) }
+    Row(headerModifier.fillMaxWidth().background(Color.Black).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = cancel, modifier = Modifier.defaultMinSize(minWidth = 60.dp, minHeight = 44.dp)) { Text(stringResource(R.string.common_cancel)) }
+        Column(Modifier.weight(1f).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(stringResource(R.string.editor_crop), color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            appliesTo?.let { Text(it, color = Soft, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // The move between two framings. An end that is chosen is what the controls below change.
+        if (work.on.pieces.any { it.clip.crop != null }) {
+            val remove = stringResource(R.string.crop_remove)
+            TextButton(onClick = { apply(true) }, modifier = Modifier.semantics { contentDescription = remove }) { Icon(Icons.Outlined.Delete, null, tint = Color.White.copy(alpha = 0.7f)) }
+        }
+        TextButton(onClick = { apply(false) }, enabled = ready, modifier = Modifier.defaultMinSize(minWidth = 60.dp, minHeight = 44.dp)) { Text(stringResource(R.string.crop_apply), fontWeight = FontWeight.Bold) }
+    }
+    CropPlayback(work, playhead, playing, playbackModifier, review, togglePlay, seek)
+    Column(modifier.fillMaxWidth().background(Color(0xFF141414))) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // The move between two framings. An end that is chosen is what the controls below change, on the frame.
             AnimationControls(
                 draft.animation, draft.endpoint, work.on.duration,
-                select = { change(draft.selecting(it, work.on.duration)) }, remove = { change(draft.removingAnimation()) },
+                select = { review(false); change(draft.selecting(it, work.on.duration)) }, remove = { review(false); change(draft.removingAnimation()) },
                 done = { change(draft.finishing()) }, update = { change(draft.retimed(it, work.on.duration)) },
             )
             // The shape of the whole movie, as the original's menu in its Crop tool (YouRec/CropEditor.swift:418-436).
@@ -345,88 +389,297 @@ internal fun CropPanel(
                     }
                 } else Text(shown, color = Soft, fontSize = 14.sp)
             }
-            Text(stringResource(R.string.crop_hint), color = Color.White, fontSize = 14.sp)
-            // Rotation: the slider, the angle, which a tap sets upright again, and a quarter turn.
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.crop_rotation), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                val reset = stringResource(R.string.crop_rotation_reset)
-                val angle = degrees(crop.rotation)
-                TextButton(onClick = { adjust(CropGestures.rotated(crop, 0.0)) }, enabled = ready,
-                    modifier = Modifier.defaultMinSize(minWidth = 52.dp).semantics { contentDescription = reset; stateDescription = angle }) { Text(angle) }
-                val turn = stringResource(R.string.crop_rotate_90)
-                TextButton(onClick = { adjust(CropGestures.quarterTurn(crop)) }, enabled = ready, modifier = Modifier.semantics { contentDescription = turn }) {
-                    Icon(Icons.Filled.Rotate90DegreesCw, null)
-                }
-            }
-            val rotation = stringResource(R.string.crop_rotation_slider)
-            Slider(
-                value = crop.rotation.toFloat(), onValueChange = { adjust(CropGestures.rotated(crop, (it / CropGestures.ROTATION_STEP).roundToInt() * CropGestures.ROTATION_STEP)) },
-                valueRange = -180f..180f, enabled = ready, modifier = Modifier.height(36.dp).semantics { contentDescription = rotation },
-            )
-            Text(stringResource(R.string.crop_rotation_note), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
-            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.crop_zoom), color = Color.White, fontSize = 14.sp)
-                val zoom = stringResource(R.string.crop_zoom_slider)
-                Slider(
-                    value = crop.zoom.toFloat(), onValueChange = { adjust(CropGestures.zoomed(crop, it.toDouble())) },
-                    valueRange = CropSettings.MINIMUM_ZOOM.toFloat()..CropSettings.MAXIMUM_ZOOM.toFloat(), enabled = ready,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp).height(36.dp).semantics { contentDescription = zoom },
-                )
-                Text(String.format(Locale.getDefault(), "%.1f×", crop.zoom), color = Color.White, fontSize = 14.sp, maxLines = 1)
-            }
-            // The size goes under the button where the two do not fit side by side.
-            FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-                TextButton(onClick = { adjust(CropGestures.reset(crop)) }, enabled = ready) { Text(stringResource(R.string.crop_reset_framing)) }
-                if (source != null && canvas != null) {
-                    val area = crop.rect(source, canvas)
-                    val width = Math.round(area.width).toInt()
-                    val height = Math.round(area.height).toInt()
-                    val spoken = stringResource(R.string.crop_source_area, width, height)
-                    Text("$width × $height px", color = Soft, fontSize = 12.sp, maxLines = 1, modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp).semantics { contentDescription = spoken })
-                }
-            }
-            // Position, closed until asked for: the picture itself is dragged.
-            val position = stringResource(R.string.crop_position)
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).clickable { showPosition = !showPosition }.semantics { role = Role.Button },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(position, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                Icon(if (showPosition) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = Soft)
-            }
-            if (showPosition && source != null && canvas != null) {
-                val visible = crop.clamped(source, canvas)
-                for (across in listOf(true, false)) {
-                    val name = stringResource(if (across) R.string.crop_across else R.string.crop_down)
-                    val spoken = stringResource(if (across) R.string.crop_across_slider else R.string.crop_down_slider)
-                    val reach = CropGestures.positionRange(crop, across, source, canvas)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, color = Color.White, fontSize = 14.sp, modifier = Modifier.width(104.dp).padding(end = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Slider(
-                            value = (if (across) visible.x else visible.y).toFloat().coerceIn(reach.start.toFloat(), reach.endInclusive.toFloat()),
-                            onValueChange = {
-                                adjust(if (across) CropGestures.moved(crop, x = it.toDouble(), source = source, canvas = canvas) else CropGestures.moved(crop, y = it.toDouble(), source = source, canvas = canvas))
-                            },
-                            valueRange = reach.start.toFloat()..reach.endInclusive.toFloat(),
-                            enabled = !CropGestures.positionLocked(crop, across, source, canvas),
-                            modifier = Modifier.weight(1f).height(36.dp).semantics { contentDescription = spoken },
-                        )
+            Text(stringResource(if (work.reviewing) R.string.crop_preview_note else R.string.crop_hint), color = Color.White, fontSize = 14.sp)
+            // On the frame only, as the original's (YouRec/CropEditor.swift:437-471): the preview shows the result.
+            if (!work.reviewing) {
+                // Rotation: the slider, the angle, which a tap sets upright again, and a quarter turn.
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.crop_rotation), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    val reset = stringResource(R.string.crop_rotation_reset)
+                    val angle = degrees(crop.rotation)
+                    TextButton(onClick = { adjust(CropGestures.rotated(crop, 0.0)) }, enabled = ready,
+                        modifier = Modifier.defaultMinSize(minWidth = 52.dp).semantics { contentDescription = reset; stateDescription = angle }) { Text(angle) }
+                    val turn = stringResource(R.string.crop_rotate_90)
+                    TextButton(onClick = { adjust(CropGestures.quarterTurn(crop)) }, enabled = ready, modifier = Modifier.semantics { contentDescription = turn }) {
+                        Icon(Icons.Filled.Rotate90DegreesCw, null)
                     }
                 }
-            }
-            // The flips of the original's Mirror tool (YouRec/EditorTools.swift:1319-1322), here beside the framing.
-            for (across in listOf(true, false)) {
-                val name = stringResource(if (across) R.string.crop_flip_horizontal else R.string.crop_flip_vertical)
-                val on = if (across) work.mirror.horizontal else work.mirror.vertical
+                val rotation = stringResource(R.string.crop_rotation_slider)
+                Slider(
+                    value = crop.rotation.toFloat(), onValueChange = { adjust(CropGestures.rotated(crop, (it / CropGestures.ROTATION_STEP).roundToInt() * CropGestures.ROTATION_STEP)) },
+                    valueRange = -180f..180f, enabled = ready, modifier = Modifier.height(36.dp).semantics { contentDescription = rotation },
+                )
+                Text(stringResource(R.string.crop_rotation_note), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
                 Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(name, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Switch(on, { flip(if (across) work.mirror.copy(horizontal = it) else work.mirror.copy(vertical = it)) }, modifier = Modifier.semantics { contentDescription = name })
+                    Text(stringResource(R.string.crop_zoom), color = Color.White, fontSize = 14.sp)
+                    val zoom = stringResource(R.string.crop_zoom_slider)
+                    Slider(
+                        value = crop.zoom.toFloat(), onValueChange = { adjust(CropGestures.zoomed(crop, it.toDouble())) },
+                        valueRange = CropSettings.MINIMUM_ZOOM.toFloat()..CropSettings.MAXIMUM_ZOOM.toFloat(), enabled = ready,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp).height(36.dp).semantics { contentDescription = zoom },
+                    )
+                    Text(String.format(Locale.getDefault(), "%.1f×", crop.zoom), color = Color.White, fontSize = 14.sp, maxLines = 1)
                 }
+                // The size goes under the button where the two do not fit side by side.
+                FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+                    TextButton(onClick = { adjust(CropGestures.reset(crop)) }, enabled = ready) { Text(stringResource(R.string.crop_reset_framing)) }
+                    if (source != null && canvas != null) {
+                        val area = crop.rect(source, canvas)
+                        val width = Math.round(area.width).toInt()
+                        val height = Math.round(area.height).toInt()
+                        val spoken = stringResource(R.string.crop_source_area, width, height)
+                        Text("$width × $height px", color = Soft, fontSize = 12.sp, maxLines = 1, modifier = Modifier.align(Alignment.CenterVertically).padding(start = 12.dp).semantics { contentDescription = spoken })
+                    }
+                }
+                // Position, closed until asked for: the picture itself is dragged.
+                val position = stringResource(R.string.crop_position)
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).clickable { showPosition = !showPosition }.semantics { role = Role.Button },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(position, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Icon(if (showPosition) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = Soft)
+                }
+                if (showPosition && source != null && canvas != null) {
+                    val visible = crop.clamped(source, canvas)
+                    for (across in listOf(true, false)) {
+                        val name = stringResource(if (across) R.string.crop_across else R.string.crop_down)
+                        val spoken = stringResource(if (across) R.string.crop_across_slider else R.string.crop_down_slider)
+                        val reach = CropGestures.positionRange(crop, across, source, canvas)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(name, color = Color.White, fontSize = 14.sp, modifier = Modifier.width(104.dp).padding(end = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Slider(
+                                value = (if (across) visible.x else visible.y).toFloat().coerceIn(reach.start.toFloat(), reach.endInclusive.toFloat()),
+                                onValueChange = {
+                                    adjust(if (across) CropGestures.moved(crop, x = it.toDouble(), source = source, canvas = canvas) else CropGestures.moved(crop, y = it.toDouble(), source = source, canvas = canvas))
+                                },
+                                valueRange = reach.start.toFloat()..reach.endInclusive.toFloat(),
+                                enabled = !CropGestures.positionLocked(crop, across, source, canvas),
+                                modifier = Modifier.weight(1f).height(36.dp).semantics { contentDescription = spoken },
+                            )
+                        }
+                    }
+                }
+                // The flips of the original's Mirror tool (YouRec/EditorTools.swift:1319-1322), here beside the framing.
+                for (across in listOf(true, false)) {
+                    val name = stringResource(if (across) R.string.crop_flip_horizontal else R.string.crop_flip_vertical)
+                    val on = if (across) work.mirror.horizontal else work.mirror.vertical
+                    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        Switch(on, { flip(if (across) work.mirror.copy(horizontal = it) else work.mirror.copy(vertical = it)) }, modifier = Modifier.semantics { contentDescription = name })
+                    }
+                }
+                Text(stringResource(R.string.crop_flip_note), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
             }
-            Text(stringResource(R.string.crop_flip_note), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
+            HorizontalDivider(Modifier.padding(vertical = 4.dp), color = Color.White.copy(alpha = 0.15f))
             if (!whole) Text(stringResource(R.string.crop_edges_note), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
             if (work.on.pieces.size > 1) Text(pluralStringResource(R.plurals.crop_clips_note, work.on.pieces.size, work.on.pieces.size), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
         }
+    }
+}
+
+/**
+ * Under the picture, as the original's (YouRec/CropEditor.swift:382-409): Frame and Preview, Play while
+ * previewing or while an end of the motion is edited, the arrows between the tool's clips with which one is
+ * shown, and the position in what the tool works on. Reads [playhead] itself, so a scrub composes only this.
+ */
+@Composable
+private fun CropPlayback(
+    work: Cropping, playhead: () -> Double, playing: Boolean, modifier: Modifier,
+    review: (Boolean) -> Unit, togglePlay: () -> Unit, seek: (Double) -> Unit,
+) {
+    val scope = work.on
+    val index by remember(scope) { derivedStateOf { scope.index(playhead()) } }
+    // By the tenth of a second, as the time is written.
+    val at by remember(scope) { derivedStateOf { ((scope.position(playhead()) - scope.start) * 10).roundToLong() / 10.0 } }
+    Column(modifier.fillMaxWidth().background(Color.Black).padding(horizontal = 14.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            for (result in listOf(false, true)) {
+                val chosen = work.reviewing == result
+                TextButton(
+                    onClick = { review(result) },
+                    modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(50)).background(if (chosen) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+                        .semantics { selected = chosen },
+                ) { Text(stringResource(if (result) R.string.crop_preview else R.string.crop_frame), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+            }
+            Spacer(Modifier.weight(1f))
+            if (work.reviewing || work.draft.endpoint != null) {
+                val label = stringResource(if (playing) R.string.crop_pause else R.string.crop_play)
+                IconButton(onClick = togglePlay, modifier = Modifier.semantics { contentDescription = label }) {
+                    Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, tint = Color.White)
+                }
+            }
+            if (scope.pieces.size > 1) {
+                val previous = stringResource(R.string.crop_previous_clip)
+                IconButton(onClick = { scope.step(playhead(), -1)?.let(seek) }, enabled = index > 0, modifier = Modifier.semantics { contentDescription = previous }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = if (index > 0) Color.White else Soft)
+                }
+                Text("${index + 1}/${scope.pieces.size}", color = Color.White, fontSize = 12.sp, maxLines = 1)
+                val next = stringResource(R.string.crop_next_clip)
+                IconButton(onClick = { scope.step(playhead(), 1)?.let(seek) }, enabled = index < scope.pieces.size - 1, modifier = Modifier.semantics { contentDescription = next }) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = if (index < scope.pieces.size - 1) Color.White else Soft)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(preciseLabel(at), color = Color.White, fontSize = 12.sp, maxLines = 1)
+            val spoken = stringResource(R.string.crop_position_slider)
+            val length = maxOf(PauseDetector.FRAME, scope.duration - PauseDetector.FRAME)
+            // The slider follows the picture without composing the panel again at every frame.
+            val value by remember(scope) { derivedStateOf { (scope.position(playhead()) - scope.start).toFloat() } }
+            Slider(
+                value = value.coerceIn(0f, length.toFloat()), onValueChange = { seek(scope.start + it.toDouble()) },
+                valueRange = 0f..length.toFloat(), modifier = Modifier.weight(1f).padding(horizontal = 8.dp).height(36.dp).semantics { contentDescription = spoken },
+            )
+            Text(preciseLabel(scope.duration), color = Soft, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
+/**
+ * The frame being cropped, as the original's crop surface draws it (YouRec/CropEditor.swift:503-640): the
+ * footage of the clip the picture stands on at [playhead], a still read from the recording at the second
+ * it shows, as large as the movie's frame fits [CropViewport.inset] inside the view, and around the frame
+ * the rest of the footage under a dark veil; the frame's edge and its thirds over it. Its color is the
+ * clip's ([grade]). One finger drags the footage and two zoom it ([cropGestures]); a screen reader hears
+ * the framing and zooms by a step with its actions, as the original's adjustable view.
+ *
+ * @param files each recording's file by its id, [sizes] its upright size, [canvas] the movie's frame.
+ * @param change takes the framing after a gesture.
+ */
+@Composable
+internal fun CropFrameView(
+    work: Cropping, playhead: () -> Double, files: Map<String, File>, sizes: Map<String, FrameSize>, canvas: FrameSize?,
+    grade: (TimelineClip, Double) -> android.graphics.RenderEffect?, change: (CropSettings) -> Unit, modifier: Modifier = Modifier,
+) {
+    val scope = work.on
+    // The clip shown, the source second of it by the millisecond and the second of the movie: what a scrub changes.
+    val shown by remember(scope) {
+        derivedStateOf {
+            val time = scope.position(playhead())
+            scope.active(time)?.let { piece ->
+                val offset = (time - piece.start).coerceIn(0.0, maxOf(0.0, piece.clip.duration - PauseDetector.FRAME))
+                Triple(piece, (piece.clip.sourceTime(offset) * 1000).roundToLong(), piece.start + offset)
+            }
+        }
+    }
+    val piece = shown?.first
+    val sourceTime = (shown?.second ?: 0L) / 1000.0
+    val time = shown?.third ?: 0.0
+    val source = piece?.let { sizes[it.clip.sourceID] }
+    val stills = remember { CropStills() }
+    DisposableEffect(stills) { onDispose { stills.close() } }
+    // The still and the clip it is of, so that a picture is never drawn with another clip's geometry.
+    var still by remember { mutableStateOf<Pair<String, Bitmap>?>(null) }
+    LaunchedEffect(piece?.clip?.id, shown?.second) {
+        val clip = piece?.clip ?: return@LaunchedEffect
+        val file = files[clip.sourceID] ?: return@LaunchedEffect
+        delay(80) // as the original waits before asking for a frame (YouRec/CropEditor.swift:256)
+        stills.frame(file, sourceTime)?.let { still = clip.id to it }
+    }
+    val picture = still?.takeIf { it.first == piece?.clip?.id }?.second
+    val effect = piece?.let { grade(it.clip, time - it.start) }
+    val inset = with(LocalDensity.current) { 20.dp.toPx().toDouble() }
+    val framing = piece?.let { work.shown(it.clip, sourceTime, time) }?.at(sourceTime)
+    val mirror = piece?.let { work.mirrorShown(it.clip, sourceTime, time) }
+    val current by rememberUpdatedState(Triple(source, canvas, mirror))
+    val crop by rememberUpdatedState(work.draft.crop)
+    val label = stringResource(R.string.crop_canvas)
+    val hint = stringResource(R.string.crop_canvas_hint)
+    val closer = stringResource(R.string.crop_zoom_in)
+    val further = stringResource(R.string.crop_zoom_out)
+    val value = if (source != null && canvas != null) {
+        val visible = work.draft.crop.clamped(source, canvas)
+        stringResource(R.string.crop_canvas_value, work.draft.crop.rotation, work.draft.crop.zoom, (visible.x * 100).roundToInt(), (visible.y * 100).roundToInt())
+    } else ""
+    Box(
+        modifier.background(Color.Black).clipToBounds()
+            .pointerInput(Unit) {
+                cropGestures(
+                    viewport = {
+                        val (known, shape, flip) = current
+                        if (known == null || shape == null) null else CropViewport(FrameSize(size.width.toDouble(), size.height.toDouble()), known, shape, flip, inset)
+                    },
+                    crop = { crop }, change = change,
+                )
+            }
+            .semantics {
+                contentDescription = "$label. $hint"
+                stateDescription = value
+                customActions = listOf(
+                    CustomAccessibilityAction(closer) { change(CropGestures.zoomStepped(crop, closer = true)); true },
+                    CustomAccessibilityAction(further) { change(CropGestures.zoomStepped(crop, closer = false)); true },
+                )
+            },
+    ) {
+        if (picture != null && source != null && canvas != null && framing != null) {
+            // The footage, in a layer of its own so that its color does not tint the veil.
+            Canvas(Modifier.fillMaxSize().graphicsLayer { renderEffect = effect?.asComposeRenderEffect() }) {
+                val port = CropViewport(FrameSize(size.width.toDouble(), size.height.toDouble()), source, canvas, mirror, inset)
+                val matrix = Matrix().apply {
+                    setScale((source.width / picture.width).toFloat(), (source.height / picture.height).toFloat())
+                    postConcat(Matrix().apply { setValues(port.transform(framing).matrixValues()) })
+                }
+                drawIntoCanvas { it.nativeCanvas.drawBitmap(picture, matrix, Paint(Paint.FILTER_BITMAP_FLAG)) }
+            }
+        }
+        if (canvas != null) Canvas(Modifier.fillMaxSize()) {
+            val window = CropViewport(FrameSize(size.width.toDouble(), size.height.toDouble()), canvas, canvas, null, inset).window
+            val left = window.minX.toFloat()
+            val top = window.minY.toFloat()
+            val right = window.maxX.toFloat()
+            val bottom = window.maxY.toFloat()
+            // The footage outside the frame, dimmed as the original's veil (black at 65 %).
+            val veil = Color.Black.copy(alpha = 0.65f)
+            drawRect(veil, Offset.Zero, Size(size.width, top))
+            drawRect(veil, Offset(0f, bottom), Size(size.width, size.height - bottom))
+            drawRect(veil, Offset(0f, top), Size(left, bottom - top))
+            drawRect(veil, Offset(right, top), Size(size.width - right, bottom - top))
+            val thin = 0.5.dp.toPx()
+            val line = Color.White.copy(alpha = 0.3f)
+            for (third in 1..2) {
+                val x = left + (right - left) * third / 3
+                val y = top + (bottom - top) * third / 3
+                drawLine(line, Offset(x, top), Offset(x, bottom), thin)
+                drawLine(line, Offset(left, y), Offset(right, y), thin)
+            }
+            drawRect(Color.White, Offset(left, top), Size(right - left, bottom - top), style = Stroke(1.5.dp.toPx()))
+        }
+        if (picture == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
+    }
+}
+
+/** Stills of the recordings, read at the exact second, at most 1600 pixels on a side as the original asks for (YouRec/CropEditor.swift:265). */
+private class CropStills {
+    private val decoding = Dispatchers.IO.limitedParallelism(1)
+    private var reader: MediaMetadataRetriever? = null
+    private var reading: File? = null
+
+    suspend fun frame(file: File, time: Double): Bitmap? = withContext(decoding) {
+        try {
+            val retriever = reader?.takeIf { reading == file } ?: MediaMetadataRetriever().also {
+                reader?.release()
+                reader = null
+                it.setDataSource(file.path)
+                reader = it
+                reading = file
+            }
+            val micros = (time * 1e6).roundToLong()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) retriever.getScaledFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST, 1600, 1600)
+            else retriever.getFrameAtTime(micros, MediaMetadataRetriever.OPTION_CLOSEST)?.let { whole ->
+                val scale = 1600f / maxOf(whole.width, whole.height)
+                if (scale < 1) Bitmap.createScaledBitmap(whole, (whole.width * scale).roundToInt(), (whole.height * scale).roundToInt(), true) else whole
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun close() {
+        val held = reader
+        reader = null
+        reading = null
+        CoroutineScope(decoding).launch { runCatching { held?.release() } }
     }
 }
 

@@ -51,6 +51,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
+import app.takes.core.CropDraft
 import app.takes.core.GradeMotion
 import app.takes.core.LUTInput
 import app.takes.core.ImportedLUT
@@ -609,6 +610,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val logProfiles by produceState(emptyMap<String, LUTInput>(), project.sources) {
         value = withContext(Dispatchers.IO) { project.recordings.mapNotNull { source -> LogFootage.profile(store.file(project, source))?.let { source.id to it } }.toMap() }
     }
+    // The Crop tool's frame in the clip's color at that moment, as the original's still has it (CropEditor.swift:260-265).
+    val cropGrade = remember(folder, logProfiles) {
+        val made = HashMap<Pair<ColorSettings, LUTInput?>, ColorLuts.Preview>()
+        val grade: (TimelineClip, Double) -> android.graphics.RenderEffect? = grade@{ clip, offset ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@grade null
+            val log = logProfiles[clip.sourceID]
+            if (clip.color == null && log == null) return@grade null
+            val preview = made.getOrPut((clip.color ?: ColorSettings()) to log) { ColorLuts.Preview(clip.color ?: ColorSettings(), folder, log) }
+            if (!preview.moves) preview.effect() else preview.effect(GradeMotion.fraction(clip, offset) ?: 0.0)
+        }
+        grade
+    }
     val deckColors = shownClips.map { shown -> shown?.let { (clip, _) -> logProfiles[clip.sourceID].let { log -> if (clip.color == null && log == null) null else (clip.color ?: ColorSettings()) to log } } }
     // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
     // is open what the tool would leave on it.
@@ -913,7 +926,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val timelineRows = rememberScrollState()
     val toolRows = rememberScrollState()
     val accessible = accessibilityText()
-    EditorFrame(landscape, accessible, toolWeight, modifier.fillMaxSize().then(previewing)) {
+    EditorFrame(landscape, accessible, toolWeight, modifier.fillMaxSize().then(previewing), workspace = cropping != null) {
         Row(Modifier.layoutId(EditorSlot.Header).fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             // Beside the tools with large text there is no room for the name: the original's header in landscape has none (EditorView.swift:428).
             if (landscape && accessible) Spacer(Modifier.weight(1f))
@@ -1097,20 +1110,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         detectTapGestures(onDoubleTap = { at -> framed(at, size.width, size.height) { _, _, _ -> TransitionFraming() } })
                     }
                 }
-                // While a clip is being cropped, a drag on the picture moves the footage under the frame and a pinch zooms it.
-                val framed by rememberUpdatedState(cropping)
-                val sized by rememberUpdatedState(sizes to canvas)
-                val reframing = if (cropping == null && effecting == null) Modifier else Modifier.pointerInput(Unit) {
-                    cropGestures(
-                        viewport = {
-                            val (known, shape) = sized
-                            val source = framed?.on?.active(playhead)?.let { known[it.clip.sourceID] }
-                            if (source == null || shape == null) null
-                            else CropViewport(FrameSize(size.width.toDouble(), size.height.toDouble()), source, FrameSize(shape.first.toDouble(), shape.second.toDouble()), framed?.activeMirror(playhead), inset = 0.0)
-                        },
-                        crop = { framed?.draft?.crop ?: CropSettings() },
-                        change = { next -> framed?.let { cropping = it.copy(draft = it.draft.adjusted(next)) } },
-                    )
+                // The Video effects tool keeps the touches on the picture to itself. The Crop tool frames on its own view, CropFrameView.
+                val reframing = if (effecting == null) Modifier else Modifier.pointerInput(Unit) {
+                    cropGestures(viewport = { null }, crop = { CropSettings() }, change = {})
                 }
                 // With the Subtitles tool open, a drag or a pinch on the captions places them (SubtitlePlacing.kt).
                 // Whether a caption shows at the playhead, derived so that a scrub composes the editor again only when that changes.
@@ -1127,7 +1129,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // In a layer of its own: the titles are drawn again at every frame of a scrub, and nothing around them is.
                 Canvas(Modifier.fillMaxSize().then(titleMoving).then(framing).then(reframing).then(placeCaptions).then(tapping).graphicsLayer()) {
                     if (sampling) return@Canvas
-                    if (cropping != null) cropGuides()
                     if (guiding) placing?.let { subtitleGuide(it) }
                     drawIntoCanvas { target ->
                         titlePainter.draw(target.nativeCanvas, size.width, size.height, shownTitles())
@@ -1161,7 +1162,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             InspectionReset(inspection, named = coloring != null || pacing != null || pausing != null || transitioning != null || stabilizing != null, Modifier.align(Alignment.BottomEnd))
             cleaningProgress?.let { CleaningProgress(it, Modifier.align(Alignment.Center)) }
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
-            else {
+            // The Crop tool's workspace has its own controls under the picture, as the original's (CropEditor.swift:382-409).
+            else if (cropping == null) {
                 // While a colour is picked from the picture, the bar saying what to tap in its place.
                 effecting?.takeIf { it.picking != null }?.let { work -> EffectPickBar(work, { playhead }, { effecting = it }, Modifier.align(Alignment.BottomCenter)) }
                     ?: ReviewSpeed(reviewSpeed, reviewSpeedsOpen, Modifier.align(Alignment.BottomStart).padding(8.dp), toggle = { reviewSpeedsOpen = !reviewSpeedsOpen }, choose = chooseReviewSpeed)
@@ -1170,6 +1172,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     onClick = { cancelPendingPlay(); fullPreview = true }, Modifier.align(Alignment.TopEnd).semantics { contentDescription = fullLabel },
                     enabled = titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && subtitling == null && auditioning == null && moving == null && placementWork == null,
                 ) { Icon(Icons.Filled.OpenInFull, null, tint = Color.White) }
+            }
+            // The Crop tool's Frame: the footage around the frame being cropped, over the preview (CropEditor.swift:365-367).
+            cropping?.takeIf { !it.reviewing }?.let { work ->
+                CropFrameView(
+                    work, { playhead }, files, sizes, canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) },
+                    grade = cropGrade, change = { next -> cropping?.let { now -> cropping = now.copy(draft = now.draft.adjusted(next)) } },
+                    modifier = Modifier.matchParentSize(),
+                )
             }
         }
         Column(Modifier.layoutId(EditorSlot.Transport)) {
@@ -1514,7 +1524,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             LaunchedEffect(editor.playing) {
                 val now = cropping ?: return@LaunchedEffect
                 if (editor.playing) { if (now.draft.previewEndpoint != null) cropping = now.copy(draft = now.draft.scrubbed()) }
-                else if (now.draft.endpoint != null && now.draft.previewEndpoint == null) cropping = now.copy(draft = now.draft.copy(previewEndpoint = now.draft.endpoint))
+                else if (now.draft.endpoint != null) cropping = now.copy(draft = now.draft.copy(previewEndpoint = now.draft.endpoint), reviewing = false)
+            }
+            // The picture stands inside what the tool works on (CropEditor.swift:119).
+            LaunchedEffect(framing.on) { framing.on.position(playhead).let { if (abs(it - playhead) > 0.0005) jump(it) } }
+            // Until the framing is changed, the controls start from the crop of the clip shown, as the original's
+            // frame does each time it is read (CropEditor.swift:274-278).
+            val shownPiece by remember(framing.on) { derivedStateOf { framing.on.active(framing.on.position(playhead))?.clip?.id } }
+            LaunchedEffect(shownPiece) {
+                val now = cropping ?: return@LaunchedEffect
+                val piece = now.on.pieces.firstOrNull { it.clip.id == shownPiece } ?: return@LaunchedEffect
+                if (!now.draft.framingChanged && !now.draft.animationChanged && now.draft.endpoint == null) {
+                    val opened = CropDraft.opening(piece.clip.crop, now.draft.crop.id)
+                    if (opened != now.draft) cropping = now.copy(draft = opened)
+                }
             }
             // The size of the footage under the playhead, derived so that a scrub composes the editor again only at another clip.
             val cropSource by remember(framing, sizes) { derivedStateOf { framing.on.active(playhead)?.let { sizes[it.clip.sourceID] } } }
@@ -1537,6 +1560,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 },
                 cancel = { editor.pause(); auditionEnd = null; cropping = null },
                 modifier = Modifier.layoutId(EditorSlot.Tools), appliesTo = toolScopeLabel,
+                headerModifier = Modifier.layoutId(EditorSlot.ToolHeader), playbackModifier = Modifier.layoutId(EditorSlot.ToolPlayback),
+                playhead = { playhead }, playing = editor.playing,
+                // Back to the frame stops the preview, as the original's (CropEditor.swift:294-299).
+                review = { result -> if (!result) { editor.pause(); auditionEnd = null }; cropping = cropping?.copy(reviewing = result) },
+                // Play shows the preview first (CropEditor.swift:321-328).
+                togglePlay = { cropping?.let { if (!it.reviewing && !editor.playing) cropping = it.copy(reviewing = true) }; togglePlay() },
+                seek = { time ->
+                    cropping?.let { if (it.draft.previewEndpoint != null) cropping = it.copy(draft = it.draft.scrubbed()) }
+                    auditionEnd = null
+                    jump(framing.on.position(time))
+                },
             )
         } else if (titling != null) {
             val work = titling!!
@@ -2026,11 +2060,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             shown = clips[shown], shownStart = clipStart(edit, shown), anchor = playhead,
                         )
                     },
-                    // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.
+                    // The picture shown while framing is the clip of the scope nearest the playhead, which stays where it is
+                    // inside what the tool works on (CropEditor.swift:97-119).
                     SheetTool.Crop to SheetEntry(canAdjust && scopeFramed) {
                         val subject = toolSubject
-                        val start = toolScope.state.clips.indexOfFirst { it.id == subject?.id }.takeIf { it >= 0 }?.let { TimelineEditing.clipStart(toolScope.state.clips, it) }
-                        if (subject != null && start != null && (playhead < start || playhead >= start + subject.duration)) jump(start)
                         subject?.let { cropping = Cropping.opening(edit, toolScope, it) }
                     },
                     // On the clips of the range, the selection or the whole project, cut at the ends of a range.
@@ -2274,7 +2307,7 @@ private fun applied(scoped: RangeEditing.Scoped, change: (EditState, Int) -> Edi
 private data class Audition(val state: EditState, val review: ReviewWindows.Review)
 
 /** The parts of the editor's screen, which [EditorFrame] lays out for the orientation. */
-private enum class EditorSlot { Header, Preview, Transport, Timeline, Tools }
+private enum class EditorSlot { Header, Preview, Transport, Timeline, Tools, ToolHeader, ToolPlayback }
 
 /**
  * The editor's screen. In portrait, from the top: the header, the picture, the transport, the timeline and the tools;
@@ -2284,14 +2317,41 @@ private enum class EditorSlot { Header, Preview, Transport, Timeline, Tools }
  * original gives the controls 56 % of the width and the whole height (EditorView.swift:366-370): here the tools
  * have the height beside the picture, and the timeline runs under the picture alone. The keyboard leaves no room
  * for the timeline in landscape: it goes while the keyboard is up.
+ *
+ * A tool that is a [workspace] of its own, as the original's Crop (CropEditor.swift:340-379), has the screen
+ * instead of the header, the transport and the timeline, which stay composed but are not laid out: its header
+ * on top, then the picture with its playback under it, and its settings, at most 280 dp (340 with larger text)
+ * and 43 % of the height; in landscape the settings stand beside the picture, at most 320 dp and 38 % of the width.
  */
 @Composable
-private fun EditorFrame(landscape: Boolean, accessible: Boolean, toolWeight: Float, modifier: Modifier, content: @Composable () -> Unit) {
+private fun EditorFrame(landscape: Boolean, accessible: Boolean, toolWeight: Float, modifier: Modifier, workspace: Boolean = false, content: @Composable () -> Unit) {
     Layout(content, modifier) { measurables, constraints ->
         val width = constraints.maxWidth
         val height = constraints.maxHeight
         fun slot(id: EditorSlot) = measurables.firstOrNull { it.layoutId == id }
         fun Measurable.natural(width: Int, room: Int) = measure(Constraints(width, width, 0, maxOf(0, room)))
+        if (workspace) {
+            // Measured as usual though not placed, so the timeline keeps the length it scrolls over and the playhead stays.
+            slot(EditorSlot.Header)?.natural(width, height)
+            slot(EditorSlot.Transport)?.natural(width, height)
+            slot(EditorSlot.Timeline)?.natural(if (landscape && accessible) width - (width * 0.56f).toInt() else width, height)
+            val head = slot(EditorSlot.ToolHeader)?.natural(width, height)
+            var room = height - (head?.height ?: 0)
+            val side = if (landscape) minOf(320.dp.roundToPx(), (width * 0.38f).toInt()) else width
+            val left = if (landscape) width - side else width
+            val settings = if (landscape) room else minOf((if (accessible) 340 else 280).dp.roundToPx(), (height * 0.43f).toInt(), room / 2)
+            val panel = slot(EditorSlot.Tools)?.measure(Constraints.fixed(side, maxOf(0, settings)))
+            if (!landscape) room -= panel?.height ?: 0
+            val playback = slot(EditorSlot.ToolPlayback)?.natural(left, room / 2)
+            val picture = slot(EditorSlot.Preview)?.measure(Constraints.fixed(left, maxOf(0, room - (playback?.height ?: 0))))
+            return@Layout layout(width, height) {
+                val top = head?.height ?: 0
+                head?.place(0, 0)
+                picture?.place(0, top)
+                playback?.place(0, top + (picture?.height ?: 0))
+                if (landscape) panel?.place(left, top) else panel?.place(0, top + (picture?.height ?: 0) + (playback?.height ?: 0))
+            }
+        }
         val header: Placeable?
         val transport: Placeable?
         val timeline: Placeable?

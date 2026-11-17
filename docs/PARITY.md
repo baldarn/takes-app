@@ -33,8 +33,8 @@ In sections 1 and 2, the rows on the tabs during an import, the selected project
 
 | Status | Count |
 |---|---|
-| DONE | 187 |
-| PARTIAL | 14 |
+| DONE | 189 |
+| PARTIAL | 12 |
 | CORE ONLY | 0 |
 | MISSING | 0 |
 | N/A | 8 |
@@ -48,7 +48,7 @@ Per area:
 | 2. Recovery and storage | 7 | 0 | 0 | 0 | 0 |
 | 3. Recorder and camera | 34 | 5 | 0 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 32 | 2 | 0 | 0 | 0 |
-| 5. Editor: picture tools | 14 | 4 | 0 | 0 | 0 |
+| 5. Editor: picture tools | 15 | 3 | 0 | 0 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 19 | 0 | 0 | 0 | 2 |
@@ -190,7 +190,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
 | Speed 0.25–4× with pitch kept | O/EditorTools.swift:1311-1315, O/VideoTools.swift:121-124 | DONE | A/SpeedPanel.kt, a tool in place of the timeline with the preview playing the new rate (slider in steps of 0.05, quick 0.5/1/1.5/2×, C/Speed.kt `stepped`; Before and After; Remove speed when the clips had one), A/Exporter.kt (`steadySpeed`) | The preview takes a new rate when the slider rests rather than at every step, as each one moves every later clip | | |
-| Crop: zoom and position | O/CropEditor.swift:345-477, 628-660 | PARTIAL | A/CropPanel.kt (`CropPanel`, `cropGestures`, `cropGuides`), C/CropEditing.kt: zoom 1…8, Reset framing, source area, Position sliders, drag and pinch on the picture, border and thirds, on every clip of a range or selection; drawn by A/TransitionPreview.kt and A/Exporter.kt (`FramingEffect`) from C/PictureFrame.kt | The tool stays in the editor instead of a workspace of its own: no Frame/Preview switch, no dimmed footage around the frame, no clip stepper; VoiceOver zoom steps. The pinch could not be driven on the emulator | S | Phone for the pinch |
+| Crop: zoom and position | O/CropEditor.swift:97-119, 244-248, 331-640 | DONE | A/CropPanel.kt (`CropPanel`, `CropPlayback`, `CropFrameView`, `cropGestures`), A/EditorScreen.kt (`EditorFrame` with `workspace`), C/CropEditing.kt: the tool as a workspace of its own, its header over the picture and the editor's header, transport and timeline put away, its settings under the picture (at most 280 dp and 43 % of the height) or beside it in landscape (at most 320 dp and 38 %); Frame, a still of the clip read from the recording at the second shown (at most 1600 px a side, 80 ms after the last move) in the clip's color, the movie's frame 20 dp inside the view with the footage around it under a 65 % veil, its edge and thirds, drag and pinch on it; Preview, the editor's picture with every tool, played over what the tool works on, back to the frame when an end of the motion is being edited; Play, the arrows between the tool's clips with which one is shown, the position slider; the controls start from the crop of the clip shown until the framing is changed; zoom 1…8, Reset framing, source area, Position sliders, rotation, flips, on every clip of a range or selection; TalkBack hears the framing (rotation, zoom, centre) and zooms by a step of 1.1× with two actions; drawn by A/TransitionPreview.kt and A/Exporter.kt (`FramingEffect`) from C/PictureFrame.kt | The still shows the clip's color but not its video effects, which the preview draws on the decks; TalkBack's zoom steps are two actions, where VoiceOver's adjustable view swipes up and down. The pinch could not be driven on the emulator | | Phone for the pinch |
 | Crop rotation (−180…180, 90° button) | O/CropEditor.swift:195-198, 440-454, O/VideoTools.swift:6-63 | DONE | A/CropPanel.kt (slider in steps of 0.1 snapping to upright, angle to tap, quarter turn), preview and export from `PictureFraming.frame`; a turned crop saves as schema 14 (C/Project.kt, C/Crop.kt `reframed`) | — | | |
 | Animated crop (A/B with curves) | O/EffectAnimationControls.swift:14-130, O/EffectAnimation.swift:8-254, O/CropEditor.swift:34-72 | DONE | A/CropPanel.kt (`AnimationControls`: Animate, Edit A/B, curve, ramp, rise and return, Hold B), `Cropping` over C/CropEditing.kt `CropDraft`; sampled per frame in the preview (A/EditorScreen.kt `cropOf`) and the export (`FramingEffect`); schema 14 | The Color tool's grade moves too (row "Animated grade") | | |
 | Video shape for the project (Original, 16:9, 9:16, 1:1, 4:5) | O/CropEditor.swift:93, 189-194, 232-236, 418-436, O/VideoTools.swift:100-112 | DONE | The "Video shape" menu of A/CropPanel.kt (`Cropping.reshaped`, `applied`: a crop or a chosen shape pins the frame, Original with no crop frees it); `EditState.outputSize` saved beside the step's timeline as `[width, height]`, checked even and 2…16384, schema 21 (C/Project.kt); the canvas of the preview (A/EditorScreen.kt) and the export (A/Exporter.kt `movieShape`) | `canvasReference` is not kept: without a fixed size the frame always takes the first picture's shape. An edit made from a timeline does not carry the size, so `Project.commit` keeps the one the project has unless the Crop tool names one | | |
