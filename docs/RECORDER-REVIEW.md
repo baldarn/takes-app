@@ -460,7 +460,11 @@ zoom ratio from Android 11 and the crop region before, is to confirm. API 26.
 plus `VIDEO_CAPTURE` whose `SurfaceProcessor` draws the camera texture with a matrix that
 changes per frame: the crop of Z13 and A2, and the rotation and fixed magnification of A1
 (`O/HorizonLevel.swift:19-30`). The preview then shows exactly what is recorded. Whether
-such an effect can pass 10-bit frames is to confirm; plan it for SDR first.
+such an effect can pass 10-bit frames is to confirm; plan it for SDR first. As built
+(`A/CameraFrames.kt`): one effect for each target, so that the preview's picture and the
+take's are drawn on threads of their own and the live effects over the preview never hold up a
+frame of the take; one effect for both would share a single picture, copied to both outputs,
+which loses frames at 4K and cannot show anything on the preview alone.
 
 | ID | Detection or sensor | Gate | API level | Exact? | Core (all pure) |
 |---|---|---|---|---|---|

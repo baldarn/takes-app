@@ -526,7 +526,7 @@ class CaptureController(private val context: Context, private val store: Project
                 if (cases.effects == 0) provider.bindToLifecycle(held, choice.info.cameraSelector, cases.preview, cases.video)
                 else provider.bindToLifecycle(
                     held, choice.info.cameraSelector,
-                    UseCaseGroup.Builder().addUseCase(cases.preview).addUseCase(cases.video).addEffect(frames.effect(cases.effects)).build(),
+                    UseCaseGroup.Builder().addUseCase(cases.preview).addUseCase(cases.video).apply { frames.effects(cases.effects).forEach(::addEffect) }.build(),
                 )
             } catch (_: Exception) {
                 provider.unbindAll()
