@@ -184,7 +184,9 @@ internal class TransitionChip(val label: String, val description: String, val ad
  * The row between the timeline and the tools. Mark is always there. Beside it,
  * while something is marked or selected, what can be done with it; otherwise
  * Paste when the clipboard holds something, then the [transitions] at the
- * playhead, or without any the last thing that happened.
+ * playhead and [placement], or without any the last thing that happened.
+ * Beside a selection, the Placement of the pictures playing at the playhead
+ * stays, as a sign alone after Paste (EditorView.swift:665, 800-802).
  * An action that is null is not offered. With [unavailable], Copy, Cut and
  * Paste are drawn as off and a tap on them gives the reason to [explain].
  */
@@ -199,6 +201,7 @@ internal fun SelectionBar(
     pasteTargets: List<PasteChoice> = emptyList(),
     editSound: (() -> Unit)? = null,
     transitions: List<TransitionChip> = emptyList(),
+    placement: TransitionChip? = null,
     unavailable: String? = null, explain: (String) -> Unit = {},
     deleteLabel: Int = R.string.selection_delete, restoreSync: SyncAction? = null,
 ) {
@@ -258,15 +261,23 @@ internal fun SelectionBar(
                 editSound?.let { BarIcon(Icons.Outlined.Tune, R.string.editor_edit_sound, Color.White, it) }
                 BarIcon(Icons.Filled.Close, R.string.selection_clear, Color.White.copy(alpha = 0.8f), clear)
                 paste?.let { PasteButton(canPaste, replacesTransition, because ?: it, off = because != null, pasteTargets.takeIf { because == null }.orEmpty()) }
+                placement?.let { chip ->
+                    TextButton(
+                        onClick = chip.open, Modifier.defaultMinSize(minWidth = 44.dp).semantics { contentDescription = chip.description }, shape = CircleShape,
+                        colors = ButtonDefaults.textButtonColors(containerColor = chip.color.copy(alpha = 0.12f), contentColor = chip.color),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                    ) { Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp)) }
+                }
             }
         } else {
             paste?.let {
                 PasteButton(canPaste, replacesTransition, because ?: it, off = because != null, pasteTargets.takeIf { because == null }.orEmpty())
                 BarIcon(Icons.Filled.Close, R.string.clipboard_clear, Color.White.copy(alpha = 0.8f), clearClipboard)
             }
-            if (transitions.isEmpty()) Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val chips = transitions + listOfNotNull(placement)
+            if (chips.isEmpty()) Text(message, Modifier.weight(1f).padding(horizontal = 8.dp), color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             else Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 4.dp), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) {
-                for (chip in transitions) {
+                for (chip in chips) {
                     TextButton(
                         onClick = chip.open, Modifier.semantics { contentDescription = chip.description }, shape = CircleShape,
                         colors = ButtonDefaults.textButtonColors(containerColor = chip.color.copy(alpha = 0.12f), contentColor = chip.color),

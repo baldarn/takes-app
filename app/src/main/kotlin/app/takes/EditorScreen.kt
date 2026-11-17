@@ -1618,15 +1618,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         name, if (style == null) stringResource(R.string.transition_chip_add) else stringResource(R.string.transition_chip_edit, name), adds = style == null,
                     ) { editor.pause(); jump(join.time.coerceIn(0.0, duration)); transitioning = Transitioning.at(edit, join.index, canvas) }
                 } + listOfNotNull(
-                    // At an overlap, the Placement bubble (VideoTools.swift:612-622).
-                    spot?.let { found ->
-                        TransitionChip(stringResource(if (found.placementID == null) R.string.placement_default else R.string.placement_title), placementLabel, adds = false, color = PlacementColor) {
-                            editor.pause()
-                            val timeline = edit.layered
-                            val draft = timeline?.let { PlacementDraft.open(it, found.participants, playhead) }
-                            if (timeline != null && draft != null) placementWork = Placing(draft, found, timeline)
-                        }
-                    },
                     // In time where nothing plays, Close gap (EditorView.swift:675-682).
                     gap?.let { found ->
                         TransitionChip(stringResource(R.string.gap_close), closeGapLabel, adds = false, color = Color(0xFF64D2FF)) {
@@ -1634,6 +1625,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         }
                     },
                 ),
+                // At an overlap, the Placement bubble (VideoTools.swift:612-622), offered beside a selection too (EditorView.swift:665).
+                placement = spot?.let { found ->
+                    TransitionChip(stringResource(if (found.placementID == null) R.string.placement_default else R.string.placement_title), placementLabel, adds = false, color = PlacementColor) {
+                        editor.pause()
+                        val timeline = edit.layered
+                        val draft = timeline?.let { PlacementDraft.open(it, found.participants, playhead) }
+                        if (timeline != null && draft != null) placementWork = Placing(draft, found, timeline)
+                    }
+                },
             )
             // Whether Split cuts at the playhead. Knowing it means making the cut, too much for every frame of a scrub on the
             // main thread: it is worked out on another thread for the latest time, and the button shows the latest answer.
