@@ -156,7 +156,7 @@ object LayerShader {
     // Back to front over black: the pair in transition over the whole frame, then each picture inside its clip rectangle,
     // the canvas point taken back to the picture's own pixel through its window. A picture's titles are in its side
     // ([title], by its lane), so they are moved and shrink with it; those of a split screen go once over the pair ([pairTitles]).
-    private val body = SIDE + TransitionShader.TAIL + """
+    private fun body(tail: String) = SIDE + tail + """
         vec3 over(vec3 under, vec4 top) { return titled(top, under); }
         vec3 placed(vec2 q, vec3 under, vec4 clip, vec4 map, vec2 layer) {
             if (!within(q, clip)) return under;
@@ -217,7 +217,7 @@ object LayerShader {
         }
         // The titles over a split screen: the bitmap of the lane uOver names, if any.
         vec4 pairTitles(vec2 p) { return uOver < -0.5 ? vec4(0.0) : titles(uOver, p); }
-        $body
+        ${body(TransitionShader.TAIL)}
         // With uLinear.y the pixel is written in linear light, for a reduced picture of a blur.
         void main() {
             vec3 c = layers(vec2(vTex.x * uSize.x, (1.0 - vTex.y) * uSize.y));
@@ -225,8 +225,11 @@ object LayerShader {
         }
     """
 
-    /** For the preview: the layer holds the lane views one above the other; the frame is drawn over the first. */
-    val PREVIEW = """
+    /**
+     * For the preview: the layer holds the lane views one above the other; the frame is drawn over the first. [tail]
+     * is the transition shader's whole, or one of its parts on Android 13 ([TransitionShader.Part]).
+     */
+    fun preview(tail: String = TransitionShader.TAIL): String = """
         uniform shader content;
         $uniforms
         vec3 deck(float kind, vec2 p) { return content.eval(vec2(p.x, p.y + kind * uSize.y)).rgb; }
@@ -237,7 +240,7 @@ object LayerShader {
         vec4 title(float lane, vec2 p) { return vec4(0.0); }
         vec4 pairTitles(vec2 p) { return uOver < -0.5 ? vec4(0.0) : titles.eval(p); }
         ${TransitionShader.PREVIEW_HEAD}
-        $body
+        ${body(tail)}
         vec4 main(vec2 xy) {
             // A spread is made of the lanes of the pair in transition, each in its place, for the frame drawn after
             // it; the other lanes pass as they are.
@@ -261,9 +264,18 @@ object LayerShader {
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class LayerPreviewShader {
-    private val shader = RuntimeShader(LayerShader.PREVIEW)
-    private val across = RuntimeShader(LayerShader.PREVIEW)
-    private val down = RuntimeShader(LayerShader.PREVIEW)
+    // On Android 13 a program of each part, made when first needed ([TransitionShader.Part]); later, the whole one.
+    private val parts = HashMap<TransitionShader.Part, RuntimeShader>()
+    private val whole by lazy { RuntimeShader(LayerShader.preview()) }
+    private val across by lazy { RuntimeShader(if (TransitionShader.previewInParts) LayerShader.preview(TransitionShader.tail(TransitionShader.Part.SPREAD)) else LayerShader.preview()) }
+    private val down by lazy { RuntimeShader(if (TransitionShader.previewInParts) LayerShader.preview(TransitionShader.tail(TransitionShader.Part.SPREAD)) else LayerShader.preview()) }
+
+    /** The program that draws [drawing]'s frame: its pair's part, when it has one in transition. */
+    private fun frame(drawing: LayerDrawing): RuntimeShader =
+        if (!TransitionShader.previewInParts) whole
+        else TransitionShader.part(if (drawing.mixed) drawing.scene.mode else SceneDrawing.SINGLE).let { part ->
+            parts.getOrPut(part) { RuntimeShader(LayerShader.preview(TransitionShader.tail(part))) }
+        }
 
     // A picture of no titles, for the effects that draw none.
     private val none = android.graphics.BitmapShader(
@@ -297,7 +309,7 @@ class LayerPreviewShader {
      * picture of the frame's size holding the titles of a split screen, drawn over the pair.
      */
     fun effect(drawing: LayerDrawing, width: Float, height: Float, pairTitles: android.graphics.Shader? = null): RenderEffect {
-        val frame = shader.set(drawing, width, height, pairTitles)
+        val frame = frame(drawing).set(drawing, width, height, pairTitles)
         val scene = drawing.scene
         if (!drawing.mixed || scene.mode != SceneDrawing.DEFOCUS || !scene.blurs) return frame
         // The shader takes half the samples of a disc on a picture longer than 1920 pixels.
