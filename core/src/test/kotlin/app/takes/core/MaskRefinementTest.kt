@@ -55,6 +55,29 @@ class MaskRefinementTest {
         assertEquals(2, m.plan(4000, 1, 0.0).height)
     }
 
+    // The preview's stand-in for the plan of YouRec/VideoEffects/MetalVideoEffects.swift:383-395 on a deck.
+    @Test fun thePreviewReadsThePlansWindowInDeckPixels() {
+        // A deck within 1024 pixels is drawn at its size: softness 0.3 on 960 × 540, reach int(3.8 · 540 / 1080) = 1.
+        m.preview(960, 540, .3).let {
+            assertEquals(1.0, it.reach, 1e-12)
+            assertEquals(.055, it.black, 1e-12)
+            assertEquals(.945, it.white, 1e-12)
+            assertEquals(0.0, it.grow, 1e-12)
+        }
+        // A deck of 1920 × 1080 is worked at 1024 × 576: reach int(3.8 · 0.533) = 2 plan pixels, 3.75 deck pixels.
+        m.preview(1920, 1080, .3, grow = 3.0).let {
+            assertEquals(3.75, it.reach, 1e-12)
+            assertEquals("three pixels at 1080", 3.0, it.grow, 1e-12)
+        }
+        // Softness 1 on the same deck: int(8 · 0.533) = 4 plan pixels.
+        m.preview(1920, 1080, 1.0).let {
+            assertEquals(7.5, it.reach, 1e-12)
+            assertEquals(.02, it.black, 1e-12)
+        }
+        // The shader's bound of six holds: a square deck of 2048 at softness 1 reaches int(8 · 2048 / 1080 · 0.5) = 7, held at 6.
+        assertEquals(12.0, m.preview(2048, 2048, 1.0).reach, 1e-12)
+    }
+
     // YouRec/VideoEffects/VideoEffects.metal:454-459
     @Test fun theGuidedFilterCoefficientsAreTheWindowsRegression() {
         val guide = EffectMask.of(4, 1) { x, _ -> if (x < 2) 0.0 else 1.0 }

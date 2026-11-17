@@ -99,9 +99,9 @@ internal object AndroidVideoEffects {
         VideoEffectID.SixteenMM -> effect.number("softness", at) > 0
         VideoEffectID.Widescreen -> effect.number("flares", at) > 0 || effect.choice("bars", at) == "Blur fill"
         VideoEffectID.Quantization -> effect.number("smoothing", at) > 0 || (people && effect.toggle("faceDetail", at) && effect.number("colors", at) <= 4)
-        // The preview reads the person's mask as it is, without the guided filter, and the picture as the background behind it.
+        // The preview refines the person's mask at each pixel from a few reads and estimates the background behind it likewise.
         VideoEffectID.AutoBackground -> true
-        // The preview reads the person's mask as it is, and the picture outward from the person as the background behind them.
+        // The preview refines the person's mask at each pixel, and reads the picture outward from the person as the background behind them.
         VideoEffectID.DollyZoom -> true
         // The preview draws each frame's own matte; the export blends it with the frames before (algorithm 2).
         VideoEffectID.ColorIsolation -> effect.choice("mode", at) == "The subject" || effect.usesTemporalMatte

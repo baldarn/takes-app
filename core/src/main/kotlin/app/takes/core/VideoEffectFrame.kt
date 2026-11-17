@@ -100,6 +100,8 @@ data class EffectUniforms(
     val p: List<EffectUniformVector>,
     val palette: List<EffectVector> = emptyList(),
     val thresholds: List<Double> = emptyList(),
+    /** Auto Background's recipe reads the smoothed mask stream, [VideoEffectSettings.usesAutoMaskStream]; not a uniform. */
+    val autoMaskStream: Boolean = false,
 ) {
     val kind: Int get() = effect.shaderIndex
 
@@ -263,6 +265,7 @@ object EffectFrame {
                 p = p,
                 palette = given.palette?.colors.orEmpty().take(16).map { EffectColorMath.lab(EffectColorMath.linear(it)) },
                 thresholds = given.palette?.thresholds.orEmpty().take(15),
+                autoMaskStream = settings.usesAutoMaskStream,
             )
         }
     }

@@ -17,6 +17,7 @@ import app.takes.core.EffectPaletteAnalysis
 import app.takes.core.EffectUniforms
 import app.takes.core.EffectValue
 import app.takes.core.EffectVector
+import app.takes.core.MaskRefinement
 import app.takes.core.MirrorSettings
 import app.takes.core.PersonMaskChunks
 import app.takes.core.Point
@@ -316,20 +317,69 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
         fun inside(person: EffectMask, i: Int) = person.data[i] > .99
         fun outside(person: EffectMask, i: Int) = person.data[i] < .01
         return listOf(
-            Case("Person preview: Auto Background, the matte is the mask") {
-                for (rotation in listOf(0, 90)) {
-                    val (picture, person) = drawn(auto(mapOf("view" to "Matte")), rotation = rotation)
-                    var worst = 0
+            // The matte against the core's refinedMask of the same mask on the same picture (Renderer:382-402), compared
+            // as alpha, which is what the composite takes (the matte shows it sRGB-encoded, where a hundredth of alpha
+            // near none is twenty levels): the preview works the guided filter out at the pixel from nine reads without
+            // blurring its coefficients, so a little apart on the edge, and far nearer it than the mask as it is.
+            Case("Person preview: Auto Background, the matte is the refined mask") {
+                val settings = listOf(
+                    0 to mapOf<String, Any>(), 90 to mapOf<String, Any>(), 0 to mapOf<String, Any>("softness" to 0.9),
+                    0 to mapOf<String, Any>("grow" to 3.0), 0 to mapOf<String, Any>("softness" to 0.0, "grow" to -3.0),
+                )
+                for ((rotation, values) in settings) {
+                    val (picture, person) = drawn(auto(mapOf<String, Any>("view" to "Matte") + values), rotation = rotation)
+                    val refined = MaskRefinement.refinedMask(person, linear(portrait), values["softness"] as Double? ?: 0.3, values["grow"] as Double? ?: 0.0, person = true)
+                    var worst = 0.0
                     var over = 0
+                    var nearer = 0.0
+                    var raw = 0.0
                     for (i in picture.pixels.indices) {
-                        val level = (EffectColorMath.encoded(person.data[i].toDouble()).coerceIn(0.0, 1.0) * 255).roundToInt()
-                        val d = distance(picture.pixels[i], rgb(level, level, level))
+                        val alpha = EffectColorMath.linear((picture.pixels[i] and 0xff) / 255.0)
+                        val d = kotlin.math.abs(alpha - refined.data[i])
                         worst = maxOf(worst, d)
-                        if (d > ALLOWED) over++
+                        if (d > PREVIEW_MATTE) over++
+                        nearer += d
+                        raw += kotlin.math.abs(alpha - person.data[i])
                     }
-                    note("turned $rotation: worst $worst levels, $over pixels over $ALLOWED")
-                    check(over <= OUTLIERS && worst <= OUTLIER_LEVELS) { "The preview's matte is not the mask laid on the deck: $over pixels over, the worst $worst" }
+                    note("turned $rotation, $values: worst %.4f of alpha, %d pixels over %.2f; summed distance %.1f to the refined mask, %.1f to the mask as it is"
+                        .format(worst, over, PREVIEW_MATTE, nearer, raw))
+                    // A grow of under a pixel on an edge the guided filter has made sharp: the preview reads the refined
+                    // mask at the pixel the grow reaches, where the export reads between two.
+                    val grown = values.containsKey("grow")
+                    check(over <= picture.pixels.size / (if (grown) 25 else 200) && worst <= (if (grown) 8 else 3) * PREVIEW_MATTE) {
+                        "The preview's matte is not the refined mask: $over pixels over, the worst $worst"
+                    }
+                    check(nearer * 5 < raw) { "The preview's matte is not nearer the refined mask than the mask as it is" }
                 }
+            },
+            // Chroma Key's person hint in the preview: the key cleared away from the person, as the export's matte is.
+            Case("Person preview: Chroma Key's person hint clears the key away from the person") {
+                fun matte(hint: Boolean) = drawn(listOf(settings(VideoEffectID.ChromaKey, mapOf(
+                    "personHint" to hint, "view" to "Matte", "softness" to 0.0, "autoScreen" to false, "screenColor" to app.takes.core.EffectRGB.hex("#28C83C"),
+                ))), source = screened)
+                val (on, person) = matte(true)
+                val (off, _) = matte(false)
+                val hint = VideoEffectFormulasC.personHint(person, width, height)
+                var card = 0
+                var cleared = 0
+                var kept = 0
+                var inside = 0
+                for (i in on.pixels.indices) {
+                    val uv = Point((i % width + .5) / width, (i / width + .5) / height)
+                    val offLevel = off.pixels[i] and 0xff
+                    // Away from the grown person, where the key alone keeps the grey card.
+                    if (hint.dilated.sample(uv) < .001 && offLevel > 200) {
+                        card++
+                        if ((on.pixels[i] and 0xff) < 8) cleared++
+                    }
+                    if (hint.eroded.sample(uv) > .999) {
+                        inside++
+                        if ((on.pixels[i] and 0xff) >= (off.pixels[i] and 0xff) - ALLOWED) kept++
+                    }
+                }
+                note("$card pixels the key keeps away from the person, $cleared cleared; $inside inside the shrunk person, $kept kept at least as the key keeps them")
+                check(card > 100 && cleared >= card * 98 / 100) { "The preview's person hint leaves the key away from the person" }
+                check(kept >= inside * 98 / 100) { "The preview's person hint takes from the person" }
             },
             Case("Person preview: each effect draws the person apart") {
                 val looks = listOf(
@@ -424,6 +474,9 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
         /** As EffectPixelCases: a few pixels on a hard edge may come out further, by up to [OUTLIER_LEVELS]. */
         const val OUTLIERS = 64
         const val OUTLIER_LEVELS = 8
+
+        /** How far the preview's matte may be from the core's refined mask, as alpha. */
+        const val PREVIEW_MATTE = .02
 
         /** How near a threshold of the hint a value is taken to be at it: a few steps of a half float at 0.995 (2⁻¹¹). */
         const val HINT_BAND = .002

@@ -1,6 +1,7 @@
 package app.takes.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -166,6 +167,10 @@ class VideoEffectFrameTest {
         // New Color Isolation and Chroma Key recipes ask for the temporal matte; saved older ones do not.
         assertEquals(EffectUniforms.FLAG_TEMPORAL_MATTE, EffectFrame.of(listOf(effect(VideoEffectID.ColorIsolation)), 0.0, 0).single().flags)
         assertEquals(0, EffectFrame.of(listOf(effect(VideoEffectID.ColorIsolation).copy(algorithm = null)), 0.0, 0).single().flags)
+        // A new Auto Background reads the smoothed mask stream, an older one the raw masks (VideoEffectModel.swift:193).
+        assertTrue(EffectFrame.of(listOf(effect(VideoEffectID.AutoBackground)), 0.0, 0).single().autoMaskStream)
+        assertFalse(EffectFrame.of(listOf(effect(VideoEffectID.AutoBackground).copy(algorithm = null)), 0.0, 0).single().autoMaskStream)
+        assertFalse(EffectFrame.of(listOf(effect(VideoEffectID.ColorIsolation).copy(algorithm = 1)), 0.0, 0).single().autoMaskStream)
         // A released Crash Zoom: the flag, and the release on the effect's clock in slot 39.
         val crash = effect(VideoEffectID.CrashZoom, 3.0, 8.0).copy(releaseTime = 6.0, phaseOffset = 0.5)
         val released = EffectFrame.of(listOf(crash), 4.0, 0).single()

@@ -689,6 +689,97 @@ object EffectShader {
             if (m.x < 0.0 || m.y < 0.0 || m.x > uPerson.y || m.y > uPerson.z) return 0.0;
             return person.eval(m).a;
         }
+        // How the person's mask is refined, MaskRefinement.preview: uRefine.x the window's reach in deck pixels, uRefine.zw
+        // the coverage clip. uMatte.x the grow, in deck pixels; uMatte.y the background estimate's sigma, in deck pixels;
+        // uMatte.z 1 for Chroma Key's person hint, uMatte.w a hundredth of the deck's height.
+        uniform vec4 uRefine;
+        uniform vec4 uMatte;
+        // The guide's perceptual luma (Metal:457) at the deck pixel under p.
+        float perceptualAt(vec2 p) { return srgb1(luma(texel(clamp(floor(p), vec2(0.0), uSize - 1.0)))); }
+        // The original's refinedMask at q (Renderer:382-402, Metal:454-467), MaskRefinement.preview: the window's statistics
+        // from q and the corners and sides of the window, uRefine.x deck pixels away, a = cov / (var + 0.001) and
+        // b = mean(p) - a mean(i) applied to the luma of the deck pixel under q, then the coverage clip.
+        float guidedAt(vec2 q) {
+            float si = 0.0;
+            float sp = 0.0;
+            float sii = 0.0;
+            float sip = 0.0;
+            float n = 0.0;
+            for (int y = -1; y <= 1; y++) {
+                for (int x = -1; x <= 1; x++) {
+                    vec2 p = q + vec2(float(x), float(y)) * uRefine.x;
+                    float i = perceptualAt(p);
+                    float m = personAt(p / uSize);
+                    si += i;
+                    sp += m;
+                    sii += i * i;
+                    sip += i * m;
+                    n += 1.0;
+                }
+            }
+            si /= n;
+            sp /= n;
+            sii /= n;
+            sip /= n;
+            float a = (sip - si * sp) / (max(0.0, sii - si * si) + 0.001);
+            float m = clamp(a * perceptualAt(q) + sp - a * si, 0.0, 1.0);
+            return uRefine.z < uRefine.w ? smoothstep(uRefine.z, uRefine.w, m) : m;
+        }
+        // Grown or shrunk (Metal:481-490): the most or least of the refined mask at the pixel and |uMatte.x| deck pixels
+        // across and down from it.
+        float refinedAt(vec2 uv) {
+            vec2 q = uv * uSize;
+            float m = guidedAt(q);
+            if (abs(uMatte.x) < 0.01) return m;
+            float r = abs(uMatte.x);
+            float a = guidedAt(q + vec2(r, 0.0));
+            float b = guidedAt(q - vec2(r, 0.0));
+            float c = guidedAt(q + vec2(0.0, r));
+            float d = guidedAt(q - vec2(0.0, r));
+            return uMatte.x > 0.0 ? max(max(m, a), max(b, max(c, d))) : min(min(m, a), min(b, min(c, d)));
+        }
+        // The background behind the person, the original's backgroundEstimate (Renderer:334-353, Metal:491-503): the
+        // picture weighed by one minus the person and blurred by uMatte.y deck pixels, over its weight; the picture itself
+        // where nothing of the background is known. Nine reads, the centre and a ring of eight, each of the pixel under it
+        // as the original reads its quarter-size picture.
+        vec3 nearAt(vec2 uv) { return texel(clamp(floor(uv * uSize), vec2(0.0), uSize - 1.0)); }
+        vec3 estimateAt(vec2 uv) {
+            float w = 1.0 - personAt(uv);
+            vec3 sum = nearAt(uv) * w;
+            float known = w;
+            float total = 1.0;
+            for (int i = 0; i < 8; i++) {
+                float t = float(i) * 0.785398 + 0.3927;
+                vec2 d = vec2(cos(t), sin(t)) * uMatte.y * 1.25 / uSize;
+                float near = 1.0 - personAt(uv + d);
+                sum += nearAt(uv + d) * near * 0.458;
+                known += near * 0.458;
+                total += 0.458;
+            }
+            return known / total > 0.001 ? sum / known : src(uv);
+        }
+        // Chroma Key's person hint (Renderer:513-519, Metal:474-479): the key cleared where the person grown by 4 % of the
+        // height is under 0.005, made whole where the person shrunk by 3 % passes 0.995 and the key keeps more than 0.2;
+        // the grow the most of the mask on a square of five by five reads two hundredths of the height apart (uMatte.w a
+        // hundredth), the shrink the least of three by three, three hundredths apart.
+        float hinted(float a, vec2 uv) {
+            if (uMatte.z < 0.5) return a;
+            float grown = 0.0;
+            float shrunk = 1.0;
+            for (int y = -2; y <= 2; y++) {
+                for (int x = -2; x <= 2; x++) {
+                    grown = max(grown, personAt(clamp(uv + vec2(float(x), float(y)) * 2.0 * uMatte.w / uSize, vec2(0.0), vec2(1.0))));
+                }
+            }
+            for (int y = -1; y <= 1; y++) {
+                for (int x = -1; x <= 1; x++) {
+                    shrunk = min(shrunk, personAt(clamp(uv + vec2(float(x), float(y)) * 3.0 * uMatte.w / uSize, vec2(0.0), vec2(1.0))));
+                }
+            }
+            if (grown < 0.005) return 0.0;
+            if (shrunk > 0.995 && a > 0.2) return 1.0;
+            return a;
+        }
         // Studio, or Window when w is 2: AutoBackgroundFormulas.studioBackground, in linear light.
         vec3 studio(vec2 uv, float w) {
             vec2 p = vec2(uv.x * uSize.x, uSize.y - uv.y * uSize.y);
@@ -741,25 +832,28 @@ object EffectShader {
             16, 17 -> Triple("blurred(uv, uBlur.x, 0.0)", "vec3(0.0)", "vec3(0.0)")
             // The smoothed picture stands in as the picture itself; face detail sharpens against the picture blurred.
             7 -> Triple("spot(uv, 0.0)", "blurred(uv, uBlur.y, 0.0)", "vec3(0.0)")
-            // With a clean plate (4 in uX1.w) the screen is the plate at the pixel.
-            18 -> Triple("vec3(keyAlpha(spot(uv, 0.0), uX1.w > 3.5 ? plateAt(uv) : keyScreen()))", "uPlace.x > 0.0 ? placed(uv) : blurred(uv, uBlur.y, 0.0)", "backAt(uv)")
-            // The person's mask as it is, without the guided filter.
-            4 -> Triple("vec3(personAt(uv))", "vec3(0.0)", "vec3(0.0)")
-            // The mask as it is; the new background (a picture, Studio or Window, or the picture blurred), its light wrap as itself.
+            // With a clean plate (4 in uX1.w) the screen is the plate at the pixel; the person hint bounds the key.
+            18 -> Triple(
+                "vec3(hinted(keyAlpha(spot(uv, 0.0), uX1.w > 3.5 ? plateAt(uv) : keyScreen()), uv))",
+                "uPlace.x > 0.0 ? placed(uv) : blurred(uv, uBlur.y, 0.0)", "backAt(uv)",
+            )
+            // The person's mask refined on the picture.
+            4 -> Triple("vec3(refinedAt(uv))", "vec3(0.0)", "vec3(0.0)")
+            // The mask refined; the new background (a picture, Studio or Window, or the picture blurred), its light wrap as itself.
             19 -> Triple(
-                "vec3(personAt(uv))",
+                "vec3(refinedAt(uv))",
                 "uPlace.x > 0.0 ? placed(uv) : uBlur.w > 0.5 ? studio(uv, uBlur.w) : blurred(uv, uBlur.y, 0.0)",
                 "backAt(uv)",
             )
-            // Dolly Zoom: the mask as it is.
-            8 -> Triple("vec3(personAt(uv))", "vec3(0.0)", "vec3(0.0)")
+            // Dolly Zoom: the mask refined.
+            8 -> Triple("vec3(refinedAt(uv))", "vec3(0.0)", "vec3(0.0)")
             else -> Triple("vec3(0.0)", "vec3(0.0)", "vec3(0.0)")
         }
-        // The raw person mask for face detail; the picture itself as the background behind the person (the estimate),
-        // with Dolly Zoom's stand-in for the fill.
+        // The raw person mask for face detail; the background behind the person (the estimate), with Dolly Zoom's
+        // stand-in for the fill.
         val more = when (kind) {
             7 -> "vec3(personAt(uv))"
-            19 -> "src(uv)"
+            19 -> "estimateAt(uv)"
             8 -> "dollyFill(uv)"
             18 -> "plateAt(uv)"
             else -> "vec3(0.0)"
@@ -1651,10 +1745,12 @@ class VideoEffectChain(
  * for Noir alone; positions are those of the deck's view, which shows the clip fitted,
  * before its crop. The pictures the export draws before a pass (blurs,
  * highlights, a Quantization's smoothing, a Chroma Key's grown and softened
- * matte) are stand-ins worked out at each pixel from a few reads: the
- * preview shows a simplified version of Halation, 16mm's softness, Super 8,
- * Widescreen's flares and blur fill, Quantization's smoothing and Chroma
- * Key's edges, screen detection and background blur.
+ * matte, the person's refined mask, the background behind them) are stand-ins
+ * worked out at each pixel from a few reads: the preview shows a simplified
+ * version of Halation, 16mm's softness, Super 8, Widescreen's flares and blur
+ * fill, Quantization's smoothing, Chroma Key's edges, screen detection,
+ * background blur and person hint, and the person's edge and the background
+ * estimate of Auto Background, Color Isolation's subject and Dolly Zoom.
  */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class EffectPreview {
@@ -1689,11 +1785,13 @@ class EffectPreview {
             shader.setFloatUniform("uSize", width, height)
             for (slot in 0 until EffectShader.SLOTS) shader.setFloatUniform("uP$slot", EffectShader.slot(pass, slot))
             val extras = EffectShader.extras(pass, width.roundToInt(), height.roundToInt())
+            // The smoothed stream for an Auto Background of algorithm 1, the raw masks otherwise, as the export reads them.
             val frame = when {
-                pass.effect == VideoEffectID.AutoBackground -> person(true)
+                pass.effect == VideoEffectID.AutoBackground -> person(pass.autoMaskStream)
                 pass.effect == VideoEffectID.ColorIsolation && pass.number("mode") > .5 -> person(false)
                 pass.effect == VideoEffectID.Quantization && pass.number("faceDetail") > .5 && pass.number("colors") <= 4 -> person(false)
                 pass.effect == VideoEffectID.DollyZoom -> person(false)
+                pass.effect == VideoEffectID.ChromaKey && pass.number("personHint") > .5 -> person(false)
                 else -> null
             }
             personInput(shader, frame, width, height)
@@ -1701,9 +1799,11 @@ class EffectPreview {
                 when (pass.effect) {
                     VideoEffectID.AutoBackground -> extras[2] = 1f
                     VideoEffectID.DollyZoom -> extras[1] = 1f
+                    VideoEffectID.ChromaKey -> Unit
                     else -> extras[0] = 1f
                 }
             }
+            refineInput(shader, pass, frame != null, width, height)
             val cleanPlate = if (pass.effect == VideoEffectID.ChromaKey) plate(pass.id) else null
             plateInput(shader, cleanPlate, width, height)
             if (cleanPlate != null) extras[7] += 4f
@@ -1797,6 +1897,25 @@ class EffectPreview {
         shader.setFloatUniform("uPlate", 1f, smallWidth.toFloat(), smallHeight.toFloat(), 0f)
         shader.setFloatUniform("uPlateX", toPlate.a.toFloat(), toPlate.c.toFloat(), toPlate.tx.toFloat())
         shader.setFloatUniform("uPlateY", toPlate.b.toFloat(), toPlate.d.toFloat(), toPlate.ty.toFloat())
+    }
+
+    /**
+     * How the pass refines the person's mask ([app.takes.core.MaskRefinement.preview]): with the effect's softness and
+     * grow for Color Isolation's subject and Auto Background, 0.3 for Dolly Zoom; Auto Background's background estimate,
+     * blurred by 4 pixels at 1080 at a quarter of the size; Chroma Key's person hint, when the frame has a mask.
+     */
+    private fun refineInput(shader: RuntimeShader, pass: EffectUniforms, person: Boolean, width: Float, height: Float) {
+        val (softness, grow) = when (pass.effect) {
+            VideoEffectID.AutoBackground -> pass.number("softness") to pass.number("grow")
+            VideoEffectID.ColorIsolation -> pass.number("softness") to 0.0
+            VideoEffectID.DollyZoom -> app.takes.core.DollyZoomFormulas.SOFTNESS to 0.0
+            else -> 0.0 to 0.0
+        }
+        val refine = app.takes.core.MaskRefinement.preview(width.roundToInt(), height.roundToInt(), softness, grow)
+        shader.setFloatUniform("uRefine", refine.reach.toFloat(), 0f, refine.black.toFloat(), refine.white.toFloat())
+        val estimate = 4f * VideoEffectPasses.pixelScale(width.roundToInt(), height.roundToInt()).toFloat() * 4f
+        val hint = person && pass.effect == VideoEffectID.ChromaKey
+        shader.setFloatUniform("uMatte", refine.grow.toFloat(), estimate, if (hint) 1f else 0f, height * .01f)
     }
 
     private var personShown: Pair<app.takes.core.PersonMaskChunks.Mask, BitmapShader>? = null

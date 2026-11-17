@@ -183,6 +183,25 @@ object MaskRefinement {
         return refined
     }
 
+    /**
+     * How the editor's preview, which draws each pass in one shader without pictures of its own between them, stands
+     * in for [refinedMask] on a deck of [deckWidth] × [deckHeight] pixels: the guided filter's statistics worked out at
+     * the pixel itself over the window of the [plan] for the deck, from nine reads, the pixel and the corners and sides
+     * of the window, [reach] deck pixels from it (the plan's radius, at most [GUIDED_RADIUS_LIMIT], in the deck's
+     * pixels); the coefficients unblurred (their blur, of a plan pixel or less for a person, is left out); the coverage
+     * clip between [black] and [white] for a person; then grown or shrunk by [grow] deck pixels.
+     */
+    data class PreviewRefinement(val reach: Double, val black: Double, val white: Double, val grow: Double)
+
+    fun preview(deckWidth: Int, deckHeight: Int, softness: Double, grow: Double = 0.0, person: Boolean = true): PreviewRefinement {
+        val plan = plan(deckWidth, deckHeight, softness, false, person)
+        return PreviewRefinement(
+            minOf(plan.radius, GUIDED_RADIUS_LIMIT) / plan.scale,
+            if (person) plan.black else 0.0, if (person) plan.white else 0.0,
+            grow * minOf(deckWidth, deckHeight) / 1080,
+        )
+    }
+
     /** [refinedMask] on a picture as the guide. */
     fun refinedMask(mask: EffectMask, guide: EffectImage, softness: Double, grow: Double = 0.0, lite: Boolean = false, person: Boolean = false): EffectMask =
         refinedMask(mask, EffectMask.luma(guide), softness, grow, lite, person)
