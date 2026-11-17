@@ -1055,4 +1055,25 @@
         <item quantity="many">%1$d FILTRI</item>
         <item quantity="other">%1$d FILTRI</item>
     </plurals>
+
+    <!-- Seleziona copertina (YouRec/CoverPicker.swift, YouRec/EditorTools.swift:39-48) -->
+    <string name="editor_cover">Seleziona copertina</string>
+    <string name="cover_title">Seleziona copertina</string>
+    <string name="cover_back">Indietro</string>
+    <string name="cover_update">Aggiorna</string>
+    <string name="cover_scope_range">Intervallo selezionato</string>
+    <string name="cover_scope_clips">Clip selezionate</string>
+    <string name="cover_scope_whole">Intero progetto</string>
+    <string name="cover_no_video">Nessun video in questo intervallo</string>
+    <string name="cover_no_video_detail">Seleziona un intervallo che contenga del video.</string>
+    <string name="cover_frame_at">Fotogramma a %1$s</string>
+    <string name="cover_image">Immagine di copertina</string>
+    <string name="cover_image_size">%1$d × %2$d pixel</string>
+    <string name="cover_share">Condividi JPEG</string>
+    <string name="cover_save">Salva in galleria</string>
+    <string name="cover_saved">Salvata in Pictures/Takes nella galleria.</string>
+    <string name="cover_save_failed">Non è stato possibile salvare l’immagine nella galleria.</string>
+    <string name="cover_preparing">Preparazione del JPEG a piena risoluzione</string>
+    <string name="cover_failed">Impossibile caricare questo fotogramma</string>
+    <string name="cover_try_again">Riprova</string>
 </resources>

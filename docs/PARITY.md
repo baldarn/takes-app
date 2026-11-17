@@ -27,9 +27,9 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 | Status | Count |
 |---|---|
-| DONE | 149 |
+| DONE | 150 |
 | PARTIAL | 37 |
-| CORE ONLY | 5 |
+| CORE ONLY | 4 |
 | MISSING | 12 |
 | N/A | 6 |
 | Total | 209 |
@@ -41,7 +41,7 @@ Per area:
 | 1. App shell and project list | 20 | 3 | 0 | 0 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
-| 4. Editor: timeline, playback, structure | 21 | 7 | 1 | 5 | 0 |
+| 4. Editor: timeline, playback, structure | 22 | 7 | 0 | 5 | 0 |
 | 5. Editor: picture tools | 7 | 5 | 3 | 3 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
@@ -177,7 +177,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Tools sheet with sections and "In this project" list | O/EditorTools.swift:33-106 | PARTIAL | Three button rows (A/EditorScreen.kt:723-843) | Sheet, list of applied tools | M | Yes |
 | Before/After compare inside a tool | O/EditorTools.swift:1072-1151 | MISSING | — | | S | Yes |
 | "?" help on each tool | README "Effect inspectors have a reachable ?" | MISSING | — | Help texts | M | Yes |
-| Select cover: pick a frame and share it as JPEG | O/CoverPicker.swift:82-217, O/CoverFramePool.swift:39-47 | CORE ONLY | C/CoverFramePool.kt | The picker and the JPEG | M | Yes |
+| Select cover: pick a frame and share it as JPEG | O/CoverPicker.swift:8-217, O/CoverFramePool.swift:5-57, O/EditorTools.swift:39-48, O/EditorView.swift:1003-1009 | DONE | The Select cover button after Add audio in the editor's tools (A/EditorScreen.kt), off without picture; A/CoverPicker.kt: the scope (Selected range, Selected clips or Whole project) with its times, Update (off at nine frames or fewer), nine frames one from each ninth of the picture in the scope (C/CoverFramePool.kt), in a grid as the original's (148, 100 for an upright movie, 170 at large text), "No video in this range" when there are none; a frame chosen opens large with its time, then at the canvas's size, with Share JPEG (quality 0.95, named after the project and the time), "Couldn’t load this frame" and Try again; C/CoverPick.kt (scope, picture with a Still's hold, the time label, the file name, the 512-pixel thumbnails). A/CoverFrames.kt draws each frame through the export's own chain (`MovieRender.picture` of a one-frame section, the canvas without the export settings, 30 frames a second, SDR) and reads it from the GPU before the encoder. Tried on an emulator (API 37): a 1280 × 720 clip with a title gave the grid with the title drawn, the frame at 0:00.50 showing the source's own frame 15, a 1280 × 720 JPEG, the share sheet with its preview, and the copy in Pictures/Takes | Departures: the frames are the export's drawing rather than the preview's composition, one transformer pass each, so a frame is slower to come than the original's (on a heavily loaded emulator 17 to 29 s each, hence a pass may go two minutes without its frame where an export section is given 25 s; not yet tried on a phone); the picker is a full-screen dialog rather than a screen pushed over the Tools sheet, which Takes does not have; "Save to gallery" (Pictures/Takes, Android 10 and later) stands beside Share for the original share sheet's Save Image; a project without a usable title names its JPEG "Takes" | | |
 
 ## 5. Editor: picture tools
 
@@ -362,7 +362,7 @@ Each was a new `C/<Name>.kt` plus `core/src/test/.../<Name>Test.kt`, porting the
 15. **ListeningLevels and WaveformTiles** — DONE: C/AudioListeningLevels.kt (`O/OfflineAudioPipeline.swift:202-304`), C/WaveformTiles.kt (`O/WaveformDetail.swift:4-66`, `O/EditorTimeline.swift:778-796, 840-846`).
 16. **TrackTimeline** — DONE: C/TrackTimeline.kt and the `Track…` files beside it, adopted by the app (`docs/TRACKS-PLAN.md`).
 
-Already in `core` and waiting only for app work (no core package needed): audio unlinking, image overlay, bookmark labels, the cover frame pool, stabilisation, the level horizon, face follow, the two-camera layouts, recording gain, the detailed waveform tiles and the recovery rules.
+Already in `core` and waiting only for app work (no core package needed): audio unlinking, image overlay, bookmark labels, stabilisation, the level horizon, face follow, the two-camera layouts, recording gain, the detailed waveform tiles and the recovery rules.
 
 ## Not classified with confidence
 

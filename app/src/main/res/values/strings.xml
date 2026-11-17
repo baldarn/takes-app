@@ -1040,4 +1040,25 @@
         <item quantity="one">%1$d FILTER</item>
         <item quantity="other">%1$d FILTERS</item>
     </plurals>
+
+    <!-- Select cover (YouRec/CoverPicker.swift, YouRec/EditorTools.swift:39-48) -->
+    <string name="editor_cover">Select cover</string>
+    <string name="cover_title">Select cover</string>
+    <string name="cover_back">Back</string>
+    <string name="cover_update">Update</string>
+    <string name="cover_scope_range">Selected range</string>
+    <string name="cover_scope_clips">Selected clips</string>
+    <string name="cover_scope_whole">Whole project</string>
+    <string name="cover_no_video">No video in this range</string>
+    <string name="cover_no_video_detail">Select a range that contains video.</string>
+    <string name="cover_frame_at">Frame at %1$s</string>
+    <string name="cover_image">Cover image</string>
+    <string name="cover_image_size">%1$d × %2$d pixels</string>
+    <string name="cover_share">Share JPEG</string>
+    <string name="cover_save">Save to gallery</string>
+    <string name="cover_saved">Saved to Pictures/Takes in your gallery.</string>
+    <string name="cover_save_failed">The picture could not be saved to the gallery.</string>
+    <string name="cover_preparing">Preparing full-resolution JPEG</string>
+    <string name="cover_failed">Couldn’t load this frame</string>
+    <string name="cover_try_again">Try again</string>
 </resources>

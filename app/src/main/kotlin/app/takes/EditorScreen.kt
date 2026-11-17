@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.ui.semantics.Role
 import java.util.Date
 import java.text.DateFormat
+import app.takes.core.CoverPick
 import app.takes.core.UnusedTakes
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -25,6 +26,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -696,6 +698,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         }
     }
     var choosingExport by remember { mutableStateOf(false) }
+    var covering by remember { mutableStateOf<CoverPick.Source?>(null) }
     var editingColor by remember { mutableStateOf(false) }
     var editingAudio by remember { mutableStateOf(false) }
     var leveling by remember { mutableStateOf<Leveling?>(null) }
@@ -1749,6 +1752,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (current != null) pausing = toolScope?.let { Pausing(saved, it.state, it.clips, toolScopeLabel) } ?: Pausing(saved, edit, listOf(current.id), null)
                 }, compact, enabled = located != null, contentPadding = tight) { Text(stringResource(R.string.editor_pauses)) }
                 TextButton(onClick = { editor.pause(); addingAudio = playhead }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) { Text(stringResource(R.string.editor_add_audio)) }
+                // Select cover, beside the media added, as in the original's tools (EditorTools.swift:39-48): frames of the range, of the selection or of the whole project.
+                TextButton(onClick = {
+                    editor.pause()
+                    covering = CoverPick.source(saved.toTimeline(), marks.range, video = if (marks.range == null) marks.selected.clips else emptySet(), audio = if (marks.range == null) marks.selected.audio else emptySet())
+                }, compact, enabled = remember(saved) { saved.toTimeline().video.isNotEmpty() }, contentPadding = tight) { Icon(Icons.Outlined.PhotoLibrary, stringResource(R.string.editor_cover)) }
                 TextButton(onClick = { editor.pause(); subtitling = edit }, compact, enabled = clips.isNotEmpty(), contentPadding = tight) {
                     Icon(Icons.Outlined.Subtitles, stringResource(R.string.editor_subtitles), tint = if (edit.subtitles != null) TitleColor else LocalContentColor.current)
                 }
@@ -1971,6 +1979,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         else CensorDialog(work.censor, apply = { done(work.censored(it)) }, remove = work.region?.let { { done(work.removed()) } }, dismiss = { audioTool = null })
     }
     ExportPanel(project, canvas, store, exporter, choosingExport) { choosingExport = false }
+    covering?.let { CoverPicker(project, store, it) { covering = null } }
 }
 
 /** [change] made to each clip of a tool's scope, by its place in the edit, as one edit. Null when it changes none of them: the cuts at the ends of a range are then not made either. */
