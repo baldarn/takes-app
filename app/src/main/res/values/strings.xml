@@ -23,7 +23,8 @@
     <string name="projects_import">Import</string>
     <string name="projects_new_recording">New recording</string>
     <string name="projects_empty">Nothing here yet. Record something or import videos; each becomes a project you can continue later.</string>
-    <string name="projects_unavailable_title">Project that cannot be opened</string>
+    <string name="projects_unavailable_title">Project needs recovery</string>
+    <string name="projects_unavailable_originals">Open original recordings</string>
     <string name="projects_recently_deleted">Recently deleted</string>
     <string name="projects_deleted_summary">%1$s · deleted %2$s</string>
     <string name="projects_over_30_days">Over 30 days</string>
@@ -949,6 +950,9 @@
     <string name="originals_free_space">Free about %1$s more space to finish this operation and keep space available on the phone.</string>
     <!-- Added to the title of the project a recovery makes: "Trip · Recovered". -->
     <string name="originals_recovered_suffix">" · Recovered"</string>
+    <string name="originals_recovered_fallback">Recordings</string>
+    <string name="originals_retry_open">Retry opening project</string>
+    <string name="originals_available_again">The project is available again.</string>
     <plurals name="originals_recovered">
         <item quantity="one">Created “%1$s” with %2$d recording.</item>
         <item quantity="other">Created “%1$s” with %2$d recordings.</item>

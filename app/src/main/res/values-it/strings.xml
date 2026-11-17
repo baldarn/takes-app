@@ -22,7 +22,8 @@
     <string name="projects_import">Importa</string>
     <string name="projects_new_recording">Nuova ripresa</string>
     <string name="projects_empty">Qui non c\'è ancora niente. Registra qualcosa o importa dei video: ognuno diventa un progetto che puoi continuare più tardi.</string>
-    <string name="projects_unavailable_title">Progetto che non si può aprire</string>
+    <string name="projects_unavailable_title">Il progetto va recuperato</string>
+    <string name="projects_unavailable_originals">Apri le registrazioni originali</string>
     <string name="projects_recently_deleted">Eliminati di recente</string>
     <string name="projects_deleted_summary">%1$s · eliminato il %2$s</string>
     <string name="projects_over_30_days">Oltre 30 giorni</string>
@@ -960,6 +961,9 @@
     <string name="originals_free_space">Libera circa %1$s di spazio in più per completare l\'operazione e lasciare spazio disponibile sul telefono.</string>
     <!-- Aggiunto al titolo del progetto creato da un recupero: "Gita · Recuperato". -->
     <string name="originals_recovered_suffix">" · Recuperato"</string>
+    <string name="originals_recovered_fallback">Registrazioni</string>
+    <string name="originals_retry_open">Riprova ad aprire il progetto</string>
+    <string name="originals_available_again">Il progetto è di nuovo disponibile.</string>
     <plurals name="originals_recovered">
         <item quantity="one">Creato “%1$s” con %2$d registrazione.</item>
         <item quantity="many">Creato “%1$s” con %2$d registrazioni.</item>

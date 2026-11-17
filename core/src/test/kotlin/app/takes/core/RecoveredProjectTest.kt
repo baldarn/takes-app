@@ -33,6 +33,19 @@ class RecoveredProjectTest {
         assertEquals(listOf(a, b, null, null, null), originals.map { it.source })
     }
 
+    /**
+     * YouRec/RecordingSalvage.swift:13-46 with no project, as for the card of a project that cannot be read
+     * (YouRec/ContentView.swift:680-687): every media file of the folder, then what was set aside.
+     */
+    @Test fun aProjectThatCannotBeReadListsItsFolder() {
+        val folder = temporary.newFolder("unreadable")
+        listOf("b-take.mp4", "a-sound.wav", ".hidden.mp4", "effect-1.mov", "project.json").forEach { File(folder, it).writeText("x") }
+        val aside = File(temporary.newFolder("unreadable", "Recovery", "abc"), "torn.mp4").apply { writeText("x") }
+        val originals = RecoveredProject.originals(null, folder, listOf(aside))
+        assertEquals(listOf("a-sound.wav", "b-take.mp4", "torn.mp4"), originals.map { it.file.name })
+        assertTrue(originals.all { it.source == null })
+    }
+
     /** YouRec/RecordingSalvage.swift:8: a recording is called by its imported name, else by its file's. */
     @Test fun aRecordingIsCalledByItsImportedNameElseItsFile() {
         assertEquals("Holiday.mov", RecoveredProject.Original(File("x.mp4"), take("x.mp4", originalName = "Holiday.mov")).title)

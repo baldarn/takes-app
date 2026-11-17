@@ -643,9 +643,24 @@ class ProjectStore(context: Context) {
      * The original recordings of [project] as the original lists them (YouRec/RecordingSalvage.swift:13-46):
      * its sources, the media of its folder it does not list, and what was set aside in its Recovery folder.
      */
-    fun originals(project: Project): List<RecoveredProject.Original> {
+    fun originals(project: Project): List<RecoveredProject.Original> = originals(project.id, project)
+
+    /**
+     * The original recordings of the project in folder [id], [project] when it can be read; of one that cannot,
+     * the media of its folder and of its Recovery folder (YouRec/ContentView.swift:680-687).
+     */
+    fun originals(id: String, project: Project?): List<RecoveredProject.Original> {
         recoveryChanges
-        return RecoveredProject.originals(project, disk.folder(project.id), disk.recoveryFiles(project))
+        return RecoveredProject.originals(project, disk.folder(id), disk.recoveryFiles(id))
+    }
+
+    /**
+     * Tries again to open the projects that could not be read, as the original's "Retry opening project"
+     * (YouRec/ProjectStore.swift:169-179). Whether the project in folder [id] opens now.
+     */
+    fun retryUnavailable(id: String): Boolean {
+        reload()
+        return projects.any { it.id == id }
     }
 
     /**
@@ -668,12 +683,15 @@ class ProjectStore(context: Context) {
      * as far as it can be read ([RecordingSalvage.repair]); what cannot be read at all stays where it is.
      * [project] is not changed. [done] gets what happened, in the person's language.
      */
-    fun recover(project: Project, only: File? = null, done: (String) -> Unit) {
+    fun recover(project: Project, only: File? = null, done: (String) -> Unit) = recover(project.id, project, only, done)
+
+    /** [recover] for the project in folder [id], whose [project] is null when it cannot be read. */
+    fun recover(id: String, project: Project?, only: File? = null, done: (String) -> Unit) {
         if (importing != null) return
         begin(cancellable = true)
         importing = context.getString(R.string.originals_copying)
         scope.launch {
-            val result = withContext(Dispatchers.IO) { runCatching { recovered(project, only) } }
+            val result = withContext(Dispatchers.IO) { runCatching { recovered(id, project, only) } }
             end()
             reload()
             done(result.fold(::report) { failure ->
@@ -696,16 +714,17 @@ class ProjectStore(context: Context) {
         ).joinToString(" ")
     }
 
-    private fun recovered(project: Project, only: File?): RecoveredProject.Outcome {
-        val folder = disk.folder(project.id)
+    private fun recovered(id: String, project: Project?, only: File?): RecoveredProject.Outcome {
+        val folder = disk.folder(id)
         // The original lists what is on the disk, so a source whose file is missing is not one to copy.
-        val items = RecoveredProject.chosen(originals(project), folder, only).filter { it.file.isFile }
+        val items = RecoveredProject.chosen(originals(id, project), folder, only).filter { it.file.isFile }
         if (items.isEmpty()) throw NoPlayableMedia()
         // Put together beside the projects, hidden from the library, and moved in only once it is saved.
-        val staging = File(disk.root, ".recovery-" + project.id)
+        val staging = File(disk.root, ".recovery-" + id)
         staging.deleteRecursively()
         shortOfSpace(RecoveredProject.estimate(items.map { it.file.length() }))?.let { throw IOException(it) }
-        var recovered = Project(RecoveredProject.title(project.title, context.getString(R.string.originals_recovered_suffix)))
+        val title = RecoveredProject.title(project?.title, context.getString(R.string.originals_recovered_suffix), context.getString(R.string.originals_recovered_fallback))
+        var recovered = Project(title)
         val staged = ProjectDisk(staging)
         val directory = staged.folder(recovered.id)
         if (!directory.mkdirs()) throw IOException("Cannot create ${directory.path}")

@@ -36,16 +36,18 @@ object RecoveredProject {
      * not list (not hidden, not an effect's picture), then what was set aside
      * in [recovery] ([ProjectDisk.recoveryFiles]), each in order of name.
      * Unlike the original, a source whose file is missing is listed too, so
-     * the person can see it is missing.
+     * the person can see it is missing. A project that cannot be read is
+     * [project] null: then every media file of its folder is listed, as the
+     * original lists one with no project (YouRec/ContentView.swift:680-687).
      */
-    fun originals(project: Project, folder: File, recovery: List<File>): List<Original> {
-        val known = project.mediaFiles.map { it.lowercase() }.toSet()
+    fun originals(project: Project?, folder: File, recovery: List<File>): List<Original> {
+        val known = project?.mediaFiles.orEmpty().map { it.lowercase() }.toSet()
         val unlisted = folder.listFiles().orEmpty().filter { file ->
             val name = file.name.lowercase()
             name !in known && !name.startsWith(".") && !name.startsWith("effect-") && file.extension.lowercase() in MEDIA_EXTENSIONS &&
                 Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
         }.sortedBy { it.name }
-        return project.sources.map { Original(File(folder, it.filename), it) } + unlisted.map { Original(it) } + recovery.map { Original(it) }
+        return project?.sources.orEmpty().map { Original(File(folder, it.filename), it) } + unlisted.map { Original(it) } + recovery.map { Original(it) }
     }
 
     /**

@@ -137,8 +137,11 @@ class ProjectDisk(val root: File, private val fonts: FontLibrary? = null) {
      * The recordings of [project] that could not be read and were moved aside, as the original keeps
      * them (YouRec/Project.swift:726-731): the movies in the folders of `Recovery/`, in order of path.
      */
-    fun recoveryFiles(project: Project): List<File> =
-        File(folder(project.id), RECOVERY).listFiles().orEmpty().flatMap { it.listFiles().orEmpty().toList() }
+    fun recoveryFiles(project: Project): List<File> = recoveryFiles(project.id)
+
+    /** [recoveryFiles] of the project in folder [id], whether or not it can be read. */
+    fun recoveryFiles(id: String): List<File> =
+        File(folder(id), RECOVERY).listFiles().orEmpty().flatMap { it.listFiles().orEmpty().toList() }
             .filter { it.extension.lowercase() in setOf("mp4", "mov") && Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS) }
             .sortedBy { it.path }
 

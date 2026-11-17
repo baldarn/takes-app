@@ -103,14 +103,17 @@ private fun itemTitle(item: RecoveredProject.Original) = item.source?.let(::take
  * (`YouRec/OriginalRecordingsView.swift:15-108`): each one can be reviewed in the app, shared or
  * saved to the gallery, and all at once, and a separate project can be made from them. Besides the
  * sources, the media of the folder the project does not list and what was set aside are listed.
+ * [projectID] names the project's folder: for a project that cannot be read, the media of its folder
+ * are listed, with why it cannot be read and a retry (`YouRec/OriginalRecordingsView.swift:19-22`).
  */
 @Composable
-internal fun OriginalRecordings(project: Project, store: ProjectStore, close: () -> Unit) {
+internal fun OriginalRecordings(projectID: String, store: ProjectStore, close: () -> Unit) {
     val context = LocalContext.current
     var reviewing by remember { mutableStateOf<RecoveredProject.Original?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var copying by remember { mutableStateOf(false) }
-    val items = store.originals(project)
+    val project = store.projects.firstOrNull { it.id == projectID }
+    val items = store.originals(projectID, project)
     val copySize = remember(items) { runCatching { store.recoveryEstimate(items.map { it.file }.filter { it.isFile }) }.getOrNull() }
     val title = stringResource(R.string.originals_title)
     // While the copy runs the sheet stays, as the original's does.
@@ -122,6 +125,13 @@ internal fun OriginalRecordings(project: Project, store: ProjectStore, close: ()
                 TextButton(onClick = leave, enabled = !copying) { Text(stringResource(R.string.common_done), color = SettingsCyan, fontWeight = FontWeight.SemiBold) }
             }
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+                if (project == null) store.unavailable[projectID]?.let { reason ->
+                    Text(unavailableReason(reason), color = Secondary, modifier = Modifier.padding(12.dp))
+                    val again = stringResource(R.string.originals_available_again)
+                    TextButton(onClick = { if (store.retryUnavailable(projectID)) message = again }) {
+                        Text(stringResource(R.string.originals_retry_open), color = SettingsCyan)
+                    }
+                }
                 message?.let { Text(it, color = Color.White, modifier = Modifier.padding(12.dp)) }
                 if (items.isEmpty()) Text(stringResource(R.string.originals_none), color = Secondary, modifier = Modifier.padding(12.dp))
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp).background(RowGrey, RoundedCornerShape(12.dp)), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -160,7 +170,7 @@ internal fun OriginalRecordings(project: Project, store: ProjectStore, close: ()
                         TextButton(onClick = {
                             copying = true
                             message = null
-                            store.recover(project) { report -> message = report; copying = false }
+                            store.recover(projectID, project) { report -> message = report; copying = false }
                             // Another piece of work was running, so nothing started.
                             if (store.importing == null) copying = false
                         }, enabled = !copying) {
@@ -180,7 +190,7 @@ internal fun OriginalRecordings(project: Project, store: ProjectStore, close: ()
             }
         }
     }
-    reviewing?.let { item -> OriginalReview(project, item, store) { reviewing = null } }
+    reviewing?.let { item -> OriginalReview(projectID, project, item, store) { reviewing = null } }
 }
 
 /**
@@ -190,7 +200,7 @@ internal fun OriginalRecordings(project: Project, store: ProjectStore, close: ()
  * the project does not list, can be recovered into a new project.
  */
 @Composable
-private fun OriginalReview(project: Project, item: RecoveredProject.Original, store: ProjectStore, close: () -> Unit) {
+private fun OriginalReview(projectID: String, project: Project?, item: RecoveredProject.Original, store: ProjectStore, close: () -> Unit) {
     val context = LocalContext.current
     val file = item.file
     val source = item.source
@@ -238,7 +248,7 @@ private fun OriginalReview(project: Project, item: RecoveredProject.Original, st
                         Text(timeLabel(event.time) + " · " + event.detail, color = Secondary, fontSize = 13.sp)
                     }
                 }
-                if (source != null && media != null && source.audioOnly != true && duration > TimelineEditing.MINIMUM_CLIP) {
+                if (project != null && source != null && media != null && source.audioOnly != true && duration > TimelineEditing.MINIMUM_CLIP) {
                     val startLabel = stringResource(R.string.originals_range_start)
                     val endLabel = stringResource(R.string.originals_range_end)
                     Text(startLabel + "  " + rangeLabel(start), color = Color.White)
@@ -260,7 +270,7 @@ private fun OriginalReview(project: Project, item: RecoveredProject.Original, st
                     repairSize?.let { Text(stringResource(R.string.originals_repair_space, Formatter.formatShortFileSize(context, it)), color = Secondary, fontSize = 12.sp) }
                     TextButton(onClick = {
                         saving = true
-                        store.recover(project, file) { report -> issue = report; saving = false }
+                        store.recover(projectID, project, file) { report -> issue = report; saving = false }
                         if (store.importing == null) saving = false
                     }, enabled = !saving) {
                         Text(stringResource(if (saving) R.string.originals_recovering else R.string.originals_recover_one), color = if (saving) Secondary else SettingsCyan)

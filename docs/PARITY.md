@@ -29,8 +29,8 @@ In section 5, the image overlay row was brought up to date on 2026-11-17 from th
 
 | Status | Count |
 |---|---|
-| DONE | 161 |
-| PARTIAL | 33 |
+| DONE | 162 |
+| PARTIAL | 32 |
 | CORE ONLY | 2 |
 | MISSING | 7 |
 | N/A | 6 |
@@ -40,7 +40,7 @@ Per area:
 
 | Area | DONE | PARTIAL | CORE ONLY | MISSING | N/A |
 |---|---|---|---|---|---|
-| 1. App shell and project list | 22 | 1 | 0 | 0 | 0 |
+| 1. App shell and project list | 23 | 0 | 0 | 0 | 0 |
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 24 | 7 | 0 | 3 | 0 |
@@ -78,7 +78,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Original recordings: list and play each take | O/OriginalRecordingsView.swift:32-58 | DONE | A/OriginalRecordings.kt | The share sheet stands in for "Save to Files", with "Save to the gallery" beside it (Android 10 and later). The recorder here notes no hold or gap events, so the review lists its camera and microphone changes instead. As in the original, the media of the folder the project does not list and the recordings set aside in `Recovery/` follow the sources (C/RecoveredProject.kt `originals`); a source whose file is missing is listed too, where the original leaves it out | | |
 | Original recordings: add a range of a take to the timeline; recover into a new project | O/OriginalRecordingsView.swift:60-88, 110-199; O/ProjectStore.swift:737-805; O/RecordingSalvage.swift:49-257 | DONE | A/OriginalRecordings.kt (range, the whole take at first; "Create recovered project" with its estimate and "Cancel copy"; "Recover this recording into a new project" with the repair estimate, for one that does not read whole or that the project does not list), A/ProjectStore.kt (`addOriginal`, `recover`), A/RecordingSalvage.kt (inspection and repair), C/RecoveredProject.kt (what is copied, the title " · Recovered", the sources, the timeline, the report) | Android's MediaExtractor and MediaMuxer stand in for AVFoundation: a recording reads whole when each track gives a sample at its start and 0.4 s before its end, read rather than decoded, and a repaired copy is MPEG-4 (`.mp4`), not QuickTime. A take cut short keeps what can still be read (an emulator take cut at 60 %: 2.1 s of its 4.4 s picture, all of its sound); a movie without its index (`moov`), such as a take killed before Media3's muxer first writes it, about a second in, reads in neither app and stays with the original project, as in the original. The complete start of a torn fragmented movie is copied first, as in the original, but Android's reader gives a fragmented movie without an index of fragments no length, so in practice the repair reads such a movie through instead, keeping its closed fragments and the readable samples of the torn one. The copy is checked against the original's floor (C/RecoveryRules.kt `spaceToFree`). The progress is the shared progress dialog, whose Cancel stops the copy too. Checked on an emulator: a project with a whole take, two cut takes, a torn fragmented movie and a movie without an index became a project of four recordings, three of them partly read, and one unreadable file left | | |
 | Repair media: relink missing takes by duration and SHA; remove missing takes | O/ContentView.swift:437-492, O/ProjectStore.swift:666-703 | DONE | A/RepairMedia.kt (the line on the card, the dialog), A/ProjectStore.kt (`missingSources`, `relink`, `removeMissing`), C/TrackEditorEdits.kt (`usingSources`, `removingSources`) | Takes recorded or imported on Android have no saved fingerprint (only those restored from a ZIP do), so they take the original's "no saved fingerprint" confirmation; the file is picked by MIME type, video or audio | | |
-| Unreadable project card | O/ContentView.swift:680-687 | PARTIAL | A/ProjectsScreen.kt:134-142 | No action on the card (original opens its recordings) | S | Yes |
+| Unreadable project card | O/ContentView.swift:680-687, O/OriginalRecordingsView.swift:19-22, O/ProjectStore.swift:169-179 | DONE | A/ProjectsScreen.kt (the card "Project needs recovery", why, and "Open original recordings"), A/OriginalRecordings.kt (opened by the project's folder: the media of the folder and of its Recovery folder, why it cannot be read and "Retry opening project"; "Create recovered project" names the new one "Recordings · Recovered"), C/RecoveredProject.kt (`originals` with no project) | The folder's name is shown under the reason | | |
 | Progress with Cancel for import, duplicate, zip | O/ContentView.swift:693-699 | DONE | A/ProjectsScreen.kt (progress dialog), A/ProjectStore.kt (`cancelOperation`) | Progress is a percentage in a dialog rather than a bar above the list; opening a ZIP can be cancelled too. Videos picked together join the project only once all are copied | | |
 | Privacy policy | O/ContentView.swift:755-771 | DONE | A/Credits.kt:31 (link) | — | | |
 | Screen kept awake on the camera, while playing and exporting | O/ContentView.swift:102-105 | DONE | A/RecorderScreen.kt:116, A/EditorScreen.kt:422-426 | — | | |

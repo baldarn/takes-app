@@ -38,12 +38,14 @@ import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.outlined.VideocamOff
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -90,6 +92,8 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
     var renaming by remember { mutableStateOf<Project?>(null) }
     var erasing by remember { mutableStateOf<Project?>(null) }
     var showingCredits by remember { mutableStateOf(false) }
+    // The project that cannot be read whose original recordings are open.
+    var unreadable by rememberSaveable { mutableStateOf("") }
     // The project whose export panel is open from its card, as the original's export sheet.
     var exportingID by rememberSaveable { mutableStateOf("") }
     // The project that picked videos go to; empty for a new project.
@@ -136,12 +140,15 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
                 zip = { zipping = project.id; saveZip.launch(project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { zipName } + ".zip") })
         }
         items(store.unavailable.toList(), key = { "unavailable-" + it.first }) { (folder, reason) ->
+            // As the original's card of a project that cannot be read, which opens its recordings (ContentView.swift:680-687).
             Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp)) {
-                Text(stringResource(R.string.projects_unavailable_title), color = Color.White, fontWeight = FontWeight.SemiBold)
-                // The reason is a text of the core module; show ours when it is one we know.
-                val known = ProjectException.Reason.entries.firstOrNull { it.message == reason }
-                Text(known?.let { stringResource(it.label) } ?: reason, color = Muted, fontSize = 13.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.WarningAmber, null, Modifier.size(20.dp), tint = Color.White)
+                    Text(stringResource(R.string.projects_unavailable_title), Modifier.padding(start = 8.dp), color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+                Text(unavailableReason(reason), color = Muted, fontSize = 13.sp)
                 Text(folder, color = Muted, fontSize = 11.sp)
+                OutlinedButton(onClick = { unreadable = folder }, Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.projects_unavailable_originals)) }
             }
         }
         if (store.deleted.isNotEmpty()) {
@@ -171,6 +178,7 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
     }
 
     store.projects.firstOrNull { it.id == exportingID }?.let { CardExport(it, store, exporter) { exportingID = "" } }
+    if (unreadable.isNotEmpty()) OriginalRecordings(unreadable, store) { unreadable = "" }
     if (expired.isNotEmpty()) {
         val count = expired.size
         AlertDialog(
@@ -226,6 +234,11 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
     }
 }
 
+/** Why a project cannot be read: a text of the core module, in the person's language when it is one we know. */
+@Composable
+internal fun unavailableReason(reason: String): String =
+    ProjectException.Reason.entries.firstOrNull { it.message == reason }?.let { stringResource(it.label) } ?: reason
+
 @Composable
 private fun summary(project: Project): String {
     // As the original's card: the takes, the sound files when there are any, and the length of the edit.
@@ -246,7 +259,7 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
     var repairing by remember { mutableStateOf(false) }
     if (repairing) RepairMediaDialog(project.id, store) { repairing = false }
     if (unfinished) UnfinishedRecordings(project, store) { unfinished = false }
-    if (originals) OriginalRecordings(project, store) { originals = false }
+    if (originals) OriginalRecordings(project.id, store) { originals = false }
     Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Thumbnail(project.recordings.firstOrNull()?.let { store.file(project, it) })
