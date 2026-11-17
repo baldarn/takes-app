@@ -36,6 +36,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -118,11 +120,13 @@ private fun videoLabel(draft: PlacementDraft, id: String, number: Int): String {
  * plays from a time and stops at another, [pause] stops it. Parked on an end
  * of the motion, the panel moves the playhead there; moved by hand or played,
  * the preview leaves the end, and when playing stops it goes back to the end
- * being edited (:518-524, :757-771).
+ * being edited (:518-524, :757-771). [playhead] is read where it is shown
+ * or needed, so that a scrub composes the time and the slider again and not
+ * the editor around them.
  */
 @Composable
 internal fun PlacementPanel(
-    work: Placing, edit: EditState, playhead: Double, playing: Boolean, change: (PlacementDraft) -> Unit,
+    work: Placing, edit: EditState, playhead: () -> Double, playing: Boolean, change: (PlacementDraft) -> Unit,
     seek: (Double) -> Unit, play: (from: Double, until: Double) -> Unit, pause: () -> Unit,
     apply: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
@@ -131,14 +135,17 @@ internal fun PlacementPanel(
     val latest by rememberUpdatedState(draft)
     val onChange by rememberUpdatedState(change)
     val onSeek by rememberUpdatedState(seek)
+    val nowPlaying by rememberUpdatedState(playing)
     // Parked on an end: the playhead stands where it shows, and follows the peak as the timing changes.
     LaunchedEffect(draft.previewEndpoint, draft.menuMotion?.timing) {
-        latest.parkedAt()?.let { if (playing || abs(it - playhead) > 0.0005) onSeek(it) }
+        latest.parkedAt()?.let { if (playing || abs(it - playhead()) > 0.0005) onSeek(it) }
     }
     // The playhead moved by hand leaves the end; playing shows the motion run, and stopping goes back to the end.
     LaunchedEffect(playhead) {
-        val parked = latest.parkedAt()
-        if (!playing && parked != null && abs(parked - playhead) > 0.0005) onChange(latest.scrubbed())
+        snapshotFlow { playhead() }.collect { at ->
+            val parked = latest.parkedAt()
+            if (!nowPlaying && parked != null && abs(parked - at) > 0.0005) onChange(latest.scrubbed())
+        }
     }
     LaunchedEffect(playing) {
         val next = if (playing) latest.scrubbed() else latest.stopped()
@@ -165,17 +172,12 @@ internal fun PlacementPanel(
             )
             // The time shown, Play preview, and the position inside the overlap.
             Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(preciseLabel(playhead), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                PlacementTime(playhead, Modifier.weight(1f))
                 TextButton(onClick = {
-                    if (playing) pause() else { change(draft.scrubbed()); play(draft.playFrom(playhead), draft.upper + PlacementDraft.FRAME / 2) }
+                    if (playing) pause() else { change(draft.scrubbed()); play(draft.playFrom(playhead()), draft.upper + PlacementDraft.FRAME / 2) }
                 }) { Text(stringResource(if (playing) R.string.editor_pause else R.string.placement_play)) }
             }
-            val position = stringResource(R.string.placement_position)
-            Slider(
-                value = draft.within(playhead).toFloat(), onValueChange = { change(draft.scrubbed()); seek(draft.within(it.toDouble())) },
-                valueRange = draft.lower.toFloat()..maxOf(draft.lower + 0.00001, draft.upper).toFloat(), enabled = !playing,
-                modifier = Modifier.fillMaxWidth().height(36.dp).semantics { contentDescription = position },
-            )
+            PlacementPosition(draft, playhead, playing, onValueChange = { change(draft.scrubbed()); seek(draft.within(it.toDouble())) })
             Text(stringResource(if (draft.reframe) R.string.placement_hint_reframe else R.string.placement_hint), color = Soft, fontSize = 12.sp, lineHeight = 16.sp)
             // The picture the buttons and the gestures work on; one under another is picked here.
             val videoLabelText = stringResource(R.string.placement_video)
@@ -250,6 +252,23 @@ private object PlacementStills {
     }
 }
 
+/** The time at the playhead, composed again by itself as the playhead moves. */
+@Composable
+private fun PlacementTime(playhead: () -> Double, modifier: Modifier) {
+    Text(preciseLabel(playhead()), color = Color.White, fontSize = 14.sp, modifier = modifier)
+}
+
+/** The "Overlap preview position" slider, composed again by itself as the playhead moves. */
+@Composable
+private fun PlacementPosition(draft: PlacementDraft, playhead: () -> Double, playing: Boolean, onValueChange: (Float) -> Unit) {
+    val position = stringResource(R.string.placement_position)
+    Slider(
+        value = draft.within(playhead()).toFloat(), onValueChange = onValueChange,
+        valueRange = draft.lower.toFloat()..maxOf(draft.lower + 0.00001, draft.upper).toFloat(), enabled = !playing,
+        modifier = Modifier.fillMaxWidth().height(36.dp).semantics { contentDescription = position },
+    )
+}
+
 /**
  * Over the preview while Placement is open: the pictures as they will be
  * placed, drawn with the export's numbers from frames at the playhead
@@ -272,19 +291,21 @@ private object PlacementStills {
  */
 @Composable
 internal fun PlacementOverlay(
-    work: Placing, edit: EditState, files: Map<String, File>, playhead: Double, playing: Boolean,
+    work: Placing, edit: EditState, files: Map<String, File>, playhead: () -> Double, playing: Boolean,
     change: (PlacementDraft) -> Unit, settle: () -> Unit, modifier: Modifier = Modifier,
 ) {
     val draft = work.draft
     var dragging by remember { mutableStateOf(false) }
     var activeEdge by remember { mutableStateOf<PlacementCropEdge?>(null) }
-    val stills by produceState(emptyMap<String, Bitmap>(), draft.members, edit, (playhead * 30).roundToInt()) {
+    // The frames are read again at each frame of the movie the playhead reaches, and only then.
+    val frame by remember(playhead) { derivedStateOf { (playhead() * 30).roundToInt() } }
+    val stills by produceState(emptyMap<String, Bitmap>(), draft.members, edit, frame) {
         val result = HashMap<String, Bitmap>()
         for (id in draft.members) {
             val index = edit.clips.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: continue
             val clip = edit.clips[index]
             val start = TrackEditState.clipStart(edit, index) ?: continue
-            val offset = (playhead - start).coerceIn(0.0, maxOf(0.0, clip.duration - 1.0 / 30))
+            val offset = (playhead() - start).coerceIn(0.0, maxOf(0.0, clip.duration - 1.0 / 30))
             val file = files[clip.sourceID] ?: continue
             PlacementStills.frame(file, clip.sourceTime(offset))?.let { result[id] = it }
         }

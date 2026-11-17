@@ -44,6 +44,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -92,17 +93,18 @@ private val Card = Color.White.copy(alpha = 0.045f)
  * controls of one effect, made from the kinds of its parameters.
  *
  * @param work the tool's state; [change] takes it after every control.
- * @param time the playhead: which clip's effects are listed, and the source second controls are read at.
+ * @param time the playhead: which clip's effects are listed, and the source second controls are read at. It is
+ *   read where it is needed, so that a scrub composes the editor again only where what is shown changes.
  * @param apply saves the effects on the tool's clips as one Undo step.
  */
 @Composable
 internal fun EffectsPanel(
-    work: EffectsWork, time: Double, change: (EffectsWork) -> Unit, apply: () -> Unit, cancel: () -> Unit,
+    work: EffectsWork, time: () -> Double, change: (EffectsWork) -> Unit, apply: () -> Unit, cancel: () -> Unit,
     modifier: Modifier = Modifier, appliesTo: String? = null, tools: EffectTools = EffectTools(),
     /** Freeze Frame from the library: a held frame put in at the playhead, as the original makes one. */
     freeze: () -> Unit = {},
 ) {
-    val active = work.active(time)
+    val active by remember(work, time) { derivedStateOf { work.active(time()) } }
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = cancel) { Text(stringResource(R.string.common_cancel)) }
@@ -123,8 +125,8 @@ internal fun EffectsPanel(
                     SectionEffects(page.section) { kind -> if (kind == VideoEffectID.FreezeFrame) freeze() else change(work.adding(kind)) }
                 }
                 EffectsPage.Inspector -> {
-                    val effect = work.current(time)
-                    if (effect == null) AppliedList(work, active, time, change) else Inspector(work, effect, time, change, tools)
+                    val effect by remember(work, time) { derivedStateOf { work.current(time()) } }
+                    effect.let { if (it == null) AppliedList(work, active, time, change) else Inspector(work, it, time, change, tools) }
                 }
             }
         }
@@ -178,7 +180,7 @@ private fun NavigationRow(work: EffectsWork, count: Int, change: (EffectsWork) -
 
 /** The effects at the playhead, each with its switch and a delete button. VideoEffectsEditor.swift:174-208, :1112-1125. */
 @Composable
-private fun AppliedList(work: EffectsWork, active: List<VideoEffectSettings>, time: Double, change: (EffectsWork) -> Unit) {
+private fun AppliedList(work: EffectsWork, active: List<VideoEffectSettings>, time: () -> Double, change: (EffectsWork) -> Unit) {
     if (active.isEmpty()) {
         Text(stringResource(R.string.effects_none_here), color = Soft)
         TextButton(onClick = { change(work.copy(page = EffectsPage.Library)) }) {
@@ -204,7 +206,7 @@ private fun AppliedList(work: EffectsWork, active: List<VideoEffectSettings>, ti
             val enable = stringResource(R.string.effects_enable, name)
             Switch(effect.enabled, onCheckedChange = { change(work.toggling(effect.id)) }, modifier = Modifier.semantics { contentDescription = enable })
             val delete = stringResource(R.string.effects_delete, name)
-            IconButton(onClick = { change(work.removing(effect.id, time)) }) { Icon(Icons.Outlined.Delete, delete, tint = Soft) }
+            IconButton(onClick = { change(work.removing(effect.id, time())) }) { Icon(Icons.Outlined.Delete, delete, tint = Soft) }
         }
     }
 }
@@ -257,19 +259,21 @@ private fun SectionEffects(section: VideoEffectLibrarySection, add: (VideoEffect
 
 /** One effect's controls: its name, help and switch, then what its parameters' kinds make. VideoEffectsEditor.swift:1126-1188. */
 @Composable
-private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: Double, change: (EffectsWork) -> Unit, tools: EffectTools) {
+private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -> Double, change: (EffectsWork) -> Unit, tools: EffectTools) {
     val name = effectName(effect.kind)
     val tint = effect.kind.librarySection.look.tint
-    val at = work.sourceTime(time)
+    // The controls show their values at the source second under the playhead, which a scrub changes: read here, in the
+    // controls of one effect, rather than in the editor around them.
+    val at by remember(work, time) { derivedStateOf { work.sourceTime(time()) } }
     var help by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
-    val set = { id: String, value: EffectValue -> change(work.setting(id, value, time)) }
+    val set = { id: String, value: EffectValue -> change(work.setting(id, value, time())) }
     val keys = KeyControls(
         animate = work.animate,
-        toggle = { id -> change(work.keyframing(id, time)) },
-        place = { source -> work.timelineTime(time, source) },
-        seek = { source -> work.timelineTime(time, source)?.let(tools.seek) },
+        toggle = { id -> change(work.keyframing(id, time())) },
+        place = { source -> work.timelineTime(time(), source) },
+        seek = { source -> work.timelineTime(time(), source)?.let(tools.seek) },
     )
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
@@ -303,9 +307,9 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: Doub
                     effect.parameters.firstOrNull { it.id == id }?.let { EffectControl(effect, it, at, set, keys) }
                 }
                 Row(Modifier.fillMaxWidth()) {
-                    TextButton(onClick = { change(work.setting(mapOf("centerX" to 0.5, "centerY" to 0.5, "splitAngle" to 0.0), time)) }) { Text(stringResource(R.string.kaleidoscope_reset_split)) }
+                    TextButton(onClick = { change(work.setting(mapOf("centerX" to 0.5, "centerY" to 0.5, "splitAngle" to 0.0), time())) }) { Text(stringResource(R.string.kaleidoscope_reset_split)) }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { change(work.setting(mapOf("sourcePanX" to 0.0, "sourcePanY" to 0.0), time)) }) { Text(stringResource(R.string.kaleidoscope_center_source)) }
+                    TextButton(onClick = { change(work.setting(mapOf("sourcePanX" to 0.0, "sourcePanY" to 0.0), time())) }) { Text(stringResource(R.string.kaleidoscope_center_source)) }
                 }
             }
         }
@@ -320,7 +324,7 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: Doub
             }
             if (effect.kind == VideoEffectID.Quantization) PaletteControls(work, effect, time, change, tools)
             if (effect.kind == VideoEffectID.RgbOffset) {
-                TextButton(onClick = { change(work.setting(listOf("redX", "redY", "greenX", "greenY", "blueX", "blueY").associateWith { 0.0 }, time)) }) {
+                TextButton(onClick = { change(work.setting(listOf("redX", "redY", "greenX", "greenY", "blueX", "blueY").associateWith { 0.0 }, time())) }) {
                     Text(stringResource(R.string.rgb_center_all))
                 }
             }
@@ -357,7 +361,7 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: Doub
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
             title = { Text(stringResource(R.string.effects_remove_confirm, name)) },
-            confirmButton = { TextButton(onClick = { confirmRemove = false; change(work.removing(effect.id, time)) }) { Text(stringResource(R.string.common_remove)) } },
+            confirmButton = { TextButton(onClick = { confirmRemove = false; change(work.removing(effect.id, time())) }) { Text(stringResource(R.string.common_remove)) } },
             dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
@@ -596,30 +600,33 @@ private fun PictureControl(effect: VideoEffectSettings, parameter: EffectParamet
  * choice. VideoEffectsEditor.swift:883-907, :1174-1182.
  */
 @Composable
-private fun PaletteControls(work: EffectsWork, effect: VideoEffectSettings, time: Double, change: (EffectsWork) -> Unit, tools: EffectTools) {
+private fun PaletteControls(work: EffectsWork, effect: VideoEffectSettings, time: () -> Double, change: (EffectsWork) -> Unit, tools: EffectTools) {
     val latest by rememberUpdatedState(work)
     val scope = rememberCoroutineScope()
     var sampling by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    val at = work.sourceTime(time)
+    val at by remember(work, time) { derivedStateOf { work.sourceTime(time()) } }
     val count = effect.number("colors", at).toInt()
     val locked = stringResource(R.string.quantization_locked, count)
     val saved = stringResource(R.string.quantization_saved)
     val failed = stringResource(R.string.quantization_sample_failed)
     fun sample(lockOnly: Boolean) {
-        val piece = work.piece(time) ?: return
+        // The playhead and its source second when the button is pressed.
+        val now = time()
+        val sourceAt = at
+        val piece = work.piece(now) ?: return
         sampling = true
         scope.launch {
-            val palette = tools.samplePalette(piece.clip.sourceID, at, count)
+            val palette = tools.samplePalette(piece.clip.sourceID, sourceAt, count)
             sampling = false
             if (palette == null) {
                 message = failed
                 return@launch
             }
             val next = if (lockOnly) {
-                latest.changing(effect.id) { it.copy(lockedPalette = palette) }.setting("lockPalette", EffectValue.Toggle(true), time)
+                latest.changing(effect.id) { it.copy(lockedPalette = palette) }.setting("lockPalette", EffectValue.Toggle(true), now)
             } else {
-                latest.changing(effect.id) { it.copy(palette = palette.colors) }.setting("palette", EffectValue.Choice("Saved"), time)
+                latest.changing(effect.id) { it.copy(palette = palette.colors) }.setting("palette", EffectValue.Choice("Saved"), now)
             }
             change(next)
             message = if (lockOnly) locked else saved

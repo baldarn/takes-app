@@ -44,6 +44,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -136,11 +138,13 @@ private fun cueTime(seconds: Double): String {
  * @param working told while a download or a transcription runs, to keep the screen on.
  * @param audition plays the movie between two of its seconds, to see a caption arrive or leave.
  * @param sample a picture of the frame under the playhead to take a color from, or null when it cannot be read.
+ * @param playhead read through derived states, so that a scrub composes the tool again only when the caption at the
+ *   playhead changes, and the editor around it not at all.
  */
 @Composable
 fun SubtitlesPanel(
     saved: EditState, draft: EditState, change: (EditState) -> Unit, listened: EditInterval,
-    files: Map<String, File>, layout: SubtitleLayout?, playhead: Double, playing: Boolean,
+    files: Map<String, File>, layout: SubtitleLayout?, playhead: () -> Double, playing: Boolean,
     seek: (Double) -> Unit, working: (Boolean) -> Unit, apply: () -> Unit, close: () -> Unit,
     modifier: Modifier = Modifier, audition: (from: Double, to: Double) -> Unit = { _, _ -> }, sample: suspend () -> Bitmap? = { null },
 ) {
@@ -333,14 +337,22 @@ fun SubtitlesPanel(
     }
     val idle = !busy && editing == null
 
-    val current = cues.indexOfLast { it.start <= playhead && playhead < it.end }
+    val current by remember(cues, playhead) { derivedStateOf { playhead().let { at -> cues.indexOfLast { it.start <= at && at < it.end } } } }
     // Once the playhead leaves the chosen caption it is no longer chosen: a tap on its row goes to it again rather than editing.
+    val shownCues by rememberUpdatedState(cues)
     LaunchedEffect(playhead) {
-        val chosen = selected ?: return@LaunchedEffect
-        if (cues.none { it.id == chosen && it.start <= playhead && playhead < it.end }) selected = null
+        snapshotFlow { playhead() }.collect { at ->
+            val chosen = selected ?: return@collect
+            if (shownCues.none { it.id == chosen && it.start <= at && at < it.end }) selected = null
+        }
     }
     // The caption the block that follows playback is centered on: the one showing, else the next to come, else the last.
-    val focus = if (current >= 0) current else cues.indexOfFirst { it.start > playhead }.takeIf { it >= 0 } ?: maxOf(0, cues.lastIndex)
+    val focus by remember(cues, playhead) {
+        derivedStateOf {
+            val at = playhead()
+            current.takeIf { it >= 0 } ?: cues.indexOfFirst { it.start > at }.takeIf { it >= 0 } ?: maxOf(0, cues.lastIndex)
+        }
+    }
     val list = rememberLazyListState()
     LaunchedEffect(copied) {
         if (copied) { delay(2000); copied = false }

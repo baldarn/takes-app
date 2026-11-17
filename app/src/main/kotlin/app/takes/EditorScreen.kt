@@ -570,24 +570,40 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val cropOf = { index: Int -> cropFor(plan.clips[index], plan.pictures[index].start) }
     // The framing each deck shows at this moment, for a frame of the size it is drawn in: a crop is sampled at the
     // source second its clip shows, so one that moves between two poses moves as the footage plays or is scrubbed.
-    val deckFrames = shownClips.map { shown ->
+    // With the Crop tool open, whether each deck shows a framing or a flip at all: derived, so that a scrub composes the
+    // editor again only when one appears or goes, the framing itself being sampled when the picture is drawn.
+    val toolFramed by remember(shownClips) {
+        derivedStateOf {
+            val tool = cropping ?: return@derivedStateOf null
+            shownClips.map { shown ->
+                shown?.let { (clip, start) ->
+                    val (crop, shows) = cropFor(clip, start)
+                    crop != null || tool.mirrorShown(clip, shows, start + (playhead - start).coerceIn(0.0, clip.duration)) != null
+                } == true
+            }
+        }
+    }
+    val deckFrames = shownClips.mapIndexed { deck, shown ->
         val size = shown?.let { sizes[it.first.sourceID] }
         val tool = cropping
         // A clip's own crop and flip: sampled at the source second when the picture is drawn, which a scrub does not compose again.
         if (tool == null) {
-            val (clip, start) = shown ?: return@map null
-            if (size == null || (clip.crop == null && clip.mirror == null)) return@map null
+            val (clip, start) = shown ?: return@mapIndexed null
+            if (size == null || (clip.crop == null && clip.mirror == null)) return@mapIndexed null
             val framing: (FrameSize) -> PictureFrame = { frame ->
                 val shows = PictureFraming.motionTime(clip, (playhead - start).coerceIn(0.0, clip.duration))
                 PictureFraming.frame(clip.crop, shows, size, frame, clip.mirror)
             }
-            return@map framing
+            return@mapIndexed framing
         }
-        val (crop, shows) = shown?.let { cropFor(it.first, it.second) } ?: (null to 0.0)
-        // The flip too, the one being worked on while the Crop tool is open.
-        val mirror = shown?.let { (clip, start) -> tool.mirrorShown(clip, shows, start + (playhead - start).coerceIn(0.0, clip.duration)) }
-        if ((crop == null && mirror == null) || size == null) null else {
-            val framing: (FrameSize) -> PictureFrame = { frame -> PictureFraming.frame(crop, shows, size, frame, mirror) }
+        if (shown == null || size == null || toolFramed?.getOrNull(deck) != true) null else {
+            val (clip, start) = shown
+            val framing: (FrameSize) -> PictureFrame = { frame ->
+                val (crop, shows) = cropFor(clip, start)
+                // The flip too, the one being worked on while the Crop tool is open.
+                val mirror = tool.mirrorShown(clip, shows, start + (playhead - start).coerceIn(0.0, clip.duration))
+                PictureFraming.frame(crop, shows, size, frame, mirror)
+            }
             framing
         }
     }
@@ -976,7 +992,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     )
                 }
                 // With the Subtitles tool open, a drag or a pinch on the captions places them (SubtitlePlacing.kt).
-                val placing by rememberUpdatedState(subtitling?.subtitles?.let { look -> captionLayout?.takeIf { SubtitleEditing.active(it.cues, playhead).isNotEmpty() }?.let { SubtitlePlacing(it.placement, look) } })
+                // Whether a caption shows at the playhead, derived so that a scrub composes the editor again only when that changes.
+                val captionShown by remember(captionLayout) { derivedStateOf { captionLayout?.let { SubtitleEditing.active(it.cues, playhead).isNotEmpty() } == true } }
+                val placing by rememberUpdatedState(subtitling?.subtitles?.let { look -> captionLayout?.takeIf { captionShown }?.let { SubtitlePlacing(it.placement, look) } })
                 var guiding by remember { mutableStateOf(false) }
                 val placeCaptions = if (subtitling == null) Modifier else Modifier.subtitlePlacing({ placing }, { next -> editor.pause(); subtitling?.let { SubtitleEditing.restyle(it, next) }?.let { subtitling = it } }, { guiding = it }, subtitlePlacingActions())
                 // Otherwise a tap on the picture plays or pauses, as in the original (EditorView.swift:449).
@@ -998,7 +1016,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // With Placement open, the pictures as they will be placed, and the gestures that place them.
                 placementWork?.let { work ->
                     PlacementOverlay(
-                        work, edit, files, playhead, editor.playing,
+                        work, edit, files, { playhead }, editor.playing,
                         change = { next -> placementWork = placementWork?.copy(draft = next) },
                         settle = { placementWork?.let { now -> placementShown = now.draft.applied(now.timeline).toEdit(saved.captureBase) } },
                     )
@@ -1253,7 +1271,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val removedNote = stringResource(R.string.placement_removed)
             LaunchedEffect(saved) { if (placementWork?.timeline != saved.layered) { placementWork = null; placementShown = null } }
             PlacementPanel(
-                placed, edit, playhead, editor.playing, change = { placementWork = placed.copy(draft = it); placementShown = it.applied(placed.timeline).toEdit(saved.captureBase) },
+                placed, edit, { playhead }, editor.playing, change = { placementWork = placed.copy(draft = it); placementShown = it.applied(placed.timeline).toEdit(saved.captureBase) },
                 seek = jump, play = { from, until -> auditionEnd = until.takeIf { it < duration - 0.0005 }; playhead = from; editor.play(from, reviewSpeed) }, pause = { auditionEnd = null; editor.pause() },
                 apply = {
                     val next = placed.draft.applied(placed.timeline)
@@ -1275,7 +1293,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             LaunchedEffect(edit) { if (effecting?.on?.base != edit) effecting = null }
             val freezeRefused = stringResource(R.string.effects_freeze_refused)
             EffectsPanel(
-                effectsWork, playhead, change = { effecting = it },
+                effectsWork, { playhead }, change = { effecting = it },
                 // One Undo step for everything done in the tool. Effects that change nothing are not saved.
                 apply = {
                     val next = effectsWork.applied()
@@ -1311,8 +1329,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 if (editor.playing) { if (now.draft.previewEndpoint != null) cropping = now.copy(draft = now.draft.scrubbed()) }
                 else if (now.draft.endpoint != null && now.draft.previewEndpoint == null) cropping = now.copy(draft = now.draft.copy(previewEndpoint = now.draft.endpoint))
             }
+            // The size of the footage under the playhead, derived so that a scrub composes the editor again only at another clip.
+            val cropSource by remember(framing, sizes) { derivedStateOf { framing.on.active(playhead)?.let { sizes[it.clip.sourceID] } } }
             CropPanel(
-                framing, source = framing.on.active(playhead)?.let { sizes[it.clip.sourceID] }, canvas = shape,
+                framing, source = cropSource, canvas = shape,
                 whole = framing.on.start <= 0.0005 && framing.on.end >= duration - 0.0005,
                 change = { cropping = framing.copy(draft = it) },
                 reshape = { cropping = framing.reshaped(it) },
@@ -1464,7 +1484,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // What a transcription listens to: the marked range, the span of what is selected, or the whole timeline.
                 listened = TrackCaptions.scope(timeline, marks.range?.let { TimelineSelection(range = EditInterval.of(it.start, it.end)) }
                     ?: marks.selected.takeIf { !it.isEmpty }?.let { TimelineSelection(it.clips, it.audio.mapTo(LinkedHashSet()) { id -> TrackSequenceView.soundID(edit, id) }) }),
-                files = files, layout = captionLayout, playhead = playhead, playing = editor.playing,
+                files = files, layout = captionLayout, playhead = { playhead }, playing = editor.playing,
                 seek = jump, working = { subtitleWork = it },
                 // One undo step for everything done in the tool.
                 apply = { val next = subtitling; subtitling = null; if (next != null && next != edit) commit(next, playhead) },
