@@ -22,9 +22,9 @@ import java.io.File
  * It reports whether LiteRT loads, frames a second, the chunks' sizes on disk, and that a second analysis finds
  * every chunk made and the reader gives a mask for every frame. `-e keep true` leaves the masks for a look;
  * `-e warm true` segments each chunk's two-second warm-up too. `-e look 2,5,8` draws the export's chain with the
- * four effects that read the person on the frames at those seconds (under 10), with these masks, and saves each
+ * effects that read the person on the frames at those seconds (under 10), with these masks, and saves each
  * as `look-<second>.png` beside the clip: the frame, Auto Background (Blur original, then Studio), its matte,
- * Color Isolation's subject, Quantization's face detail.
+ * Color Isolation's subject, Quantization's face detail, Dolly Zoom stretched by a half.
  */
 class PersonMaskRunner : Instrumentation() {
     override fun onCreate(arguments: Bundle?) {
@@ -115,7 +115,7 @@ class PersonMaskRunner : Instrumentation() {
         })
     }
 
-    /** The four effects on real frames, through the export's chain, with the masks just made. */
+    /** The effects that read the person on real frames, through the export's chain, with the masks just made. */
     private fun look(clip: File, folder: File, source: SourceMedia, seconds: List<Double>, say: (String) -> Unit) {
         val retriever = MediaMetadataRetriever().apply { setDataSource(clip.path) }
         val bench = app.takes.pixels.Bench(targetContext)
@@ -128,6 +128,8 @@ class PersonMaskRunner : Instrumentation() {
             effect(app.takes.core.VideoEffectID.AutoBackground, "view" to choice("Matte")),
             effect(app.takes.core.VideoEffectID.ColorIsolation, "mode" to choice("The subject")),
             effect(app.takes.core.VideoEffectID.Quantization, "colors" to app.takes.core.EffectValue.Number(4.0), "palette" to choice("Pop 1")),
+            // Stretched by a half, at its end from 2.5 s.
+            effect(app.takes.core.VideoEffectID.DollyZoom, "strength" to app.takes.core.EffectValue.Number(.5)),
         )
         try {
             for (second in seconds) {

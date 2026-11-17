@@ -30,9 +30,9 @@ In section 5, the image overlay row was brought up to date on 2026-11-17 from th
 | Status | Count |
 |---|---|
 | DONE | 159 |
-| PARTIAL | 34 |
+| PARTIAL | 35 |
 | CORE ONLY | 2 |
-| MISSING | 8 |
+| MISSING | 7 |
 | N/A | 6 |
 | Total | 209 |
 
@@ -49,7 +49,7 @@ Per area:
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 19 | 0 | 0 | 2 | 0 |
 | 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
-| 10. Video effects | 7 | 6 | 0 | 1 | 1 |
+| 10. Video effects | 7 | 7 | 0 | 0 | 1 |
 | 11. Export | 11 | 1 | 0 | 0 | 0 |
 | 12. Settings, credits, localisation, accessibility | 5 | 0 | 0 | 0 | 2 |
 
@@ -309,7 +309,7 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 | Time effects: Freeze Frame, Step Printing, Undercranking | O/VideoEffects/VideoEffectCatalog.swift:303-314, O/VideoEffects/VideoEffectTiming.swift:18-68 | DONE | C/VideoEffectTiming.kt, C/PlaybackSpan.kt; played through the playback map, the held frames and Step Printing's blends drawn in the export (A/TimeEffectRendering.kt) | The preview simplifies the cadence, the blends and Print's grain | | |
 | Chroma Key with background (solid, image, video, blur, studio, window), clean plate, eyedropper | O/VideoEffects/VideoEffectCatalog.swift:343 | PARTIAL | Batch C: the spatial keyer on a solid colour, a picture from the phone, the picture blurred, Studio and Window; the person hint where LiteRT runs; the temporal matte (algorithm 2, made for every new key): the key refined on the picture and blended with the frames before through the original's window (A/EffectMatteWindow.kt, C/VideoEffectTemporalWindow.kt), in the export, the history being the frames the export drew before; without OpenGL ES 3 the frame's own matte | The video background, the clean plate, the match colour (hidden, A/EffectsWork.kt `HIDDEN`), the eyedropper; the preview draws each frame's own matte | L | Yes |
 | Auto Background, Color Isolation "The subject", person hints (person segmentation) | O/VideoEffects/VideoEffectCatalog.swift:371, O/VideoEffects/VideoEffectAssets.swift:346-353 | PARTIAL | A/PersonMasks.kt (MediaPipe's selfie segmenter on LiteRT 1.4.2, the masks in ten-second chunks under the project's Cache/masks), A/EffectRendering.kt and A/EffectPasses.kt (the mask laid on the frame, the guided filter and coverage, the background estimate, Studio and Window); Auto Background, Color Isolation's subject, Chroma Key's person hint and Quantization's face detail in the export; Color Isolation's temporal matte (algorithm 2, made for every new one) for a colour and for the subject, as Chroma Key's; hidden where LiteRT has no native library | The model's mask (256 × 256, docs/SEGMENTATION-PROBE.md); Auto Background's smoothed mask stream (C/PersonMaskSmoother.kt is ported, not yet run on the analysis), its video background and match colour; the preview draws them with the mask as it is (no guided filter, the picture itself as the background estimate, no person hint for Chroma Key) | M | Phone |
-| Dolly Zoom | O/VideoEffects/VideoEffectCatalog.swift:268 | MISSING | — | Person/depth layers and warp | L | Phone |
+| Dolly Zoom | O/VideoEffects/VideoEffectCatalog.swift:268, O/VideoEffects/VideoEffects.metal:366-369, O/VideoEffects/MetalVideoEffects.swift:334-353, 492-499 | PARTIAL | The editor's simulated two-layer dolly, offered with the person batch where LiteRT runs (A/EffectsWork.kt `BATCH_PERSON`): the person's mask refined with softness 0.3 and the background estimated behind it with the original's fill, a pyramid of blurs normalised from the smallest up (A/EffectPasses.kt `backgroundEstimate`), read magnified about the subject over the effect's duration, Stretch or Compress, in-out cubic or linear (C/DollyZoomFormulas.kt), in the export (A/EffectRendering.kt `dollyZoom`); the preview from Android 13 simplified: the mask as it is, and the picture outward from the person as the background behind them; the original's "Uses person separation when imported depth is unavailable." under its controls (A/EffectsPanel.kt). The person masks the clips' effects read are made before the export draws (A/Exporter.kt `preparePeople`, C/VideoEffectPersonInputs.kt `personSpan`), as the original's renderer prepares them: made on the frames' thread, a chunk took longer than the Transformer waits for a frame, and an export of a recording not analysed yet stopped with "Muxer error", an Auto Background's too. In the recorder Dolly Zoom is the lens move of section 3, as in the original. Checked on a Galaxy A54: 4 s of a front-camera recording of a person exported under a Dolly Zoom stretching by a half over 3 s, the person kept and the room behind magnified about the middle | Departures: the subject is always separated by the person mask, as the original does without imported depth, which Android does not have (the N/A row below); the subject's point is set by hand (Subject X and Y), where the original's editor follows the subject from that point with its tracker (O/VideoEffects/VideoEffectSubjectTracking.swift:108-150, O/VideoEffects/VideoEffectAssets.swift:475-485); without a person mask the picture is left as it is, where the original stops the frame | M | Phone |
 | Night fix (Fast / Medium / Precise multi-frame denoise) | O/VideoEffects/NightFix.swift:51-297, O/VideoEffects/VideoEffectCatalog.swift:203 | PARTIAL | Fast on the raw frame before its colour, in the export (A/EffectNightFix.kt) and the preview (A/EffectRendering.kt `nightFix`), C/VideoEffectNightFix.kt | Medium and Precise need optical flow and are drawn Fast | L | Phone |
 | Effects from Cinematic-mode depth (oval bokeh, depth dolly) | README:272-275 | N/A | — | Apple Cinematic depth tracks | | |
 | Effect help with film-history notes | O/VideoEffects/VideoEffectCatalog.swift:7-32 | DONE | A/EffectsPanel.kt:265, 327-340, A/EffectsText.kt | — | | |

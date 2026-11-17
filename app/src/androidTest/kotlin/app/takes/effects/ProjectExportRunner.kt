@@ -31,7 +31,8 @@ import java.io.File
  *
  * The clip is read from /data/local/tmp. `-e case plain` exports the recording as imported; `-e runs <n>` exports it
  * n times (each from the start), for the times; `-e fallback true` takes the way of a device that writes no HDR
- * movie ([HdrMovie.refuse]), which must then export in SDR.
+ * movie ([HdrMovie.refuse]), which must then export in SDR; `-e case dolly` exports its first four seconds under a
+ * Dolly Zoom, which reads the person masks.
  */
 class ProjectExportRunner : Instrumentation() {
     private lateinit var arguments: Bundle
@@ -77,7 +78,20 @@ class ProjectExportRunner : Instrumentation() {
             waitFor(60, "the import") { store.importing == null && store.projects.first { it.id == made.id }.edit.clips.isNotEmpty() }
             val imported = main { store.projects.first { it.id == made.id } }
             project = imported
-            if (arguments.getString("case") != "plain") {
+            if (arguments.getString("case") == "dolly") {
+                // The first four seconds under a Dolly Zoom that stretches by a half over three: its person masks
+                // analysed by the export, the background magnified about the middle. `-e effect autoBackground` puts
+                // an Auto Background there instead, `-e effect none` nothing.
+                val whole = imported.edit.clips.single()
+                val dolly = app.takes.core.VideoEffectSettings(app.takes.core.VideoEffectID.DollyZoom, start = whole.start, end = whole.start + 4.0)
+                    .with("strength", app.takes.core.EffectValue.Number(.5)).with("duration", app.takes.core.EffectValue.Number(3.0))
+                val effects = when (arguments.getString("effect")) {
+                    "none" -> null
+                    "autoBackground" -> listOf(app.takes.core.VideoEffectSettings(app.takes.core.VideoEffectID.AutoBackground, start = whole.start, end = whole.start + 4.0))
+                    else -> listOf(dolly)
+                }
+                main { store.commit(made.id, EditState(listOf(whole.copy(end = minOf(whole.end, whole.start + 4.0), videoEffects = effects)))) }
+            } else if (arguments.getString("case") != "plain") {
                 val whole = imported.edit.clips.single()
                 val first = whole.copy(id = "A", start = 0.0, end = minOf(3.0, whole.end), texts = listOf(TextOverlay(id = "T", text = "HDR", y = 0.3, size = 0.2, start = 0.0, end = 3.0)))
                 val second = whole.copy(id = "B", start = minOf(2.0, whole.end / 2), color = ColorSettings(look = ColorLook.Warm))

@@ -375,17 +375,20 @@ internal object EffectPassShaders {
     /**
      * `ve_bgNormalize` ([app.takes.core.AutoBackgroundFormulas.normalize]): the blurred known
      * background [uTex] over its blurred weight [uWeight] where that passes 0.001, else the
-     * picture [uFallback] (the chain's, sRGB-encoded) there.
+     * picture [uFallback] there: the chain's, sRGB-encoded, or with [uFallbackLinear] the level
+     * below of a Dolly Zoom's fill, in linear light.
      */
     val BACKGROUND_NORMALIZE = """
         $HEAD
         uniform sampler2D uWeight;
         uniform sampler2D uFallback;
+        uniform float uFallbackLinear;
         void main() {
             vec2 uv = (pixel() + 0.5) / uOut;
             vec2 t = vec2(uv.x, 1.0 - uv.y);
             float a = texture2D(uWeight, t).r;
-            gl_FragColor = vec4(a > 0.001 ? read(uv) / a : lin(clamp(texture2D(uFallback, t).rgb, 0.0, 1.0)), 1.0);
+            vec3 fallback = texture2D(uFallback, t).rgb;
+            gl_FragColor = vec4(a > 0.001 ? read(uv) / a : uFallbackLinear > 0.5 ? fallback : lin(clamp(fallback, 0.0, 1.0)), 1.0);
         }
     """
 
@@ -762,11 +765,15 @@ internal class EffectGpu {
         })
 
     /**
-     * The original's `backgroundEstimate` without fill ([app.takes.core.AutoBackgroundFormulas.backgroundEstimate]):
-     * the background known around the person [mask] in [source], blurred by 4 pixels at 1080 at a quarter of the
-     * size, over its blurred weight; the picture itself where nothing of the background is known. Into [key].
+     * The original's `backgroundEstimate` ([app.takes.core.AutoBackgroundFormulas.backgroundEstimate],
+     * MetalVideoEffects.swift:334-353): the background known around the person [mask] in [source], blurred by 4
+     * pixels at 1080 at a quarter of the size, over its blurred weight; the picture itself where nothing of the
+     * background is known. With [fill] (a Dolly Zoom) the known background and its weight are blurred by σ 2 into a
+     * pyramid of pictures each half the size of the one before, down to 2 × 2, and normalised from the smallest up,
+     * each level falling back on the one below, so that the hole the person leaves takes the nearest background.
+     * Into [key].
      */
-    fun backgroundEstimate(source: EffectSource, mask: EffectSource, key: String): EffectTarget {
+    fun backgroundEstimate(source: EffectSource, mask: EffectSource, key: String, fill: Boolean = false): EffectTarget {
         val width = VideoEffectPasses.quarter(source.width)
         val height = VideoEffectPasses.quarter(source.height)
         fun weight(only: Boolean, into: String) = draw(EffectPassShaders.BACKGROUND_WEIGHT, source, into, width, height, { p ->
@@ -776,10 +783,29 @@ internal class EffectGpu {
         val sigma = 4.0 * minOf(source.width, source.height) / 1080
         val color = blur(EffectSource(weight(false, "$key.color")), "$key.color.blur", sigma)
         val known = blur(EffectSource(weight(true, "$key.weight")), "$key.weight.blur", sigma)
-        return draw(EffectPassShaders.BACKGROUND_NORMALIZE, EffectSource(color), key, width, height, { p ->
-            p.setSamplerTexIdUniform("uWeight", known.texture, 1)
-            p.setSamplerTexIdUniform("uFallback", source.texture, 2)
-        })
+        fun normalize(color: EffectTarget, known: EffectTarget, fallback: EffectSource, into: String) =
+            draw(EffectPassShaders.BACKGROUND_NORMALIZE, EffectSource(color), into, color.width, color.height, { p ->
+                p.setSamplerTexIdUniform("uWeight", known.texture, 1)
+                p.setSamplerTexIdUniform("uFallback", fallback.texture, 2)
+                p.setFloatsUniform("uFallbackLinear", floatArrayOf(if (fallback.encoded) 0f else 1f))
+            })
+        if (!fill) return normalize(color, known, source, key)
+        val colors = mutableListOf(color)
+        val weights = mutableListOf(known)
+        while (colors.last().width > 2 || colors.last().height > 2) {
+            val w = maxOf(2, colors.last().width / 2)
+            val h = maxOf(2, colors.last().height / 2)
+            val level = colors.size
+            colors += blur(EffectSource(colors.last()), "$key.color.$level", 2.0, w, h)
+            weights += blur(EffectSource(weights.last()), "$key.weight.$level", 2.0, w, h)
+        }
+        var fallback = source
+        var filled = color
+        for (level in colors.indices.reversed()) {
+            filled = normalize(colors[level], weights[level], fallback, if (level == 0) key else "$key.fill.$level")
+            fallback = EffectSource(filled)
+        }
+        return filled
     }
 
     /** Studio, or with [window] Window, at [width] × [height]. Into [key]. */

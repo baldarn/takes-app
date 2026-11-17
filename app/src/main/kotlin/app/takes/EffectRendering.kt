@@ -67,8 +67,9 @@ object EffectShader {
         // their frames and blends Step Printing's).
         VideoEffectID.Quantization, VideoEffectID.ChromaKey, VideoEffectID.FreezeFrame, VideoEffectID.Undercranking,
         // Those that read the person in the frame (PersonMasks.kt): Auto Background; Color Isolation's subject, Chroma
-        // Key's person hint and Quantization's face detail are parts of effects above.
-        VideoEffectID.AutoBackground,
+        // Key's person hint and Quantization's face detail are parts of effects above. Dolly Zoom separates the subject by
+        // the person, where the original can use imported depth.
+        VideoEffectID.AutoBackground, VideoEffectID.DollyZoom,
     )
 
     /** How many parameter slots the shader takes. */
@@ -469,6 +470,14 @@ object EffectShader {
             if (uX0.y > 0.5) return vec3(a);
             return o;
         }
+        // Metal:366-369, the simulated two-layer dolly: the background behind the subject (moreAt, the estimate with its
+        // fill) read magnified by uX0.x about the target (uP4, uP5), under the subject by its refined mask (auxAt); uX0.y
+        // 1 when the frame has a person mask (else the picture as it is).
+        vec3 dollyZoom(vec3 c, vec2 uv) {
+            if (uX0.y < 0.5) return c;
+            vec2 target = vec2(uP4.x, uP5.x);
+            return mix(moreAt((uv - target) / uX0.x + target), c, auxAt(uv).r);
+        }
         // Metal:96, :386-387: the held frame magnified about the centre by the push-in, uHead.z the hold's clock; Print's grey,
         // vignette and colour grain.
         vec3 freezeFrame(vec2 uv, vec2 q, float pixelScale) {
@@ -505,6 +514,7 @@ object EffectShader {
         7 to "o = quantization(c, uv, q);",
         18 to "o = chromaKey(c, uv);",
         19 to "o = autoBackground(c, uv);",
+        8 to "o = dollyZoom(c, uv);",
         12 to "o = freezeFrame(uv, q, pixelScale);",
         14 to "o = undercranking(uv);",
     )
@@ -671,6 +681,20 @@ object EffectShader {
             if (p.x < 0.0 || p.y < 0.0 || p.x > uBackdrop.x || p.y > uBackdrop.y) return vec3(0.0);
             return lin(clamp(backdrop.eval(p).rgb, 0.0, 1.0));
         }
+        // Dolly Zoom's background behind the person, a stand-in for the export's estimate and fill: the picture where the
+        // person is not; where they are, the first point clear of them outward from the target (uP4, uP5), in up to
+        // sixteen steps of a thirty-second of the deck.
+        vec3 dollyFill(vec2 uv) {
+            vec2 d = (uv - vec2(uP4.x, uP5.x)) * uSize;
+            float n = length(d);
+            vec2 step = (n > 0.001 ? d / n : vec2(0.0, 1.0)) * (max(uSize.x, uSize.y) / 32.0) / uSize;
+            vec2 p = uv;
+            for (int i = 0; i < 16; i++) {
+                if (personAt(p) < 0.5) break;
+                p = clamp(p + step, vec2(0.0), vec2(1.0));
+            }
+            return src(p);
+        }
     """
 
     /** The preview's stand-ins for the pictures the pass of effect [kind] reads. */
@@ -690,12 +714,16 @@ object EffectShader {
                 "uPlace.x > 0.0 ? placed(uv) : uBlur.w > 0.5 ? studio(uv, uBlur.w) : blurred(uv, uBlur.y, 0.0)",
                 "backAt(uv)",
             )
+            // Dolly Zoom: the mask as it is.
+            8 -> Triple("vec3(personAt(uv))", "vec3(0.0)", "vec3(0.0)")
             else -> Triple("vec3(0.0)", "vec3(0.0)", "vec3(0.0)")
         }
-        // The raw person mask for face detail; the picture itself as the background behind the person (the estimate).
+        // The raw person mask for face detail; the picture itself as the background behind the person (the estimate),
+        // with Dolly Zoom's stand-in for the fill.
         val more = when (kind) {
             7 -> "vec3(personAt(uv))"
             19 -> "src(uv)"
+            8 -> "dollyFill(uv)"
             else -> "vec3(0.0)"
         }
         return """
@@ -853,6 +881,8 @@ object EffectShader {
                 out[0] = state.zoom.toFloat()
                 out[1] = VideoEffectFormulasB.crashZoomBlur(state.velocity, u.p[4].x).toFloat()
             }
+            // The background's magnification; whether the frame has a person mask (uX0.y) is set where there is one.
+            VideoEffectID.DollyZoom -> out[0] = app.takes.core.DollyZoomFormulas.scale(u).toFloat()
             // The light wrap, the view and the brightness; a solid colour, or black for a picture not there. Whether the
             // frame has a person mask (uX0.z) is set where there is one.
             VideoEffectID.AutoBackground -> {
@@ -1193,6 +1223,7 @@ class VideoEffectChain(
                 }
                 VideoEffectID.ChromaKey -> chromaKey(pass, source)
                 VideoEffectID.AutoBackground -> autoBackground(pass, source)
+                VideoEffectID.DollyZoom -> dollyZoom(pass, source)
                 else -> Auxiliary()
             }
         }
@@ -1327,6 +1358,20 @@ class VideoEffectChain(
             }
             val wrapped = if (wrap > 0) gpu.blur(EffectSource(background), "wrap", width * 0.02, VideoEffectPasses.quarter(width), VideoEffectPasses.quarter(height)) else background
             return Auxiliary(aux = mask.texture, back = background.texture, extra = wrapped.texture, more = estimate.texture, extras = extras)
+        }
+
+        /**
+         * Dolly Zoom's pictures, as `DollyZoomFormulas.pictures` makes them (Renderer:492-499): the person's mask
+         * refined with softness 0.3, and the background estimated behind it with the fill. Without a person mask the
+         * pass leaves the picture as it is.
+         */
+        private fun dollyZoom(pass: EffectUniforms, source: EffectSource): Auxiliary {
+            val extras = EffectShader.extras(pass, source.width, source.height)
+            val person = person(source.width, source.height) ?: return Auxiliary(extras = extras)
+            val mask = gpu.refined(EffectSource(person), source, "dolly", app.takes.core.DollyZoomFormulas.SOFTNESS, person = true, lite = lite)
+            val estimate = gpu.backgroundEstimate(source, EffectSource(mask), "dolly.estimate", fill = true)
+            extras[1] = 1f
+            return Auxiliary(aux = mask.texture, more = estimate.texture, extras = extras)
         }
 
         // The person in the frame being drawn: its mask, asked for once a frame, uploaded once, laid on the frame at each size asked.
@@ -1552,11 +1597,16 @@ class EffectPreview {
                 pass.effect == VideoEffectID.AutoBackground -> person(true)
                 pass.effect == VideoEffectID.ColorIsolation && pass.number("mode") > .5 -> person(false)
                 pass.effect == VideoEffectID.Quantization && pass.number("faceDetail") > .5 && pass.number("colors") <= 4 -> person(false)
+                pass.effect == VideoEffectID.DollyZoom -> person(false)
                 else -> null
             }
             personInput(shader, frame, width, height)
             if (frame != null) {
-                if (pass.effect == VideoEffectID.AutoBackground) extras[2] = 1f else extras[0] = 1f
+                when (pass.effect) {
+                    VideoEffectID.AutoBackground -> extras[2] = 1f
+                    VideoEffectID.DollyZoom -> extras[1] = 1f
+                    else -> extras[0] = 1f
+                }
             }
             shader.setFloatUniform("uX0", extras.copyOfRange(0, 4))
             shader.setFloatUniform("uX1", extras.copyOfRange(4, 8))

@@ -56,9 +56,10 @@ internal object AndroidVideoEffects {
     /**
      * The effects that read the person in the frame, with the parts of the others that do (Color Isolation's
      * subject, Chroma Key's person hint, Quantization's face detail): offered where LiteRT runs (PersonMasks.kt).
-     * Auto Background without its video background and match colour.
+     * Auto Background without its video background and match colour; Dolly Zoom, the subject separated by the person
+     * (there is no imported depth here), its target set by hand.
      */
-    val BATCH_PERSON: List<VideoEffectID> = listOf(VideoEffectID.AutoBackground)
+    val BATCH_PERSON: List<VideoEffectID> = listOf(VideoEffectID.AutoBackground, VideoEffectID.DollyZoom)
 
     /** Whether this phone makes person masks. */
     private val people: Boolean get() = PersonMasks.available()
@@ -103,6 +104,8 @@ internal object AndroidVideoEffects {
         VideoEffectID.Quantization -> effect.number("smoothing", at) > 0 || (people && effect.toggle("faceDetail", at) && effect.number("colors", at) <= 4)
         // The preview reads the person's mask as it is, without the guided filter, and the picture as the background behind it.
         VideoEffectID.AutoBackground -> true
+        // The preview reads the person's mask as it is, and the picture outward from the person as the background behind them.
+        VideoEffectID.DollyZoom -> true
         // The preview draws each frame's own matte; the export blends it with the frames before (algorithm 2).
         VideoEffectID.ColorIsolation -> effect.choice("mode", at) == "The subject" || effect.usesTemporalMatte
         else -> false

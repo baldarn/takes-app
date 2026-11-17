@@ -7,6 +7,7 @@ import app.takes.EffectAssets
 import app.takes.EffectShader
 import app.takes.PersonFrame
 import app.takes.core.AutoBackgroundFormulas
+import app.takes.core.DollyZoomFormulas
 import app.takes.core.EffectColorMath
 import app.takes.core.EffectFrameInputs
 import app.takes.core.EffectImage
@@ -135,6 +136,7 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
         VideoEffectID.ChromaKey -> VideoEffectFormulasC.chromaKeyPass(u, image, AutoBackgroundFormulas.background(u, image), person = person?.frame)
         // Without a person mask the pass leaves the picture as it is.
         VideoEffectID.AutoBackground -> if (person == null) image else AutoBackgroundFormulas.pass(u, image, person.frame, AutoBackgroundFormulas.background(u, image))
+        VideoEffectID.DollyZoom -> DollyZoomFormulas.pass(u, image, person?.frame)
         else -> error("No reference here for ${u.effect}")
     }
 
@@ -282,6 +284,13 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
         case("Person: Auto Background, Window, grown, soft", auto(mapOf("background" to "Window", "grow" to 3.0, "softness" to 0.8, "wrap" to 1.0)), ALLOWED),
         case("Person: Auto Background, the matte", auto(mapOf("view" to "Matte")), ALLOWED),
         case("Person: Auto Background, the matte, turned 90° and mirrored", auto(mapOf("view" to "Matte")), ALLOWED, rotation = 90, mirrored = true),
+        // Dolly Zoom: the person kept, the background with its fill magnified about the subject (Metal:366-369).
+        case("Person: Dolly Zoom, Stretch half way", listOf(settings(VideoEffectID.DollyZoom, emptyMap())), ALLOWED, time = 1.25),
+        case("Person: Dolly Zoom, Stretch at the end, strength 0.5", listOf(settings(VideoEffectID.DollyZoom, mapOf("strength" to .5))), ALLOWED, time = 3.0),
+        case("Person: Dolly Zoom, Compress, linear, about the subject", listOf(settings(VideoEffectID.DollyZoom, mapOf(
+            "direction" to "Compress", "easing" to "Linear", "duration" to 4.0, "targetX" to .42, "targetY" to .4,
+        ))), ALLOWED, time = 1.0),
+        case("Person: Dolly Zoom, turned 90° and mirrored", listOf(settings(VideoEffectID.DollyZoom, mapOf("strength" to .4))), ALLOWED, rotation = 90, mirrored = true, time = 2.0),
     ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) previews() else emptyList()
 
     /**
@@ -291,13 +300,13 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
      */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun previews(): List<Case> {
-        fun drawn(effects: List<VideoEffectSettings>, source: Picture = portrait, rotation: Int = 0): Pair<Picture, EffectMask> {
+        fun drawn(effects: List<VideoEffectSettings>, source: Picture = portrait, rotation: Int = 0, time: Double = 1.0): Pair<Picture, EffectMask> {
             val mask = stored(rotation)
             val linear by lazy { linear(source) }
             val assets = Assets(PersonFrame(mask, rotation, Size(width.toDouble(), height.toDouble())), { linear })
-            val inputs = EffectAssets.inputs(assets, effects, 1.0)
-            val passes = EffectShader.passes(effects, 1.0, EffectStage.RATE, inputs)
-            return PreviewStage.frame(source, passes, person = assets.person(1.0, true)) to person(mask, rotation, false).frame
+            val inputs = EffectAssets.inputs(assets, effects, time)
+            val passes = EffectShader.passes(effects, time, EffectStage.RATE, inputs)
+            return PreviewStage.frame(source, passes, person = assets.person(time, true)) to person(mask, rotation, false).frame
         }
         fun inside(person: EffectMask, i: Int) = person.data[i] > .99
         fun outside(person: EffectMask, i: Int) = person.data[i] < .01
@@ -364,6 +373,41 @@ class PersonPixelCases(private val bench: Bench, private val width: Int = 480, p
                         }
                     }
                 }
+            },
+            // The preview's Dolly Zoom, simplified: the person as they are, and where the point the background is read at
+            // is clear of the person, the picture there, magnified about the subject as the core's formula reads it.
+            Case("Person preview: Dolly Zoom keeps the person and magnifies the rest") {
+                val effects = listOf(settings(VideoEffectID.DollyZoom, mapOf("strength" to .5, "easing" to "Linear", "targetX" to .42, "targetY" to .52)))
+                val (start, person) = drawn(effects, time = 0.0)
+                // Before the move, the background where the person's mask is under a half is read where it is.
+                val moved = start.pixels.indices.count { person.data[it] < .5 && distance(start.pixels[it], portrait.pixels[it]) > ALLOWED }
+                note("at the start, $moved pixels of the background changed")
+                check(moved <= OUTLIERS) { "At the start the preview's Dolly Zoom changes the background" }
+                val (picture, _) = drawn(effects, time = 2.0)
+                val scale = 1.4
+                val target = Point(.42, .52)
+                val source = linear(portrait)
+                val kept = picture.pixels.indices.filter { inside(person, it) }
+                val changedInside = kept.count { distance(picture.pixels[it], portrait.pixels[it]) > ALLOWED }
+                var compared = 0
+                var over = 0
+                var worst = 0
+                for (i in picture.pixels.indices) {
+                    if (person.data[i] > .001) continue
+                    val at = DollyZoomFormulas.backgroundPoint(source.uv(i % width, i / width), target, scale)
+                    if (person.sample(at) > .001) continue
+                    val c = source.sample(at)
+                    fun level(v: Double) = (EffectColorMath.encoded(v).coerceIn(0.0, 1.0) * 255).roundToInt()
+                    val d = distance(picture.pixels[i], rgb(level(c.x), level(c.y), level(c.z)))
+                    compared++
+                    worst = maxOf(worst, d)
+                    if (d > ALLOWED) over++
+                }
+                val changedOutside = picture.pixels.indices.count { outside(person, it) && distance(picture.pixels[it], portrait.pixels[it]) > ALLOWED }
+                note("${kept.size} pixels of the person, $changedInside changed; of $compared read clear of the person, $over over $ALLOWED, the worst $worst; $changedOutside of the rest changed")
+                check(changedInside <= kept.size / 50) { "The preview's Dolly Zoom changes the person" }
+                check(compared >= picture.pixels.size / 3 && over <= OUTLIERS && worst <= OUTLIER_LEVELS) { "The preview's Dolly Zoom does not read the background magnified about the subject" }
+                check(changedOutside >= compared / 5) { "The preview's Dolly Zoom leaves the rest as it was" }
             },
         )
     }

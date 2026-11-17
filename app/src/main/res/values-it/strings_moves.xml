@@ -25,6 +25,13 @@
     <string name="effect_control_duration">Durata</string>
     <string name="effect_choice_stretch">Allunga</string>
     <string name="effect_choice_compress">Comprimi</string>
+    <!-- Dolly Zoom in the editor (YouRec/VideoEffects/VideoEffectCatalog.swift:268-275, VideoEffectsEditor.swift:1184). -->
+    <string name="effect_control_easing">Andamento</string>
+    <string name="effect_control_subject_x">Soggetto X</string>
+    <string name="effect_control_subject_y">Soggetto Y</string>
+    <string name="effect_choice_in_out_cubic">Cubico morbido</string>
+    <string name="effect_choice_linear">Lineare</string>
+    <string name="dolly_person_note">Usa la separazione della persona quando la profondità importata non c\'è.</string>
     <string name="dolly_range">Zoom pulito %1$s–%2$s×</string>
     <string name="dolly_stops_after">Si ferma dopo %1$s secondi. Tocca di nuovo per fermarlo prima.</string>
     <string name="dolly_room">Margine rimasto al dolly zoom</string>

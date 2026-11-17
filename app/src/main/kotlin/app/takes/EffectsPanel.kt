@@ -328,6 +328,8 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
                     Text(stringResource(R.string.rgb_center_all))
                 }
             }
+            // There is no imported depth here: always the original's words for the person. VideoEffectsEditor.swift:1184.
+            if (effect.kind == VideoEffectID.DollyZoom) Text(stringResource(R.string.dolly_person_note), color = Soft, fontSize = 12.sp)
         }
     }
     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))

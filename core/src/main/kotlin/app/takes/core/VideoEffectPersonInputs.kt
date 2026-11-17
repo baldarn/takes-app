@@ -29,6 +29,27 @@ object VideoEffectPersonInputs {
     fun needsPerson(effects: List<VideoEffectSettings>, time: Double): Boolean = effects.any { needsPerson(it, time) }
 
     /**
+     * The source seconds of [clip] on which some of its effects read the person mask, from the first such effect's
+     * start to the last one's end inside the clip; null when none does. The choices that decide it hold between
+     * keyframes, so an effect is looked at where it begins in the clip and at each of its keyframes there. The export
+     * has these masks made before it draws, as the original's renderer prepares them (MediaRenderer.swift:361-404).
+     */
+    fun personSpan(clip: TimelineClip): ClosedFloatingPointRange<Double>? {
+        var from = Double.POSITIVE_INFINITY
+        var to = Double.NEGATIVE_INFINITY
+        for (effect in clip.videoEffects.orEmpty()) {
+            val start = maxOf(clip.start, effect.start)
+            val end = minOf(clip.end, effect.end)
+            if (end <= start) continue
+            val times = listOf(start) + effect.parameters.flatMap { p -> p.keyframes.map { it.time } }.filter { it > start && it < end }
+            if (times.none { needsPerson(effect, it) }) continue
+            from = minOf(from, start)
+            to = maxOf(to, end)
+        }
+        return if (from < to) from..to else null
+    }
+
+    /**
      * Whether [effect] cannot be drawn without the mask: an Auto Background,
      * a Dolly Zoom without a depth map ([hasDepth]), a Color Isolation
      * keeping "The subject". The original stops the frame with

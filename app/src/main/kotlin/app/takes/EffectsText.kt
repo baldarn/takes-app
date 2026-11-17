@@ -140,9 +140,10 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "flares" -> R.string.effect_control_flares
     "flareColor" -> R.string.effect_control_flare_color
     "ovalBokeh" -> R.string.effect_control_oval_bokeh
-    // Dolly Zoom, in the recorder.
+    // Dolly Zoom.
     "direction" -> R.string.effect_control_direction
     "duration" -> if (kind == VideoEffectID.DollyZoom) R.string.effect_control_duration else null
+    "easing" -> if (kind == VideoEffectID.DollyZoom) R.string.effect_control_easing else null
     // Crash Zoom.
     "zoom" -> R.string.effect_control_zoom_amount
     "speed" -> when (kind) {
@@ -166,8 +167,16 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "mute" -> R.string.effect_control_mute_audio
     "return" -> R.string.effect_control_return
     "motionBlur" -> R.string.effect_control_motion_blur
-    "targetX" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_target_x else null
-    "targetY" -> if (kind == VideoEffectID.CrashZoom) R.string.effect_control_target_y else null
+    "targetX" -> when (kind) {
+        VideoEffectID.CrashZoom -> R.string.effect_control_target_x
+        VideoEffectID.DollyZoom -> R.string.effect_control_subject_x
+        else -> null
+    }
+    "targetY" -> when (kind) {
+        VideoEffectID.CrashZoom -> R.string.effect_control_target_y
+        VideoEffectID.DollyZoom -> R.string.effect_control_subject_y
+        else -> null
+    }
     "trackFace" -> R.string.effect_control_follow_face
     // Quantization.
     "colors" -> R.string.effect_control_colors
@@ -233,6 +242,7 @@ private val CHOICES: Map<String, Int> = mapOf(
     "Clean" to R.string.effect_choice_clean, "Print" to R.string.effect_choice_print, "Cut" to R.string.effect_choice_cut,
     "Continue" to R.string.effect_choice_continue, "Fade out over hold" to R.string.effect_choice_fade_out_over_hold,
     "Stretch" to R.string.effect_choice_stretch, "Compress" to R.string.effect_choice_compress,
+    "In-out cubic" to R.string.effect_choice_in_out_cubic, "Linear" to R.string.effect_choice_linear,
 )
 
 /** A choice of a picker as it is shown; the saved value stays the original's English. */
