@@ -84,7 +84,7 @@ Before a pull request, run what the maintainer and the CI run:
 
       ./scripts/pixel-tests.sh
       ./scripts/pixel-tests.sh -e only 'Wipe|Silent Tint'
-      ./scripts/pixel-tests.sh -e shards 4 -e shard 0     # every fourth case, as one of the CI's four runners
+      ./scripts/pixel-tests.sh -e shards 6 -e shard 0     # every sixth case, as one of the CI's six runners
 
 ## Where things live
 
