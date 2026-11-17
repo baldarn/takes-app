@@ -122,8 +122,9 @@ class MainActivity : ComponentActivity() {
                             }
                             Notice(app.store.error, Modifier.align(Alignment.Center)) { app.store.error = null }
                         }
-                        // Nobody leaves the recorder while a take is being written, as in the original.
-                        val locked = app.capture.hasActiveTake
+                        // Nobody leaves the recorder while a take is being written, nor the screen of an import, a
+                        // duplicate, a ZIP or a recovery while it runs, as in the original (ContentView.swift:541-550).
+                        val locked = app.capture.hasActiveTake || app.store.importing != null
                         val titles = listOf(R.string.tab_recorder, R.string.tab_projects, R.string.tab_editor)
                         if (landscape) {
                             // In landscape the tabs stand in a column at the start, so the screens keep their height.
