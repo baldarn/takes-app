@@ -329,12 +329,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                         Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).padding(top = 62.dp),
                     ) { dualEditing = false }
                 }
-                if (capture.lookWarm) {
-                    WarmBanner(
-                        capture,
-                        Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).padding(top = 62.dp),
-                    )
-                }
+
                 LiveEffectsButton(
                     capture,
                     Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))
@@ -452,6 +447,8 @@ private fun Status(capture: CaptureController, store: ProjectStore, modifier: Mo
         // The interface stands as the take will be framed, and nothing has to name the frame.
         Clock(capture, store.selected)
         val warning = Modifier.padding(top = 8.dp)
+        // The phone is warm: under the top bar and above the warnings, as the original's (RecorderView.swift:225-226, 238-239).
+        if (capture.lookWarm) WarmBanner(capture, warning)
         // What this phone's cameras offer, to copy and send; the development build only.
         if (capture.phase == Phase.Idle) CameraReportEntry(capture)
         capture.microphoneWarning?.let {

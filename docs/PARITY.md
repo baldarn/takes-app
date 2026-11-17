@@ -25,7 +25,7 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 In section 5, the image overlay row was brought up to date on 2026-11-17 from the code it describes, and the local highlight recovery row the same day.
 
-In section 3, the two-camera row was brought up to date on 2026-11-17 from the code it describes, after a new reading of the original's places it cites. The pinch zoom and per-camera zoom memory rows were brought up to date the same day, after a new reading of the original's places they cite.
+In section 3, the two-camera row was brought up to date on 2026-11-17 from the code it describes, after a new reading of the original's places it cites. The pinch zoom, per-camera zoom memory and warnings rows were brought up to date the same day, after a new reading of the original's places they cite.
 
 In sections 1 and 2, the rows on the tabs during an import, the selected project, the card of a project that cannot be read, the salvage of interrupted takes, unsaved changes, free space for a ZIP and the processing caches were brought up to date on 2026-11-17 from the code they describe, after a new reading of the original's places they cite.
 
@@ -46,7 +46,7 @@ Per area:
 |---|---|---|---|---|---|
 | 1. App shell and project list | 23 | 0 | 0 | 0 | 0 |
 | 2. Recovery and storage | 7 | 0 | 0 | 0 | 0 |
-| 3. Recorder and camera | 32 | 7 | 0 | 0 | 3 |
+| 3. Recorder and camera | 33 | 6 | 0 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 32 | 2 | 0 | 0 | 0 |
 | 5. Editor: picture tools | 14 | 4 | 0 | 0 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
@@ -139,7 +139,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | "Protect recording audio" | O/RecorderView.swift:1265-1270 | N/A | — | The setting keeps the original's audio session through call banners. Android does not take the microphone for a ringing call; an answered call silences it, and the take is then paused as in the original (A/CaptureController.kt `handle`) | | |
 | Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt `MarkButton`, A/CaptureController.kt `bookmark`; the marks of an interrupted take are kept, indexed at launch with it (A/ProjectStore.kt `indexFinishedTakes`) | — | | |
 | Orientation follows the device, locked for the take | O/RecorderView.swift:341-390 | DONE | A/RecorderScreen.kt (the activity held as it stands from Record to Stop, pauses included), A/CaptureController.kt `followDisplay` (the take is recorded the way the interface stands, as the original's; with an assist drawing the frames the camera is bound again for a turn, between takes only) | As in the original, a phone whose rotation is locked by the person records the way the screen stands | | |
-| Warnings: microphone off, silenced, camera lost, storage full | O/CaptureController.swift:617-687, 2672-2695 | PARTIAL | A/CaptureController.kt `handle`, `checkSpace`, `finalize` (warnings, and the take paused on a taken or failed microphone and on low storage) | Thermal banner | S | Phone |
+| Warnings: microphone off, silenced, camera lost, storage full | O/CaptureController.swift:617-687, 2672-2695, O/RecorderView.swift:225-226, 238-239, 430-434, O/VideoEffects/LiveVideoEffects.swift:495-497, 566-567 | DONE | A/CaptureController.kt `handle`, `checkSpace`, `finalize` (warnings, and the take paused on a taken or failed microphone and on low storage); the thermal banner, which the original shows only while live effects adapt the preview to the heat: "Phone is warm · adaptive preview" with the original's two notes for a screen reader, from Android's thermal status (severe as the original's serious, critical and beyond as its critical: C/LiveVideoEffects.kt `serious`, `critical`), under the clock and above the microphone's warnings as in the original's column (A/LiveEffectsPanel.kt `WarmBanner`, A/RecorderScreen.kt `Status`). On a Pixel 9a with a live effect on and the thermal status set to severe and then critical with `cmd thermalservice override-status`, the banner showed under the clock and went with the status reset | | S | Phone |
 | Backgrounding saves the take | O/CaptureController.swift:1165-1180 | DONE | A/RecorderScreen.kt (lifecycle observer), A/CaptureController.kt `background` (the take is paused and its segment saved, as in the original; returning never resumes by itself) | — | | |
 | Camera and microphone permission flow | Info settings in project.pbxproj:972-983 | DONE | A/RecorderScreen.kt `RecorderScreen` | — | | |
 | Haptics on mark, presets, toggles | O/RecorderView.swift:71, 836, 966, 1119 | DONE | A/RecorderScreen.kt `tick`, `confirm`: Mark, the assist tiles, a zoom preset pressed, a zoom time changed, focus peaking, the Max angle and gain sliders | — | | |
