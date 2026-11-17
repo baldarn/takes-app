@@ -32,6 +32,7 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraEffect
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ConcurrentCamera
 import androidx.camera.core.DynamicRange
 import androidx.camera.core.ExperimentalMirrorMode
 import androidx.camera.core.MirrorMode
@@ -71,6 +72,8 @@ import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CaptureFormat
 import app.takes.core.DollyHint
+import app.takes.core.DualCameraControls
+import app.takes.core.DualCameraLayout
 import app.takes.core.DollyMeasurement
 import app.takes.core.DollyZoomFollower
 import app.takes.core.DollyZoomMove
@@ -148,6 +151,7 @@ class CaptureController(private val context: Context, private val store: Project
         onSubject = { subject(it) }
         onLookQuality = { note, warm -> lookQuality = note; lookWarm = warm }
         onPalette = { id, palette -> palettePicked(id, palette) }
+        onDualFraming = { first, second -> if (dualActive && settings.followFace) dualFollowFraming = first to second }
     }
     /** What follow face is doing, for its tile. */
     var followStatus by mutableStateOf(CameraFrames.FollowStatus.Searching); private set
@@ -314,6 +318,8 @@ class CaptureController(private val context: Context, private val store: Project
         cases.preview.setSurfaceProvider(surface)
         cameras = describe(provider.availableCameraInfos)
         if (cameras.isEmpty()) { message = context.getString(R.string.recorder_no_camera); return }
+        findDualPairs(provider)
+        if (dualPairs.isEmpty()) dualActive = false
         displays.registerDisplayListener(turns, null)
         followDisplay()
         audioManager.registerAudioRecordingCallback(routes, null)
@@ -378,6 +384,7 @@ class CaptureController(private val context: Context, private val store: Project
     private fun release() {
         provider?.unbindAll()
         camera = null
+        concurrent = null
         focus.unbound()
         frames.listenToGravity(false)
     }
@@ -463,12 +470,12 @@ class CaptureController(private val context: Context, private val store: Project
      * The preview and the recording for [format]. Each part of the format was asked of the camera before
      * (see [offers]), so nothing here is requested from a camera that does not have it.
      */
-    private fun build(format: CaptureFormat, rotation: Int, effects: Int = 0): UseCases {
+    private fun build(format: CaptureFormat, rotation: Int, effects: Int = 0, mirrors: Boolean = true): UseCases {
         val preview = Preview.Builder()
             // Same shape as the recorded movie, so the preview shows the real frame.
             .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
             // A mirror for the front camera, as in the original, unless the person turned it off.
-            .setMirrorMode(if (settings.mirrorPreview) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
+            .setMirrorMode(if (mirrors && settings.mirrorPreview) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
             .apply { if (format.stabilization == CaptureFormat.Stabilization.PreviewAndRecording) setPreviewStabilizationEnabled(true) }
             // The focus reads the position of the lens from what the camera reports with each frame.
             .also { Camera2Interop.Extender(it).setSessionCaptureCallback(focus.results) }
@@ -482,7 +489,7 @@ class CaptureController(private val context: Context, private val store: Project
             .build()
         val video = VideoCapture.Builder(recorder)
             // Saved as the scene is, so that writing stays readable, unless the person asked for mirrored selfies.
-            .setMirrorMode(if (settings.mirrorRecording) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
+            .setMirrorMode(if (mirrors && settings.mirrorRecording) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
             .apply {
                 if (format.fixedRate) setTargetFrameRate(THIRTY)
                 if (format.hdr) setDynamicRange(DynamicRange.HLG_10_BIT)
@@ -507,6 +514,14 @@ class CaptureController(private val context: Context, private val store: Project
         stale = false
         // A persistent recording pauses while nothing is bound and resumes by itself.
         provider.unbindAll()
+        concurrent = null
+        if (dualActive) {
+            if (bindDual(provider)) return
+            // As the original: one camera again, and the person is told. CaptureController.swift:995, 1010-1015.
+            dualActive = false
+            message = context.getString(R.string.recorder_dual_failed)
+            provider.unbindAll()
+        }
         // A segment being written keeps its recorder: the format changes between segments.
         val writing = phase == Phase.Recording || phase == Phase.Saving
         // The frame assists stay as they were bound while a segment is written: they change between segments.
@@ -569,15 +584,191 @@ class CaptureController(private val context: Context, private val store: Project
         updateFrames()
     }
 
+    // MARK: Two cameras (MultiCameraCapture.swift, CaptureController.swift:944-1028)
+
+    /**
+     * The pairs of cameras this phone runs at once, as the original offers them only where the phone supports it
+     * (MultiCameraCapture.swift:93-108): none where the system does not declare concurrent cameras.
+     */
+    var dualPairs by mutableStateOf(emptyList<DualCameraControls.Pair>()); private set
+    /** Two cameras are in use: one composed picture is recorded. Not kept between launches, as in the original. */
+    var dualActive by mutableStateOf(false); private set
+    var dualPairID by mutableStateOf<String?>(null); private set
+    /** The pair in use, or the one that would be. */
+    val dualPair: DualCameraControls.Pair? get() = dualPairs.firstOrNull { it.id == dualPairID } ?: dualPairs.firstOrNull()
+    /** The layout the person chose. */
+    val dualLayout: DualCameraLayout get() = settings.dualLayout
+    /** Each feed's framing while follow face moves it (CaptureController.swift:80-88). */
+    private var dualFollowFraming by mutableStateOf<Pair<DualCameraLayout.Framing, DualCameraLayout.Framing>?>(null)
+    /** The layout shown: the person's, with follow face's framing while it follows. */
+    val dualDisplayLayout: DualCameraLayout
+        get() = dualFollowFraming?.takeIf { settings.followFace }?.let { (first, second) -> dualLayout.copy(first = first, second = second) } ?: dualLayout
+    private var concurrent: ConcurrentCamera? = null
+    /** The composed picture's size, standing or lying as the interface. */
+    var dualCanvas by mutableStateOf(DualCameraControls.canvas(landscape = false)); private set
+    /** The camera of each slot is a mirrored front camera in the preview: a pan by hand goes the other way across. */
+    fun dualSlotMirrored(slot: Int): Boolean {
+        val pair = dualPair ?: return false
+        val feed = DualCameraControls.feed(dualLayout, slot)
+        return settings.mirrorPreview && (if (feed == 0) pair.first else pair.second).front
+    }
+
+    private fun dualCamera(choice: CameraChoice) = DualCameraControls.Camera(
+        choice.id, choice.front,
+        when {
+            choice.info.intrinsicZoomRatio < 0.9f -> DualCameraControls.Lens.Ultrawide
+            choice.info.intrinsicZoomRatio > 1.5f -> DualCameraControls.Lens.Tele
+            else -> DualCameraControls.Lens.Main
+        },
+    )
+
+    /** The camera of the phone behind a camera of a pair. */
+    fun dualChoice(camera: DualCameraControls.Camera?): CameraChoice? = camera?.let { c -> cameras.firstOrNull { it.id == c.id } }
+
+    private fun findDualPairs(provider: ProcessCameraProvider) {
+        val declared = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_CONCURRENT)
+        dualPairs = if (!declared) emptyList() else runCatching {
+            val combinations = provider.availableConcurrentCameraInfos.map { set -> set.map { Camera2CameraInfo.from(it).cameraId }.toSet() }
+            DualCameraControls.pairs(cameras.map(::dualCamera), combinations)
+        }.getOrDefault(emptyList())
+    }
+
+    /** Two cameras can be turned on or off, or the pair changed, now: between segments, as in the original. */
+    val canChangeCameras: Boolean get() = canChangeFormat
+
+    /** Uses two cameras, the pair [pairID] or the one used last, or one camera again. CaptureController.swift:957-1017. */
+    fun chooseTwoCameras(on: Boolean, pairID: String? = null) {
+        if (!canChangeCameras || (on && dualPairs.isEmpty())) return
+        if (on == dualActive && (pairID == null || pairID == dualPairID)) return
+        if (on) dualPairID = (dualPairs.firstOrNull { it.id == pairID } ?: dualPair)?.id
+        zoomRamp?.cancel()
+        stopDolly(immediate = true, reason = DollyHint.MoveStopped)
+        cancelFrameTools()
+        dualFollowFraming = null
+        dualActive = on
+        rebind()
+    }
+
+    /** A camera chosen in the First or the Second menu. RecorderView.swift:675-681. */
+    fun chooseDualCamera(camera: DualCameraControls.Camera, firstSlot: Boolean) {
+        val (pair, swapped) = DualCameraControls.choose(dualPairs, dualPair, dualLayout.swapped, camera, firstSlot) ?: return
+        updateDualLayout(dualLayout.copy(swapped = swapped))
+        if (!dualActive || pair.id != dualPairID) chooseTwoCameras(true, pair.id)
+    }
+
+    /**
+     * A new layout, kept, and drawn from the next frame, during a take too (the change is in the footage). A pan by
+     * hand ends follow face, as in the original. CaptureController.swift:944-951.
+     */
+    fun updateDualLayout(layout: DualCameraLayout, manualPan: Boolean = false) {
+        if (manualPan && settings.followFace) {
+            settings.followFace = false
+            dualFollowFraming = null
+        }
+        settings.dualLayout = layout.constrained()
+        updateDual()
+    }
+
+    /** Tells [frames] what to compose with the next frame. */
+    private fun updateDual() {
+        val pair = dualPair
+        if (!dualActive || pair == null || concurrent == null) { frames.dual = null; return }
+        val feeds = listOfNotNull(dualChoice(pair.first), dualChoice(pair.second))
+        if (feeds.size != 2) { frames.dual = null; return }
+        val host = dualHost(feeds)
+        val rotation = cases.video.targetRotation
+        val upright = feeds.map { it.info.getSensorRotationDegrees(rotation) }
+        dualCanvas = DualCameraControls.canvas(landscape = upright[host] % 180 == 0)
+        frames.dual = CameraFrames.Dual(
+            layout = dualLayout,
+            canvas = dualCanvas,
+            front = feeds.map { it.front },
+            upright = upright,
+            host = host,
+            mirrorPreview = settings.mirrorPreview,
+            mirrorRecording = settings.mirrorRecording,
+            levelDegrees = if (settings.levelHorizon && frames.levelAvailable && feeds.any { !it.front }) settings.horizonDegrees else null,
+            follow = settings.followFace,
+        )
+    }
+
+    /** The camera that carries the preview and the recording: a rear one where the pair has it. */
+    private fun dualHost(feeds: List<CameraChoice>): Int = feeds.indexOfFirst { !it.front }.takeIf { it >= 0 } ?: 0
+
+    /**
+     * Binds the pair in use: the host camera with the preview and the recording, both drawn by [frames] from the two
+     * cameras' frames, and the other with a picture of its own for [frames]. 1080p, 30 frames a second, SDR, as the
+     * original (MultiCameraCapture.swift:113-160). False when the phone refuses the pair.
+     */
+    private fun bindDual(provider: ProcessCameraProvider): Boolean {
+        val pair = dualPair ?: return false
+        val feeds = listOfNotNull(dualChoice(pair.first), dualChoice(pair.second))
+        if (feeds.size != 2) return false
+        val host = dualHost(feeds)
+        val hostChoice = feeds[host]
+        val guestChoice = feeds[1 - host]
+        val writing = phase == Phase.Recording
+        val wanted = CaptureFormat.of(CaptureFormat.Wish(false, false, false), hostChoice.offers)
+        for (fixed in listOf(true, false)) {
+            if (!writing) {
+                format = if (fixed) wanted else wanted.copy(fixedRate = false)
+                cases = build(format, cases.video.targetRotation, CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE, mirrors = false)
+            }
+            val guest = Preview.Builder()
+                .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
+                .apply { if (fixed) setTargetFrameRate(THIRTY) }
+                .build()
+                .also { it.setSurfaceProvider(frames.dualGuest) }
+            camera = null
+            // The pair is named before the bind, so the effect knows which camera is the host.
+            val upright = feeds.map { it.info.getSensorRotationDegrees(cases.video.targetRotation) }
+            frames.dual = CameraFrames.Dual(
+                dualLayout, DualCameraControls.canvas(landscape = upright[host] % 180 == 0), feeds.map { it.front }, upright, host,
+                settings.mirrorPreview, settings.mirrorRecording,
+            )
+            val bound = try {
+                provider.bindToLifecycle(listOf(
+                    ConcurrentCamera.SingleCameraConfig(
+                        hostChoice.info.cameraSelector,
+                        UseCaseGroup.Builder().addUseCase(cases.preview).addUseCase(cases.video).addEffect(frames.dualEffect()).build(),
+                        held,
+                    ),
+                    ConcurrentCamera.SingleCameraConfig(guestChoice.info.cameraSelector, UseCaseGroup.Builder().addUseCase(guest).build(), held),
+                ))
+            } catch (problem: Exception) {
+                android.util.Log.w("TwoCameras", "Binding ${pair.id}", problem)
+                provider.unbindAll()
+                null
+            } ?: continue
+            concurrent = bound
+            val hostCamera = bound.cameras.firstOrNull { Camera2CameraInfo.from(it.cameraInfo).cameraId == hostChoice.id } ?: bound.cameras.first()
+            // Both lenses at their own 1×, as the original sets each device's zoom (MultiCameraCapture.swift:143).
+            bound.cameras.forEach { it.cameraControl.setZoomRatio(1f) }
+            camera = hostCamera
+            focus.unbound()
+            subjectPoint = null
+            frames.target(null)
+            dollyMeasurement = null
+            cameraID = hostChoice.id
+            zoomRange = 1.0..1.0
+            zoom = 1.0
+            frames.resetDualReport()
+            updateFrames()
+            return true
+        }
+        frames.dual = null
+        return false
+    }
+
     // MARK: Live camera moves: Crash Zoom and Dolly Zoom (CaptureController.swift:212-233, 1382-1389, 2005-2106).
 
     /** The live video effects: the moves' settings, chosen in the recorder's Video effects panel. */
     val liveEffects: List<VideoEffectSettings> get() = settings.liveVideoEffects
     private fun template(kind: VideoEffectID) = liveEffects.firstOrNull { it.enabled && it.kind == kind }
     /** The Crash Zoom button shows. */
-    val crashAvailable: Boolean get() = template(VideoEffectID.CrashZoom) != null
+    val crashAvailable: Boolean get() = !dualActive && template(VideoEffectID.CrashZoom) != null
     /** The Dolly Zoom button shows. */
-    val dollyAvailable: Boolean get() = template(VideoEffectID.DollyZoom) != null
+    val dollyAvailable: Boolean get() = !dualActive && template(VideoEffectID.DollyZoom) != null
     /** The subject is looked for: for a Dolly Zoom, and for a Crash Zoom that follows a face. LiveVideoEffects.swift:532. */
     private val tracksSubject: Boolean get() = dollyAvailable || template(VideoEffectID.CrashZoom)?.toggle("trackFace") == true
 
@@ -1103,6 +1294,14 @@ class CaptureController(private val context: Context, private val store: Project
 
     fun chooseFollowFace(on: Boolean) {
         if (!canChangeFollow || settings.followFace == on) return
+        if (dualActive) {
+            // The framing follow face reached is kept as the person's. CaptureController.swift:852-856.
+            val held = dualDisplayLayout
+            settings.followFace = on
+            dualFollowFraming = null
+            updateDualLayout(held)
+            return
+        }
         settings.followFace = on
         if (canChangeFormat) refreshAssists() else applyZoom(zoom)
     }
@@ -1122,7 +1321,9 @@ class CaptureController(private val context: Context, private val store: Project
     /** Binds again when what the frames are drawn for has changed, so that with no assist on nothing is in the way. */
     private fun refreshAssists() {
         val choice = current ?: return
-        if (assistTargets(choice) != cases.effects) rebind() else applyZoom(zoom)
+        // Two cameras' frames always pass through [frames]: the assists change what it composes.
+        if (dualActive) updateFrames()
+        else if (assistTargets(choice) != cases.effects) rebind() else applyZoom(zoom)
     }
 
     /** Tells [frames] what to do with the next frames. */
@@ -1142,6 +1343,7 @@ class CaptureController(private val context: Context, private val store: Project
             mirrored = current?.front == true && settings.mirrorRecording,
         )
         frames.listenToGravity(level != null && inFront)
+        updateDual()
     }
 
     /** Sets the recording gain of the microphone in use, from the next segment's sound on. */
@@ -1340,7 +1542,7 @@ class CaptureController(private val context: Context, private val store: Project
         // Follow face keeps the lens at its widest and makes the zoom with its crop.
         camera?.cameraControl?.setZoomRatio((if (followsDigitally) zoomRange.start else bounded).toFloat())
         updateFrames()
-        if (remember) cameraID?.let { prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply() }
+        if (remember && !dualActive) cameraID?.let { prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply() }
     }
 
     fun zoomTo(target: Double, seconds: Double = zoomDuration, forDolly: Boolean = false) {
@@ -1481,6 +1683,7 @@ class CaptureController(private val context: Context, private val store: Project
         phase = Phase.Recording
         cancelFrameTools()
         movesOrigin = SystemClock.elapsedRealtimeNanos()
+        if (dualActive) frames.resetDualReport()
         publishMoves()
         publishLooks()
         saveRecipe(next)
@@ -1521,6 +1724,11 @@ class CaptureController(private val context: Context, private val store: Project
             // Already saving for Pause: a later Stop still ends the take.
             if (next == Phase.Idle) current.requested = next
             return
+        }
+        // How the two feeds came during the segment, for the development build's checks (MultiCameraCapture.swift:308-320).
+        if (dualActive && context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            val report = frames.dualReport()
+            android.util.Log.i("TwoCameras", "Segment: ${report.composed} composed, ${report.guestFrames} of the other camera, gap between the feeds mean %.4f s, max %.4f s, %d gaps of the camera".format(report.meanSkew, report.maximumSkew, report.hostGaps))
         }
         current.requested = next
         stopDolly(immediate = false, reason = if (next == Phase.Paused) DollyHint.MovePaused else DollyHint.RecordingStopped)

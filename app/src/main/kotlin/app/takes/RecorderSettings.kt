@@ -3,6 +3,8 @@ package app.takes
 import android.content.SharedPreferences
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import app.takes.core.DualCameraControls
+import app.takes.core.DualCameraLayout
 import app.takes.core.FocusControl
 import app.takes.core.FrontLight
 import app.takes.core.HorizonFraming
@@ -65,6 +67,14 @@ class RecorderSettings(private val prefs: SharedPreferences) {
 
     /** Follow a face with the picture of a single camera (the original's `dualFaceFollow`). */
     var followFace: Boolean by flag("dualFaceFollow", false)
+
+    /**
+     * How two cameras are laid out (the original's `dualCameraLayout`, CaptureController.swift:89-96, 944-951): kept
+     * between launches, while two cameras themselves are turned on each time, as in the original.
+     */
+    var dualLayout: DualCameraLayout by stored(DualCameraControls.decode(prefs.getString("dualCameraLayout", null))) {
+        putString("dualCameraLayout", DualCameraControls.encode(it))
+    }
 
     /** Mark sharp edges in the preview (the original's `focusPeaking`). */
     var focusPeaking: Boolean by flag("focusPeaking", false)

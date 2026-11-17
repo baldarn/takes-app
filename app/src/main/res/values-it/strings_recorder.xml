@@ -182,4 +182,36 @@
     <string name="recorder_gain_reset">Riporta a 0</string>
     <string name="recorder_gain_note">Cambia il volume delle nuove registrazioni, anche durante una ripresa. Ricordato per ogni microfono. Il livello va a ogni nuova clip, dove l\'editor può cambiarlo di nuovo. Il rosso indica che il segnale può distorcere; abbassare il guadagno non ripara la distorsione già presente nel microfono.</string>
     <string name="recorder_receipt_failed">Non è stato possibile salvare le informazioni della registrazione. %1$s</string>
+    <!-- Two cameras: RecorderView.swift:292-320, 515-523, 819-883, 1225-1232, 1386-1531; CaptureController.swift:995. -->
+    <string name="recorder_dual_use">Usa due fotocamere</string>
+    <string name="recorder_dual_first">Prima</string>
+    <string name="recorder_dual_second">Seconda</string>
+    <string name="recorder_dual_first_camera">Prima fotocamera</string>
+    <string name="recorder_dual_second_camera">Seconda fotocamera</string>
+    <string name="recorder_dual_format">1080p · 30 fps</string>
+    <string name="recorder_dual_section">Due fotocamere</string>
+    <string name="recorder_dual_section_format">1080p · 30 fps · SDR</string>
+    <string name="recorder_dual_note">Registra un unico video composto. I cambi di disposizione restano nel filmato. Qualità e HDR della fotocamera singola restano per quando torni a una fotocamera. Dolly Zoom e Crash Zoom richiedono una fotocamera singola.</string>
+    <string name="recorder_dual_failed">Non è stato possibile avviare le due fotocamere. È tornata la registrazione con una fotocamera.</string>
+    <string name="recorder_dual_swap">Scambia fotocamere</string>
+    <string name="recorder_dual_layout">Disposizione</string>
+    <string name="recorder_dual_floating">Riquadro</string>
+    <string name="recorder_dual_side_by_side">Affiancate</string>
+    <string name="recorder_dual_top_and_bottom">Sopra e sotto</string>
+    <string name="recorder_dual_diagonal">Diagonale</string>
+    <string name="recorder_dual_rectangle">Rettangolo</string>
+    <string name="recorder_dual_circle">Cerchio</string>
+    <string name="recorder_dual_hint_diagonal">Tocca il divisore per invertirlo · Due dita per spostare o zoomare</string>
+    <string name="recorder_dual_hint_circle">Trascina per spostare · Pizzica per ridimensionare</string>
+    <string name="recorder_dual_hint_rectangle">Trascina per spostare · Pizzica di lato per cambiare forma</string>
+    <string name="recorder_dual_hint_split">Trascina il divisore · Due dita per spostare o zoomare</string>
+    <string name="recorder_dual_flip_diagonal">Inverti diagonale</string>
+    <string name="recorder_dual_diagonal_falls_right">Da in alto a sinistra a in basso a destra</string>
+    <string name="recorder_dual_diagonal_falls_left">Da in alto a destra a in basso a sinistra</string>
+    <string name="recorder_dual_divider">Divisore delle fotocamere</string>
+    <string name="recorder_dual_divider_value">%1$d per cento</string>
+    <string name="recorder_dual_inset">Fotocamera nel riquadro</string>
+    <string name="recorder_dual_inset_round_hint">Trascina per spostare. Pizzica per ridimensionare il cerchio.</string>
+    <string name="recorder_dual_inset_hint">Trascina per spostare. Pizzicando in orizzontale cambia la larghezza, in verticale l\'altezza, in diagonale le proporzioni restano.</string>
+    <string name="recorder_follow_help_dual">Centra con delicatezza un volto in ogni immagine, con lo spazio che la sua disposizione lascia. Se il volto esce, l\'inquadratura resta ferma. Spostare a mano disattiva l\'inseguimento.</string>
 </resources>

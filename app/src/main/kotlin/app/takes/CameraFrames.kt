@@ -28,7 +28,9 @@ import androidx.camera.core.SurfaceRequest
 import androidx.core.os.HandlerCompat
 import app.takes.core.Affine
 import app.takes.core.CrashLook
+import app.takes.core.DualCameraControls
 import app.takes.core.DualCameraLayout
+import app.takes.core.DualCameraMasks
 import app.takes.core.FaceFraming
 import app.takes.core.FaceTarget
 import app.takes.core.HorizonEstimate
@@ -240,14 +242,18 @@ class CameraFrames(context: Context) {
     private inner class Pass(name: String) : SurfaceProcessor {
         private val thread = HandlerThread(name).apply { start() }
         val handler: Handler = HandlerCompat.createAsync(thread.looper)
-        private val executor = Executor { handler.post(it) }
+        val executor = Executor { handler.post(it) }
 
         fun effect(target: Int): CameraEffect = object : CameraEffect(target, executor, this, { _ -> }) {}
 
-        private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
-        private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
-        private var config: EGLConfig? = null
-        private var idle: EGLSurface = EGL14.EGL_NO_SURFACE
+        var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
+            private set
+        var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
+            private set
+        var config: EGLConfig? = null
+            private set
+        var idle: EGLSurface = EGL14.EGL_NO_SURFACE
+            private set
         private var program = 0
         private var texture = 0
         private var input: SurfaceTexture? = null
@@ -260,7 +266,7 @@ class CameraFrames(context: Context) {
         private inner class Output(val output: SurfaceOutput, val surface: EGLSurface, val video: Boolean)
         private val outputs = mutableListOf<Output>()
 
-        private fun setUp() {
+        fun setUp() {
             if (display != EGL14.EGL_NO_DISPLAY) return
             display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
             val version = IntArray(2)
@@ -694,6 +700,489 @@ class CameraFrames(context: Context) {
         return Rect(minX, minY, abs(corners[0].first - corners[1].first), abs(corners[0].second - corners[1].second))
     }
 
+    // MARK: Two cameras
+
+    /**
+     * What the two cameras' picture is to be (MultiCameraCapture.swift:171-191), set from the main thread and read with
+     * each frame. Feeds are the pair's first and second camera, whatever Swap shows where.
+     */
+    data class Dual(
+        val layout: DualCameraLayout,
+        /** The composed picture, 1080 × 1920 standing or 1920 × 1080 (DualCameraControls.canvas). */
+        val canvas: Size,
+        /** For each feed: a front camera, and the degrees its camera's picture turns clockwise to stand as recorded. */
+        val front: List<Boolean>,
+        val upright: List<Int>,
+        /** The feed whose camera carries the preview and the recording: its frames time the composed picture. */
+        val host: Int,
+        val mirrorPreview: Boolean,
+        val mirrorRecording: Boolean,
+        /** The largest angle of the level horizon, for the rear feeds, or null when it is off. */
+        val levelDegrees: Double? = null,
+        val stabilized: Boolean = false,
+        val follow: Boolean = false,
+    )
+
+    @Volatile var dual: Dual? = null
+    /** Called on the main thread, about ten times a second while follow face frames two cameras, with each feed's framing. */
+    @Volatile var onDualFraming: ((DualCameraLayout.Framing, DualCameraLayout.Framing) -> Unit)? = null
+
+    /** The effect that draws the two cameras' picture into the host camera's preview and recording. */
+    fun dualEffect(): CameraEffect = twin.effect()
+
+    /** Where the other camera of the pair gives its frames. */
+    val dualGuest: androidx.camera.core.Preview.SurfaceProvider get() = twin.guest
+
+    /** How the two feeds came, for the development build's checks: composed pictures, the other camera's frames, the gap between the feeds. */
+    data class DualReport(val composed: Int, val guestFrames: Int, val maximumSkew: Double, val meanSkew: Double, val hostGaps: Int = 0)
+
+    fun dualReport(): DualReport = twin.report()
+
+    /** The counts of [dualReport] start again. */
+    fun resetDualReport() = preview.handler.post { twin.resetReport() }
+
+    private val twin = Twin()
+
+    /**
+     * The original's compositor (MultiCameraCapture.swift:205-307) on the preview's thread and OpenGL context, so that
+     * the live looks are drawn over it as over one camera: the host camera's frames come through [effect] with its
+     * preview and recording as outputs, the other camera's through [guest]; each host frame is composed with the other
+     * camera's latest into one picture, the recording's and, when a front camera's mirror differs, the preview's.
+     */
+    private inner class Twin : SurfaceProcessor {
+        fun effect(): CameraEffect = object : CameraEffect(CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE, preview.executor, this, { _ -> }) {}
+
+        private val textures = IntArray(2)
+        private val inputs = arrayOfNulls<SurfaceTexture>(2)
+        private val sizes = arrayOf(android.util.Size(1920, 1080), android.util.Size(1920, 1080))
+        private val stamps = LongArray(2)
+        private var host = 0
+        private val hostMatrix = FloatArray(16)
+        private val outputMatrix = FloatArray(16)
+
+        private inner class Output(val output: SurfaceOutput, val surface: EGLSurface, val video: Boolean)
+        private val outputs = mutableListOf<Output>()
+
+        private inner class Target {
+            var frameBuffer = 0
+            var texture = 0
+            var width = 0
+            var height = 0
+
+            fun size(w: Int, h: Int) {
+                if (w == width && h == height && frameBuffer != 0) return
+                if (frameBuffer != 0) {
+                    GLES20.glDeleteFramebuffers(1, intArrayOf(frameBuffer), 0)
+                    GLES20.glDeleteTextures(1, intArrayOf(texture), 0)
+                }
+                val names = IntArray(1)
+                GLES20.glGenTextures(1, names, 0)
+                texture = names[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glGenFramebuffers(1, names, 0)
+                frameBuffer = names[0]
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer)
+                GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, texture, 0)
+                width = w
+                height = h
+            }
+        }
+
+        private val recorded = Target()
+        private val previewed = Target()
+        private val small = Target()
+        private var composer = 0
+        private var presenter = 0
+        private var copier = 0
+
+        // The report, and the follow's and the level's state, on the preview's thread.
+        private var composed = 0
+        private var guestFrames = 0
+        private var maximumSkew = 0.0
+        private var skewSum = 0.0
+        private var skewCount = 0
+        @Volatile private var snapshot = DualReport(0, 0, 0.0, 0.0)
+        private val horizons = arrayOf(HorizonEstimate(), HorizonEstimate())
+        private var levelSet: Double? = null
+        private val following = arrayOf(DualCameraLayout.Framing(), DualCameraLayout.Framing())
+        private var lastLayout: DualCameraLayout? = null
+        private var lastFollow = false
+        private val targets = arrayOf(FaceTarget(), FaceTarget())
+        private var lastFrame = Double.NEGATIVE_INFINITY
+        private var lastPublish = Double.NEGATIVE_INFINITY
+        private var lastFaces = Double.NEGATIVE_INFINITY
+        @Volatile private var detecting = false
+        private var faceGeneration = 0
+
+        fun report(): DualReport = snapshot
+
+        fun resetReport() {
+            composed = 0; guestFrames = 0; maximumSkew = 0.0; skewSum = 0.0; skewCount = 0; hostGaps = 0
+            snapshot = DualReport(0, 0, 0.0, 0.0)
+        }
+
+        val guest = androidx.camera.core.Preview.SurfaceProvider { request ->
+            preview.handler.post {
+                val feed = 1 - (dual?.host ?: 0)
+                attach(feed, request) { surfaceTexture ->
+                    if (surfaceTexture !== inputs[feed]) return@attach
+                    EGL14.eglMakeCurrent(preview.display, preview.idle, preview.idle, preview.eglContext)
+                    surfaceTexture.updateTexImage()
+                    stamps[feed] = surfaceTexture.timestamp
+                    guestFrames++
+                    keep(feed)
+                }
+            }
+        }
+
+        override fun onInputSurface(request: SurfaceRequest) {
+            host = dual?.host ?: 0
+            attach(host, request) { draw(it) }
+        }
+
+        private fun attach(feed: Int, request: SurfaceRequest, frame: (SurfaceTexture) -> Unit) {
+            preview.setUp()
+            EGL14.eglMakeCurrent(preview.display, preview.idle, preview.idle, preview.eglContext)
+            if (textures[feed] == 0) {
+                val names = IntArray(1)
+                GLES20.glGenTextures(1, names, 0)
+                textures[feed] = names[0]
+                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, names[0])
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            }
+            inputs[feed]?.setOnFrameAvailableListener(null)
+            sizes[feed] = request.resolution
+            stamps[feed] = 0
+            val surfaceTexture = SurfaceTexture(textures[feed]).apply { setDefaultBufferSize(request.resolution.width, request.resolution.height) }
+            val surface = Surface(surfaceTexture)
+            inputs[feed] = surfaceTexture
+            surfaceTexture.setOnFrameAvailableListener({ frame(it) }, preview.handler)
+            request.provideSurface(surface, preview.executor) {
+                surfaceTexture.setOnFrameAvailableListener(null)
+                surfaceTexture.release()
+                surface.release()
+                if (inputs[feed] === surfaceTexture) { inputs[feed] = null; stamps[feed] = 0 }
+            }
+            synchronized(framingLock) { faceGeneration++ }
+            targets[0] = FaceTarget(); targets[1] = FaceTarget()
+            lastFrame = Double.NEGATIVE_INFINITY
+        }
+
+        override fun onOutputSurface(output: SurfaceOutput) {
+            preview.setUp()
+            val surface = output.getSurface(preview.executor) { event ->
+                if (event.eventCode == SurfaceOutput.Event.EVENT_REQUEST_CLOSE) {
+                    outputs.firstOrNull { it.output === output }?.let {
+                        outputs.remove(it)
+                        EGL14.eglMakeCurrent(preview.display, preview.idle, preview.idle, preview.eglContext)
+                        EGL14.eglDestroySurface(preview.display, it.surface)
+                    }
+                    output.close()
+                }
+            }
+            val egl = EGL14.eglCreateWindowSurface(preview.display, preview.config, surface, intArrayOf(EGL14.EGL_NONE), 0)
+            outputs += Output(output, egl, output.targets and CameraEffect.VIDEO_CAPTURE != 0)
+        }
+
+        /** From a point of a feed standing as recorded (top-left fractions) to its camera's texture, levelled when the level horizon turns it. */
+        private fun feedMatrix(upright: Int, level: HorizonFraming?, cameraSize: Size): Affine {
+            val o = RecorderFramePoints.toCamera(Point(0.0, 0.0), upright, false)
+            val x = RecorderFramePoints.toCamera(Point(1.0, 0.0), upright, false)
+            val y = RecorderFramePoints.toCamera(Point(0.0, 1.0), upright, false)
+            val camera = Affine(x.x - o.x, x.y - o.y, y.x - o.x, y.y - o.y, o.x, o.y)
+            return level?.let { camera.concatenating(it.sourceTransform(cameraSize)) } ?: camera
+        }
+
+        private fun columns(m: Affine) = floatArrayOf(m.a.toFloat(), m.b.toFloat(), 0f, m.c.toFloat(), m.d.toFloat(), 0f, m.tx.toFloat(), m.ty.toFloat(), 1f)
+
+        private var hostGaps = 0
+        // The last two frames of each feed, copied as they come with their times, to pair a moment of both.
+        private val kept = Array(2) { arrayOf(Target(), Target()) }
+        private val keptStamps = Array(2) { LongArray(2) }
+        private val keptNext = IntArray(2)
+
+        /** Copies the frame [feed]'s texture holds now. */
+        private fun keep(feed: Int) {
+            val slot = keptNext[feed]
+            keptNext[feed] = 1 - slot
+            val target = kept[feed][slot]
+            target.size(sizes[feed].width, sizes[feed].height)
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, target.frameBuffer)
+            GLES20.glViewport(0, 0, target.width, target.height)
+            feed(textures[feed], Affine.IDENTITY)
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+            keptStamps[feed][slot] = stamps[feed]
+        }
+
+        /**
+         * A frame of the host camera. The picture is composed one frame behind it, from the host's previous frame and
+         * the other camera's frame nearest in time, as the original pairs the two cameras' frames
+         * (DualCameraLayout.swift:182-189, MultiCameraCapture.swift:205-218): the other camera's frames reach the app
+         * later than the host's, and a frame of the take is composed at each frame of the host, at its pace, so that
+         * none is lost.
+         */
+        private fun draw(surfaceTexture: SurfaceTexture) {
+            if (surfaceTexture !== inputs[host]) return
+            EGL14.eglMakeCurrent(preview.display, preview.idle, preview.idle, preview.eglContext)
+            surfaceTexture.updateTexImage()
+            surfaceTexture.getTransformMatrix(hostMatrix)
+            if (stamps[host] != 0L && surfaceTexture.timestamp - stamps[host] > 50_000_000L) hostGaps++
+            stamps[host] = surfaceTexture.timestamp
+            val previous = 1 - keptNext[host]
+            val ready = keptStamps[host][previous] != 0L
+            val hostSlot = previous
+            keep(host)
+            if (ready) composeFrame(hostSlot)
+        }
+
+        private fun composeFrame(hostSlot: Int) {
+            val display = preview.display
+            EGL14.eglMakeCurrent(display, preview.idle, preview.idle, preview.eglContext)
+            val d = dual ?: return
+            val nanos = SystemClock.elapsedRealtimeNanos()
+            val now = nanos / 1e9
+            val other = 1 - host
+            val time = keptStamps[host][hostSlot]
+            // The other camera's kept frame nearest the host's.
+            val otherSlot = (0..1).filter { keptStamps[other][it] != 0L }.minByOrNull { abs(keptStamps[other][it] - time) }
+            val slots = IntArray(2).also { it[host] = hostSlot; it[other] = otherSlot ?: 0 }
+            val delivered = BooleanArray(2).also { it[host] = true; it[other] = otherSlot != null }
+            if (otherSlot != null) {
+                val skew = abs(time - keptStamps[other][otherSlot]) / 1e9
+                maximumSkew = max(maximumSkew, skew); skewSum += skew; skewCount++
+            }
+            composed++
+            snapshot = DualReport(composed, guestFrames, maximumSkew, if (skewCount > 0) skewSum / skewCount else 0.0, hostGaps)
+            // Each feed standing as recorded, and the way into its camera's picture, levelled for a rear camera.
+            if (d.levelDegrees != levelSet) { horizons[0] = HorizonEstimate(); horizons[1] = HorizonEstimate(); levelSet = d.levelDegrees }
+            val g = gravity?.takeIf { nanos - gravityAt < 250_000_000L }
+            val roll = g?.let { HorizonEstimate.roll(-it[0] / SensorManager.GRAVITY_EARTH.toDouble(), -it[1] / SensorManager.GRAVITY_EARTH.toDouble(), 90.0, false) }
+            val feedSizes = Array(2) { f ->
+                val sideways = (d.upright[f] % 180 + 180) % 180 != 0
+                Size((if (sideways) sizes[f].height else sizes[f].width).toDouble(), (if (sideways) sizes[f].width else sizes[f].height).toDouble())
+            }
+            val matrices = Array(2) { f ->
+                val cameraSize = Size(sizes[f].width.toDouble(), sizes[f].height.toDouble())
+                // MultiCameraCapture.swift:232-239: the level horizon turns the rear cameras' feeds.
+                val level = d.levelDegrees?.takeIf { !d.front[f] }?.let { maximum ->
+                    HorizonFraming(horizons[f].correction(roll, now, maximum, d.stabilized), HorizonFraming.scale(maximum, cameraSize))
+                }
+                feedMatrix(d.upright[f], level, cameraSize)
+            }
+            val layout = follow(d, feedSizes, matrices, now)
+            val canvasWidth = d.canvas.width.toInt()
+            val canvasHeight = d.canvas.height.toInt()
+            val previewing = outputs.any { !it.video }
+            val recording = outputs.any { it.video }
+            val recordMirror = List(2) { d.front[it] && d.mirrorRecording }
+            val previewMirror = List(2) { d.front[it] && d.mirrorPreview }
+            val apart = previewing && recordMirror != previewMirror
+            if (recording || !apart) compose(recorded, d, layout, feedSizes, matrices, recordMirror, slots, delivered)
+            if (apart) compose(previewed, d, layout, feedSizes, matrices, previewMirror, slots, delivered)
+            val shownCanvas = if (apart) previewed else recorded
+            // The looks over the preview, as over one camera's picture. MultiCameraCapture.swift:268, CaptureController.swift:594.
+            var drewLooks = false
+            if (previewing) {
+                val looking = looks
+                val lookTime = VideoEffectTime.captureTime((nanos - moves.origin) / 1e9)
+                val (shown, tried) = LiveVideoEffects.displayed(looking.effects, lookTime, looking.recording, audition)
+                audition = tried
+                drewLooks = (looking.tool || shown.any { it.enabled }) && try {
+                    live.draw(shown, lookTime, canvasWidth, canvasHeight, thermal, looking.tool) { width, height ->
+                        GLES20.glViewport(0, 0, width, height)
+                        copy(shownCanvas.texture)
+                    }
+                } catch (problem: Exception) {
+                    android.util.Log.w("LiveEffects", "Live effect preview", problem)
+                    false
+                }
+                looksShown = drewLooks
+            }
+            for (output in outputs.toList()) {
+                if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, preview.eglContext)) continue
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+                output.output.updateTransformMatrix(outputMatrix, hostMatrix)
+                GLES20.glViewport(0, 0, output.output.size.width, output.output.size.height)
+                val texture = when {
+                    output.video -> recorded.texture
+                    drewLooks -> live.resultTexture
+                    else -> shownCanvas.texture
+                }
+                present(texture, outputMatrix, d.upright[host])
+                if (output.video) EGLExt.eglPresentationTimeANDROID(display, output.surface, time)
+                EGL14.eglSwapBuffers(display, output.surface)
+            }
+            if (drewLooks) live.shown((SystemClock.elapsedRealtimeNanos() - nanos) / 1e9, max(canvasWidth, canvasHeight).toDouble())
+        }
+
+        /**
+         * The layout drawn: the person's, with each feed's framing moved by follow face within the room its layout
+         * leaves, toward the middle, or a quarter from the top and the bottom on the diagonal. MultiCameraCapture.swift:181-191, 242-254.
+         */
+        private fun follow(d: Dual, feedSizes: Array<Size>, matrices: Array<Affine>, now: Double): DualCameraLayout {
+            val layout = d.layout
+            if (d.follow != lastFollow) { lastFollow = d.follow; targets[0] = FaceTarget(); targets[1] = FaceTarget(); lastFrame = Double.NEGATIVE_INFINITY }
+            val old = lastLayout
+            for (f in 0..1) {
+                val chosen = if (f == 0) layout.first else layout.second
+                val before = old?.let { if (f == 0) it.first else it.second }
+                if (!d.follow || before == null || before.x != chosen.x || before.y != chosen.y) following[f] = chosen
+                following[f] = following[f].copy(zoom = chosen.zoom)
+            }
+            lastLayout = layout
+            if (!d.follow) { lastFrame = now; return layout }
+            detectFaces(feedSizes, matrices, now)
+            val regions = layout.regions(d.canvas)
+            for (slot in 0..1) {
+                val source = DualCameraControls.feed(layout, slot)
+                val face = targets[source].current(now)
+                val target = Point(0.5, if (layout.mode == DualCameraLayout.Mode.Diagonal) (if (slot == 0) 0.25 else 0.75) else 0.5)
+                following[source] = FaceFraming.follow(face, feedSizes[source], regions[slot], following[source], now - lastFrame, target)
+            }
+            lastFrame = now
+            val shown = layout.copy(first = following[0], second = following[1])
+            if (now - lastPublish >= 0.1) {
+                lastPublish = now
+                val first = following[0]
+                val second = following[1]
+                main.post { onDualFraming?.invoke(first, second) }
+            }
+            return shown
+        }
+
+        /** Both feeds standing, 480 on the long side, looked at for faces five times a second off this thread. DualFaceDetector.swift:19. */
+        private fun detectFaces(feedSizes: Array<Size>, matrices: Array<Affine>, now: Double) {
+            if (detecting || now - lastFaces < 0.2) return
+            lastFaces = now
+            detecting = true
+            val pictures = Array(2) { f ->
+                val long = 480.0
+                val scale = long / max(feedSizes[f].width, feedSizes[f].height)
+                val w = (feedSizes[f].width * scale).toInt() and 1.inv()
+                val h = (feedSizes[f].height * scale).toInt() and 1.inv()
+                small.size(w, h)
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, small.frameBuffer)
+                GLES20.glViewport(0, 0, w, h)
+                // The first row drawn, at the bottom, is the feed's top row, and the first row read back.
+                feed(textures[f], matrices[f])
+                val pixels = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
+                GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
+                Triple(pixels, w, h)
+            }
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+            val token = synchronized(framingLock) { faceGeneration }
+            analysis.execute {
+                val found = pictures.map { (pixels, w, h) -> faces(pixels, w, h, 0) }
+                preview.handler.post {
+                    detecting = false
+                    if (token != synchronized(framingLock) { faceGeneration }) return@post
+                    for (f in 0..1) targets[f] = targets[f].observing(found[f], now)
+                }
+            }
+        }
+
+        private fun compose(
+            target: Target, d: Dual, layout: DualCameraLayout, feedSizes: Array<Size>, matrices: Array<Affine>, mirrors: List<Boolean>, slots: IntArray, delivered: BooleanArray,
+        ) {
+            if (composer == 0) composer = link(VERTEX, COMPOSE)
+            val width = d.canvas.width.toInt()
+            val height = d.canvas.height.toInt()
+            target.size(width, height)
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, target.frameBuffer)
+            GLES20.glViewport(0, 0, width, height)
+            GLES20.glUseProgram(composer)
+            quad(composer, IDENTITY)
+            fun uniform(name: String) = GLES20.glGetUniformLocation(composer, name)
+            GLES20.glUniform2f(uniform("uCanvas"), width.toFloat(), height.toFloat())
+            val regions = layout.regions(d.canvas)
+            for (slot in 0..1) {
+                val source = DualCameraControls.feed(layout, slot)
+                val region = regions[slot]
+                val placed = DualCameraLayout.placement(feedSizes[source], region, if (source == 0) layout.first else layout.second)
+                GLES20.glUniform4f(uniform("uRegion$slot"), region.minX.toFloat(), region.minY.toFloat(), region.width.toFloat(), region.height.toFloat())
+                GLES20.glUniform4f(uniform("uPlaced$slot"), placed.minX.toFloat(), placed.minY.toFloat(), placed.width.toFloat(), placed.height.toFloat())
+                GLES20.glUniformMatrix3fv(uniform("uCamera$slot"), 1, false, columns(matrices[source]), 0)
+                GLES20.glUniform1f(uniform("uMirror$slot"), if (mirrors[source]) 1f else 0f)
+                GLES20.glUniform1f(uniform("uLive$slot"), if (delivered[source]) 1f else 0f)
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + slot)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, kept[source][slots[source]].texture)
+                GLES20.glUniform1i(uniform("uSlot$slot"), slot)
+            }
+            val mode = when (layout.mode) {
+                DualCameraLayout.Mode.Floating -> if (layout.isRound) 1 else 0
+                DualCameraLayout.Mode.SideBySide -> 2
+                DualCameraLayout.Mode.TopAndBottom -> 3
+                DualCameraLayout.Mode.Diagonal -> 4
+            }
+            GLES20.glUniform1i(uniform("uMode"), mode)
+            GLES20.glUniform1f(uniform("uFallsRight"), if (layout.diagonalFallsRight) 1f else 0f)
+            val line = DualCameraControls.separator(layout, d.canvas)
+            GLES20.glUniform4f(uniform("uSeparator"), (line?.minX ?: 0.0).toFloat(), (line?.minY ?: 0.0).toFloat(), (line?.width ?: 0.0).toFloat(), (line?.height ?: 0.0).toFloat())
+            GLES20.glUniform1f(uniform("uGrey"), DualCameraMasks.SEPARATOR_GREY.toFloat())
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        }
+
+        private fun quad(program: Int, output: FloatArray) {
+            val position = GLES20.glGetAttribLocation(program, "aPosition")
+            val coordinate = GLES20.glGetAttribLocation(program, "aCoordinate")
+            GLES20.glEnableVertexAttribArray(position)
+            GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 0, QUAD)
+            GLES20.glEnableVertexAttribArray(coordinate)
+            GLES20.glVertexAttribPointer(coordinate, 2, GLES20.GL_FLOAT, false, 0, CORNERS)
+            GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uOutput"), 1, false, output, 0)
+        }
+
+        /** The composed picture onto an output that maps itself onto the host camera's picture with [output]. */
+        private fun present(texture: Int, output: FloatArray, upright: Int) {
+            if (presenter == 0) presenter = link(VERTEX, PRESENT)
+            GLES20.glUseProgram(presenter)
+            quad(presenter, output)
+            // The host camera's picture to the composed one, rows from the bottom.
+            fun at(x: Double, y: Double) = RecorderFramePoints.fromCamera(Point(x, y), upright, false).let { Point(it.x, 1 - it.y) }
+            val o = at(0.0, 0.0)
+            val x = at(1.0, 0.0)
+            val y = at(0.0, 1.0)
+            GLES20.glUniformMatrix3fv(GLES20.glGetUniformLocation(presenter, "uEffect"), 1, false, columns(Affine(x.x - o.x, x.y - o.y, y.x - o.x, y.y - o.y, o.x, o.y)), 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(presenter, "uTexture"), 0)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        }
+
+        /** The composed picture as it is, for the looks to draw over. */
+        private fun copy(texture: Int) {
+            if (presenter == 0) presenter = link(VERTEX, PRESENT)
+            GLES20.glUseProgram(presenter)
+            quad(presenter, IDENTITY)
+            GLES20.glUniformMatrix3fv(GLES20.glGetUniformLocation(presenter, "uEffect"), 1, false, columns(Affine.IDENTITY), 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(presenter, "uTexture"), 0)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        }
+
+        /** One feed standing, rows from the top drawn first. */
+        private fun feed(texture: Int, matrix: Affine) {
+            if (copier == 0) copier = link(VERTEX, FEED)
+            GLES20.glUseProgram(copier)
+            quad(copier, IDENTITY)
+            GLES20.glUniformMatrix3fv(GLES20.glGetUniformLocation(copier, "uEffect"), 1, false, columns(matrix), 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(copier, "uTexture"), 0)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        }
+    }
+
     internal companion object {
         /** A program of the two shaders. */
         fun link(vertex: String, fragment: String): Int {
@@ -744,6 +1233,77 @@ class CameraFrames(context: Context) {
             uniform mat3 uEffect;
             varying vec2 vCoordinate;
             void main() { gl_FragColor = texture2D(uTexture, (uEffect * vec3(vCoordinate, 1.0)).xy); }
+        """
+
+        /** One feed of the two cameras, standing as recorded: [uEffect] from its top-left fractions to its camera's texture. */
+        private const val FEED = """
+            #extension GL_OES_EGL_image_external : require
+            precision mediump float;
+            uniform samplerExternalOES uTexture;
+            uniform mat3 uEffect;
+            varying vec2 vCoordinate;
+            void main() { gl_FragColor = texture2D(uTexture, (uEffect * vec3(vCoordinate, 1.0)).xy); }
+        """
+
+        /**
+         * The two cameras' picture, as the original's compositor (MultiCameraCapture.swift:272-307) and masks
+         * (DualCameraMasks.swift:11-40), at each pixel's centre in top-left canvas pixels: each slot's feed fills its region,
+         * placed with its pan and zoom and flipped about the region's middle when mirrored; the second slot covers the
+         * first by the core's coverage (DualCameraMasks.coverage): its region, a round inset with a one-pixel edge, or the
+         * lower triangle of the diagonal with a two-pixel separator ramped over a pixel; side by side and top and bottom
+         * have a two-pixel line between the halves. A feed with no frame yet is black.
+         */
+        private const val COMPOSE = """
+            precision highp float;
+            uniform sampler2D uSlot0;
+            uniform sampler2D uSlot1;
+            uniform vec2 uCanvas;
+            uniform vec4 uRegion0;
+            uniform vec4 uRegion1;
+            uniform vec4 uPlaced0;
+            uniform vec4 uPlaced1;
+            uniform mat3 uCamera0;
+            uniform mat3 uCamera1;
+            uniform float uMirror0;
+            uniform float uMirror1;
+            uniform float uLive0;
+            uniform float uLive1;
+            uniform int uMode;
+            uniform float uFallsRight;
+            uniform vec4 uSeparator;
+            uniform float uGrey;
+            vec2 at(vec2 p, vec4 region, vec4 placed, mat3 camera, float mirror) {
+                float x = mirror > 0.5 ? 2.0 * (region.x + region.z * 0.5) - p.x : p.x;
+                vec2 u = vec2((x - placed.x) / placed.z, (p.y - placed.y) / placed.w);
+                return (camera * vec3(u, 1.0)).xy;
+            }
+            bool inside(vec2 p, vec4 r) { return p.x >= r.x && p.x < r.x + r.z && p.y >= r.y && p.y < r.y + r.w; }
+            void main() {
+                vec2 p = vec2(gl_FragCoord.x, uCanvas.y - gl_FragCoord.y);
+                float second = 0.0;
+                float separator = 0.0;
+                if (uMode == 4) {
+                    float v = uFallsRight > 0.5 ? p.y / uCanvas.y - p.x / uCanvas.x : p.x / uCanvas.x + p.y / uCanvas.y - 1.0;
+                    float d = v / length(vec2(1.0 / uCanvas.x, 1.0 / uCanvas.y));
+                    float first = clamp(-0.5 - d, 0.0, 1.0);
+                    second = clamp(d - 0.5, 0.0, 1.0);
+                    separator = 1.0 - first - second;
+                } else if (uMode == 1) {
+                    float radius = uRegion1.z * 0.5;
+                    float inner = max(0.0, radius - 0.5);
+                    float outer = radius + 0.5;
+                    float dist = length(p - (uRegion1.xy + uRegion1.zw * 0.5));
+                    second = clamp((outer - dist) / (outer - inner), 0.0, 1.0);
+                } else if (inside(p, uRegion1)) {
+                    second = 1.0;
+                }
+                float first = 1.0 - second - separator;
+                vec3 colour = vec3(uGrey) * separator;
+                if (first > 0.0 && uLive0 > 0.5) colour += first * texture2D(uSlot0, at(p, uRegion0, uPlaced0, uCamera0, uMirror0)).rgb;
+                if (second > 0.0 && uLive1 > 0.5) colour += second * texture2D(uSlot1, at(p, uRegion1, uPlaced1, uCamera1, uMirror1)).rgb;
+                if (uSeparator.z > 0.0 && inside(p, uSeparator)) colour = vec3(uGrey);
+                gl_FragColor = vec4(colour, 1.0);
+            }
         """
 
         private const val FRAGMENT = """

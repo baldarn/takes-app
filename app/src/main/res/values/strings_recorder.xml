@@ -182,4 +182,36 @@
     <string name="recorder_gain_reset">Reset to 0</string>
     <string name="recorder_gain_note">Changes the volume of new recordings, including during a take. Remembered for each microphone. The level is given to each new clip, where the editor can change it again. Red means the signal may distort; lowering gain cannot repair distortion already present in the microphone.</string>
     <string name="recorder_receipt_failed">Could not save the recording information. %1$s</string>
+    <!-- Two cameras: RecorderView.swift:292-320, 515-523, 819-883, 1225-1232, 1386-1531; CaptureController.swift:995. -->
+    <string name="recorder_dual_use">Use two cameras</string>
+    <string name="recorder_dual_first">First</string>
+    <string name="recorder_dual_second">Second</string>
+    <string name="recorder_dual_first_camera">First camera</string>
+    <string name="recorder_dual_second_camera">Second camera</string>
+    <string name="recorder_dual_format">1080p · 30 fps</string>
+    <string name="recorder_dual_section">Two cameras</string>
+    <string name="recorder_dual_section_format">1080p · 30 fps · SDR</string>
+    <string name="recorder_dual_note">Records one composed video. Layout changes are saved in the footage. Single-camera quality and HDR settings are kept for when you switch back. Dolly Zoom and Crash Zoom require Single camera.</string>
+    <string name="recorder_dual_failed">The two cameras could not start. Single-camera recording has been restored.</string>
+    <string name="recorder_dual_swap">Swap cameras</string>
+    <string name="recorder_dual_layout">Layout</string>
+    <string name="recorder_dual_floating">Floating</string>
+    <string name="recorder_dual_side_by_side">Side by side</string>
+    <string name="recorder_dual_top_and_bottom">Top and bottom</string>
+    <string name="recorder_dual_diagonal">Diagonal</string>
+    <string name="recorder_dual_rectangle">Rectangle</string>
+    <string name="recorder_dual_circle">Circle</string>
+    <string name="recorder_dual_hint_diagonal">Tap divider to flip · Two fingers to pan or zoom</string>
+    <string name="recorder_dual_hint_circle">Drag to move · Pinch to resize</string>
+    <string name="recorder_dual_hint_rectangle">Drag to move · Pinch across to reshape</string>
+    <string name="recorder_dual_hint_split">Drag divider · Two fingers to pan or zoom</string>
+    <string name="recorder_dual_flip_diagonal">Flip diagonal</string>
+    <string name="recorder_dual_diagonal_falls_right">Top left to bottom right</string>
+    <string name="recorder_dual_diagonal_falls_left">Top right to bottom left</string>
+    <string name="recorder_dual_divider">Camera divider</string>
+    <string name="recorder_dual_divider_value">%1$d percent</string>
+    <string name="recorder_dual_inset">Floating camera</string>
+    <string name="recorder_dual_inset_round_hint">Drag to move. Pinch to resize the circle.</string>
+    <string name="recorder_dual_inset_hint">Drag to move. Horizontal pinches change width, vertical pinches change height, diagonal pinches resize proportionally.</string>
+    <string name="recorder_follow_help_dual">Gently centers a face in each picture using the room available in its layout. If the face leaves, framing holds. Panning manually turns following off.</string>
 </resources>

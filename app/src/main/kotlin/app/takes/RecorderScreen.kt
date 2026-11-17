@@ -180,6 +180,9 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     val settings = capture.settings
     var settingsOpen by remember { mutableStateOf(false) }
     var zoomOpen by remember { mutableStateOf(false) }
+    // The two cameras' layout being edited, from the Layout button. RecorderView.swift:49, 336.
+    var dualEditing by remember { mutableStateOf(false) }
+    LaunchedEffect(capture.dualActive) { if (capture.dualActive) zoomOpen = false else dualEditing = false }
     // Being on is not remembered, as in the original: the light is off whenever the recorder opens.
     var frontLight by remember { mutableStateOf(false) }
     var pinch by remember { mutableStateOf<PinchZoom?>(null) }
@@ -282,8 +285,8 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 // A tap chooses the subject of a camera move, in the recorded frame. CaptureController.swift:3236, 3340-3346.
                 framePoint(at)?.let { capture.selectSubject(it); bracket = at }
             } else {
-                // A tap on the picture focuses there, as in the original.
-                capture.focus.tap(previewView.meteringPointFactory.createPoint(at.x, at.y), at)
+                // A tap on the picture focuses there, as in the original; not with two cameras (CaptureController.swift:2443).
+                if (!capture.dualActive) capture.focus.tap(previewView.meteringPointFactory.createPoint(at.x, at.y), at)
             }
         },
     ) {
@@ -294,6 +297,10 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         cover?.let {
             Image(it, null, Modifier.fillMaxSize(), contentScale = if (settings.fitFrame) ContentScale.Fit else ContentScale.Crop)
         }
+        // The two cameras' pictures under the fingers, while the layout is edited or is not the floating one. RecorderView.swift:186.
+        if (capture.dualActive && !effectsOpen && capture.positioning == null && capture.colorPick == null &&
+            (dualEditing || capture.dualLayout.mode != app.takes.core.DualCameraLayout.Mode.Floating)
+        ) DualLayoutOverlay(capture, fill = !settings.fitFrame, handles = dualEditing, Modifier.matchParentSize())
         FocusBox(capture.focus)
         bracket?.let { SubjectBracket(it) }
         if (capture.positioning != null) BackgroundPlacing(capture, previewView, Modifier.matchParentSize())
@@ -316,6 +323,12 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                     Modifier.align(Alignment.TopStart).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Start))
                         .padding(top = 9.dp, start = 12.dp),
                 )
+                if (dualEditing && capture.dualActive) {
+                    DualLayoutBar(
+                        capture,
+                        Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).padding(top = 62.dp),
+                    ) { dualEditing = false }
+                }
                 if (capture.lookWarm) {
                     WarmBanner(
                         capture,
@@ -329,7 +342,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 ) { effectsOpen = true }
                 SettingsButton(
                     // A dot says that an assist is on.
-                    assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off || capture.levelling || capture.settings.followFace,
+                    assist = !capture.dualActive && (frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off || capture.levelling || capture.settings.followFace),
                 colour = stringResource(if (capture.format.hdr) R.string.recorder_color_hdr else R.string.recorder_color_sdr),
                     Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End)),
                 ) { settingsOpen = true }
@@ -352,10 +365,10 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                     FocusHint(capture.focus)
                     ProjectChip(capture, store, openEditor)
                     CameraMoveControls(capture, Modifier.padding(bottom = 6.dp))
-                    if (zoomOpen && capture.hasZoom) {
+                    if (zoomOpen && capture.hasZoom && !capture.dualActive) {
                         Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
                     }
-                    CameraStrip(capture, usable, zoomOpen, { zoomOpen = !zoomOpen }, switchCamera)
+                    CameraStrip(capture, usable, zoomOpen, { zoomOpen = !zoomOpen }, switchCamera, dualEditing) { dualEditing = !dualEditing }
                     if (!landscape) Controls(capture, store.selected?.title, rail = false)
                 }
             }
@@ -538,12 +551,20 @@ private fun ProjectAction(label: String, icon: ImageVector, enabled: Boolean, ac
  * the menu of cameras, the zoom read-out that opens the presets, the focus.
  */
 @Composable
-private fun CameraStrip(capture: CaptureController, usable: Boolean, zoomOpen: Boolean, toggleZoom: () -> Unit, switchCamera: (String, Boolean) -> Unit) {
+private fun CameraStrip(
+    capture: CaptureController, usable: Boolean, zoomOpen: Boolean, toggleZoom: () -> Unit, switchCamera: (String, Boolean) -> Unit,
+    dualEditing: Boolean, toggleDualEditing: () -> Unit,
+) {
     if (capture.cameras.isEmpty()) return
     Row(
         Modifier.padding(bottom = 14.dp).background(StripPlate, RoundedCornerShape(50)).padding(horizontal = 5.dp),
         Arrangement.spacedBy(6.dp), Alignment.CenterVertically,
     ) {
+        // With two cameras: Swap and Layout in place of the camera, zoom and focus. RecorderView.swift:515-523.
+        if (capture.dualActive) {
+            DualStripButtons(capture, dualEditing, toggleDualEditing)
+            return@Row
+        }
         val opposite = capture.oppositeCamera
         val flipLabel = stringResource(
             if (opposite?.front == true) R.string.recorder_flip_front else R.string.recorder_flip_back,

@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.AlertDialog
@@ -85,6 +87,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.CaptureController.Phase
 import app.takes.core.CaptureFormat
+import app.takes.core.DualCameraControls
 import app.takes.core.HorizonFraming
 import app.takes.core.Project
 import app.takes.core.ZoomTransition
@@ -176,7 +179,7 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
             })
             AssistTile(
                 stringResource(R.string.recorder_stabilize), Icons.Filled.CenterFocusWeak, on,
-                enabled = capture.canChangeFormat && (capture.offers.stabilization || capture.settings.stabilization),
+                enabled = capture.canChangeFormat && !capture.dualActive && (capture.offers.stabilization || capture.settings.stabilization),
                 details = status + "\n\n" + stringResource(R.string.recorder_stabilize_help), explain = { help = it }, modifier = modifier,
             ) { capture.chooseStabilization(!capture.settings.stabilization) }
         }
@@ -199,7 +202,7 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
         }) + "\n\n" else if (!capture.canChangeFollow && capture.ready) stringResource(R.string.recorder_assist_paused_only) + "\n\n" else ""
         AssistTile(
             stringResource(R.string.recorder_follow), Icons.Filled.Face, on, enabled = capture.canChangeFollow,
-            details = status + stringResource(R.string.recorder_follow_help), explain = { help = it }, modifier = modifier,
+            details = status + stringResource(if (capture.dualActive) R.string.recorder_follow_help_dual else R.string.recorder_follow_help), explain = { help = it }, modifier = modifier,
         ) { capture.chooseFollowFace(!capture.settings.followFace) }
     }
     tiles.add { modifier ->
@@ -215,6 +218,8 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
         FitGrid(4, spacing = 8.dp, wrapping = true) {
             tiles.forEach { it(Modifier) }
         }
+        // Only where the phone runs two cameras at once, as the original offers it (RecorderView.swift:819-833).
+        if (capture.dualPairs.isNotEmpty()) TwoCameras(capture)
         if (capture.offersHDR) RecordingColor(capture)
     }
     help?.let { text ->
@@ -255,6 +260,71 @@ internal fun AssistTile(
     }
 }
 
+/**
+ * "Use two cameras", and with them on the First and the Second camera, each menu offering only what the phone can
+ * pair: as the original (RecorderView.swift:648-681, 819-883). Changed before a take or while it is paused.
+ */
+@Composable
+private fun TwoCameras(capture: CaptureController) {
+    val enabled = capture.canChangeCameras
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SettingsSwitchRow(stringResource(R.string.recorder_dual_use), capture.dualActive, enabled) { capture.chooseTwoCameras(it) }
+        if (capture.dualActive) {
+            val (first, second) = DualCameraControls.slots(capture.dualPair, capture.dualLayout.swapped)
+            val all = DualCameraControls.cameras(capture.dualPairs)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DualCameraMenu(capture, true, first, all, enabled, Modifier.weight(1f))
+                DualCameraMenu(capture, false, second, DualCameraControls.partners(capture.dualPairs, first), enabled, Modifier.weight(1f))
+            }
+            SettingsNote(stringResource(R.string.recorder_dual_format))
+        }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(label: String, on: Boolean, enabled: Boolean, change: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).alpha(if (enabled) 1f else 0.4f), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Switch(
+            on, change, enabled = enabled,
+            colors = SwitchDefaults.colors(checkedTrackColor = SettingsCyan, checkedThumbColor = Color.White, disabledCheckedTrackColor = SettingsCyan),
+        )
+    }
+}
+
+@Composable
+private fun DualCameraMenu(
+    capture: CaptureController, firstSlot: Boolean, selection: DualCameraControls.Camera?, choices: List<DualCameraControls.Camera>, enabled: Boolean, modifier: Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    val name = capture.dualChoice(selection)?.label ?: stringResource(R.string.recorder_camera)
+    val label = stringResource(if (firstSlot) R.string.recorder_dual_first_camera else R.string.recorder_dual_second_camera)
+    Box(modifier) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(10.dp))
+                .background(Color.White.copy(alpha = 0.07f)).clickable(enabled = enabled, role = Role.DropdownList) { open = true }
+                .padding(horizontal = 12.dp).semantics(mergeDescendants = true) { contentDescription = label; stateDescription = name },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(if (firstSlot) R.string.recorder_dual_first else R.string.recorder_dual_second), color = Secondary, fontSize = 11.sp)
+                Text(name, color = Color.White, fontSize = 14.sp, maxLines = 1)
+            }
+            Icon(Icons.Filled.UnfoldMore, null, Modifier.size(16.dp), tint = Color.White)
+        }
+        DropdownMenu(open, { open = false }) {
+            choices.forEach { camera ->
+                DropdownMenuItem(
+                    { Text(capture.dualChoice(camera)?.label ?: camera.id) },
+                    { open = false; capture.chooseDualCamera(camera, firstSlot) },
+                    leadingIcon = { Icon(if (camera.id == selection?.id) Icons.Filled.Check else Icons.Filled.PhotoCamera, null) },
+                    modifier = Modifier.semantics { selected = camera.id == selection?.id },
+                )
+            }
+        }
+    }
+}
+
 /** "Recording color", as in the original without Log: SDR or HDR, changed before a take or while it is paused. */
 @Composable
 private fun RecordingColor(capture: CaptureController) {
@@ -264,7 +334,7 @@ private fun RecordingColor(capture: CaptureController) {
         Row(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(11.dp)).padding(3.dp), Arrangement.spacedBy(3.dp)) {
             listOf(false to R.string.recorder_color_sdr, true to R.string.recorder_color_hdr).forEach { (mode, name) ->
                 val chosen = mode == hdr
-                val enabled = capture.canChangeFormat && (!mode || capture.offers.hdr)
+                val enabled = capture.canChangeFormat && (!mode || capture.offers.hdr && !capture.dualActive)
                 Box(
                     Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(8.dp)).background(if (chosen) SettingsCyan else Color.Transparent)
                         .clickable(enabled = enabled, role = Role.RadioButton) { if (!chosen) capture.chooseHDR(mode) }.semantics { selected = chosen },
@@ -302,6 +372,13 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
             SettingsRow { SettingsNote(stringResource(R.string.recorder_settings_captured, clock(project?.capturedDuration ?: 0.0))) }
         }
         if (capture.offersLevel) LevelSettings(capture)
+        // RecorderView.swift:1242-1247
+        if (capture.dualActive) {
+            SettingsSection(stringResource(R.string.recorder_dual_section)) {
+                SettingsRow { Text(stringResource(R.string.recorder_dual_section_format), color = Color.White) }
+                SettingsRow { SettingsNote(stringResource(R.string.recorder_dual_note)) }
+            }
+        }
         if (capture.hasFrontCamera) {
             SettingsSection(stringResource(R.string.recorder_settings_picture)) {
                 // Changing either rebuilds the camera, which is done between segments, never under one.
@@ -310,7 +387,7 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
                 SettingsRow { SettingsNote(stringResource(R.string.recorder_mirror_note)) }
             }
         }
-        FocusSettings(capture.focus, capture.ready && capture.phase != Phase.Saving)
+        if (!capture.dualActive) FocusSettings(capture.focus, capture.ready && capture.phase != Phase.Saving)
         SettingsSection(stringResource(R.string.recorder_settings_zoom)) {
             var choosing by remember { mutableStateOf(false) }
             val transition = stringResource(R.string.recorder_settings_transition)
@@ -356,8 +433,8 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
         }
         if (capture.offersUltraHD) {
             SettingsSection(stringResource(R.string.recorder_settings_quality)) {
-                ChoiceRow(stringResource(R.string.recorder_quality_1080), !settings.ultraHD, capture.canChangeTake) { capture.chooseUltraHD(false) }
-                ChoiceRow(stringResource(R.string.recorder_quality_4k), settings.ultraHD, capture.canChangeTake) { capture.chooseUltraHD(true) }
+                ChoiceRow(stringResource(R.string.recorder_quality_1080), !settings.ultraHD, capture.canChangeTake && !capture.dualActive) { capture.chooseUltraHD(false) }
+                ChoiceRow(stringResource(R.string.recorder_quality_4k), settings.ultraHD, capture.canChangeTake && !capture.dualActive) { capture.chooseUltraHD(true) }
                 SettingsRow {
                     SettingsNote(stringResource(if (settings.ultraHD && !capture.offers.ultraHD) R.string.recorder_quality_note_camera else R.string.recorder_quality_note))
                 }
