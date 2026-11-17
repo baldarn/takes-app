@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The recorder's live video effects: Crash Zoom and Dolly Zoom (YouRec/RecorderView.swift:105-133, YouRec/VideoEffects/LiveEffectsPanel.swift). -->
+    <string name="live_effects_open">Live video effects</string>
+    <string name="live_effects_full_quality">Full quality</string>
+    <string name="live_effects_none">No live effects.</string>
+    <string name="live_effects_clear">Clear all effects</string>
+    <string name="live_effects_edit">Edit %1$s</string>
+    <string name="live_effects_on">On</string>
+    <string name="live_effects_off">Off</string>
+    <!-- Crash Zoom. -->
+    <string name="crash_button">Crash zoom</string>
+    <string name="crash_try">Try Crash Zoom</string>
+    <string name="crash_return">Return</string>
+    <string name="crash_pushing">Pushing</string>
+    <string name="crash_returning">Returning</string>
+    <string name="crash_note">Tap the subject, then use Crash zoom or a volume key. Press again to return. Original framing stays available in the editor.</string>
+    <string name="effect_crash_zoom_live_help">A quick push toward a face or detail. Adjust Zoom amount, Speed and Hold, then choose whether to return. During recording, tap the subject and trigger the move with the on-screen control or a volume key.</string>
+    <!-- Dolly Zoom. -->
+    <string name="effect_dolly_zoom">Dolly Zoom</string>
+    <string name="effect_dolly_zoom_summary">Keep the subject steady while the background stretches.</string>
+    <string name="effect_dolly_zoom_help">During recording, tap the subject and move slowly toward or away from it; zoom tries to keep the subject the same size. Stop before reaching the lens limit. In the editor, the effect separates subject and background using imported depth or a person mask.</string>
+    <string name="effect_dolly_zoom_history">Opposing a camera move with zoom changes perspective while keeping the subject the same size, as in Vertigo (1958).</string>
+    <string name="effect_control_direction">Direction</string>
+    <string name="effect_control_duration">Duration</string>
+    <string name="effect_choice_stretch">Stretch</string>
+    <string name="effect_choice_compress">Compress</string>
+    <string name="dolly_range">Clean zoom %1$s–%2$s×</string>
+    <string name="dolly_stops_after">Stops after %1$s seconds. Tap again to stop sooner.</string>
+    <string name="dolly_room">Dolly zoom room remaining</string>
+    <string name="dolly_start">Start dolly</string>
+    <string name="dolly_preparing">Preparing</string>
+    <string name="dolly_stop">Stop dolly</string>
+    <string name="dolly_settling">Settling</string>
+    <string name="dolly_start_again">Start again</string>
+    <string name="dolly_hint_tap_face">Tap a face, then start</string>
+    <string name="dolly_hint_more_range">Choose 1080p or another lens for more zoom range</string>
+    <string name="dolly_hint_tap_visible">Tap a visible face or person</string>
+    <string name="dolly_hint_hold_still">Hold still while the camera frames the subject</string>
+    <string name="dolly_hint_keep_in_frame">Keep the subject fully in frame, then try again</string>
+    <string name="dolly_hint_zoom_out">Zoom out before starting this move</string>
+    <string name="dolly_hint_leave_room">Change Direction or zoom to leave room for the move</string>
+    <string name="dolly_hint_walk_toward">Walk slowly toward the subject</string>
+    <string name="dolly_hint_walk_away">Walk slowly away from the subject</string>
+    <string name="dolly_hint_holding">Holding this framing</string>
+    <string name="dolly_hint_following_body">Following body — a visible face is steadier</string>
+    <string name="dolly_hint_near_limit">Near the zoom limit</string>
+    <string name="dolly_hint_digital">Digital zoom — image may look softer</string>
+    <string name="dolly_hint_move_held">Move held</string>
+    <string name="dolly_hint_move_complete">Move complete</string>
+    <string name="dolly_hint_subject_lost">Subject lost — tap to choose again</string>
+    <string name="dolly_hint_move_stopped">Move stopped</string>
+    <string name="dolly_hint_zoom_stopped">Zoom stopped</string>
+    <string name="dolly_hint_move_paused">Move paused</string>
+    <string name="dolly_hint_recording_stopped">Recording stopped</string>
+</resources>

@@ -397,7 +397,7 @@ private fun stepped(value: Float, kind: EffectParameterKind.Slider): Double {
 
 /** One control, by the kind of its parameter. VideoEffectsEditor.swift:1236-1317. */
 @Composable
-private fun EffectControl(effect: VideoEffectSettings, parameter: EffectParameter, at: Double, set: (String, EffectValue) -> Unit, keys: KeyControls? = null) {
+internal fun EffectControl(effect: VideoEffectSettings, parameter: EffectParameter, at: Double, set: (String, EffectValue) -> Unit, keys: KeyControls? = null) {
     val title = controlName(effect.kind, parameter)
     val value = effect.value(parameter.id, at) ?: parameter.value
     Column(Modifier.fillMaxWidth()) {
@@ -649,7 +649,7 @@ private fun PaletteControls(work: EffectsWork, effect: VideoEffectSettings, time
 }
 
 /** What a control's keyframes do: whether Animate is on, a key added or taken away at the playhead, the playhead moved to a key's source second. */
-private class KeyControls(val animate: Boolean, val toggle: (String) -> Unit, val place: (Double) -> Double?, val seek: (Double) -> Unit)
+internal class KeyControls(val animate: Boolean, val toggle: (String) -> Unit, val place: (Double) -> Double?, val seek: (Double) -> Unit)
 
 /**
  * A control's keyframes: a diamond that adds or takes away the key at the

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The recorder's live video effects: Crash Zoom and Dolly Zoom (YouRec/RecorderView.swift:105-133, YouRec/VideoEffects/LiveEffectsPanel.swift). -->
+    <string name="live_effects_open">Effetti video dal vivo</string>
+    <string name="live_effects_full_quality">Qualità piena</string>
+    <string name="live_effects_none">Nessun effetto dal vivo.</string>
+    <string name="live_effects_clear">Togli tutti gli effetti</string>
+    <string name="live_effects_edit">Modifica %1$s</string>
+    <string name="live_effects_on">Attivo</string>
+    <string name="live_effects_off">Spento</string>
+    <!-- Crash Zoom. -->
+    <string name="crash_button">Crash zoom</string>
+    <string name="crash_try">Prova il Crash Zoom</string>
+    <string name="crash_return">Ritorna</string>
+    <string name="crash_pushing">In spinta</string>
+    <string name="crash_returning">Al ritorno</string>
+    <string name="crash_note">Tocca il soggetto, poi usa Crash zoom o un tasto del volume. Premi di nuovo per tornare indietro. L\'inquadratura originale resta disponibile nell\'editor.</string>
+    <string name="effect_crash_zoom_live_help">Una spinta rapida verso un volto o un dettaglio. Regola Quantità di zoom, Durata della spinta e Tenuta, poi scegli se tornare indietro. Durante la registrazione, tocca il soggetto e avvia il movimento con il comando sullo schermo o un tasto del volume.</string>
+    <!-- Dolly Zoom. -->
+    <string name="effect_dolly_zoom">Dolly Zoom</string>
+    <string name="effect_dolly_zoom_summary">Tiene fermo il soggetto mentre lo sfondo si allunga.</string>
+    <string name="effect_dolly_zoom_help">Durante la registrazione, tocca il soggetto e muoviti piano verso di lui o allontanandoti; lo zoom cerca di tenere il soggetto della stessa grandezza. Fermati prima del limite dell\'obiettivo. Nell\'editor, l\'effetto separa soggetto e sfondo con la profondità importata o una maschera della persona.</string>
+    <string name="effect_dolly_zoom_history">Contrastare un movimento di macchina con lo zoom cambia la prospettiva mentre il soggetto resta della stessa grandezza, come in La donna che visse due volte (1958).</string>
+    <string name="effect_control_direction">Direzione</string>
+    <string name="effect_control_duration">Durata</string>
+    <string name="effect_choice_stretch">Allunga</string>
+    <string name="effect_choice_compress">Comprimi</string>
+    <string name="dolly_range">Zoom pulito %1$s–%2$s×</string>
+    <string name="dolly_stops_after">Si ferma dopo %1$s secondi. Tocca di nuovo per fermarlo prima.</string>
+    <string name="dolly_room">Margine rimasto al dolly zoom</string>
+    <string name="dolly_start">Avvia il dolly</string>
+    <string name="dolly_preparing">Preparazione</string>
+    <string name="dolly_stop">Ferma il dolly</string>
+    <string name="dolly_settling">Assestamento</string>
+    <string name="dolly_start_again">Ricomincia</string>
+    <string name="dolly_hint_tap_face">Tocca un volto, poi avvia</string>
+    <string name="dolly_hint_more_range">Scegli 1080p o un altro obiettivo per avere più zoom</string>
+    <string name="dolly_hint_tap_visible">Tocca un volto o una persona visibile</string>
+    <string name="dolly_hint_hold_still">Resta fermo mentre la camera inquadra il soggetto</string>
+    <string name="dolly_hint_keep_in_frame">Tieni il soggetto tutto nell\'inquadratura, poi riprova</string>
+    <string name="dolly_hint_zoom_out">Allarga lo zoom prima di avviare questo movimento</string>
+    <string name="dolly_hint_leave_room">Cambia Direzione o zoom per lasciare spazio al movimento</string>
+    <string name="dolly_hint_walk_toward">Avvicinati piano al soggetto</string>
+    <string name="dolly_hint_walk_away">Allontanati piano dal soggetto</string>
+    <string name="dolly_hint_holding">Tengo questa inquadratura</string>
+    <string name="dolly_hint_following_body">Seguo il corpo: un volto visibile è più stabile</string>
+    <string name="dolly_hint_near_limit">Vicino al limite dello zoom</string>
+    <string name="dolly_hint_digital">Zoom digitale: l\'immagine può sembrare più morbida</string>
+    <string name="dolly_hint_move_held">Movimento fermato</string>
+    <string name="dolly_hint_move_complete">Movimento completato</string>
+    <string name="dolly_hint_subject_lost">Soggetto perso: tocca per sceglierlo di nuovo</string>
+    <string name="dolly_hint_move_stopped">Movimento interrotto</string>
+    <string name="dolly_hint_zoom_stopped">Zoom interrotto</string>
+    <string name="dolly_hint_move_paused">Movimento in pausa</string>
+    <string name="dolly_hint_recording_stopped">Registrazione fermata</string>
+</resources>

@@ -707,12 +707,16 @@ data class Project(
      * the take. A take recorded at a chosen place ([beginRecordingInsertion])
      * is an edit step instead, and the footage stays in [sources] when it is undone.
      */
-    fun addRecording(source: SourceMedia, now: Long = System.currentTimeMillis(), gainDB: Double = 0.0): Project {
+    /** [videoEffects]: the moves made while the take was recorded, which its clip is given (YouRec/Project.swift:347). */
+    fun addRecording(source: SourceMedia, now: Long = System.currentTimeMillis(), gainDB: Double = 0.0, videoEffects: List<VideoEffectSettings>? = null): Project {
         // Marks made while recording arrive on the take's clip.
         val marks = source.events.orEmpty().filter { it.kind == BOOKMARK_EVENT }.map { Bookmark(id = it.id, time = it.time) }.ifEmpty { null }
         // The recording gain the take was made with is its clip's level: the file itself is never changed.
         val level = RecordingGain.normalized(gainDB)
-        val clip = TimelineClip(sourceID = source.id, start = 0.0, end = source.duration, bookmarks = marks, audio = if (level != 0.0) ClipAudio(volumeDB = level) else null)
+        val clip = TimelineClip(
+            sourceID = source.id, start = 0.0, end = source.duration, bookmarks = marks, audio = if (level != 0.0) ClipAudio(volumeDB = level) else null,
+            videoEffects = videoEffects?.ifEmpty { null },
+        )
         if (recordingInsertion != null) {
             // The takes of one run share a step while it is still the newest one. After an
             // Undo or another edit, the next take begins a step of its own on what is there now.

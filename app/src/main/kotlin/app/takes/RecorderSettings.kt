@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import app.takes.core.FocusControl
 import app.takes.core.FrontLight
 import app.takes.core.HorizonFraming
+import app.takes.core.LiveEffectsStore
+import app.takes.core.VideoEffectSettings
 import app.takes.core.RecordingGain
 import app.takes.core.ZoomTransition
 import org.json.JSONArray
@@ -66,6 +68,11 @@ class RecorderSettings(private val prefs: SharedPreferences) {
 
     /** Mark sharp edges in the preview (the original's `focusPeaking`). */
     var focusPeaking: Boolean by flag("focusPeaking", false)
+
+    /** The live video effects and their values (the original's `liveVideoEffects`): Crash Zoom and Dolly Zoom in this port. */
+    var liveVideoEffects: List<VideoEffectSettings> by stored(LiveEffectsStore.decode(prefs.getString("liveVideoEffects", null))) {
+        putString("liveVideoEffects", LiveEffectsStore.encode(it))
+    }
 
     /** The recording gain of each microphone, in decibels (the original's `recordingGain` for each microphone). */
     fun recordingGain(microphone: String?): Double =

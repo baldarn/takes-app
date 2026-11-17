@@ -26,7 +26,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -97,7 +99,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -108,6 +112,9 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.CaptureController.Phase
 import app.takes.core.CaptureFormat
+import app.takes.core.LiveCrashState
+import app.takes.core.RecorderFramePoints
+import app.takes.core.VideoEffectID
 import app.takes.core.FrontLight
 import app.takes.core.PinchZoom
 import app.takes.core.Project
@@ -173,6 +180,12 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     // Being on is not remembered, as in the original: the light is off whenever the recorder opens.
     var frontLight by remember { mutableStateOf(false) }
     var pinch by remember { mutableStateOf<PinchZoom?>(null) }
+    // The live video effects, over the picture in place of the controls, as in the original (RecorderView.swift:252-267).
+    var effectsOpen by remember { mutableStateOf(false) }
+    var inspected by remember { mutableStateOf<VideoEffectID?>(null) }
+    // Where the subject of a camera move was tapped, shown for a moment.
+    var bracket by remember { mutableStateOf<Offset?>(null) }
+    LaunchedEffect(bracket) { if (bracket != null) { delay(800); bracket = null } }
     // While the camera changes, the last picture of the old one covers the preview, as in the original.
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
     var streaming by remember { mutableStateOf(false) }
@@ -225,6 +238,13 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         activity?.requestedOrientation = if (held) ActivityInfo.SCREEN_ORIENTATION_LOCKED else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
+    // The volume keys press Crash Zoom while it is on, as the original's capture event interaction (CaptureController.swift:3214-3220).
+    DisposableEffect(activity) {
+        val main = activity as? MainActivity
+        main?.cameraKeys = { capture.crashAvailable && capture.ready }
+        main?.cameraKeyPressed = { if (capture.triggerCrashZoom()) view.tick() }
+        onDispose { main?.cameraKeys = null; main?.cameraKeyPressed = null }
+    }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     // The interface turned with the top of the phone, and its cameras, to the right puts the take controls on the
     // left, at the other end, as in the original (RecorderView.swift:146-148, 211-234).
@@ -232,8 +252,24 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
 
     Box(
         Modifier.fillMaxSize().background(Color.Black).pictureGestures(capture, show = { pinch = it }) { at ->
-            // A tap on the picture focuses there, as in the original.
-            if (capture.ready && capture.phase != Phase.Saving && cover == null) {
+            // A tap outside the effects closes them, except while it chooses the subject of a move. RecorderView.swift:87-95.
+            val closes = when (inspected) {
+                VideoEffectID.CrashZoom -> !capture.crashAvailable || capture.crashState != LiveCrashState.Ready
+                VideoEffectID.DollyZoom -> !capture.dollyAvailable || capture.dollyState.moving
+                else -> true
+            }
+            if (effectsOpen && closes) { effectsOpen = false; return@pictureGestures }
+            if (!capture.ready || capture.phase == Phase.Saving || cover != null) return@pictureGestures
+            if (capture.choosesSubject) {
+                // A tap chooses the subject of a camera move, in the recorded frame. CaptureController.swift:3236, 3340-3346.
+                val front = capture.cameras.firstOrNull { it.id == capture.cameraID }?.front == true
+                val aspect = if (previewView.width < previewView.height) 9.0 / 16 else 16.0 / 9
+                RecorderFramePoints.fromView(
+                    at.x.toDouble(), at.y.toDouble(), previewView.width.toDouble(), previewView.height.toDouble(), aspect,
+                    fill = !settings.fitFrame, unmirror = front && settings.mirrorPreview != settings.mirrorRecording,
+                )?.let { capture.selectSubject(it); bracket = at }
+            } else {
+                // A tap on the picture focuses there, as in the original.
                 capture.focus.tap(previewView.meteringPointFactory.createPoint(at.x, at.y), at)
             }
         },
@@ -246,6 +282,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             Image(it, null, Modifier.fillMaxSize(), contentScale = if (settings.fitFrame) ContentScale.Fit else ContentScale.Crop)
         }
         FocusBox(capture.focus)
+        bracket?.let { SubjectBracket(it) }
         // Over the picture and under the controls. It is part of the interface: the camera never sees it.
         if (frontLight) FrontLightRing(settings, screenCornerRadius()) { frontLight = false }
         CompositionLocalProvider(LocalControlPlate provides if (frontLight) LitPlate else ControlPlate) {
@@ -254,7 +291,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 PinchBadge(it, Modifier.align(BiasAlignment(0f, (PinchZoom.BADGE_HEIGHT * 2 - 1).toFloat())))
             }
             // While the settings are open the screen reader is in them alone, as in the original.
-            Box(Modifier.matchParentSize().then(if (settingsOpen) Modifier.clearAndSetSemantics {} else Modifier)) {
+            if (!effectsOpen) Box(Modifier.matchParentSize().then(if (settingsOpen) Modifier.clearAndSetSemantics {} else Modifier)) {
                 // Clear of the camera cutout, which stays when the status bar is hidden.
                 Status(capture, store, Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
                 // At the start of the top bar, as in the original.
@@ -263,6 +300,11 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                     Modifier.align(Alignment.TopStart).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Start))
                         .padding(top = 9.dp, start = 12.dp),
                 )
+                LiveEffectsButton(
+                    capture,
+                    Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))
+                        .padding(top = 9.dp, end = 12.dp + 44.dp + 8.dp),
+                ) { effectsOpen = true }
                 SettingsButton(
                     // A dot says that an assist is on.
                     assist = frontLight || capture.format.stabilization != CaptureFormat.Stabilization.Off || capture.levelling || capture.settings.followFace,
@@ -287,6 +329,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 ) {
                     FocusHint(capture.focus)
                     ProjectChip(capture, store, openEditor)
+                    CameraMoveControls(capture, Modifier.padding(bottom = 6.dp))
                     if (zoomOpen && capture.hasZoom) {
                         Box(Modifier.padding(horizontal = 20.dp).padding(bottom = 10.dp)) { ZoomPresets(capture, usable, switchCamera) }
                     }
@@ -295,10 +338,31 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                 }
             }
         }
+        if (effectsOpen) {
+            val panel = Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xFF0F0F0F)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+            val sides = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom + WindowInsetsSides.Top)
+            LiveEffectsPanel(
+                capture,
+                if (landscape) Modifier.align(if (controlsOnLeft) Alignment.CenterStart else Alignment.CenterEnd).windowInsetsPadding(sides).padding(8.dp)
+                    .width(360.dp).fillMaxHeight().then(panel)
+                else Modifier.align(Alignment.BottomCenter).windowInsetsPadding(sides).padding(8.dp).fillMaxWidth().height(340.dp).then(panel),
+                inspect = { inspected = it },
+            ) { effectsOpen = false; inspected = null }
+        }
         TakeFrame(capture.phase, landscape, Modifier.matchParentSize())
         if (settingsOpen) CameraSettings(capture, store.selected, frontLight, { frontLight = it }) { settingsOpen = false }
         Notice(capture.message, Modifier.align(Alignment.Center)) { capture.message = null }
     }
+}
+
+/** The bracket where the subject of a camera move was tapped: 48 dp, for 0.8 s. CaptureController.swift:3343-3346. */
+@Composable
+private fun SubjectBracket(at: Offset) {
+    val half = with(LocalDensity.current) { 24.dp.toPx() }
+    Box(
+        Modifier.offset { IntOffset((at.x - half).toInt(), (at.y - half).toInt()) }.size(48.dp)
+            .border(1.5.dp, Color(0xFFFFD60A), RoundedCornerShape(8.dp)),
+    )
 }
 
 /** The way into "Camera settings", at the end of the top bar as in the original. */

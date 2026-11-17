@@ -6,6 +6,7 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -114,6 +115,8 @@ class CameraFocus(private val context: Context, private val settings: RecorderSe
     private var boxJob: Job? = null
     @Volatile private var reported = Float.NaN // dioptres, as the camera last reported them
     @Volatile private var following = false
+    /** Told the zoom ratio the camera reports for the picture of each sensor timestamp, on the camera's thread. */
+    @Volatile var onZoom: ((Long, Float) -> Unit)? = null
 
     /**
      * Listens to what the camera reports with every frame, for the position of the lens while it focuses by
@@ -121,6 +124,12 @@ class CameraFocus(private val context: Context, private val settings: RecorderSe
      */
     val results = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+            // The zoom of this picture, for the camera moves that measure a subject in it.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val zoom = result.get(CaptureResult.CONTROL_ZOOM_RATIO)
+                val time = result.get(CaptureResult.SENSOR_TIMESTAMP)
+                if (zoom != null && time != null) onZoom?.invoke(time, zoom)
+            }
             val distance = result.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: return
             if (abs(distance - reported) < 0.01f) return
             reported = distance

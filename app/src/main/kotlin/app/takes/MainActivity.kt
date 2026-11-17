@@ -2,6 +2,7 @@ package app.takes
 
 import android.content.res.Configuration
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -63,6 +64,24 @@ fun timeLabel(seconds: Double): String {
 }
 
 class MainActivity : ComponentActivity() {
+    /**
+     * While it returns true, the volume keys and a camera key press the recorder's Crash Zoom when they are let go,
+     * as the original's capture event interaction (CaptureController.swift:3214-3220); the volume is not changed then.
+     */
+    var cameraKeys: (() -> Boolean)? = null
+    var cameraKeyPressed: (() -> Unit)? = null
+
+    private fun takesCameraKey(keyCode: Int): Boolean =
+        (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_CAMERA) && cameraKeys?.invoke() == true
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = takesCameraKey(keyCode) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (!takesCameraKey(keyCode)) return super.onKeyUp(keyCode, event)
+        if (!event.isCanceled) cameraKeyPressed?.invoke()
+        return true
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

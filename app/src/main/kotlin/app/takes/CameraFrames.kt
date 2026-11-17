@@ -27,15 +27,21 @@ import androidx.camera.core.SurfaceProcessor
 import androidx.camera.core.SurfaceRequest
 import androidx.core.os.HandlerCompat
 import app.takes.core.Affine
+import app.takes.core.CrashLook
 import app.takes.core.DualCameraLayout
 import app.takes.core.FaceFraming
 import app.takes.core.FaceTarget
 import app.takes.core.HorizonEstimate
 import app.takes.core.HorizonFraming
 import app.takes.core.HorizonLine
+import app.takes.core.LiveCrashZooms
+import app.takes.core.Point
+import app.takes.core.RecorderFramePoints
 import app.takes.core.Rect
 import app.takes.core.SingleCameraCrop
 import app.takes.core.Size
+import app.takes.core.SubjectSample
+import app.takes.core.SubjectTracker
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -48,9 +54,10 @@ import kotlin.math.roundToInt
 
 /**
  * The recorder's own pass over each camera frame, for what the original does to its frames: the level horizon
- * turns and crops them, follow face crops them around a face, and focus peaking marks sharp edges in the preview.
- * It is put between the camera and its outputs only while one of these is on: otherwise the camera library's
- * own path records the take, untouched.
+ * turns and crops them, follow face crops them around a face, focus peaking marks sharp edges in the preview, and
+ * the live camera moves follow a subject, Crash Zoom pushing the preview toward it (the take stays clean: the move
+ * is saved beside it). It is put between the camera and its outputs only while one of these is on: otherwise the
+ * camera library's own path records the take, untouched.
  *
  * Everything is worked out in the camera's own picture, as it arrives (`tc` below, top-left fractions), and each
  * output maps that picture its own way, so the preview and the recording show the same framing.
@@ -73,13 +80,63 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         val inputZoom: Double = 1.0,
         val minimumZoom: Double = 1.0,
         val selectedZoom: Double? = null,
+        /** A Crash Zoom or a Dolly Zoom is on: the subject is looked for, as the original tracks it for them. */
+        val tracking: Boolean = false,
+        /** The take is saved mirrored, the front camera's picture flipped. */
+        val mirrored: Boolean = false,
     )
+
+    /**
+     * The Crash Zooms to draw over the preview, on a clock of seconds since [origin], a time of
+     * [SystemClock.elapsedRealtimeNanos]: the segment's clock while one is recorded, the preview's otherwise.
+     */
+    data class Moves(val crash: LiveCrashZooms = LiveCrashZooms(), val origin: Long = 0L)
+
+    /**
+     * The subject found in a picture taken at [time], seconds of [SystemClock.elapsedRealtimeNanos]: [framed] in the
+     * recorded frame, [whole] in the lens's whole picture turned as it is recorded, with the lens's [zoom] then.
+     */
+    class Subject(val framed: SubjectSample?, val whole: SubjectSample?, val time: Double, val zoom: Double)
 
     enum class FollowStatus { Searching, Following, Holding }
 
     @Volatile var assists = Assists()
     /** Called on the main thread when the face follow finds, holds or loses its face. */
     @Volatile var onFollowStatus: ((FollowStatus) -> Unit)? = null
+    @Volatile var moves = Moves()
+    /** Called on the main thread with each look for the subject, while [Assists.tracking]. */
+    @Volatile var onSubject: ((Subject) -> Unit)? = null
+
+    /** The subject tapped, in the recorded frame, or none: the next looks start afresh from it. LiveVideoEffects.swift:346-353. */
+    fun target(point: Point?) {
+        handler.post {
+            seed = point
+            tracker = null
+            tracked = null
+            generation++
+        }
+    }
+
+    // The lens's zoom at each picture, from what the camera reports with it: the zoom of the picture measured, not
+    // the latest asked for, as the original's zoom history gives it (CaptureZoomHistory.swift).
+    private val zooms = LongArray(ZOOMS)
+    private val zoomValues = FloatArray(ZOOMS)
+    private var zoomCount = 0
+
+    /** The camera reported [zoom] for the picture of [timestamp], from its own thread. */
+    fun reportZoom(timestamp: Long, zoom: Float) = synchronized(zooms) {
+        zooms[zoomCount % ZOOMS] = timestamp
+        zoomValues[zoomCount % ZOOMS] = zoom
+        zoomCount++
+    }
+
+    private fun zoomAt(timestamp: Long): Double? = synchronized(zooms) {
+        var best = -1
+        for (i in 0 until minOf(zoomCount, ZOOMS)) {
+            if (zooms[i] <= timestamp && (best < 0 || zooms[i] > zooms[best])) best = i
+        }
+        if (best >= 0) zoomValues[best].toDouble() else null
+    }
 
     private val thread = HandlerThread("camera-frames").apply { start() }
     private val handler = HandlerCompat.createAsync(thread.looper)
@@ -247,14 +304,21 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         EGL14.eglMakeCurrent(display, idle, idle, eglContext)
         surfaceTexture.updateTexImage()
         surfaceTexture.getTransformMatrix(textureMatrix)
-        val now = SystemClock.elapsedRealtimeNanos() / 1e9
+        val nanos = SystemClock.elapsedRealtimeNanos()
+        val now = nanos / 1e9
+        frameStamp = surfaceTexture.timestamp
         val effect = transform(now)
+        lastEffect = effect
         val wanted = assists
+        // The preview's Crash Zoom, about its target in the camera's picture before the crop: the recording is left clean.
+        val moving = moves
+        val look = moving.crash.look((nanos - moving.origin) / 1e9, tracked?.takeIf { now - it.second <= 0.5 }?.first)
+        val crash = look?.let { CrashLook(it.zoom, it.blur, RecorderFramePoints.toCamera(it.target, wanted.upright, wanted.mirrored)) }
         for (output in outputs.toList()) {
             if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, eglContext)) continue
             output.output.updateTransformMatrix(outputMatrix, textureMatrix)
             GLES20.glViewport(0, 0, output.output.size.width, output.output.size.height)
-            render(outputMatrix, effect, peaking = wanted.peaking && !output.video)
+            render(outputMatrix, effect, peaking = wanted.peaking && !output.video, crash = if (output.video) null else crash)
             if (output.video) EGLExt.eglPresentationTimeANDROID(display, output.surface, surfaceTexture.timestamp)
             EGL14.eglSwapBuffers(display, output.surface)
         }
@@ -283,6 +347,7 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         if (wanted.follow != lastFollow) { lastFollow = wanted.follow; target = FaceTarget(); setStatus(FollowStatus.Searching) }
         reserve = SingleCameraCrop.reserve(reserve, wanted.follow, manual = false, dt = dt)
         framing = framing.copy(zoom = SingleCameraCrop.zoom(wanted.inputZoom, wanted.selectedZoom, wanted.minimumZoom, reserve))
+        if (wanted.tracking && !wanted.follow) analyse(now, null, wanted, level = false)
         if (wanted.follow) {
             analyse(now, null, wanted, level = false)
             val face = target.current(now)
@@ -297,6 +362,40 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         return level?.sourceTransform(size)?.concatenating(mapping) ?: mapping
     }
 
+    // MARK: The subject of a camera move
+
+    private var seed: Point? = null
+    private var tracker: SubjectTracker? = null
+    /** The subject's centre in the recorded frame, and when it was seen: Crash Zoom's target while it follows a face. */
+    private var tracked: Pair<Point, Double>? = null
+    private var frameStamp = 0L
+    private var lastEffect = Affine.IDENTITY
+
+    /**
+     * The subject among [faces] (boxes of the camera's picture), followed in the lens's whole picture turned as it is
+     * recorded, and reported in that picture and in the recorded frame, which [effect] crops from it.
+     */
+    private fun track(faces: List<Rect>, now: Double, zoom: Double, effect: Affine, wanted: Assists) {
+        val upright = wanted.upright
+        val mirrored = wanted.mirrored
+        val current = tracker ?: SubjectTracker(seed?.let { point ->
+            // From the recorded frame to the camera's picture, through the crop, and turned as it is recorded.
+            RecorderFramePoints.fromCamera(RecorderFramePoints.toCamera(point, upright, mirrored).applying(effect), upright, mirrored)
+        })
+        val (next, whole) = current.update(faces.map { RecorderFramePoints.fromCamera(it, upright, mirrored) }, emptyList(), now)
+        tracker = next
+        val inverse = effect.inverted()
+        fun framed(p: Point) = RecorderFramePoints.fromCamera(RecorderFramePoints.toCamera(p, upright, mirrored).applying(inverse), upright, mirrored)
+        val framed = whole?.let { sample ->
+            val a = framed(Point(sample.box.minX, sample.box.minY))
+            val b = framed(Point(sample.box.maxX, sample.box.maxY))
+            SubjectTracker.intersectUnit(Rect(min(a.x, b.x), min(a.y, b.y), abs(a.x - b.x), abs(a.y - b.y)))?.let { sample.copy(box = it) }
+        }
+        if (framed != null) tracked = framed.center to now
+        val report = Subject(framed, whole, now, zoom)
+        main.post { onSubject?.invoke(report) }
+    }
+
     // MARK: Looking at the picture
 
     private var faceDetector: FaceDetector? = null
@@ -307,10 +406,13 @@ class CameraFrames(context: Context) : SurfaceProcessor {
      * horizon, at most every quarter of a second, and faces for the follow, at most five times a second.
      */
     private fun analyse(now: Double, roll: Double?, wanted: Assists, level: Boolean) {
-        if (analysing || now - lastAnalysis < (if (level) 0.24 else 0.2)) return
+        // The subject of a camera move is looked for fifteen times a second, as the original tracks it.
+        if (analysing || now - lastAnalysis < (if (level) 0.24 else if (wanted.tracking) 1.0 / 15 else 0.2)) return
         analysing = true
         lastAnalysis = now
-        val long = if (level && !wanted.follow) 256 else 480
+        val long = if (level && !wanted.follow && !wanted.tracking) 256 else 480
+        val zoom = zoomAt(frameStamp) ?: wanted.inputZoom
+        val effect = lastEffect
         val width = (if (inputSize.width >= inputSize.height) long else long * inputSize.width / inputSize.height) and 1.inv()
         val height = (if (inputSize.width >= inputSize.height) long * inputSize.height / inputSize.width else long) and 1.inv()
         val pixels = readBack(width, height)
@@ -321,12 +423,13 @@ class CameraFrames(context: Context) : SurfaceProcessor {
                 (((pixels.get(p).toInt() and 0xFF) * 54 + (pixels.get(p + 1).toInt() and 0xFF) * 183 + (pixels.get(p + 2).toInt() and 0xFF) * 19) shr 8).toByte()
             } else null
             val line = luma?.let { sample(it, width, height, wanted.upright) }
-            val faces = if (wanted.follow) faces(pixels, width, height, wanted.upright) else emptyList()
+            val faces = if (wanted.follow || wanted.tracking) faces(pixels, width, height, wanted.upright) else emptyList()
             handler.post {
                 analysing = false
                 if (token != generation) return@post
                 if (roll != null && luma != null) horizon.observe(line, roll, now)
                 if (wanted.follow) target = target.observing(faces, now)
+                if (wanted.tracking) track(faces, now, zoom, effect, wanted)
             }
         }
     }
@@ -410,14 +513,14 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, frameBuffer)
         GLES20.glViewport(0, 0, width, height)
         // The first row drawn, at the bottom, is the picture's top row, and the first row read back.
-        render(IDENTITY, Affine(1.0, 0.0, 0.0, 1.0, 0.0, 0.0), peaking = false)
+        render(IDENTITY, Affine(1.0, 0.0, 0.0, 1.0, 0.0, 0.0), peaking = false, crash = null)
         val pixels = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
         GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         return pixels
     }
 
-    private fun render(output: FloatArray, effect: Affine, peaking: Boolean) {
+    private fun render(output: FloatArray, effect: Affine, peaking: Boolean, crash: CrashLook?) {
         GLES20.glUseProgram(program)
         val position = GLES20.glGetAttribLocation(program, "aPosition")
         val coordinate = GLES20.glGetAttribLocation(program, "aCoordinate")
@@ -434,6 +537,10 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         GLES20.glUniformMatrix3fv(GLES20.glGetUniformLocation(program, "uEffect"), 1, false, columns, 0)
         GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uTexel"), 1f / inputSize.width, 1f / inputSize.height)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPeaking"), if (peaking) 1 else 0)
+        GLES20.glUniform4f(
+            GLES20.glGetUniformLocation(program, "uCrash"),
+            (crash?.target?.x ?: 0.5).toFloat(), (crash?.target?.y ?: 0.5).toFloat(), (crash?.zoom ?: 1.0).toFloat(), (crash?.blur ?: 0.0).toFloat(),
+        )
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uTexture"), 0)
@@ -443,6 +550,7 @@ class CameraFrames(context: Context) : SurfaceProcessor {
     private companion object {
         const val EGL_RECORDABLE_ANDROID = 0x3142
         const val MAX_FACES = 4
+        const val ZOOMS = 32
         val IDENTITY = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
 
         fun buffer(vararg values: Float): FloatBuffer =
@@ -471,6 +579,8 @@ class CameraFrames(context: Context) : SurfaceProcessor {
             uniform mat3 uEffect;
             uniform vec2 uTexel;
             uniform int uPeaking;
+            // Crash Zoom: its target in the camera's picture, the magnification and the reach of the radial blur.
+            uniform vec4 uCrash;
             varying vec2 vCoordinate;
             float luma(vec2 p) { return dot(texture2D(uTexture, p).rgb, vec3(0.2126, 0.7152, 0.0722)); }
             float sharp(vec2 p) {
@@ -484,8 +594,20 @@ class CameraFrames(context: Context) : SurfaceProcessor {
                 return smoothstep(0.065, 0.16, gradient) * smoothstep(0.017, 0.06, detail);
             }
             void main() {
-                vec2 p = (uEffect * vec3(vCoordinate, 1.0)).xy;
+                // Crash Zoom as the editor draws it (Metal:87-94, 361-366): the picture magnified about the target,
+                // averaged at eight points along the line from the target, before the crop.
+                vec2 target = uCrash.xy;
+                vec2 point = (vCoordinate - target) / uCrash.z + target;
+                vec2 p = (uEffect * vec3(point, 1.0)).xy;
                 vec4 colour = texture2D(uTexture, p);
+                if (uCrash.w > 0.0) {
+                    vec3 sum = vec3(0.0);
+                    for (int i = 0; i < 8; i++) {
+                        float k = uCrash.w * (float(i) / 7.0 - 0.5);
+                        sum += texture2D(uTexture, (uEffect * vec3(point + (point - target) * k, 1.0)).xy).rgb / 8.0;
+                    }
+                    colour.rgb = sum;
+                }
                 if (uPeaking == 1) {
                     float strength = max(sharp(p), 0.9 * max(sharp(p + vec2(uTexel.x, 0.0)), sharp(p + vec2(0.0, uTexel.y))));
                     colour.rgb = mix(colour.rgb, vec3(1.0, 0.045, 0.025), strength);

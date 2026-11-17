@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.takes.core.CaptureEffectsFile
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CubeLUT
 import app.takes.core.DeletionRules
@@ -33,6 +34,7 @@ import app.takes.core.ProjectRestoreException
 import app.takes.core.RecoveredProject
 import app.takes.core.RecoveryRules
 import app.takes.core.SourceMedia
+import app.takes.core.VideoEffectSettings
 import app.takes.core.SubtitleScratch
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineClipboard
@@ -545,10 +547,10 @@ class ProjectStore(context: Context) {
         select(previous?.takeIf { id -> projects.any { it.id == id } })
     }
 
-    /** [gainDB]: the recorder's gain for the take, given to its clip as its level. */
-    fun addRecording(projectID: String, source: SourceMedia, gainDB: Double = 0.0): Boolean {
+    /** [gainDB]: the recorder's gain for the take, given to its clip as its level; [videoEffects]: its Crash Zooms, given to its clip. */
+    fun addRecording(projectID: String, source: SourceMedia, gainDB: Double = 0.0, videoEffects: List<VideoEffectSettings>? = null): Boolean {
         val project = projects.firstOrNull { it.id == projectID } ?: return false
-        return update(project.addRecording(source, gainDB = gainDB))
+        return update(project.addRecording(source, gainDB = gainDB, videoEffects = videoEffects))
     }
 
     fun commit(projectID: String, state: EditState) = change(projectID) { it.commit(state) }
@@ -965,7 +967,9 @@ class ProjectStore(context: Context) {
             if (duration == null) { setAside(file, project); continue }
             // The marks and camera changes saved beside the take while it was recorded come back with it.
             val events = CaptureEventsFile.read(file, duration)
-            addRecording(project.id, SourceMedia(filename = file.name, duration = duration, recordedAt = file.lastModified(), events = events))
+            // And its Crash Zooms, saved beside it as they were made (YouRec/ProjectStore.swift:360-376).
+            val effects = CaptureEffectsFile.read(file, duration)
+            addRecording(project.id, SourceMedia(filename = file.name, duration = duration, recordedAt = file.lastModified(), events = events), videoEffects = effects)
         }
     }
 
@@ -984,7 +988,7 @@ class ProjectStore(context: Context) {
      */
     private fun setAside(file: File, project: Project) {
         if (file.length() == 0L) {
-            if (file.delete()) CaptureEventsFile.delete(file)
+            if (file.delete()) { CaptureEventsFile.delete(file); CaptureEffectsFile.delete(file) }
             return
         }
         // A file that cannot be moved stays where it is and is tried again at the next launch.

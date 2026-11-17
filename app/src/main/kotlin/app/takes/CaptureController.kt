@@ -2,7 +2,11 @@ package app.takes
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.media.AudioAttributes
@@ -48,15 +52,29 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import app.takes.core.CaptureEffectsFile
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CaptureFormat
+import app.takes.core.DollyHint
+import app.takes.core.DollyMeasurement
+import app.takes.core.DollyZoomFollower
+import app.takes.core.DollyZoomMove
+import app.takes.core.LiveCrashState
+import app.takes.core.LiveCrashZooms
+import app.takes.core.LiveDollyState
+import app.takes.core.Point
+import app.takes.core.Rect
+import app.takes.core.SubjectSample
+import app.takes.core.VideoEffectID
+import app.takes.core.VideoEffectSettings
 import app.takes.core.MicrophoneRoute
 import app.takes.core.PinchZoom
 import app.takes.core.Project
@@ -108,15 +126,19 @@ class CaptureController(private val context: Context, private val store: Project
         var abandoned = false // the recorder did not report its end in time; see [abandon]
         var indexed = false // in the project
         var microphone: String? = null // the microphone it began with, whose recording gain it is given
+        var moves = emptyList<VideoEffectSettings>() // its Crash Zooms, as last saved beside it
     }
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
     /** The settings of the recorder: global, as in the original, and kept with the camera and the zooms. */
     val settings = RecorderSettings(prefs)
     /** The focus of the camera in use: tap to focus, the lock and manual focus. */
-    val focus = CameraFocus(context, settings)
-    /** The recorder's own pass over the frames, for the level horizon, follow face and focus peaking. */
-    val frames = CameraFrames(context).apply { onFollowStatus = { followStatus = it } }
+    val focus = CameraFocus(context, settings).apply { onZoom = { time, zoom -> frames.reportZoom(time, zoom) } }
+    /** The recorder's own pass over the frames, for the level horizon, follow face, focus peaking and the camera moves. */
+    val frames = CameraFrames(context).apply {
+        onFollowStatus = { followStatus = it }
+        onSubject = { subject(it) }
+    }
     /** What follow face is doing, for its tile. */
     var followStatus by mutableStateOf(CameraFrames.FollowStatus.Searching); private set
     /** The recording gain of the microphone in use, in decibels. */
@@ -520,6 +542,10 @@ class CaptureController(private val context: Context, private val store: Project
         // The camera said it could and then refused: the take is recorded without, and the person is told.
         if (!writing && format != wanted) message = context.getString(R.string.recorder_format_reduced)
         camera = bound
+        // A camera set up afresh has no subject chosen yet, as in the original (CaptureController.swift:1760).
+        subjectPoint = null
+        frames.target(null)
+        dollyMeasurement = null
         cameraID = choice.id
         prefs.edit().putString("camera", choice.id).apply()
         // The flip button returns to the camera used last on each side of the phone.
@@ -533,6 +559,287 @@ class CaptureController(private val context: Context, private val store: Project
         updateFrames()
     }
 
+    // MARK: Live camera moves: Crash Zoom and Dolly Zoom (CaptureController.swift:212-233, 1382-1389, 2005-2106).
+
+    /** The live video effects: the moves' settings, chosen in the recorder's Video effects panel. */
+    val liveEffects: List<VideoEffectSettings> get() = settings.liveVideoEffects
+    private fun template(kind: VideoEffectID) = liveEffects.firstOrNull { it.enabled && it.kind == kind }
+    /** The Crash Zoom button shows. */
+    val crashAvailable: Boolean get() = template(VideoEffectID.CrashZoom) != null
+    /** The Dolly Zoom button shows. */
+    val dollyAvailable: Boolean get() = template(VideoEffectID.DollyZoom) != null
+    /** The subject is looked for: for a Dolly Zoom, and for a Crash Zoom that follows a face. LiveVideoEffects.swift:532. */
+    private val tracksSubject: Boolean get() = dollyAvailable || template(VideoEffectID.CrashZoom)?.toggle("trackFace") == true
+
+    var crashState by mutableStateOf(LiveCrashState.Ready); private set
+    val canTriggerCrash: Boolean get() = ready && phase != Phase.Saving && (crashState == LiveCrashState.Ready || crashState == LiveCrashState.Holding)
+    var dollyState by mutableStateOf(LiveDollyState.Ready); private set
+    var dollyHint by mutableStateOf(DollyHint.TapFace); private set
+    /** The room left for the move, from 1 to 0. */
+    var dollyHeadroom by mutableDoubleStateOf(1.0); private set
+    val canTriggerDolly: Boolean get() = ready && phase != Phase.Saving && dollyState != LiveDollyState.Stopping
+    /** A tap on the picture chooses the subject of a move, rather than focusing. CaptureController.swift:3236. */
+    val choosesSubject: Boolean get() = crashAvailable && crashState == LiveCrashState.Ready || dollyAvailable && !dollyState.moving
+
+    /** The zooms the Dolly Zoom works between without upscaling, as the panel says them. CaptureController.swift:1761-1764. */
+    val dollyCleanRange: ClosedFloatingPointRange<Double> get() = zoomRange.start..cleanZoom
+
+    // The lens shows its own picture, unscaled, up to its 1×: the camera library says no more of where upscaling begins.
+    private val cleanZoom: Double get() = maxOf(zoomRange.start, minOf(zoomRange.endInclusive, 1.0))
+
+    /** Changes the live effects, between takes. LiveVideoEffects.swift:181-193. */
+    fun setLiveEffects(effects: List<VideoEffectSettings>) {
+        if (hasActiveTake || effects.any { !it.valid }) return
+        val before = settings.liveVideoEffects
+        fun moves(list: List<VideoEffectSettings>) = list.filter { it.kind == VideoEffectID.DollyZoom || it.kind == VideoEffectID.CrashZoom }
+        val dollyChanged = before.firstOrNull { it.kind == VideoEffectID.DollyZoom } != effects.firstOrNull { it.kind == VideoEffectID.DollyZoom }
+        settings.liveVideoEffects = effects
+        if (dollyChanged) stopDolly(immediate = false, reason = DollyHint.TapFace)
+        if (moves(before) != moves(effects)) {
+            // Other moves: the one under way is dropped, and the subject looked for again.
+            crash = LiveCrashZooms()
+            movesOrigin = SystemClock.elapsedRealtimeNanos()
+            frames.target(subjectPoint)
+        }
+        publishMoves()
+        if (canChangeFormat) refreshAssists() else updateFrames()
+    }
+
+    // The Crash Zooms, on the effect clock: the segment's seconds while one is recorded, else the preview's from [movesOrigin].
+    private var crash = LiveCrashZooms()
+    private var movesOrigin = SystemClock.elapsedRealtimeNanos()
+    private var crashTicker: Job? = null
+    /** The subject tapped, in the recorded frame. */
+    private var subjectPoint: Point? = null
+    /** The subject's centre in the recorded frame, and when it was seen. */
+    private var subjectCenter: Pair<Point, Double>? = null
+
+    private fun effectTime(): Double = (SystemClock.elapsedRealtimeNanos() - movesOrigin) / 1e9
+
+    /**
+     * The segment's clock runs from the recorder's start, as [segmentSeconds] does: set once, so that it never goes
+     * back under a move.
+     */
+    private fun anchorMoves() {
+        if (phase != Phase.Recording) return
+        movesOrigin = SystemClock.elapsedRealtimeNanos()
+        frames.moves = CameraFrames.Moves(crash, movesOrigin)
+    }
+
+    /** Tells [frames] the moves, and follows the state of the one under way for the button. */
+    private fun publishMoves() {
+        frames.moves = CameraFrames.Moves(crash, movesOrigin)
+        crashState = crash.state(effectTime())
+        if (crashTicker?.isActive == true) return
+        crashTicker = scope.launch {
+            while (crash.moves.any { it.end > effectTime() }) {
+                crashState = crash.state(effectTime())
+                delay(33)
+            }
+            crashState = crash.state(effectTime())
+        }
+    }
+
+    /** Saves the Crash Zooms of [current] beside its movie, at once, as the original does at each one. LiveVideoEffects.swift:375-382. */
+    private fun saveRecipe(current: Segment) {
+        val moves = crash.moves
+        if (moves.isEmpty()) return
+        current.moves = moves
+        scope.launch(eventFiles) { runCatching { CaptureEffectsFile.write(moves, current.file) } }
+    }
+
+    /**
+     * Crash Zoom's button or a volume key: a push toward the subject, or the return of the one holding. Toward the
+     * subject tapped; else, following a face, the face seen now, so that the editor, which does not follow faces, has
+     * it too. Says whether anything happened. CaptureController.swift:216, LiveVideoEffects.swift:354-372.
+     */
+    fun triggerCrashZoom(): Boolean {
+        if (!canTriggerCrash) return false
+        val time = effectTime()
+        val template = template(VideoEffectID.CrashZoom)
+        val seen = subjectCenter?.takeIf { SystemClock.elapsedRealtimeNanos() / 1e9 - it.second <= 0.5 }?.first
+        val target = subjectPoint ?: seen?.takeIf { template?.toggle("trackFace") == true }
+        crash = crash.triggered(time, template, target) ?: return false
+        publishMoves()
+        segment?.takeIf { phase == Phase.Recording }?.let(::saveRecipe)
+        return true
+    }
+
+    /** A tap on the picture at [point] of the recorded frame chooses the subject. CaptureController.swift:217. */
+    fun selectSubject(point: Point) {
+        subjectPoint = point
+        frames.target(point)
+    }
+
+    private var dollyFollower: DollyZoomFollower? = null
+    private var dollyLens = ""
+    private var dollyStretch = true
+    private var dollyClean = 1.0
+    private var dollyEndsAt = Double.POSITIVE_INFINITY
+    private var dollyPreparation: Job? = null
+    private var dollyMeasurement: DollyMeasurement? = null
+    private var dollyLastUI = Double.NEGATIVE_INFINITY
+    private var dollyStopReason: DollyHint? = null
+    private var dollyTicker: Job? = null
+    private var probe: Job? = null
+
+    private fun seconds(): Double = SystemClock.elapsedRealtimeNanos() / 1e9
+
+    /** A look for the subject: Crash Zoom's target, and Dolly Zoom's measurement. CaptureController.swift:2056-2073. */
+    private fun subject(report: CameraFrames.Subject) {
+        report.framed?.let { subjectCenter = it.center to report.time }
+        if (probe?.isActive == true) return
+        report.whole?.let { measure(it, report.time, report.zoom) }
+    }
+
+    private fun measure(subject: SubjectSample, time: Double, lensZoom: Double) {
+        val lens = cameraID ?: return
+        val measurement = DollyMeasurement(subject, time, lensZoom, lens)
+        if (!DollyZoomMove.accepts(measurement, lens, dollyMeasurement, dollyFollower != null)) return
+        dollyMeasurement = measurement
+        if (lens == dollyLens) dollyFollower?.observe(subject.box.height, lensZoom, time)
+    }
+
+    private fun freshMeasurement(): DollyMeasurement? =
+        dollyMeasurement?.takeIf { it.lens == cameraID && seconds() - it.time < DollyZoomMove.FRESH }
+
+    /** Dolly Zoom's button: starts a move, or holds the one under way. CaptureController.swift:2005-2032. */
+    fun triggerDollyZoom() {
+        if (!canTriggerDolly) return
+        val template = template(VideoEffectID.DollyZoom) ?: return
+        if (dollyFollower != null || dollyPreparation != null) { stopDolly(immediate = false, reason = DollyHint.MoveHeld); return }
+        if (!ready || !inFront) return
+        val range = DollyZoomMove.range(zoomRange.start, zoomRange.endInclusive, cleanZoom)
+        if (range == null) { dollyHint = DollyHint.MoreRange; return }
+        val measurement = freshMeasurement()
+        if (measurement == null) { dollyHint = DollyHint.TapVisible; return }
+        zoomRamp?.cancel()
+        dollyClean = cleanZoom
+        dollyStretch = template.choice("direction") != "Compress"
+        val current = zoom
+        val desired = DollyZoomMove.prepared(dollyStretch, current, range.endInclusive, measurement.subject.box.height)
+        if (DollyZoomMove.needsPreparation(desired, current)) {
+            dollyState = LiveDollyState.Preparing
+            dollyHint = DollyHint.HoldStill
+            zoomTo(desired, DollyZoomMove.PREPARE_SECONDS, forDolly = true)
+            dollyPreparation = scope.launch {
+                delay((DollyZoomMove.ARM_DELAY * 1000).toLong())
+                dollyPreparation = null
+                armDolly(template, range)
+            }
+        } else armDolly(template, range)
+    }
+
+    /** CaptureController.swift:2033-2055. */
+    private fun armDolly(template: VideoEffectSettings, range: ClosedFloatingPointRange<Double>) {
+        val measurement = freshMeasurement()
+        if (measurement == null || !ready || !inFront) {
+            dollyState = LiveDollyState.Ready
+            dollyHint = DollyHint.KeepInFrame
+            return
+        }
+        val now = seconds()
+        if (zoom !in range) { dollyState = LiveDollyState.Ready; dollyHint = DollyHint.ZoomOut; return }
+        if (!DollyZoomMove.hasRoom(dollyStretch, zoom, range)) { dollyState = LiveDollyState.Ready; dollyHint = DollyHint.LeaveRoom; return }
+        dollyLens = cameraID ?: return
+        dollyStopReason = null
+        dollyFollower = DollyZoomFollower(measurement.subject.box.height * zoom / measurement.zoom, zoom, range, measurement.time)
+        dollyEndsAt = now + template.number("duration")
+        dollyLastUI = Double.NEGATIVE_INFINITY
+        segment?.takeIf { phase == Phase.Recording }?.let {
+            note(it, CaptureEvent(time = segmentSeconds(), kind = "dollyStart", detail = String.format(java.util.Locale.ROOT, "Dolly Zoom on %s at %.2f×", current?.label ?: "", zoom)))
+        }
+        dollyState = LiveDollyState.Following
+        dollyHint = if (dollyStretch) DollyHint.WalkToward else DollyHint.WalkAway
+        dollyTicker?.cancel()
+        // At each picture, as the original advances the move with each frame.
+        dollyTicker = scope.launch { while (dollyFollower != null) { advanceDolly(); delay(33) } }
+    }
+
+    /** CaptureController.swift:2074-2090. */
+    private fun advanceDolly() {
+        val follower = dollyFollower ?: return
+        if (cameraID != dollyLens || !ready || !inFront) { stopDolly(immediate = true, reason = DollyHint.MoveStopped); return }
+        val now = seconds()
+        if (now >= dollyEndsAt) { follower.stop(now); if (dollyStopReason == null) dollyStopReason = DollyHint.MoveComplete }
+        val value = follower.value(now)
+        applyZoom(value, remember = false)
+        if (follower.hasStopped(now)) { stopDolly(immediate = true, reason = dollyStopReason ?: DollyHint.SubjectLost); return }
+        if (now - dollyLastUI >= 0.2) {
+            dollyLastUI = now
+            val remaining = DollyZoomMove.remaining(dollyStretch, value, follower.range)
+            dollyState = if (follower.isStopping) LiveDollyState.Stopping else LiveDollyState.Following
+            dollyHint = DollyZoomMove.hint(follower.isStopping, dollyMeasurement?.subject?.face, remaining, value, dollyClean, dollyStretch)
+            dollyHeadroom = remaining
+        }
+    }
+
+    /** Ends a move: [immediate]ly, or easing to a hold first. CaptureController.swift:2091-2106. */
+    private fun stopDolly(immediate: Boolean, reason: DollyHint) {
+        val wasMoving = dollyFollower != null || dollyPreparation != null
+        dollyPreparation?.let { it.cancel(); dollyPreparation = null; zoomRamp?.cancel() }
+        val follower = dollyFollower
+        if (!immediate && follower != null) {
+            dollyStopReason = reason
+            follower.stop(seconds())
+            dollyState = LiveDollyState.Stopping
+            dollyHint = DollyHint.Holding
+            return
+        }
+        if (follower != null) {
+            // The framing reached is the camera's zoom from now on.
+            applyZoom(zoom)
+            segment?.takeIf { phase == Phase.Recording }?.let {
+                note(it, CaptureEvent(time = segmentSeconds(), kind = "dollyEnd", detail = String.format(java.util.Locale.ROOT, "%s at %.2f×", reason.words, zoom)))
+            }
+        }
+        dollyFollower = null
+        dollyTicker?.cancel()
+        dollyTicker = null
+        dollyEndsAt = Double.POSITIVE_INFINITY
+        dollyState = if (wasMoving) LiveDollyState.Holding else LiveDollyState.Ready
+        dollyHint = if (wasMoving) reason else DollyHint.TapFace
+    }
+
+    /**
+     * The development build's stand-in for a person walking, as the original's `probeDollyMeasurement`
+     * (CaptureController.swift:2883-2892): a face 0.18 of the frame high at one metre, seen from [from] metres to [to]
+     * over [seconds], fifteen times a second, in place of what the camera sees.
+     */
+    private fun probeDolly(from: Double, to: Double, seconds: Double) {
+        probe?.cancel()
+        probe = scope.launch {
+            val start = seconds()
+            while (true) {
+                val now = seconds()
+                val f = ((now - start) / seconds).coerceIn(0.0, 1.0)
+                val distance = from + (to - from) * f
+                val lensZoom = camera?.cameraInfo?.zoomState?.value?.zoomRatio?.toDouble() ?: zoom
+                val height = 0.18 / distance * lensZoom
+                measure(SubjectSample(now, Rect(0.4, 0.5 - height / 2, 0.2, height), 1.0, true), now, lensZoom)
+                if (f >= 1 && now - start > seconds + 3) break
+                delay(66)
+            }
+        }
+    }
+
+    private val probes = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.getStringExtra("action")) {
+                "dolly" -> probeDolly(intent.getFloatExtra("from", 2f).toDouble(), intent.getFloatExtra("to", 1f).toDouble(), intent.getFloatExtra("seconds", 3f).toDouble())
+                "start" -> triggerDollyZoom()
+                "crash" -> triggerCrashZoom()
+                "stop" -> { probe?.cancel(); probe = null }
+            }
+        }
+    }
+
+    init {
+        if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            ContextCompat.registerReceiver(context, probes, IntentFilter(context.packageName + ".MOVES_PROBE"), ContextCompat.RECEIVER_EXPORTED)
+        }
+    }
+
     // MARK: Frame assists. The level horizon, follow face and focus peaking, drawn by [frames] while one is on.
 
     /** The level horizon is the rear cameras', as in the original, and needs to know where down is. */
@@ -541,7 +848,8 @@ class CaptureController(private val context: Context, private val store: Project
     /** What the frames are drawn for when [choice] is bound: the recording too for the level and the follow, the preview alone for peaking. */
     private fun assistTargets(choice: CameraChoice): Int = when {
         levels(choice) || settings.followFace -> CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE
-        settings.focusPeaking -> CameraEffect.PREVIEW
+        // The camera moves draw over the preview alone, and look at the pictures for the subject.
+        settings.focusPeaking || crashAvailable || dollyAvailable -> CameraEffect.PREVIEW
         else -> 0
     }
 
@@ -609,6 +917,8 @@ class CaptureController(private val context: Context, private val store: Project
             inputZoom = if (digital) zoomRange.start else zoom,
             minimumZoom = zoomRange.start,
             selectedZoom = if (digital) zoom else null,
+            tracking = camera != null && cases.effects != 0 && tracksSubject,
+            mirrored = current?.front == true && settings.mirrorRecording,
         )
         frames.listenToGravity(level != null && inFront)
     }
@@ -647,6 +957,7 @@ class CaptureController(private val context: Context, private val store: Project
         if (nativeZoom) prefs.edit().putFloat("zoom.$id", 1f).apply()
         // The old camera's move must not resume when that camera is selected again.
         zoomRamp?.cancel()
+        stopDolly(immediate = true, reason = DollyHint.MoveStopped)
         segment?.takeIf { phase == Phase.Recording }?.let {
             note(it, CaptureEvent(time = it.nanos / 1e9, kind = "camera", detail = choice.label))
         }
@@ -811,7 +1122,9 @@ class CaptureController(private val context: Context, private val store: Project
         if (remember) cameraID?.let { prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply() }
     }
 
-    fun zoomTo(target: Double, seconds: Double = zoomDuration) {
+    fun zoomTo(target: Double, seconds: Double = zoomDuration, forDolly: Boolean = false) {
+        // A zoom chosen by hand ends a Dolly Zoom (CaptureController.swift:2275, 2350-2351).
+        if (!forDolly) stopDolly(immediate = true, reason = DollyHint.MoveStopped)
         val bounded = target.coerceIn(zoomRange)
         if (abs(bounded - zoom) < 0.001) return
         zoomRamp?.cancel()
@@ -836,6 +1149,7 @@ class CaptureController(private val context: Context, private val store: Project
      */
     fun beginPinch(span: Double): PinchZoom? {
         if (!canPinch) return null
+        stopDolly(immediate = true, reason = DollyHint.MoveStopped)
         zoomRamp?.cancel()
         return PinchZoom.begin(zoom, span, zoomDuration, zoomRange.start, zoomRange.endInclusive)
     }
@@ -917,7 +1231,13 @@ class CaptureController(private val context: Context, private val store: Project
         pace = space.begin(now, format.ultraHD)
         spaceCheckedAt = now
         segment = next
+        // A Crash Zoom under way goes on in the segment, on its clock; a Dolly Zoom goes on too (CaptureController.swift:1463).
+        crash = crash.carried(effectTime())
         phase = Phase.Recording
+        movesOrigin = SystemClock.elapsedRealtimeNanos()
+        publishMoves()
+        saveRecipe(next)
+        if (dollyFollower != null) note(next, CaptureEvent(time = 0.0, kind = "dollyStart", detail = "Dolly Zoom continuing from the preview"))
         recording = pending.start(ContextCompat.getMainExecutor(context)) { event -> handle(next, event) }
     }
 
@@ -956,7 +1276,13 @@ class CaptureController(private val context: Context, private val store: Project
             return
         }
         current.requested = next
+        stopDolly(immediate = false, reason = if (next == Phase.Paused) DollyHint.MovePaused else DollyHint.RecordingStopped)
+        // The moves of the segment are saved with it; one under way goes on in the preview.
+        saveRecipe(current)
+        crash = crash.carried(effectTime())
         phase = Phase.Saving
+        movesOrigin = SystemClock.elapsedRealtimeNanos()
+        publishMoves()
         recording?.stop()
         scope.launch {
             // In steps, so that time the system kept the app frozen in the background is not counted.
@@ -1001,7 +1327,11 @@ class CaptureController(private val context: Context, private val store: Project
     private fun handle(current: Segment, event: VideoRecordEvent) {
         when (event) {
             // The first report comes a second into the recording; time runs from here until then.
-            is VideoRecordEvent.Start -> if (segment === current) current.reportedAt = SystemClock.elapsedRealtimeNanos()
+            is VideoRecordEvent.Start -> if (segment === current) {
+                current.reportedAt = SystemClock.elapsedRealtimeNanos()
+                // The moves of the segment are timed on its own clock, from here.
+                anchorMoves()
+            }
             is VideoRecordEvent.Status -> if (segment === current) {
                 // The system does not always report a route that changes under a running recording.
                 val second = event.recordingStats.recordedDurationNanos / 1_000_000_000
@@ -1043,7 +1373,7 @@ class CaptureController(private val context: Context, private val store: Project
             if (current.file.length() == 0L) { current.file.delete(); null } else mediaDuration(current.file)
         }
         // After the last write of its events, which may still be on its way.
-        if (!current.file.exists()) withContext(eventFiles) { CaptureEventsFile.delete(current.file) }
+        if (!current.file.exists()) withContext(eventFiles) { CaptureEventsFile.delete(current.file); CaptureEffectsFile.delete(current.file) }
         // The take went on without waiting for this segment: it only joins the project.
         if (current.abandoned) { index(current, seconds); return }
         if (segment === current) { segment = null; recording = null }
@@ -1063,7 +1393,9 @@ class CaptureController(private val context: Context, private val store: Project
         val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
         // The recording gain of its microphone, as the level of the take's clip: the file stays as it was recorded.
         val gain = settings.recordingGain(current.microphone)
-        current.indexed = store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events), gain)
+        // The Crash Zooms of the take arrive as effects of its clip: the movie itself is clean.
+        val effects = current.moves.takeIf { it.isNotEmpty() }?.let { VideoEffectSettings.capturedRecipe(it, seconds).ifEmpty { null } }
+        current.indexed = store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events), gain, effects)
     }
 
     /** The segment has ended: the take is paused or over, as was asked, and the camera returns. */

@@ -45,6 +45,7 @@ private val WORDS: Map<VideoEffectID, EffectWords> = mapOf(
     VideoEffectID.SuperEight to EffectWords(R.string.effect_super_eight, R.string.effect_super_eight_summary, R.string.effect_super_eight_help, R.string.effect_super_eight_history),
     VideoEffectID.Widescreen to EffectWords(R.string.effect_widescreen, R.string.effect_widescreen_summary, R.string.effect_widescreen_help, R.string.effect_widescreen_history),
     VideoEffectID.CrashZoom to EffectWords(R.string.effect_crash_zoom, R.string.effect_crash_zoom_summary, R.string.effect_crash_zoom_help, R.string.effect_crash_zoom_history),
+    VideoEffectID.DollyZoom to EffectWords(R.string.effect_dolly_zoom, R.string.effect_dolly_zoom_summary, R.string.effect_dolly_zoom_help, R.string.effect_dolly_zoom_history),
     VideoEffectID.Quantization to EffectWords(R.string.effect_quantization, R.string.effect_quantization_summary, R.string.effect_quantization_help, R.string.effect_quantization_history),
     VideoEffectID.ChromaKey to EffectWords(R.string.effect_chroma_key, R.string.effect_chroma_key_summary, R.string.effect_chroma_key_help, R.string.effect_chroma_key_history),
     VideoEffectID.AutoBackground to EffectWords(R.string.effect_auto_background, R.string.effect_auto_background_summary, R.string.effect_auto_background_help, null),
@@ -139,6 +140,9 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
     "flares" -> R.string.effect_control_flares
     "flareColor" -> R.string.effect_control_flare_color
     "ovalBokeh" -> R.string.effect_control_oval_bokeh
+    // Dolly Zoom, in the recorder.
+    "direction" -> R.string.effect_control_direction
+    "duration" -> if (kind == VideoEffectID.DollyZoom) R.string.effect_control_duration else null
     // Crash Zoom.
     "zoom" -> R.string.effect_control_zoom_amount
     "speed" -> when (kind) {
@@ -209,7 +213,7 @@ private fun controlTitle(kind: VideoEffectID, id: String): Int? = when (id) {
 /** A control's name; only the offered effects' controls are translated. */
 @Composable
 internal fun controlName(kind: VideoEffectID, parameter: EffectParameter): String =
-    controlTitle(kind, parameter.id)?.takeIf { kind in AndroidVideoEffects.offered }?.let { stringResource(it) } ?: parameter.title
+    controlTitle(kind, parameter.id)?.takeIf { kind in AndroidVideoEffects.offered || kind in LiveMoves.KINDS }?.let { stringResource(it) } ?: parameter.title
 
 private val CHOICES: Map<String, Int> = mapOf(
     "Night Blue" to R.string.effect_choice_night_blue, "Amber" to R.string.effect_choice_amber, "Fire Red" to R.string.effect_choice_fire_red,
@@ -228,12 +232,13 @@ private val CHOICES: Map<String, Int> = mapOf(
     "Fit" to R.string.effect_choice_fit, "Fast" to R.string.effect_choice_fast,
     "Clean" to R.string.effect_choice_clean, "Print" to R.string.effect_choice_print, "Cut" to R.string.effect_choice_cut,
     "Continue" to R.string.effect_choice_continue, "Fade out over hold" to R.string.effect_choice_fade_out_over_hold,
+    "Stretch" to R.string.effect_choice_stretch, "Compress" to R.string.effect_choice_compress,
 )
 
 /** A choice of a picker as it is shown; the saved value stays the original's English. */
 @Composable
 internal fun choiceName(kind: VideoEffectID, choice: String): String =
-    CHOICES[choice]?.takeIf { kind in AndroidVideoEffects.offered }?.let { stringResource(it) } ?: choice
+    CHOICES[choice]?.takeIf { kind in AndroidVideoEffects.offered || kind in LiveMoves.KINDS }?.let { stringResource(it) } ?: choice
 
 /** What a Color Correction control does, shown when its name is held. */
 @StringRes
