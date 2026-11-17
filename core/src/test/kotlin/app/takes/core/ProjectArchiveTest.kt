@@ -165,6 +165,14 @@ class ProjectArchiveTest {
         assertEquals(6 + 3, unzip(output.toByteArray()).size)
     }
 
+    /** YouRec/ProjectArchive.swift:232-240: 256 MB and every media file the ZIP holds, required before it is begun. */
+    @Test fun theSpaceRequiredIsAMarginAndTheMedia() {
+        val (project, folder) = saved()
+        assertEquals(256_000_000L + contents.values.sumOf { it.size.toLong() }, ProjectArchive.requiredSpace(folder, project))
+        File(folder, take.filename).delete()
+        assertThrows(ProjectException::class.java) { ProjectArchive.requiredSpace(folder, project) }
+    }
+
     @Test fun missingMediaIsRefusedBeforeAnythingIsWritten() {
         val (project, folder) = saved()
         assertTrue(File(folder, "scene.mp4").delete())

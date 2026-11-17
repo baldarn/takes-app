@@ -49,11 +49,7 @@ object ProjectArchive {
      */
     fun write(projectFolder: File, project: Project, output: OutputStream, progress: (written: Long, total: Long) -> Unit = { _, _ -> }) {
         project.validate()
-        // validate() has made every name a plain file name, so each path stays inside the folder.
-        // A font copy already missing stays behind, as in the original (YouRec/ProjectArchive.swift:227-231): its titles fall back.
-        val fonts = project.fontFiles.toSet()
-        val media = project.mediaFiles.map { it to File(projectFolder, it).toPath() }
-            .filter { (name, path) -> name !in fonts || Files.exists(path, LinkOption.NOFOLLOW_LINKS) }
+        val media = media(projectFolder, project)
         val total = media.sumOf { (_, path) -> size(path) }
         val timeline = OpenTimeline.text(project).toByteArray()
 
@@ -110,6 +106,28 @@ object ProjectArchive {
         // Ends the archive without closing the caller's stream.
         zip.finish()
         output.flush()
+    }
+
+    /** What is kept free beyond the media for a ZIP to be made (YouRec/ProjectArchive.swift:232). */
+    const val SPACE_MARGIN = 256_000_000L
+
+    /**
+     * The room a ZIP of [project] needs before it is begun, as the original requires it above the
+     * storage's floor (YouRec/ProjectArchive.swift:232-240): [SPACE_MARGIN] and every media file
+     * it will hold. Throws as [write] does when a source is missing or is not a plain file.
+     */
+    fun requiredSpace(projectFolder: File, project: Project): Long {
+        project.validate()
+        return SPACE_MARGIN + media(projectFolder, project).sumOf { (_, path) -> size(path) }
+    }
+
+    /** The media files a ZIP of [project] holds, by name, with their paths. */
+    private fun media(projectFolder: File, project: Project): List<Pair<String, Path>> {
+        // validate() has made every name a plain file name, so each path stays inside the folder.
+        // A font copy already missing stays behind, as in the original (YouRec/ProjectArchive.swift:227-231): its titles fall back.
+        val fonts = project.fontFiles.toSet()
+        return project.mediaFiles.map { it to File(projectFolder, it).toPath() }
+            .filter { (name, path) -> name !in fonts || Files.exists(path, LinkOption.NOFOLLOW_LINKS) }
     }
 
     private fun size(path: Path): Long {

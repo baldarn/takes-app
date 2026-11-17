@@ -57,6 +57,16 @@ class RecoveryRulesTest {
         assertEquals(1L, RecoveryRules.spaceToFree(free - 1_280_000_000 + 1, free, total))
     }
 
+    /** YouRec/ProjectRecovery.swift:452-456: what fits above the floor, never less than nothing. */
+    @Test fun theRoomIsWhatIsFreeAboveTheFloor() {
+        assertEquals(720_000_000L, RecoveryRules.room(2_000_000_000, 64_000_000_000))
+        assertEquals(0L, RecoveryRules.room(100_000_000, 64_000_000_000))
+        // A duplicate or a restore given this room stops where the original's require would refuse.
+        val room = RecoveryRules.room(2_000_000_000, 64_000_000_000)
+        assertNull(RecoveryRules.spaceToFree(room, 2_000_000_000, 64_000_000_000))
+        assertEquals(1L, RecoveryRules.spaceToFree(room + 1, 2_000_000_000, 64_000_000_000))
+    }
+
     /** TRANSLATED ProjectRecoveryTests.swift:136-144: a torn movie keeps the fragments that closed. */
     @Test fun theCompleteStartOfATornMovieEndsAtTheLastClosedFragment() {
         val whole = movie(ftyp, moov, fragment(500), fragment(500), fragment(500))

@@ -356,10 +356,19 @@ class ProjectStore(context: Context) {
             val problem = withContext(Dispatchers.IO) {
                 try {
                     var shown = -1
+                    // As the original, the margin and the media must fit above the floor before anything is written, and the
+                    // floor is checked again every 16 MB (ProjectArchive.swift:80-91, 232-240). The person's document is
+                    // measured on the phone's storage, where the providers on it keep what they are given.
+                    shortOfSpace(ProjectArchive.requiredSpace(disk.folder(project.id), project))?.let { throw IOException(it) }
+                    var nextCheck = RecoveryRules.CHECK_INTERVAL
                     resolver.openOutputStream(destination)!!.use { stream ->
                         // write() flushes; use() closes the document.
                         ProjectArchive.write(disk.folder(project.id), project, stream.buffered(1 shl 16)) { written, total ->
                             stopIfCancelled()
+                            if (written >= nextCheck) {
+                                shortOfSpace(0)?.let { throw IOException(it) }
+                                nextCheck = written + RecoveryRules.CHECK_INTERVAL
+                            }
                             val percent = if (total > 0) (written * 100 / total).toInt() else 100
                             if (percent != shown) { shown = percent; importing = context.getString(R.string.projects_zipping_percent, percent) }
                         }
@@ -905,8 +914,8 @@ class ProjectStore(context: Context) {
                         if (row.moveToFirst() && !row.isNull(0)) row.getLong(0) else 0L
                     } ?: 0L
                     disk.root.mkdirs()
-                    // Keep some room free, as the original does, so the phone is not filled to the brim.
-                    val room = (disk.root.usableSpace - 256_000_000L).coerceAtLeast(0)
+                    // What is written keeps the original's floor free, so the phone is not filled to the brim (ProjectArchive.swift:80-91, 135).
+                    val room = RecoveryRules.room(disk.root.usableSpace, disk.root.totalSpace)
                     var shown = -1
                     resolver.openInputStream(source)!!.use { stream ->
                         ProjectRestore.restore(stream, disk.root, room) { read ->
@@ -937,7 +946,9 @@ class ProjectStore(context: Context) {
             val title = ProjectDuplicate.title(project.title, projects.map { it.title }, context.getString(R.string.projects_copy_word))
             val result = withContext(Dispatchers.IO) {
                 try {
-                    val room = (disk.root.usableSpace - 256_000_000L).coerceAtLeast(0)
+                    // The copies keep the original's floor free (ProjectArchive.swift:191, 135).
+                    disk.root.mkdirs()
+                    val room = RecoveryRules.room(disk.root.usableSpace, disk.root.totalSpace)
                     var shown = -1
                     Result.success(ProjectDuplicate.duplicate(project, disk.root, title, room) { copied, total ->
                         stopIfCancelled()

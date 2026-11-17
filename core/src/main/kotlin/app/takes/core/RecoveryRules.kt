@@ -27,6 +27,12 @@ object RecoveryRules {
     fun shortOfSpace(bytes: Long, free: Long, total: Long, format: (Long) -> String): String? =
         spaceToFree(bytes, free, total)?.let { "Free about " + format(it) + " more space to finish this operation and keep space available on the phone." }
 
+    /** What may be written with [free] bytes free on a storage of [total], keeping the floor; never less than nothing. */
+    fun room(free: Long, total: Long): Long = maxOf(0L, free - floor(total))
+
+    /** A long copy checks the floor again after each of these many bytes, as other apps take space meanwhile (YouRec/ProjectArchive.swift:80-91). */
+    const val CHECK_INTERVAL = 16_777_216L
+
     /** How much more must be freed for [bytes] to be written keeping the floor, at least one; none when they fit. */
     fun spaceToFree(bytes: Long, free: Long, total: Long): Long? {
         val room = free - floor(total)
