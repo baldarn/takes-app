@@ -832,6 +832,11 @@
     <string name="sound_fade_out_pause">Pause fade out</string>
     <string name="sound_level_mixed">Mixed</string>
     <string name="sound_level_changed">%1$s · Undo available</string>
+    <string name="editor_trim_amount">Trim %1$s</string>
+    <string name="editor_trim_start">Trim start</string>
+    <string name="editor_trim_end">Trim end</string>
+    <string name="sound_trimmed">Trimmed · Undo available</string>
+    <string name="sound_trim_extended">Trim extended · Undo available</string>
     <string name="export_running_title">Exporting</string>
     <string name="export_percent">%1$d%%</string>
     <string name="export_step_opening">Reading export settings</string>

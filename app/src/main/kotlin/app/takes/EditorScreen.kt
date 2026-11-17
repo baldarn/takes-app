@@ -1075,6 +1075,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         // A level being chosen by dragging a waveform up or down: the original's quick volume (EditorTimeline.swift:609-687).
         val leveled = leveling
         val levelChanged = stringResource(R.string.sound_level_changed)
+        val trimmedSound = stringResource(R.string.sound_trimmed)
+        val trimExtended = stringResource(R.string.sound_trim_extended)
         val levelGesture = LevelGesture(
             begin = begin@{ clip, sound, time ->
                 if (subtitling != null || titling != null || transitioning != null || cropping != null || effecting != null || trim != null || moving != null || placementWork != null) return@begin false
@@ -1247,6 +1249,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             addSites = addSites.takeIf { subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null && auditioning == null },
             addVideo = { site -> cancelPendingPlay(); editor.pause(); addSite = site; adding = true },
             bookmarks = bookmarks.times, openBookmarks = { editor.pause(); bookmarksOpen = true },
+            // A sound selected by itself is trimmed by its handles, inwards a deletion and outwards a reveal (EditorView.swift:1241-1258).
+            trimSound = if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null && auditioning == null) { id, leading, seconds ->
+                sounds.firstOrNull { it.id == id }?.let { item ->
+                    TimelineEditing.trimAudioEdge(edit, id, leading, seconds, durations[item.sourceID] ?: item.sourceEnd)?.let { next ->
+                        commit(next, playhead)
+                        feedback = if (if (leading) seconds < 0 else seconds > 0) trimExtended else trimmedSound
+                    }
+                }
+            } else null,
             pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
             moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(

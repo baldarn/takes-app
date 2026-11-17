@@ -18,6 +18,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import app.takes.core.WaveformBuilder
 import app.takes.core.EditTime
 import app.takes.core.TrackMove
+import app.takes.core.TrackEditing
 import app.takes.core.VideoInsertionSite
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
@@ -52,6 +53,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -175,6 +177,8 @@ internal fun Timeline(
     addSites: List<AddSite>? = null, addVideo: (VideoInsertionSite) -> Unit = {},
     /** Every bookmark, in timeline seconds, marked on the ruler; a tap on several at once opens [openBookmarks]. */
     bookmarks: List<Double> = emptyList(), openBookmarks: () -> Unit = {},
+    /** A sound selected by itself trimmed by a handle: its [leading] or trailing edge moved by [seconds] of the timeline; null when sounds have no handles. */
+    trimSound: ((id: String, leading: Boolean, seconds: Double) -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -231,6 +235,27 @@ internal fun Timeline(
                 trailing -> false
                 else -> null
             }
+        }
+    }
+    // The sound selected by itself, with nothing else but a picture, outside a range: it has trim handles, as in the original
+    // (EditorTimeline.swift:587-589, :927-935). Its handle is held for 0.3 s and then dragged; [soundTrim] is the drag so far.
+    val handled = marked?.takeIf { it.range == null && moveDrag == null && boundaries == null && trimSound != null }?.targets
+        ?.takeIf { it.audio.size == 1 && it.clips.size <= 1 }?.audio?.single()?.let { id -> sounds.firstOrNull { it.id == id } }
+    var soundTrim by remember { mutableStateOf<SoundTrim?>(null) }
+    val onTrimSound by rememberUpdatedState(trimSound)
+    // Within 22 dp of an edge of that sound, on its track, on a sound at least 44 dp wide, the edge on the screen (EditorTimeline.swift:583-601).
+    val soundHandle by rememberUpdatedState { x: Float, y: Float, half: Float ->
+        handled?.let { item ->
+            val (reach, least) = with(density) { 22.dp.toPx() to 44.dp.toPx() }
+            val top = with(density) { (StripTop + strip + TrackHeight * item.track).toPx() }
+            if (y < top || y > top + with(density) { TrackHeight.toPx() }) return@let null
+            val left = half + (item.start * pixelsPerSecond).toFloat() - scroll.value
+            val right = half + (item.end * pixelsPerSecond).toFloat() - scroll.value
+            if (right - left < least) return@let null
+            val width = half * 2
+            val fromLeft = if (left >= 0 && left < width) abs(x - left) else Float.POSITIVE_INFINITY
+            val fromRight = if (right > 0 && right <= width) abs(x - right) else Float.POSITIVE_INFINITY
+            if (minOf(fromLeft, fromRight) <= reach) item.id to (fromLeft <= fromRight) else null
         }
     }
     BoxWithConstraints(
@@ -330,6 +355,41 @@ internal fun Timeline(
                 }
                 // A drag up or down on a clip's waveform, or on a sound on an audio track, chooses its level, as in the original.
                 val grip = if (inStrip) handle(down.position.x, down.position.y, size.width / 2f) else null
+                // A handle of the sound selected alone, held for 0.3 s without moving more than 8 dp, then dragged sideways,
+                // trims it (EditorTimeline.swift:227-254, :718-747). Moved sooner it is a level or a scrub; lifted, a tap.
+                val soundGrip = if (grip == null) soundHandle(down.position.x, down.position.y, size.width / 2f) else null
+                if (soundGrip != null) {
+                    val still = 8.dp.toPx()
+                    val waited = withTimeoutOrNull(300) {
+                        while (true) {
+                            val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull HoldEnd.Lifted
+                            if (!change.pressed) return@withTimeoutOrNull HoldEnd.Lifted
+                            if ((change.position - down.position).getDistance() > still) return@withTimeoutOrNull HoldEnd.Moved
+                        }
+                        @Suppress("UNREACHABLE_CODE") HoldEnd.Moved
+                    }
+                    if (waited == HoldEnd.Lifted) { onTouched(); return@awaitEachGesture }
+                    if (waited == null) {
+                        val (id, leading) = soundGrip
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onTouched()
+                        soundTrim = SoundTrim(id, leading, 0.0)
+                        var lifted = false
+                        try {
+                            while (true) {
+                                val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                                change.consume()
+                                if (!change.pressed) { lifted = true; break }
+                                soundTrim = SoundTrim(id, leading, ((change.position.x - down.position.x) / scale).toDouble())
+                            }
+                        } finally {
+                            val done = soundTrim
+                            soundTrim = null
+                            if (lifted && done != null && done.seconds != 0.0) onTrimSound?.invoke(id, leading, done.seconds)
+                        }
+                        return@awaitEachGesture
+                    }
+                }
                 onLevel?.takeIf { grip == null }?.let { gesture ->
                     val tile = rowTile(laid).toPx()
                     val wave = rowWave(laid).toPx()
@@ -447,6 +507,9 @@ internal fun Timeline(
                                     }
                                     .padding(horizontal = 6.dp, vertical = 2.dp),
                             )
+                            // The trim handles of the sound selected alone, and while one is dragged the edge where it goes and by how much
+                            // (EditorTimeline.swift:927-951).
+                            if (item.id == handled?.id) SoundHandles(item, pixelsPerSecond, soundTrim?.takeIf { it.id == item.id })
                             // A sound that plays apart from its picture says by how much, as the original's Restore sync does.
                             syncOffsets[item.id]?.let { offset ->
                                 val shown = signedSeconds(offset)
@@ -893,4 +956,39 @@ private fun BoxWithConstraintsScope.AddSiteButton(site: AddSite, pixelsPerSecond
             drawLine(Color.White, Offset(center.x, center.y - arm), Offset(center.x, center.y + arm), stroke, StrokeCap.Round)
         }
     }
+}
+
+/** A trim of a sound by one of its handles under way: its [leading] or trailing edge dragged [seconds] of the timeline. */
+private data class SoundTrim(val id: String, val leading: Boolean, val seconds: Double)
+
+/** How a hold on a handle ended before it began a trim. */
+private enum class HoldEnd { Moved, Lifted }
+
+/**
+ * The yellow handles at the two edges of [item], 5 by 24 dp, when it is at
+ * least 44 dp wide; while [trim] is dragged, a line where the edge goes when
+ * it goes in, and a badge with how much is trimmed (EditorTimeline.swift:927-951).
+ */
+@Composable
+private fun SoundHandles(item: AudioItem, pixelsPerSecond: Float, trim: SoundTrim?) {
+    val density = LocalDensity.current
+    val left = (item.start * pixelsPerSecond).toFloat()
+    val right = (item.end * pixelsPerSecond).toFloat()
+    if (right - left < with(density) { 44.dp.toPx() } && trim == null) return
+    val height = TrackHeight - 3.dp
+    for (x in listOf(left + with(density) { 3.dp.toPx() }, right - with(density) { 6.dp.toPx() })) {
+        Box(Modifier.offset { IntOffset(x.roundToInt(), ((height - 24.dp) / 2).roundToPx()) }.width(5.dp).height(minOf(24.dp, height)).background(GripColor))
+    }
+    if (trim == null) return
+    // What goes, never all of it: at least a frame stays (EditorView.swift:1250).
+    val removed = minOf(maxOf(0.0, item.duration - TrackEditing.FRAME), if (trim.leading) trim.seconds else -trim.seconds)
+    val edge = if (trim.leading) item.start + maxOf(0.0, removed) else item.end - maxOf(0.0, removed)
+    val x = (edge * pixelsPerSecond).toFloat()
+    Box(Modifier.offset { IntOffset((x - 1.5.dp.toPx()).roundToInt(), 0) }.width(3.dp).height(height).background(GripColor))
+    val label = if (removed > 0) stringResource(R.string.editor_trim_amount, preciseLabel(removed))
+    else stringResource(if (trim.leading) R.string.editor_trim_start else R.string.editor_trim_end)
+    Text(
+        label, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+        modifier = Modifier.offset { IntOffset((x + 4.dp.toPx()).roundToInt(), 2.dp.roundToPx()) }.background(GripColor, RoundedCornerShape(5.dp)).padding(horizontal = 6.dp),
+    )
 }

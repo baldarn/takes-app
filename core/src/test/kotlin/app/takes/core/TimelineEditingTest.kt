@@ -62,6 +62,30 @@ class TimelineEditingTest {
         }
     }
 
+    @Test fun aSoundIsTrimmedByItsHandles() {
+        // YouRec/EditorView.swift:1241-1258: inwards the trimmed part is deleted, at least a frame left; outwards the source is revealed.
+        val music = AudioItem(id = "M", sourceID = "music", start = 1.0, sourceStart = 2.0, sourceEnd = 8.0, track = 1, audio = ClipAudio(fadeIn = 1.0))
+        val scored = state.copy(audio = listOf(music))
+        fun trimmed(leading: Boolean, delta: Double) = TimelineEditing.trimAudioEdge(scored, "M", leading, delta, 10.0)?.let { next ->
+            assertEquals(scored.clips, next.clips)
+            next.audio!!.single().also { assertEquals(listOf("M", "music", 1), listOf(it.id, it.sourceID, it.track)) }
+        }
+        trimmed(leading = true, 1.5)!!.let { assertEquals(listOf(2.5, 3.5, 8.0), listOf(it.start, it.sourceStart, it.sourceEnd)) }
+        trimmed(leading = false, -2.0)!!.let { assertEquals(listOf(1.0, 2.0, 6.0), listOf(it.start, it.sourceStart, it.sourceEnd)) }
+        // Outwards no earlier than the timeline's start, and no further than the source goes.
+        trimmed(leading = true, -5.0)!!.let { assertEquals(listOf(0.0, 1.0, 8.0), listOf(it.start, it.sourceStart, it.sourceEnd)) }
+        trimmed(leading = false, 5.0)!!.let { assertEquals(listOf(1.0, 2.0, 10.0), listOf(it.start, it.sourceStart, it.sourceEnd)) }
+        // A frame is always left (YouRec/EditorView.swift:1250).
+        trimmed(leading = true, 100.0)!!.let { assertEquals(1.0 / 30, it.duration, 1e-9); assertEquals(7.0, it.end, 1e-9) }
+        trimmed(leading = false, -100.0)!!.let { assertEquals(1.0 / 30, it.duration, 1e-9); assertEquals(1.0, it.start, 0.0) }
+        // A trim into the fade in keeps its slope: the new start sounds as that moment did (YouRec/TrackTimeline.swift:133-151).
+        trimmed(leading = true, 0.5)!!.let { assertEquals(TimelineEditing.soundLevel(music, 0.5), TimelineEditing.soundLevel(it, 0.0), 1e-9) }
+        // Nothing to do: no movement, no footage to reveal, no such sound.
+        assertNull(trimmed(leading = true, 0.0))
+        assertNull(TimelineEditing.trimAudioEdge(scored, "M", leading = false, 1.0, 8.0))
+        assertNull(TimelineEditing.trimAudioEdge(scored, "X", leading = false, -1.0, 10.0))
+    }
+
     @Test fun splitNeedsRoomOnBothSides() {
         assertNull(TimelineEditing.split(state, 0.0))
         assertNull(TimelineEditing.split(state, 4.0))

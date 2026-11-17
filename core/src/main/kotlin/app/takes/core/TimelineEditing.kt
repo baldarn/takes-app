@@ -949,6 +949,59 @@ object TimelineEditing {
         }
     }
 
+    /**
+     * A trim of the sound item [id] by one of its handles, as the original's
+     * editor makes it ([TrackEditing.trimming], YouRec/EditorView.swift:1241-1258):
+     * [delta] timeline seconds at its [leading] or trailing edge. Inwards the
+     * part trimmed off is deleted, leaving at least a frame; outwards the sound
+     * is revealed, as far as its source of [sourceDuration] seconds goes and,
+     * at the start, no earlier than the timeline's. Nothing else moves. What is
+     * left keeps the item's id and its track where that is free, and each edge
+     * the second it is given (until `split-on-the-grid`). Null when nothing
+     * changes.
+     */
+    fun trimAudioEdge(state: EditState, id: String, leading: Boolean, delta: Double, sourceDuration: Double): EditState? {
+        val item = state.audio.orEmpty().firstOrNull { it.id == id } ?: return null
+        if (!delta.isFinite() || delta == 0.0) return null
+        val outwards = if (leading) delta < 0 else delta > 0
+        val frame = TrackEditing.FRAME
+        // Where the edge goes, in the item's own seconds, as the track model will put it to within a tick.
+        val (start, sourceStart, sourceEnd) = when {
+            leading && outwards -> minOf(-delta, item.start, item.sourceStart).let { Triple(item.start - it, item.sourceStart - it, item.sourceEnd) }
+            outwards -> Triple(item.start, item.sourceStart, item.sourceEnd + minOf(delta, maxOf(0.0, sourceDuration - item.sourceEnd)))
+            leading -> minOf(item.end - frame, maxOf(item.start, item.start + delta)).let { Triple(it, item.sourceStart + (it - item.start), item.sourceEnd) }
+            else -> maxOf(item.start + frame, minOf(item.end, item.end + delta)).let { Triple(item.start, item.sourceStart, item.sourceStart + (it - item.start)) }
+        }
+        val sources = listOf(SourceMedia(item.sourceID, filename = "", duration = maxOf(sourceDuration, item.sourceEnd), audioOnly = true))
+        val settled = { piece: AudioItem ->
+            if (piece.sourceID != item.sourceID) piece
+            else piece.copy(
+                id = id, start = TrackWrapping.exactly(piece.start, start), sourceStart = TrackWrapping.exactly(piece.sourceStart, sourceStart),
+                sourceEnd = TrackWrapping.exactly(piece.sourceEnd, sourceEnd), track = item.track,
+            )
+        }
+        return TrackWrapping.edit(state, settled = settled) { timeline ->
+            val sound = sound(state, timeline, id) ?: return@edit null
+            TrackEditing.trimming(timeline, sound.id, leading, delta, sources)?.timeline?.let { trimmed ->
+                // What a reveal adds is a run of its own, at the same pace from where the sound began or ended: one run with it, as a sound item is.
+                trimmed.copy(audio = trimmed.audio.map { if (it.sourceID == item.sourceID && it.mapping.runs.size > 1) it.copy(mapping = joined(it.mapping)) else it })
+            }
+        }
+    }
+
+    /** [map] with the runs that carry one another on, at one pace through the source, made one. */
+    private fun joined(map: SourcePlaybackMap): SourcePlaybackMap {
+        val runs = ArrayList<PlaybackRun>()
+        for (run in map.runs) {
+            val last = runs.lastOrNull()
+            val pace = { it: PlaybackRun -> (it.sourceEnd - it.sourceStart) / it.duration.seconds }
+            if (last != null && !last.isHold && !run.isHold && last.silent == run.silent && kotlin.math.abs(last.sourceEnd - run.sourceStart) < 1e-9 &&
+                kotlin.math.abs(pace(last) - pace(run)) < 1e-6) runs[runs.lastIndex] = PlaybackRun(last.duration + run.duration, last.sourceStart, run.sourceEnd, run.silent)
+            else runs += run
+        }
+        return SourcePlaybackMap(runs)
+    }
+
     /** Sets the level, mute and fades of a sound item ([TrackAudio.settingVolume], [TrackAudio.settingFade]); a fade is no longer than the item. */
     fun setAudioItemSound(state: EditState, id: String, audio: ClipAudio): EditState? {
         val item = state.audio.orEmpty().firstOrNull { it.id == id } ?: return null
