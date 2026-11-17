@@ -313,6 +313,11 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
                 }
             }
         }
+        // The pads in place of the six sliders, then the strength. VideoEffectsEditor.swift:1147-1150.
+        VideoEffectID.RgbOffset -> {
+            RgbOffsetPads(effect, at, mirrored = false, enabled = !work.bypass && effect.enabled) { values -> change(work.setting(values, time())) }
+            effect.parameters.firstOrNull { it.id == "intensity" }?.let { EffectControl(effect, it, at, set, keys) }
+        }
         else -> {
             for (section in VideoEffectParameterSection.sections(effect, at)) {
                 if (section != VideoEffectParameterSection.General) Text(section.title, color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -323,11 +328,6 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
                 }
             }
             if (effect.kind == VideoEffectID.Quantization) PaletteControls(work, effect, time, change, tools)
-            if (effect.kind == VideoEffectID.RgbOffset) {
-                TextButton(onClick = { change(work.setting(listOf("redX", "redY", "greenX", "greenY", "blueX", "blueY").associateWith { 0.0 }, time())) }) {
-                    Text(stringResource(R.string.rgb_center_all))
-                }
-            }
             // There is no imported depth here: always the original's words for the person. VideoEffectsEditor.swift:1184.
             if (effect.kind == VideoEffectID.DollyZoom) Text(stringResource(R.string.dolly_person_note), color = Soft, fontSize = 12.sp)
         }

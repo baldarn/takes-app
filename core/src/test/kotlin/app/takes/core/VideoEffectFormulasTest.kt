@@ -9,6 +9,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -158,6 +159,18 @@ class VideoEffectFormulasTest {
         assertEquals(formulas.kaleidoscope(uv, size, 2.0), formulas.kaleidoscope(uv, size, 0.0))
         assertEquals(formulas.kaleidoscope(uv, size, 9.0), formulas.kaleidoscope(uv, size, 12.0))
         assertEquals(formulas.kaleidoscope(uv, size, 3.0), formulas.kaleidoscope(uv, size, 2.5))
+    }
+
+    // VideoEffects.metal:32-33, :554-559: the preview's monochrome lattice is the export's texture, level for level.
+    @Test fun theMonochromeLevelsAreTheLatticesWAsTheExportStoresIt() {
+        for (frame in listOf(0, 1, 15, 4097, Int.MAX_VALUE)) {
+            val (columns, rows) = 97 to 61
+            val levels = VideoEffectGrain.monochromeLevels(columns, rows, frame)
+            for (y in 0 until rows) for (x in 0 until columns) {
+                val expected = ((VideoEffectGrain.lattice(x, y, frame).w * 0.5 + 0.5) * 255).roundToInt()
+                assertEquals("$x, $y of frame $frame", expected, levels[y * columns + x].toInt() and 0xff)
+            }
+        }
     }
 
     // VideoEffects.metal:554-559, :137-142; YouRec/VideoEffects/MetalVideoEffects.swift:445-448.

@@ -564,6 +564,23 @@ object EffectShader {
 
     private const val NO_GRAIN = "vec4 grain(vec2 point) { return vec4(0.0); }"
 
+    /**
+     * The preview's monochrome grain, Noir's: the export's lattice, made by the core
+     * ([VideoEffectGrain.monochromeLevels]) and read as the export reads it, smoothed between its points.
+     * Nothing until the frame's lattice is made ([uLattice].x 0).
+     */
+    private const val PREVIEW_GRAIN = """
+        uniform shader lattice;
+        uniform vec2 uLattice;
+        vec4 grain(vec2 point) {
+            if (uLattice.x < 0.5) return vec4(0.0);
+            vec2 cell = floor(point);
+            vec2 f = fract(point);
+            f = f * f * (3.0 - 2.0 * f);
+            return vec4(lattice.eval(cell + 0.5 + f).a * 2.0 - 1.0);
+        }
+    """
+
     /** The export's pictures drawn before a pass, linear light read between their pixels. */
     private const val AUXILIARY = """
         uniform sampler2D uAux;
@@ -789,7 +806,7 @@ object EffectShader {
 
     /**
      * The preview's for the effect of shader index [kind]: the deck's picture
-     * as the content of a layer, read at its pixels and held at its edges. No grain.
+     * as the content of a layer, read at its pixels and held at its edges. No grain but Noir's.
      */
     fun preview(kind: Int): String = """
         uniform shader content;
@@ -806,7 +823,7 @@ object EffectShader {
             vec2 b = clamp(i + 1.0, vec2(0.0), last);
             return mix(mix(texel(a), texel(vec2(b.x, a.y)), f.x), mix(texel(vec2(a.x, b.y)), texel(b), f.x), f.y);
         }
-        $NO_GRAIN
+        ${if (kind == VideoEffectID.Noir.shaderIndex) PREVIEW_GRAIN else NO_GRAIN}
         $PREVIEW_AUXILIARY
         ${previewPictures(kind)}
         $EFFECTS
@@ -1558,8 +1575,8 @@ class VideoEffectChain(
 
 /**
  * The preview's side of the effects, on Android 13 and later: a deck's
- * picture through the passes of its clip, one shader for each. Grain is not
- * drawn; positions are those of the deck's view, which shows the clip fitted,
+ * picture through the passes of its clip, one shader for each. Grain is drawn
+ * for Noir alone; positions are those of the deck's view, which shows the clip fitted,
  * before its crop. The pictures the export draws before a pass (blurs,
  * highlights, a Quantization's smoothing, a Chroma Key's grown and softened
  * matte) are stand-ins worked out at each pixel from a few reads: the
@@ -1582,6 +1599,11 @@ class EffectPreview {
         passes: List<EffectUniforms>, width: Float, height: Float, picture: (String) -> Bitmap? = { null },
         /** The person mask of the frame, raw or (true) Auto Background's smoothed stream; null without one. */
         person: (Boolean) -> PersonFrame? = { null },
+        /**
+         * Called on the main thread when a frame's grain, made in the background, is ready to be drawn; without it
+         * the grain is made at once.
+         */
+        ready: (() -> Unit)? = null,
     ): RenderEffect? {
         var effect: RenderEffect? = null
         passes.forEachIndexed { index, pass ->
@@ -1616,10 +1638,50 @@ class EffectPreview {
             shader.setFloatUniform("uThresholds", EffectShader.thresholds(pass))
             shader.setFloatUniform("uCount", EffectShader.count(pass))
             backdrop(shader, pass, width, height, if (pictured(pass)) picture(pass.id) else null)
+            if (pass.effect == VideoEffectID.Noir) grainInput(shader, pass, width, height, ready)
             val drawn = RenderEffect.createRuntimeShaderEffect(shader, "content")
             effect = effect?.let { RenderEffect.createChainEffect(drawn, it) } ?: drawn
         }
         return effect
+    }
+
+    /** A lattice of grain made for a frame of a picture of a size, as the shader reads it. */
+    private class GrainLattice(val frame: Int, val columns: Int, val rows: Int, val shader: BitmapShader)
+
+    private var grainShown: GrainLattice? = null
+    private var grainMaking: Triple<Int, Int, Int>? = null
+
+    /**
+     * Noir's grain as the pass's `lattice` input: the frame's monochrome lattice, the export's, at the deck's size
+     * ([VideoEffectGrain.latticeSize] counts in pixels at 1080, so it is the export's whatever the deck's size). With
+     * [ready] it is made in the background and, until it is, the last one made is drawn, or no grain.
+     */
+    private fun grainInput(shader: RuntimeShader, pass: EffectUniforms, width: Float, height: Float, ready: (() -> Unit)?) {
+        val (columns, rows) = VideoEffectGrain.latticeSize(width.roundToInt(), height.roundToInt(), VideoEffectFormulas.NOIR_GRAIN_SIZE)
+        fun made(frame: Int): GrainLattice {
+            val bitmap = Bitmap.createBitmap(columns, rows, Bitmap.Config.ALPHA_8)
+            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(VideoEffectGrain.monochromeLevels(columns, rows, frame)))
+            return GrainLattice(frame, columns, rows, BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply { filterMode = BitmapShader.FILTER_MODE_LINEAR })
+        }
+        val wanted = Triple(pass.frame, columns, rows)
+        val shown = grainShown
+        if (pass.number("grain") > .5 && (shown == null || Triple(shown.frame, shown.columns, shown.rows) != wanted)) {
+            if (ready == null) grainShown = made(pass.frame)
+            else if (grainMaking != wanted) {
+                grainMaking = wanted
+                grainWork.execute {
+                    val lattice = made(pass.frame)
+                    main.post {
+                        if (grainMaking == wanted) grainMaking = null
+                        grainShown = lattice
+                        ready()
+                    }
+                }
+            }
+        }
+        val lattice = grainShown?.takeIf { it.columns == columns && it.rows == rows }
+        shader.setInputShader("lattice", lattice?.shader ?: none)
+        shader.setFloatUniform("uLattice", if (lattice != null) 1f else 0f, 0f)
     }
 
     /** Whether [pass] is a Chroma Key or an Auto Background with an Image background. */
@@ -1690,6 +1752,10 @@ class EffectPreview {
     }
 
     private companion object {
+        /** Where the grain's lattices are made: one at a time, for all the decks. */
+        val grainWork: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "Preview grain").apply { isDaemon = true } }
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+
         const val NIGHT_FIX = """
             uniform shader content;
             uniform vec4 uFix;

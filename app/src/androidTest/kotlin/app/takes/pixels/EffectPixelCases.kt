@@ -371,9 +371,9 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
 
     private fun effect(label: String, kind: VideoEffectID, sets: List<Set>, simplified: (Map<String, Any>) -> Boolean = { false }): List<Case> {
         val cases = sets.map { set -> case("$label: ${set.label}", listOf(settings(kind, set.values)), ALLOWED, set.time) } +
-            // The preview draws no grain.
+            // Noir's grain too: the preview reads the export's lattice.
             sets.map { set ->
-                case("$label, preview: ${set.label}", listOf(settings(kind, if (kind == VideoEffectID.Noir) set.values + ("grain" to false) else set.values)), ALLOWED, set.time, preview = true, simplified = simplified(set.values))
+                case("$label, preview: ${set.label}", listOf(settings(kind, set.values)), ALLOWED, set.time, preview = true, simplified = simplified(set.values))
             }
         if (!kind.descriptor.supportsIntensity) return cases
         val last = sets.last()

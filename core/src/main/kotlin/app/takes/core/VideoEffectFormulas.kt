@@ -142,6 +142,27 @@ object VideoEffectGrain {
         return EffectUniformVector(base * .7 + other(29u) * .3, base * .7 + other(59u) * .3, base * .7 + other(101u) * .3, base)
     }
 
+    /**
+     * The monochrome lattice of a frame, [columns] by [rows], row by row: each point's `w` of [lattice]
+     * as a level, −1…1 as 0…255, as the export's texture holds it. The hashes of the row and of the frame
+     * are worked out once, so that a picture's worth (two million points at 1080 × 1920) is made in a
+     * few milliseconds, for the preview. Metal:32-33, :554-559.
+     */
+    fun monochromeLevels(columns: Int, rows: Int, frame: Int): ByteArray {
+        val out = ByteArray(columns * rows)
+        val z = VideoEffectShaderMath.hash32(frame.toUInt() + 13u + 0x85ebca6bu)
+        for (y in 0 until rows) {
+            val row = VideoEffectShaderMath.hash32(y.toUInt() + 0x9e3779b9u) xor z
+            val at = y * columns
+            for (x in 0 until columns) {
+                val r = (VideoEffectShaderMath.hash32(x.toUInt() xor row) shr 8).toInt()
+                // ((r / 2²⁴ · 2 − 1) · 0.5 + 0.5) · 255, rounded: r · 255 / 2²⁴ to the nearest whole.
+                out[at + x] = ((r.toLong() * 255 + (1L shl 23)) shr 24).toInt().toByte()
+            }
+        }
+        return out
+    }
+
     /** How many points the lattice of a picture has, across and down, for grain of a size (1 for Noir). */
     fun latticeSize(width: Int, height: Int, grainSize: Double): Pair<Int, Int> {
         val scale = minOf(width, height) / 1080.0

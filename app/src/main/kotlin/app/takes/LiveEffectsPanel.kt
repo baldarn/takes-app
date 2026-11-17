@@ -394,6 +394,13 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
     }
     when (effect.kind) {
         VideoEffectID.ColorCorrection -> CorrectionControls(effect, 0.0, set) { update { it.copy(parameters = VideoEffectSettings(VideoEffectID.ColorCorrection).parameters) } }
+        // The pads in place of the six sliders, drawn as the preview shows the picture, then the strength. LiveEffectsPanel.swift:163-165.
+        VideoEffectID.RgbOffset -> {
+            val front = capture.cameras.firstOrNull { it.id == capture.cameraID }?.front == true
+            val mirrored = front && capture.settings.mirrorPreview != capture.settings.mirrorRecording
+            RgbOffsetPads(effect, 0.0, mirrored) { values -> update { e -> values.entries.fold(e) { a, (id, v) -> a.with(id, EffectValue.Number(v)) } } }
+            effect.parameters.firstOrNull { it.id == "intensity" }?.let { EffectControl(effect, it, 0.0, set) }
+        }
         else -> {
             val drawn = if (effect.kind in LiveMoves.KINDS) effect else AndroidVideoEffects.asDrawn(effect)
             for (section in VideoEffectParameterSection.sections(drawn, 0.0, live = true)) {
@@ -427,11 +434,6 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
                             }
                         }
                     }
-                }
-            }
-            if (effect.kind == VideoEffectID.RgbOffset) {
-                TextButton(onClick = { update { e -> listOf("redX", "redY", "greenX", "greenY", "blueX", "blueY").fold(e) { a, id -> a.with(id, EffectValue.Number(0.0)) } } }) {
-                    Text(stringResource(R.string.rgb_center_all))
                 }
             }
             if (effect.kind == VideoEffectID.Kaleidoscope) {

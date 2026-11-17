@@ -77,10 +77,17 @@
     <string name="correction_help_hue">Ruota tutti i colori sulla ruota cromatica mantenendo la luminanza. Zero mantiene le tinte originali.</string>
     <string name="correction_help_intensity" formatted="false">Mescola questa correzione con l’immagine di partenza. 100% applica tutta la correzione; 0% la esclude.</string>
 
+    <string name="rgb_pads_hint">Trascina una croce per spostarne il colore. Tocca due volte per centrarla.</string>
+    <string name="rgb_pad_label">Spostamento: %1$s</string>
+    <string name="rgb_pad_reading">X %1$d%% · Y %2$d%%</string>
+    <string name="rgb_pad_left">Sposta a sinistra</string>
+    <string name="rgb_pad_right">Sposta a destra</string>
+    <string name="rgb_pad_up">Sposta in alto</string>
+    <string name="rgb_pad_down">Sposta in basso</string>
+    <string name="rgb_pad_center">Centra</string>
     <string name="kaleidoscope_fine">Regolazioni fini</string>
     <string name="kaleidoscope_reset_split">Azzera divisione</string>
     <string name="kaleidoscope_center_source">Centra sorgente</string>
-    <string name="rgb_center_all">Centra tutti i canali</string>
     <string name="isolation_invalid_hue">Scegli una zona colorata. Nero, bianco e grigio non hanno una tinta da isolare.</string>
 
     <string name="effect_color_correction">Correzione colore</string>
@@ -116,7 +123,7 @@
     <string name="effect_color_isolation_history">Il colore selettivo contrappone un dettaglio a colori a un ambiente monocromo, come in Rusty il selvaggio (1983).</string>
     <string name="effect_rgb_offset">Scostamento RGB</string>
     <string name="effect_rgb_offset_summary">Sposta le immagini rossa, verde e blu fuori registro.</string>
-    <string name="effect_rgb_offset_help" formatted="false">Sposta ogni strato di colore con i suoi cursori X e Y. Zero è il registro originale; a fine corsa un canale si sposta del 12% del lato corto dell’immagine.</string>
+    <string name="effect_rgb_offset_help" formatted="false">Trascina ogni croce per spostare il suo strato di colore. Il centro è il registro originale. L’anello esterno sposta un canale del 12% del lato corto dell’immagine. Tocca due volte un riquadro per centrare quel canale.</string>
     <string name="effect_rgb_offset_history">La stampa a colori per imbibizione allineava tre matrici separate per mettere a registro l’immagine.</string>
     <string name="effect_negative_strobe">Negativo stroboscopico</string>
     <string name="effect_negative_strobe_summary">Alterna l’immagine originale e il suo negativo a colori.</string>

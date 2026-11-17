@@ -78,10 +78,17 @@
     <string name="correction_help_intensity" formatted="false">Blends this correction with its input. 100% applies the full correction; 0% bypasses it.</string>
 
     <!-- Kaleidoscope -->
+    <string name="rgb_pads_hint">Drag a cross to shift its color. Double-tap to center it.</string>
+    <string name="rgb_pad_label">%1$s offset</string>
+    <string name="rgb_pad_reading">X %1$d%% · Y %2$d%%</string>
+    <string name="rgb_pad_left">Move left</string>
+    <string name="rgb_pad_right">Move right</string>
+    <string name="rgb_pad_up">Move up</string>
+    <string name="rgb_pad_down">Move down</string>
+    <string name="rgb_pad_center">Center</string>
     <string name="kaleidoscope_fine">Fine adjustments</string>
     <string name="kaleidoscope_reset_split">Reset split</string>
     <string name="kaleidoscope_center_source">Center source</string>
-    <string name="rgb_center_all">Center all channels</string>
     <string name="isolation_invalid_hue">Choose a colored area. Black, white and gray have no hue to isolate.</string>
 
     <!-- Effect names, one line each in the library, help and film history -->
@@ -118,7 +125,7 @@
     <string name="effect_color_isolation_history">Selective color contrasts a colored detail with monochrome surroundings, as in Rumble Fish (1983).</string>
     <string name="effect_rgb_offset">RGB Offset</string>
     <string name="effect_rgb_offset_summary">Slide the red, green and blue images out of alignment.</string>
-    <string name="effect_rgb_offset_help" formatted="false">Move each color layer with its X and Y sliders. Zero is the original registration; at either end a channel moves by 12% of the picture’s shorter side.</string>
+    <string name="effect_rgb_offset_help" formatted="false">Drag each cross to shift its color layer. The center is the original registration. The outer ring moves a channel by 12% of the picture’s shorter side. Double-tap a pad to center that channel.</string>
     <string name="effect_rgb_offset_history">Color dye-transfer printing aligned three separate matrices to register the color image.</string>
     <string name="effect_negative_strobe">Negative Strobe</string>
     <string name="effect_negative_strobe_summary">Flash between the original picture and its color negative.</string>

@@ -956,6 +956,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                                 passes, bounds.width, bounds.height,
                                 picture = { id -> shown?.firstOrNull { it.id == id }?.let(assets::picture) },
                                 person = { smoothed -> assets.person(sourceTime, smoothed) },
+                                ready = { palettesReady++ },
                             )
                         }
                     }
