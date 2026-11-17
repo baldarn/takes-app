@@ -128,6 +128,15 @@
     <string name="projects_restore_failed">Non è stato possibile ripristinare il progetto: %1$s</string>
     <string name="projects_erase_failed">Non è stato possibile eliminare definitivamente il progetto: %1$s</string>
     <string name="projects_save_failed">Modifiche non salvate: %1$s</string>
+    <string name="projects_save_journalled">Modifiche non salvate. È stata scritta una copia di recupero delle modifiche. %1$s</string>
+    <string name="projects_save_memory_only">Le modifiche sono solo in memoria. Tieni Takes aperta e riprova a salvare. %1$s</string>
+    <string name="projects_delete_unsaved">Salva le modifiche in sospeso prima di spostare “%1$s” in Eliminati di recente. %2$s</string>
+    <string name="recovery_unsaved_title">Modifiche non salvate</string>
+    <string name="recovery_unsaved_memory">Tieni Takes aperta. Le nuove modifiche sono solo in memoria.</string>
+    <string name="recovery_retry_save">Riprova a salvare</string>
+    <string name="recovery_dismiss">Chiudi l\'avviso di recupero</string>
+    <string name="recovery_pending_recovered">Recuperate le modifiche in sospeso. Riprova a salvare per confermarle.</string>
+    <string name="recovery_journal_unreadable">Il progetto salvato si è aperto. Non è stato possibile leggere il registro delle modifiche in sospeso.</string>
 
     <!-- Project problems (texts of the core module's ProjectException.Reason) -->
     <string name="project_error_invalid_document">Questo progetto contiene dati di montaggio non supportati o non validi. I suoi file sono stati conservati.</string>

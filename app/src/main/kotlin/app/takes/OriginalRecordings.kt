@@ -125,6 +125,8 @@ internal fun OriginalRecordings(projectID: String, store: ProjectStore, close: (
                 TextButton(onClick = leave, enabled = !copying) { Text(stringResource(R.string.common_done), color = SettingsCyan, fontWeight = FontWeight.SemiBold) }
             }
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+                // The project's recovery notice, as the original's (OriginalRecordingsView.swift:18).
+                store.recoveryMessages[projectID]?.let { Text(it, color = Color.White, modifier = Modifier.padding(12.dp)) }
                 if (project == null) store.unavailable[projectID]?.let { reason ->
                     Text(unavailableReason(reason), color = Secondary, modifier = Modifier.padding(12.dp))
                     val again = stringResource(R.string.originals_available_again)

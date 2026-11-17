@@ -125,6 +125,15 @@
     <string name="projects_restore_failed">The project could not be restored: %1$s</string>
     <string name="projects_erase_failed">The project could not be erased: %1$s</string>
     <string name="projects_save_failed">Changes not saved: %1$s</string>
+    <string name="projects_save_journalled">Changes not saved. A recovery copy of the edits was written. %1$s</string>
+    <string name="projects_save_memory_only">Changes are only in memory. Keep Takes open and retry the save. %1$s</string>
+    <string name="projects_delete_unsaved">Save the pending edits before moving “%1$s” to Recently deleted. %2$s</string>
+    <string name="recovery_unsaved_title">Changes not saved</string>
+    <string name="recovery_unsaved_memory">Keep Takes open. New edits are only in memory.</string>
+    <string name="recovery_retry_save">Retry save</string>
+    <string name="recovery_dismiss">Dismiss recovery notice</string>
+    <string name="recovery_pending_recovered">Recovered your pending edits. Retry save to commit them.</string>
+    <string name="recovery_journal_unreadable">The saved project opened. Its pending edit journal could not be read.</string>
 
     <!-- Project problems (texts of the core module's ProjectException.Reason) -->
     <string name="project_error_invalid_document">This project has unsupported or invalid editing data. Its files have been preserved.</string>

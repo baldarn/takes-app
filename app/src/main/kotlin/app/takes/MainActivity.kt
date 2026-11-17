@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,6 +83,23 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
+    // Changes that could not be saved are tried again when the app comes to the front and when it leaves it,
+    // as the original does when its scene becomes active or goes to the background (ContentView.swift:362-364).
+    override fun onStart() {
+        super.onStart()
+        retryUnsaved()
+    }
+
+    override fun onStop() {
+        retryUnsaved()
+        super.onStop()
+    }
+
+    private fun retryUnsaved() {
+        val store = (application as TakesApp).store
+        if (store.unsavedDrafts.isNotEmpty()) store.retrySaves()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -103,24 +121,37 @@ class MainActivity : ComponentActivity() {
                         bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                         if (fullScreen) bars.hide(WindowInsetsCompat.Type.statusBars()) else bars.show(WindowInsetsCompat.Type.statusBars())
                     }
-                    // Projects and the editor keep clear of the camera cutout and, in landscape, of the navigation bar under them.
-                    val screen = Modifier.windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(if (landscape) WindowInsetsSides.Top + WindowInsetsSides.Bottom else WindowInsetsSides.Top),
-                    )
+                    // The project whose original recordings the banner's Review opened.
+                    var reviewing by rememberSaveable { mutableStateOf("") }
+                    val banner = RecoveryBanner.of(app.store, app.capture.hasActiveTake)
+                    // Projects and the editor keep clear of the camera cutout and, in landscape, of the navigation bar under
+                    // them; under a banner, which keeps clear of the cutout itself, of the navigation bar only.
+                    val screen = when {
+                        banner != null && landscape -> Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                        banner != null -> Modifier
+                        else -> Modifier.windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(if (landscape) WindowInsetsSides.Top + WindowInsetsSides.Bottom else WindowInsetsSides.Top),
+                        )
+                    }
                     // Clear of a cutout or a navigation bar at the sides, which landscape puts there.
                     Tabbed(landscape, Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
-                        Box {
-                            when (tab) {
-                                0 -> RecorderScreen(app.capture, app.store) { tab = 2 }
-                                1 -> ProjectsScreen(app.store, app.exporter, screen) { project, destination ->
-                                    app.store.select(project.id)
-                                    // "Continue recording" always means at the end.
-                                    if (destination == 0) app.store.recordAtEnd(project.id)
-                                    tab = destination
+                        Column {
+                            // Over every screen, as the original's (ContentView.swift:75-94).
+                            if (banner != null) RecoveryBanner(banner, app.store) { reviewing = it }
+                            Box(Modifier.weight(1f)) {
+                                when (tab) {
+                                    0 -> RecorderScreen(app.capture, app.store) { tab = 2 }
+                                    1 -> ProjectsScreen(app.store, app.exporter, screen) { project, destination ->
+                                        app.store.select(project.id)
+                                        // "Continue recording" always means at the end.
+                                        if (destination == 0) app.store.recordAtEnd(project.id)
+                                        tab = destination
+                                    }
+                                    else -> EditorScreen(app.store, app.exporter, screen) { tab = 0 }
                                 }
-                                else -> EditorScreen(app.store, app.exporter, screen) { tab = 0 }
+                                Notice(app.store.error, Modifier.align(Alignment.Center)) { app.store.error = null }
                             }
-                            Notice(app.store.error, Modifier.align(Alignment.Center)) { app.store.error = null }
+                            if (reviewing.isNotEmpty()) OriginalRecordings(reviewing, app.store) { reviewing = "" }
                         }
                         // Nobody leaves the recorder while a take is being written, nor the screen of an import, a
                         // duplicate, a ZIP or a recovery while it runs, as in the original (ContentView.swift:541-550).

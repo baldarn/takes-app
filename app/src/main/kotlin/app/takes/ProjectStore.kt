@@ -164,10 +164,34 @@ class ProjectStore(context: Context) {
 
     val selected: Project? get() = projects.firstOrNull { it.id == selectedID }
 
+    /**
+     * The projects whose last change could not be saved, by id, as the original keeps them (ProjectStore.swift:13-14,
+     * 229-248): the change is shown and built on, kept in memory and, when that could be written, journalled beside
+     * the project ([ProjectDisk.journalDraft]) until a save succeeds.
+     */
+    var unsavedDrafts by mutableStateOf(emptyMap<String, Project>()); private set
+    /** The [unsavedDrafts] whose journal was written, so that they survive the app stopping. */
+    var journaledDrafts by mutableStateOf(emptySet<String>()); private set
+    /** What the person is told about a project's recovery, by project id, with Review, as the original's banner (ContentView.swift:86-93). */
+    val recoveryMessages = mutableStateMapOf<String, String>()
+
     init {
         disk.root.mkdirs()
         disk.finishPendingDeletions()
         reload()
+        // The edits journalled when a save failed come back, to be saved again, as the original opens them (ProjectStore.swift:127-133).
+        for (project in projects) {
+            val draft = try {
+                disk.pendingDraft(project.id)
+            } catch (_: Exception) {
+                recoveryMessages[project.id] = context.getString(R.string.recovery_journal_unreadable)
+                null
+            } ?: continue
+            unsavedDrafts = unsavedDrafts + (project.id to draft)
+            journaledDrafts = journaledDrafts + project.id
+            recoveryMessages[project.id] = context.getString(R.string.recovery_pending_recovered)
+        }
+        if (unsavedDrafts.isNotEmpty()) reload()
         // What processing was writing when the app last stopped is never read: it goes, as the original wipes its
         // Processing and Previews folders at launch (ProjectStore.swift:136-142).
         for (project in projects) File(disk.folder(project.id), "Cache").listFiles().orEmpty().filter { ProcessingCache.isWorking(it.name) }.forEach { it.delete() }
@@ -896,7 +920,22 @@ class ProjectStore(context: Context) {
         if (next != project) update(next)
     }
 
-    fun delete(project: Project) = attempt(R.string.projects_delete_failed) {
+    fun delete(project: Project) {
+        // Edits that could not be saved are saved first, or the project stays, as in the original (ProjectStore.swift:256-266).
+        unsavedDrafts[project.id]?.let { draft ->
+            try {
+                disk.save(draft)
+                unsavedDrafts = unsavedDrafts - project.id
+                journaledDrafts = journaledDrafts - project.id
+            } catch (problem: Exception) {
+                error = context.getString(R.string.projects_delete_unsaved, draft.title, describe(problem))
+                return
+            }
+        }
+        moveToDeleted(project)
+    }
+
+    private fun moveToDeleted(project: Project) = attempt(R.string.projects_delete_failed) {
         disk.moveToDeleted(project)
         // The most recent project left is selected in its place, as in the original (ProjectStore.swift:269).
         select(ProjectSelection.afterRemoving(selectedID, project.id, projects.map { it.id }))
@@ -1016,7 +1055,8 @@ class ProjectStore(context: Context) {
 
     private fun reload() {
         val library = disk.loadAll()
-        projects = library.projects
+        // A change that could not be saved stays on show, over what is on the disk.
+        projects = library.projects.map { unsavedDrafts[it.id] ?: it }.sortedByDescending { it.updatedAt }
         unavailable = library.unavailable
         // In the original's order: a known deletion date first, the latest first (DeletionRules.ordered).
         deleted = DeletionRules.ordered(disk.loadAll(disk.deletedRoot).projects.map { DeletedProject(it, disk.deletionRecord(it.id)?.date) }) {
@@ -1024,13 +1064,58 @@ class ProjectStore(context: Context) {
         }
     }
 
-    private fun update(project: Project): Boolean = try {
-        disk.save(project)
+    /**
+     * Saves [project] and shows it. When the save fails, a project already in the library keeps the change as a
+     * draft, shown, journalled when it can be, and saved again by [retrySaves], as in the original
+     * (ProjectStore.swift:205-248); true then, since the change is the project's from now on. A new project that
+     * cannot be saved is not made.
+     */
+    private fun update(project: Project): Boolean {
+        try {
+            disk.save(project)
+        } catch (problem: Exception) {
+            if (projects.none { it.id == project.id }) {
+                error = context.getString(R.string.projects_save_failed, describe(problem))
+                return false
+            }
+            retainDraft(project, problem)
+            return true
+        }
+        if (project.id in unsavedDrafts) {
+            unsavedDrafts = unsavedDrafts - project.id
+            journaledDrafts = journaledDrafts - project.id
+        }
         projects = (projects.filter { it.id != project.id } + project).sortedByDescending { it.updatedAt }
-        true
-    } catch (problem: Exception) {
-        error = context.getString(R.string.projects_save_failed, describe(problem))
-        false
+        return true
+    }
+
+    private fun retainDraft(draft: Project, failure: Exception) {
+        unsavedDrafts = unsavedDrafts + (draft.id to draft)
+        projects = (projects.filter { it.id != draft.id } + draft).sortedByDescending { it.updatedAt }
+        error = try {
+            disk.journalDraft(draft)
+            journaledDrafts = journaledDrafts + draft.id
+            context.getString(R.string.projects_save_journalled, describe(failure))
+        } catch (_: Exception) {
+            journaledDrafts = journaledDrafts - draft.id
+            context.getString(R.string.projects_save_memory_only, describe(failure))
+        }
+    }
+
+    /** Saves again every change that could not be saved, as the original's "Retry save" (ProjectStore.swift:229-238). */
+    fun retrySaves() {
+        val failures = mutableListOf<String>()
+        for ((id, draft) in unsavedDrafts) {
+            if (projects.none { it.id == id }) { unsavedDrafts = unsavedDrafts - id; continue }
+            try {
+                disk.save(draft)
+                unsavedDrafts = unsavedDrafts - id
+            } catch (problem: Exception) {
+                failures += draft.title + ": " + describe(problem)
+            }
+        }
+        journaledDrafts = journaledDrafts intersect unsavedDrafts.keys
+        error = failures.joinToString("\n").ifEmpty { null }
     }
 
     // A take is never removed from a manifest, so a playable movie the manifest

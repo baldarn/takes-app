@@ -6,10 +6,18 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
+import java.util.Base64
 import java.util.UUID
 
 @Serializable
 data class ProjectDeletion(val id: String, val date: Long)
+
+/**
+ * A draft journalled when a save failed: the hash of the manifest it was made on top of, and its own
+ * manifest, in Base64 (YouRec/ProjectRecovery.swift:356-359).
+ */
+@Serializable
+private data class PendingEdit(val previous: String? = null, val manifest: String)
 
 /**
  * App-owned project directories. Each holds `project.json`, an immutable
@@ -43,6 +51,63 @@ class ProjectDisk(val root: File, private val fonts: FontLibrary? = null) {
             else keepRevision(previous, directory)
         }
         if (previous == null || !data.contentEquals(previous)) writeAtomically(data, head)
+        clearMatchingDraft(data, directory)
+    }
+
+    /**
+     * Removes the pending draft of the project in [directory] once [committed], the manifest just saved, is
+     * the draft's own, as the original does after every save (YouRec/ProjectRecovery.swift:360-369).
+     */
+    private fun clearMatchingDraft(committed: ByteArray, directory: File) {
+        val pending = File(directory, PENDING_EDIT)
+        val draft = runCatching { documentJson.decodeFromString(PendingEdit.serializer(), File(pending, DRAFT).readText()) }.getOrNull() ?: return
+        val manifest = runCatching { Base64.getDecoder().decode(draft.manifest) }.getOrNull() ?: return
+        if (RecoveryRules.draftCommitted(committed, manifest)) pending.deleteRecursively()
+    }
+
+    /**
+     * Writes [project] as the emergency journal of a save that failed (YouRec/ProjectRecovery.swift:370-382):
+     * its manifest, with the hash of the saved one it was made on top of, and only the history snapshots the
+     * project's `History` does not already hold, in the folder's `.pending-edit`.
+     */
+    fun journalDraft(project: Project) = synchronized(writeLock) {
+        val directory = folder(project.id)
+        val pending = File(directory, PENDING_EDIT)
+        val head = File(directory, "project.json")
+        val previous = if (head.isFile) sha256(head.readBytes()) else null
+        val data = project.manifest { name, bytes ->
+            val existing = File(File(directory, "History"), name)
+            if (!(existing.isFile && existing.readBytes().contentEquals(bytes))) {
+                val target = File(File(pending, "History"), name)
+                if (!target.parentFile.isDirectory && !target.parentFile.mkdirs()) throw java.io.IOException("Cannot create ${target.parentFile.path}")
+                if (!(target.isFile && target.readBytes().contentEquals(bytes))) writeAtomically(bytes, target)
+            }
+        }
+        if (!pending.isDirectory && !pending.mkdirs()) throw java.io.IOException("Cannot create ${pending.path}")
+        val envelope = PendingEdit(previous, Base64.getEncoder().encodeToString(data))
+        writeAtomically(documentJson.encodeToString(PendingEdit.serializer(), envelope).toByteArray(), File(pending, DRAFT))
+    }
+
+    /**
+     * The draft journalled for the project in folder [id], when it is still to be offered: the saved manifest is
+     * not already the draft's and is still the one the draft was made on top of (YouRec/ProjectRecovery.swift:383-397).
+     * Null when there is none to offer; throws when the journal cannot be read.
+     */
+    fun pendingDraft(id: String): Project? {
+        val directory = folder(id)
+        val pending = File(directory, PENDING_EDIT)
+        val file = File(pending, DRAFT)
+        if (!file.isFile) return null
+        val draft = documentJson.decodeFromString(PendingEdit.serializer(), file.readText())
+        val manifest = Base64.getDecoder().decode(draft.manifest)
+        val head = File(directory, "project.json")
+        val current = if (head.isFile) head.readBytes() else null
+        if (!RecoveryRules.draftApplies(current, manifest, draft.previous)) return null
+        val project = Project.readManifest(manifest) { name ->
+            File(File(pending, "History"), name).takeIf { it.isFile }?.readBytes() ?: File(File(directory, "History"), name).readBytes()
+        }
+        if (project.id != id) throw ProjectException(ProjectException.Reason.InvalidDocument)
+        return project
     }
 
     /**
@@ -237,6 +302,9 @@ class ProjectDisk(val root: File, private val fonts: FontLibrary? = null) {
         }
         /** The folder of a project that holds what could not be read, as in the original. */
         const val RECOVERY = "Recovery"
+        /** The folder of a project that holds the journal of a save that failed, as in the original. */
+        const val PENDING_EDIT = ".pending-edit"
+        private const val DRAFT = "draft.json"
         private val writeLock = Any()
 
         /** The destination either keeps its old bytes or holds all the new ones. */
