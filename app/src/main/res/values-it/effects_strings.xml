@@ -101,6 +101,12 @@
     <string name="kaleidoscope_rotate_more">Aumenta la rotazione della divisione</string>
     <string name="kaleidoscope_rotate_less">Diminuisci la rotazione della divisione</string>
     <string name="kaleidoscope_source_turn">Sorgente %1$s</string>
+    <string name="effects_pick">Preleva</string>
+    <string name="effects_pick_in_preview">Preleva dall’anteprima</string>
+    <string name="effects_tap_screen">Tocca lo schermo verde o blu</string>
+    <string name="effects_tap_color">Tocca il colore</string>
+    <string name="effects_tap_inside">Tocca dentro l’immagine</string>
+    <string name="effects_pick_input">Ingresso di %1$s</string>
     <string name="kaleidoscope_fine">Regolazioni fini</string>
     <string name="kaleidoscope_reset_split">Azzera divisione</string>
     <string name="kaleidoscope_center_source">Centra sorgente</string>

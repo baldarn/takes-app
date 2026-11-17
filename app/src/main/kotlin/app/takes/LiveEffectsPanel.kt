@@ -503,7 +503,7 @@ private fun Inspector(capture: CaptureController, effect: VideoEffectSettings, u
 
 /** A Chroma Key's screen colour: green, blue, or sampled from the preview. VideoEffectsEditor.swift:153-172. */
 @Composable
-private fun ScreenColor(effect: VideoEffectSettings, parameter: EffectParameter, set: (String, EffectValue) -> Unit, sample: () -> Unit) {
+internal fun ScreenColor(effect: VideoEffectSettings, parameter: EffectParameter, set: (String, EffectValue) -> Unit, sample: () -> Unit) {
     val color = (effect.value(parameter.id, 0.0) as? EffectValue.Color)?.value ?: EffectRGB(0.0, 1.0, 0.0)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(controlName(effect.kind, parameter), color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))

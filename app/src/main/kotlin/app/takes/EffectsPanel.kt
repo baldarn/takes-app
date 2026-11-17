@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.AddCircleOutline
+import androidx.compose.material.icons.outlined.Colorize
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.PowerSettingsNew
@@ -68,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.takes.core.ChromaScreen
 import app.takes.core.ColorCorrectionControls
 import app.takes.core.EffectParameter
 import app.takes.core.EffectPalette
@@ -326,7 +328,24 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
                 for (parameter in effect.parameters) {
                     if (VideoEffectParameterSection.section(parameter, effect) != section) continue
                     if (!VideoEffectParameterVisibility.visible(parameter, AndroidVideoEffects.asDrawn(effect), at) || AndroidVideoEffects.hides(effect.kind, parameter.id)) continue
-                    if (parameter.kind is EffectParameterKind.Media) PictureControl(effect, parameter, at, set, tools) else EffectControl(effect, parameter, at, set, keys)
+                    when {
+                        parameter.kind is EffectParameterKind.Media -> PictureControl(effect, parameter, at, set, tools)
+                        // A Chroma Key's screen: Green, Blue, or sampled from the preview. VideoEffectsEditor.swift:155-175, 1251-1252.
+                        effect.kind == VideoEffectID.ChromaKey && parameter.id == "screenColor" -> ScreenColor(effect, parameter, { _, value ->
+                            (value as? EffectValue.Color)?.value?.let { if (ChromaScreen.accepts(it)) change(work.screenColor(it)) }
+                        }) { change(work.beginningPick(parameter.id)) }
+                        else -> {
+                            EffectControl(effect, parameter, at, set, keys)
+                            // Color Isolation's colour picked from the preview. VideoEffectsEditor.swift:1262-1265.
+                            if (effect.kind == VideoEffectID.ColorIsolation && parameter.id == "color") {
+                                val pickLabel = stringResource(R.string.effects_pick_in_preview)
+                                TextButton(onClick = { change(work.beginningPick(parameter.id)) }, modifier = Modifier.heightIn(min = 44.dp).semantics { contentDescription = pickLabel }) {
+                                    Icon(Icons.Outlined.Colorize, null, Modifier.size(18.dp))
+                                    Text(stringResource(R.string.effects_pick), Modifier.padding(start = 6.dp))
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if (effect.kind == VideoEffectID.Quantization) PaletteControls(work, effect, time, change, tools)

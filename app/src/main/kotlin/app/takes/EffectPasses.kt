@@ -210,6 +210,44 @@ internal object EffectPassShaders {
         }
     """
 
+    /**
+     * `ve_subjectWeight` (Metal:548-552, [app.takes.core.AutoBackgroundFormulas.subjectWeight]): at each pixel of a
+     * small picture, the picture [uTex] read at its centre times how surely the matte [uMatte] is the subject,
+     * `smoothstep(0.5, 0.95, matte)`, or with [uWeightOnly] that weight alone.
+     */
+    val SUBJECT_WEIGHT = """
+        $HEAD
+        uniform sampler2D uMatte;
+        uniform float uWeightOnly;
+        void main() {
+            vec2 uv = (pixel() + 0.5) / uOut;
+            float w = smoothstep(0.5, 0.95, texture2D(uMatte, vec2(uv.x, 1.0 - uv.y)).r);
+            gl_FragColor = vec4(uWeightOnly > 0.5 ? vec3(w) : read(uv) * w, 1.0);
+        }
+    """
+
+    /**
+     * Match colour's gain on the subject's straight colour, one pixel ([app.takes.core.AutoBackgroundFormulas.matchColor],
+     * Metal:409-413): from the subject's mean colour [uTex] and weight [uWeight] and the new background's mean [uBack]
+     * (or the solid colour [uSolid] when its w is 1), each brought to the background's brightness by [uGain],
+     * `mix(1, clamp(background / max(mean, 0.01), 0.5, 2), strength)`; 1 where the subject covers under 0.001.
+     */
+    val MATCH_GAIN = """
+        $HEAD
+        uniform sampler2D uWeight;
+        uniform sampler2D uBack;
+        uniform vec4 uSolid;
+        uniform vec2 uMatch; // strength, gain
+        void main() {
+            vec3 subject = texture2D(uTex, vec2(0.5)).rgb;
+            float coverage = texture2D(uWeight, vec2(0.5)).r;
+            vec3 target = (uSolid.w > 0.5 ? uSolid.rgb : texture2D(uBack, vec2(0.5)).rgb * uMatch.y);
+            vec3 mean = subject / max(0.001, coverage);
+            vec3 gain = mix(vec3(1.0), clamp(target / max(mean, vec3(0.01)), 0.5, 2.0), uMatch.x);
+            gl_FragColor = vec4(coverage > 0.001 ? gain : vec3(1.0), 1.0);
+        }
+    """
+
     /** `ve_isolationAlpha` (Metal:591-597): how much of its colour each pixel keeps, by hue, for the temporal matte. */
     val ISOLATION_ALPHA = """
         $HEAD
@@ -696,6 +734,41 @@ internal class EffectGpu {
             p.setFloatsUniform("uKey", floatArrayOf(0f, strength.toFloat(), balance.toFloat(), if (blue) 1f else 0f))
             p.setFloatsUniform("uClip", floatArrayOf(blackClip.toFloat(), whiteClip.toFloat()))
         })
+
+    /** The mean of [source], `average`: reduced to a quarter, rounded up, until one pixel is left (Renderer:354-361). */
+    fun average(source: EffectSource, key: String): EffectTarget {
+        var image = source
+        var level = 0
+        var made: EffectTarget? = null
+        while (image.width > 1 || image.height > 1) {
+            val next = reduce(image, "$key.$level", maxOf(1, (image.width + 3) / 4), maxOf(1, (image.height + 3) / 4))
+            made = next
+            image = EffectSource(next)
+            level++
+        }
+        return made ?: reduce(source, "$key.0", 1, 1)
+    }
+
+    /**
+     * Match colour's gain for a Chroma Key or an Auto Background, one pixel, into [key]: the subject under [matte] in
+     * [source] at 64 × 36 and the new [background] (null for the [solid] colour), each averaged, as the original's
+     * renderer takes them (Renderer:536-541); [gain] is the background's brightness, which the pass applies.
+     */
+    fun matchGain(source: EffectSource, matte: EffectSource, background: EffectSource?, solid: EffectVector, gain: Double, strength: Double, key: String): EffectTarget {
+        fun weight(only: Boolean, into: String) = draw(EffectPassShaders.SUBJECT_WEIGHT, source, into, 64, 36, { p ->
+            p.setSamplerTexIdUniform("uMatte", matte.texture, 1)
+            p.setFloatsUniform("uWeightOnly", floatArrayOf(if (only) 1f else 0f))
+        })
+        val subject = average(EffectSource(weight(false, "$key.subject")), "$key.subject.mean")
+        val coverage = average(EffectSource(weight(true, "$key.weight")), "$key.weight.mean")
+        val back = background?.let { average(it, "$key.back.mean") }
+        return draw(EffectPassShaders.MATCH_GAIN, EffectSource(subject), key, 1, 1, { p ->
+            p.setSamplerTexIdUniform("uWeight", coverage.texture, 1)
+            p.setSamplerTexIdUniform("uBack", back?.texture ?: coverage.texture, 2)
+            p.setFloatsUniform("uSolid", floatArrayOf(solid.x.toFloat(), solid.y.toFloat(), solid.z.toFloat(), if (back == null) 1f else 0f))
+            p.setFloatsUniform("uMatch", floatArrayOf(strength.toFloat(), gain.toFloat()))
+        })
+    }
 
     /** Color Isolation's weight at every pixel of [source] ([app.takes.core.VideoEffectFormulas.colorIsolationWeight]), into [key]. */
     fun isolationAlpha(source: EffectSource, key: String, color: EffectVector, range: Double, softness: Double): EffectTarget =

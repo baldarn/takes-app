@@ -537,6 +537,9 @@ class EffectPixelCases(private val bench: Bench, private val width: Int = 256, p
                 "background" to "Image", "fit" to "Fit", "backgroundBlur" to 6.0,
             ), green) +
             key("blur original, darker", mapOf("background" to "Blur original", "backgroundBrightness" to -0.5, "backgroundBlur" to 4.0), green) +
+            // Match colour: the subject brought toward the new background's light. Metal:409-413, Renderer:536-541.
+            key("match colour to a warm solid, brighter", mapOf("matchColor" to true, "matchStrength" to 0.8, "backgroundColor" to app.takes.core.EffectRGB.hex("#D2783C"), "backgroundBrightness" to 0.5), green) +
+            key("match colour to an image, at its default strength", mapOf("matchColor" to true, "background" to "Image", "backgroundBrightness" to -0.3), blue) +
             // The matte as it is shown, its alpha sRGB-encoded: near black a thousandth of alpha is a level or more.
             key("the matte, screen set by hand", mapOf("view" to "Matte", "softness" to 0.0, "autoScreen" to false, "screenColor" to app.takes.core.EffectRGB.hex("#28C83C")), green, simplified = false) +
             key("half", emptyMap(), green, intensity = 0.5) +

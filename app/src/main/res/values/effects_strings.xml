@@ -102,6 +102,12 @@
     <string name="kaleidoscope_rotate_more">Increase split rotation</string>
     <string name="kaleidoscope_rotate_less">Decrease split rotation</string>
     <string name="kaleidoscope_source_turn">Source %1$s</string>
+    <string name="effects_pick">Pick</string>
+    <string name="effects_pick_in_preview">Pick in preview</string>
+    <string name="effects_tap_screen">Tap the green or blue screen</string>
+    <string name="effects_tap_color">Tap the color</string>
+    <string name="effects_tap_inside">Tap inside the picture</string>
+    <string name="effects_pick_input">Input to %1$s</string>
     <string name="kaleidoscope_fine">Fine adjustments</string>
     <string name="kaleidoscope_reset_split">Reset split</string>
     <string name="kaleidoscope_center_source">Center source</string>

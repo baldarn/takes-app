@@ -1,7 +1,10 @@
 package app.takes
 
+import app.takes.core.ChromaScreen
 import app.takes.core.EditState
+import app.takes.core.EffectRGB
 import app.takes.core.EffectValue
+import app.takes.core.IsolationHue
 import app.takes.core.RangeEditing
 import app.takes.core.StrobeTimePoint
 import app.takes.core.TimelineClip
@@ -71,7 +74,7 @@ internal object AndroidVideoEffects {
 
     /** Controls of an offered effect that this release does not draw, by effect. */
     private val HIDDEN: Map<VideoEffectID, Set<String>> = mapOf(
-        VideoEffectID.ChromaKey to setOf("cleanPlate", "matchColor", "matchStrength", "backgroundAudio"),
+        VideoEffectID.ChromaKey to setOf("cleanPlate", "backgroundAudio"),
         VideoEffectID.AutoBackground to setOf("matchColor", "matchStrength", "backgroundAudio"),
         // Medium and Precise need optical flow.
         VideoEffectID.NightFix to setOf("mode"),
@@ -142,7 +145,51 @@ internal data class EffectsWork(
     val bypass: Boolean = false,
     /** Animate: a control changed adds a keyframe at the playhead. VideoEffectsEditor.swift:1209-1213. */
     val animate: Boolean = false,
+    /** The colour control of the selected effect a tap on the preview picks, while it does. VideoEffectsEditor.swift:344, 865-869. */
+    val picking: String? = null,
+    /** Why the last tap of a pick was not taken; null before one. */
+    val pickRefusal: PickRefusal? = null,
 ) {
+    /** Why a tap of a colour pick was not taken. VideoEffectsEditor.swift:871-880. */
+    enum class PickRefusal { Outside, NotScreen, NoHue }
+
+    /** Begins picking the colour [parameter] of the selected effect from the preview. VideoEffectsEditor.swift:865-868. */
+    fun beginningPick(parameter: String): EffectsWork = copy(picking = parameter, pickRefusal = null)
+
+    /** Ends a pick without a colour. VideoEffectsEditor.swift:869. */
+    fun cancellingPick(): EffectsWork = copy(picking = null, pickRefusal = null)
+
+    /**
+     * The colour picked, [color], set at timeline second [time]: a screen's only when it is a green or blue one, and
+     * as calibration, with detection off, the type Auto and no keys; Color Isolation's only when it has a hue. A
+     * colour refused, or a tap outside the picture (null), keeps the pick going with its reason.
+     * VideoEffectsEditor.swift:524-532, 870-880.
+     */
+    fun picked(color: EffectRGB?, time: Double): EffectsWork {
+        val parameter = picking ?: return this
+        if (color == null) return copy(pickRefusal = PickRefusal.Outside)
+        if (parameter == "screenColor") {
+            if (!ChromaScreen.accepts(color)) return copy(pickRefusal = PickRefusal.NotScreen)
+            return screenColor(color).cancellingPick()
+        }
+        if (current(time)?.kind == VideoEffectID.ColorIsolation && parameter == "color" && !IsolationHue.accepts(color)) return copy(pickRefusal = PickRefusal.NoHue)
+        return setting(parameter, EffectValue.Color(color), time).cancellingPick()
+    }
+
+    /** A Chroma Key's screen set as calibration: detection off, the type Auto, the colour without keys. VideoEffectsEditor.swift:524-532. */
+    fun screenColor(color: EffectRGB): EffectsWork = changing { effect ->
+        effect.copy(
+            parameters = effect.parameters.map { p ->
+                when (p.id) {
+                    "autoScreen" -> p.copy(value = EffectValue.Toggle(false))
+                    "screenType" -> p.copy(value = EffectValue.Choice("Auto"))
+                    "screenColor" -> p.copy(value = EffectValue.Color(color), keyframes = emptyList())
+                    else -> p
+                }
+            },
+        )
+    }
+
     /** The clip of the tool at timeline second [time], or the nearest one. */
     fun piece(time: Double): CropScope.Piece? = on.active(time)
 

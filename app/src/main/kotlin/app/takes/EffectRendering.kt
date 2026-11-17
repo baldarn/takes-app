@@ -432,11 +432,12 @@ object EffectShader {
             return unlab(chosen);
         }
         // Metal:400-416, the spatial keyer: auxAt the matte, backAt the new background and extraAt its light wrap, each times
-        // uX0.w (its brightness); uX0.xyz the screen; uX1.xyz a solid background's colour, when uX1.w is 1.
+        // uX0.w (its brightness); uX0.xyz the screen; uX1.xyz a solid background's colour, when uX1.w is 1 or 3; with
+        // match colour (uX1.w 2 or 3) the straight colour times moreAt's gain (Metal:409-413).
         vec3 chromaKey(vec3 c, vec2 uv) {
             float a = auxAt(uv).r;
             vec3 screen = keyScreen();
-            bool solid = uX1.w > 0.5;
+            bool solid = mod(uX1.w, 2.0) > 0.5;
             vec3 background = solid ? uX1.xyz : backAt(uv) * uX0.w;
             vec3 wrapped = solid ? uX1.xyz : extraAt(uv) * uX0.w;
             vec3 straight = clamp((c - screen * (1.0 - a)) / max(a, 0.0001), 0.0, 1.0);
@@ -447,6 +448,7 @@ object EffectShader {
             if (blue) straight.b = after;
             else straight.g = after;
             straight += vec3(0.3, 0.6, 0.1) * ((before - after) * 0.5);
+            if (uX1.w > 1.5) straight *= moreAt(vec2(0.5));
             vec3 o = straight * a + background * (1.0 - a);
             o += wrapped * (a * (1.0 - a) * 4.0 * uP10.x * 0.25);
             if (uP13.x > 1.5) return c;
@@ -1312,17 +1314,25 @@ class VideoEffectChain(
             val gain = 2.0.pow(pass.number("backgroundBrightness"))
             val background = replaced(pass, source, 20.0)
             val extras = floatArrayOf(screen.x.toFloat(), screen.y.toFloat(), screen.z.toFloat(), gain.toFloat(), 0f, 0f, 0f, 0f)
+            // A solid colour, or black for a picture not there.
+            val solid = if (background == null && EffectShader.background(pass) == "Solid") pass.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
+            // Match colour: the subject brought toward the new background's light, but on the original blurred (Renderer:536-541,
+            // VideoEffectCatalog.swift:124).
+            val match = if (pass.number("matchColor") > .5 && EffectShader.background(pass) != "Blur original") {
+                gpu.matchGain(source, EffectSource(matte), background?.let(::EffectSource), solid, gain, pass.number("matchStrength"), "match")
+            } else {
+                null
+            }
+            if (match != null) extras[7] = 2f
             if (background == null) {
-                // A solid colour, or black for a picture not there.
-                val solid = if (EffectShader.background(pass) == "Solid") pass.vector("backgroundColor").xyz * gain else app.takes.core.EffectVector.ZERO
                 extras[4] = solid.x.toFloat()
                 extras[5] = solid.y.toFloat()
                 extras[6] = solid.z.toFloat()
-                extras[7] = 1f
-                return Auxiliary(aux = matte.texture, extras = extras)
+                extras[7] += 1f
+                return Auxiliary(aux = matte.texture, more = match?.texture ?: 0, extras = extras)
             }
             val wrap = if (pass.number("wrap") > 0) gpu.blur(EffectSource(background), "wrap", width * 0.02, VideoEffectPasses.quarter(width), VideoEffectPasses.quarter(height)) else background
-            return Auxiliary(aux = matte.texture, back = background.texture, extra = wrap.texture, extras = extras)
+            return Auxiliary(aux = matte.texture, back = background.texture, extra = wrap.texture, more = match?.texture ?: 0, extras = extras)
         }
 
         /**

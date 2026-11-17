@@ -1105,6 +1105,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 effecting?.let { work ->
                     val deck = shownClips.indexOfFirst { shown -> shown != null && shown.first.sourceID == work.piece(playhead)?.clip?.sourceID }
                     KaleidoscopeOverlay(work, { playhead }, { w, h -> deckFrames.getOrNull(deck)?.invoke(FrameSize(w.toDouble(), h.toDouble()))?.layer }) { effecting = it }
+                    // A colour picked from the picture, the player paused. VideoEffectsEditor.swift:865-880.
+                    if (work.picking != null) {
+                        LaunchedEffect(Unit) { editor.pause() }
+                        val players = if (layers != null) editor.lanes else editor.decks
+                        EffectColorPick(work, { playhead }, { at, w, h ->
+                            EffectColorSampling.sample(players.getOrNull(deck), deckFrames.getOrNull(deck)?.invoke(FrameSize(w.toDouble(), h.toDouble()))?.layer, at, w, h, deckColors.getOrNull(deck)?.takeIf { it.second == null }?.first)
+                        }) { effecting = it }
+                    }
                 }
             }
             // A tool's preview says how much it is magnified, as the original's (EditorView.swift:1526, 1541).
