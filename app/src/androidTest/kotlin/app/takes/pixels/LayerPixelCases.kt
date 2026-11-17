@@ -61,11 +61,13 @@ class LayerStage(
     framesPerSecond: Double = 30.0, titled: Boolean = false,
     /** Whether the lanes are an HDR movie's, HLG in BT.2020: the effect compiled for HDR, as [app.takes.LayerMovie] makes it. */
     hdr: Boolean = false,
+    /** The project's folder, which holds the pictures laid over clips. */
+    folder: java.io.File? = null,
     private val picture: (index: Int) -> Picture?,
 ) {
     private val lanes = plan.lanes
     private val rows = (lanes + columns - 1) / columns
-    private val program: GlShaderProgram = LayersEffect(plan, Size(width, height), lanes, columns, { framesPerSecond }, { Rect(0.0, 0.0, width.toDouble(), height.toDouble()) }, titled, hdr = hdr)
+    private val program: GlShaderProgram = LayersEffect(plan, Size(width, height), lanes, columns, { framesPerSecond }, { Rect(0.0, 0.0, width.toDouble(), height.toDouble()) }, titled, hdr = hdr, folder = folder)
         .toGlShaderProgram(bench.context, /* useHdr = */ false)
     private var output: GlTextureInfo? = null
     private var failure: VideoFrameProcessingException? = null

@@ -544,6 +544,7 @@
     <string name="export_open_failed">Nessuna app su questo dispositivo può aprire il filmato.</string>
     <string name="export_no_clips">Aggiungi una ripresa prima di esportare.</string>
     <string name="export_source_missing">Un file sorgente manca o non è leggibile. Il progetto è stato conservato.</string>
+    <string name="export_image_missing">Manca un\'immagine in sovrimpressione. Apri la sua barra Immagine sulla timeline per sostituirla o rimuoverla. Le registrazioni e la cronologia delle modifiche sono conservate.</string>
     <string name="export_fallback_name">Filmato</string>
     <string name="export_save_failed">Non è stato possibile salvare il filmato esportato.</string>
     <string name="export_failed">Esportazione non riuscita: %1$s</string>
@@ -1101,4 +1102,21 @@
     <string name="cover_preparing">Preparazione del JPEG a piena risoluzione</string>
     <string name="cover_failed">Impossibile caricare questo fotogramma</string>
     <string name="cover_try_again">Riprova</string>
+    <!-- Strumento Immagine: un'immagine sopra il video (YouRec/EditorTools.swift:1207-1254). -->
+    <string name="image_tool">Immagine</string>
+    <string name="image_add">Aggiungi immagine</string>
+    <string name="image_edit">Modifica immagine</string>
+    <string name="image_choose">Scegli immagine</string>
+    <string name="image_replace">Sostituisci immagine</string>
+    <string name="image_loading">Caricamento dell\'immagine…</string>
+    <string name="image_choose_below">Scegli un\'immagine qui sotto</string>
+    <string name="image_unreadable">Impossibile leggere questa immagine.</string>
+    <string name="image_opacity">Opacità</string>
+    <string name="image_centre">Centra l\'immagine</string>
+    <string name="image_percent">%1$d%%</string>
+    <string name="image_position_label">Posizione dell\'immagine</string>
+    <string name="image_size_label">Dimensione dell\'immagine</string>
+    <string name="image_opacity_label">Opacità dell\'immagine</string>
+    <string name="image_across_label">Posizione orizzontale dell\'immagine</string>
+    <string name="image_down_label">Posizione verticale dell\'immagine</string>
 </resources>

@@ -120,7 +120,7 @@ class LayerMovie(
         val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }
         val drawn = buildList<Effect> {
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
-            add(LayersEffect(plan, picture, lanes, columns, perTransition, content, titled = true, hdr = hdr))
+            add(LayersEffect(plan, picture, lanes, columns, perTransition, content, titled = true, hdr = hdr, folder = luts))
             plan.subtitles?.let { add(OverlayEffect(listOf(SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets, hdr)))) }
             add(SectionFramesEffect(drawing.first, drawing.count, rate))
             if (hdr) add(TenBitGate())

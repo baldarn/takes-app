@@ -34,7 +34,7 @@ class ProjectRestoreTest {
     private val lut = ImportedLUT("effect-lut-0a1b.cube", "Film")
     private val contents = mapOf(
         take.filename to bytes(1_500_000, 1), scene.filename to bytes(70_000, 2),
-        music.filename to bytes(1, 3), lut.filename to "LUT_3D_SIZE 2\n".toByteArray(),
+        music.filename to bytes(1, 3), lut.filename to "LUT_3D_SIZE 2\n".toByteArray(), "image-I.png" to bytes(500, 7),
     )
 
     private fun save(project: Project): Project {
@@ -143,6 +143,26 @@ class ProjectRestoreTest {
         assertEquals(expected(project, restored), restored)
         assertEquals(restored, disk().read(disk().folder(restored.id)))
         assertArrayEquals(contents[lut.filename], File(disk().folder(restored.id), lut.filename).readBytes())
+    }
+
+    /**
+     * A picture laid over a clip is kept in the archive, also when only an undone step names it, and an archive
+     * without it is refused, as the original's (YouRec/ProjectArchive.swift:229, Tests/CoreTests.swift:1055-1060).
+     */
+    @Test fun anOverlayPictureComesBackAndAnArchiveWithoutItIsRefused() {
+        var project = Project("Pictured").addRecording(take)
+        val placed = ImageOverlays.place(project.edit, ImageOverlay(id = "I", filename = "image-I.png"), 0.0..2.0)!!
+        project = save(project.commit(placed).undo())
+        assertEquals(listOf("image-I.png"), project.imageFiles)
+
+        val data = archive(project)
+        assertTrue("image-I.png" in unzip(data).keys)
+        val restored = restore(data)
+        assertEquals(expected(project, restored), restored)
+        assertEquals(placed.clips, restored.redo().edit.clips)
+        assertArrayEquals(contents["image-I.png"], File(disk().folder(restored.id), "image-I.png").readBytes())
+
+        assertEquals(ProjectException.Reason.MissingMedia, refused(ProjectException::class.java, zip(unzip(data).filterKeys { it != "image-I.png" })).reason)
     }
 
     @Test fun soundOnItsOwnTracksComesBack() {

@@ -286,7 +286,7 @@ class TitleProjectTest {
         for (title in listOf(plain.copy(appearance = TitleDesign()), plain.copy(motion = fade), plain.copy(appearance = TitleDesign.looks[2].second, motion = fade))) {
             val project = project(title)
             assertEquals(12, project.schemaVersion)
-            assertEquals(22, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22)
+            assertEquals(23, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23)
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }
@@ -536,7 +536,7 @@ class TitleProjectTest {
         // Different titles on the two clips keep their own shares.
         val next = TextOverlay(id = "U", text = "There", start = 4.0, end = 10.0)
         val mixed = listOf(first, clip("B", 4.0, 10.0, next))
-        val shares = TitleMotionRanges(mixed).shown(mixed, 3.25).associate { it.title.id to it.share }
+        val shares = TitleMotionRanges(mixed).shown(mixed, 3.25).associate { it.title?.id to it.share }
         // A quarter of the way through, eased.
         assertEquals(0.84375, shares.getValue("T"), 1e-9)
         assertEquals(0.15625, shares.getValue("U"), 1e-9)

@@ -363,6 +363,8 @@ class LayersEffect(
     private val frames: (TimelineTransition) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
     /** Whether the lanes are HLG in BT.2020, an HDR movie's ([HdrMovie]): the fill and the titles are carried into it. */
     private val hdr: Boolean = false,
+    /** The project's folder, which holds the pictures laid over clips; none are drawn without it. */
+    private val folder: java.io.File? = null,
 ) : GlEffect {
     init {
         require(lanes in 1..LayerDrawing.MOST) { "At most ${LayerDrawing.MOST} lanes" }
@@ -380,7 +382,7 @@ class LayersEffect(
     private var spareFramebuffer = 0
 
     private inner class Program(assets: android.content.res.AssetManager) : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
-        private val titles = if (titled) LayerTitles(plan, canvas.width, canvas.height, assets) else null
+        private val titles = if (titled) LayerTitles(plan, canvas.width, canvas.height, assets, folder) else null
         private val size = FrameSize(canvas.width.toDouble(), canvas.height.toDouble())
         private val rows = (lanes + columns - 1) / columns
         private val freezes = plan.freezes.map { Keep(it.from, it.lane, it.until, it.shown + EDGE) }
@@ -563,8 +565,8 @@ class LayersEffect(
  * lane that shows it. A split screen's pictures carry none; the titles of both, each once, are in the bitmap of the
  * lane of its first picture, [over], which the shader lays over the pair (`YouRec/VideoToolCompositor.swift:298-301`).
  */
-private class LayerTitles(private val plan: LayerPlan, width: Int, height: Int, assets: android.content.res.AssetManager) {
-    private val textured = TitleTextures(LayerDrawing.MOST, width, height, assets)
+private class LayerTitles(private val plan: LayerPlan, width: Int, height: Int, assets: android.content.res.AssetManager, folder: java.io.File?) {
+    private val textured = TitleTextures(LayerDrawing.MOST, width, height, assets, folder)
     private val ranges = HashMap<Int, TitleMotionRanges>()
 
     /** The texture of each lane's titles, 0 before it is first drawn. */
@@ -584,7 +586,7 @@ private class LayerTitles(private val plan: LayerPlan, width: Int, height: Int, 
             is TransitionScene.Source.Fill -> return emptyList()
         }
         val clip = plan.pictures[index].content
-        if (clip.texts.isNullOrEmpty()) return emptyList()
+        if (clip.texts.isNullOrEmpty() && clip.images.isNullOrEmpty()) return emptyList()
         val alone = listOf(clip)
         return ranges.getOrPut(index) { TitleMotionRanges(alone) }.shown(alone, offset)
     }
@@ -604,9 +606,8 @@ private class LayerTitles(private val plan: LayerPlan, width: Int, height: Int, 
                 if (TransitionScene.titlesInSides(layer.frame)) {
                     for (source in sides) put(source, of(source))
                 } else {
-                    // A title on both pictures once, as the original's `seen` keeps it once.
-                    fun drawing(title: app.takes.core.TextOverlay) = title.copy(start = 0.0, end = 0.0)
-                    val both = sides.flatMap(::of).distinctBy { drawing(it.title) }
+                    // A title or a picture on both pictures once, as the original's `seen` keeps it once.
+                    val both = sides.flatMap(::of).distinctBy { it.drawing }
                     val lane = sides.firstNotNullOfOrNull { TransitionScene.deckOf(it)?.takeIf { lane -> lane in 0 until LayerDrawing.MOST } }
                     if (lane != null && both.isNotEmpty()) {
                         wanted[lane] = both

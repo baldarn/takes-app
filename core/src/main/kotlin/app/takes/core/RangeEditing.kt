@@ -719,6 +719,7 @@ object RangeEditing {
                 transitionFit = clip.transitionFit.takeIf { clip.transition?.nextClipID.let { next -> next == null || next == fragment.clips.getOrNull(index + 1)?.id } },
                 openingTransition = clip.openingTransition?.let { it.copy(id = fresh(it.id), nextClipID = it.nextClipID?.let(::fresh)) },
                 texts = clip.texts?.map { it.copy(id = fresh(it.id)) },
+                images = clip.images?.map { it.copy(id = fresh(it.id)) },
                 bookmarks = clip.bookmarks?.map { it.copy(id = newID()) },
                 color = clip.color?.let { it.copy(id = fresh(it.id)) },
                 crop = clip.crop?.let { it.copy(id = fresh(it.id)) },

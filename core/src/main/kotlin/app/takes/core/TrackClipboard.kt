@@ -414,6 +414,7 @@ object TrackClipboard {
                     pauses = content.pauses?.let { it.copy(id = fresh(it.id)) },
                     color = content.color?.let { it.copy(id = fresh(it.id)) },
                     texts = content.texts?.map { it.copy(id = fresh(it.id)) },
+                    images = content.images?.map { it.copy(id = fresh(it.id)) },
                 ),
             )
         }

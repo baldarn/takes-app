@@ -187,8 +187,8 @@ private fun splitTitles(moment: LayerPlan.Moment, titles: List<List<TitleMotionR
     val pair = moment.layers.lastOrNull { it is LayerPlan.Layer.Mixed } as? LayerPlan.Layer.Mixed ?: return null
     if (TransitionScene.titlesInSides(pair.frame)) return null
     val lanes = listOf(pair.first, pair.second).mapNotNull(TransitionScene::deckOf).distinct()
-    // A title on both pictures once, as the original's `seen` keeps it once.
-    val both = lanes.flatMap { titles.getOrNull(it).orEmpty() }.distinctBy { it.title.copy(start = 0.0, end = 0.0) }
+    // A title or a picture on both pictures once, as the original's `seen` keeps it once.
+    val both = lanes.flatMap { titles.getOrNull(it).orEmpty() }.distinctBy { it.drawing }
     return SplitTitles(lanes.toSet(), both)
 }
 

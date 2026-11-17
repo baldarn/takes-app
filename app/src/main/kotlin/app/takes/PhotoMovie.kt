@@ -74,14 +74,14 @@ internal object PhotoMovie {
         }
     }
 
-    /** The photo upright, its longer side brought down to the limit; a smaller one is left as it is. */
-    private fun decode(resolver: ContentResolver, uri: Uri): Bitmap? = try {
+    /** The photo upright, its longer side brought down to [longest] pixels; a smaller one is left as it is. */
+    fun decode(resolver: ContentResolver, uri: Uri, longest: Int = PhotoClip.MAXIMUM_PIXELS): Bitmap? = try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                 val longer = maxOf(info.size.width, info.size.height)
-                if (longer > PhotoClip.MAXIMUM_PIXELS) {
-                    val scale = PhotoClip.MAXIMUM_PIXELS.toDouble() / longer
+                if (longer > longest) {
+                    val scale = longest.toDouble() / longer
                     decoder.setTargetSize((info.size.width * scale).roundToInt().coerceAtLeast(1), (info.size.height * scale).roundToInt().coerceAtLeast(1))
                 }
             }
@@ -89,7 +89,7 @@ internal object PhotoMovie {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= PhotoClip.MAXIMUM_PIXELS) sample *= 2
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= longest) sample *= 2
             val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample }) }
             val turn = when (resolver.openInputStream(uri)?.use { ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }) {
                 ExifInterface.ORIENTATION_ROTATE_90 -> 90f
@@ -98,7 +98,7 @@ internal object PhotoMovie {
                 else -> 0f
             }
             decoded?.let { bitmap ->
-                val scale = minOf(1f, PhotoClip.MAXIMUM_PIXELS.toFloat() / maxOf(bitmap.width, bitmap.height))
+                val scale = minOf(1f, longest.toFloat() / maxOf(bitmap.width, bitmap.height))
                 if (turn == 0f && scale == 1f) bitmap
                 else Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, Matrix().apply { postScale(scale, scale); postRotate(turn) }, true)
             }

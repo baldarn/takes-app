@@ -694,10 +694,12 @@ class TransitionEffect(
     private val frames: (TransitionLayout.Join) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
     /** Whether the decks are HLG in BT.2020, an HDR movie's ([HdrMovie]): the fill and the titles are carried into it. */
     private val hdr: Boolean = false,
+    /** The project's folder, which holds the pictures laid over clips; none are drawn without it. */
+    private val folder: java.io.File? = null,
 ) : GlEffect {
     /** The effect of [clips] by themselves, planned as an export plans them. */
-    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect, titled: Boolean = false, hdr: Boolean = false) :
-        this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content, titled, hdr)
+    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect, titled: Boolean = false, hdr: Boolean = false, folder: java.io.File? = null) :
+        this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content, titled, hdr, folder)
 
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program(context.assets)
 
@@ -719,7 +721,7 @@ class TransitionEffect(
         private val size = FrameSize(canvas.width.toDouble(), canvas.height.toDouble())
 
         // A bitmap of titles for each deck; for a split screen the first holds those over the pair.
-        private val titles = if (titled) TitleTextures(2, canvas.width, canvas.height, assets) else null
+        private val titles = if (titled) TitleTextures(2, canvas.width, canvas.height, assets, folder) else null
 
         // Where the titles of this frame go, as the shader's uTitled: into deck 0's side, into deck 1's, over the frame.
         private val titledAs = FloatArray(3)

@@ -221,7 +221,7 @@ class ExportMovie(
             // them: Media3 counts them in a frame length it keeps with seven digits, and they fall behind the grid
             // by a microsecond every thousand frames.
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
-            add(TransitionEffect(plan, picture, decks, perSecond, content, titled = plan.titled, hdr = hdr))
+            add(TransitionEffect(plan, picture, decks, perSecond, content, titled = plan.titled, hdr = hdr, folder = luts))
             if (written.isNotEmpty()) add(OverlayEffect(written))
             add(SectionFramesEffect(drawing.first, drawing.count, rate))
             if (hdr) add(TenBitGate())

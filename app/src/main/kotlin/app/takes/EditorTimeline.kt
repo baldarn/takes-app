@@ -23,6 +23,7 @@ import app.takes.core.VideoInsertionSite
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import kotlin.math.sqrt
+import app.takes.core.ImageOverlay
 import app.takes.core.TextOverlay
 import androidx.compose.ui.draw.alpha
 import app.takes.core.TransitionStyle
@@ -163,6 +164,8 @@ internal fun Timeline(
     select: (clip: String?, audio: String?) -> Unit, toggle: (clip: String?, audio: String?) -> Unit, seek: (time: Double, deselect: Boolean) -> Unit,
     openTitle: (index: Int, title: TextOverlay) -> Unit, current: Int?, trim: Trim?,
     pixelsPerSecond: Float, shift: Float, scroll: ScrollState,
+    /** Opens a picture laid over a clip, from its bar, on the piece the bar is on. */
+    openImage: (index: Int, image: ImageOverlay) -> Unit = { _, _ -> },
     touched: () -> Unit, focusTransition: (time: Double) -> Unit, beginTrim: (leading: Boolean) -> Unit, dragTrim: (pixels: Float) -> Unit, endTrim: () -> Unit,
     marked: MarkedView? = null, level: LevelGesture? = null,
     pinch: (factor: Float?) -> Unit = {},
@@ -447,7 +450,7 @@ internal fun Timeline(
             val width = with(density) { (maxOf(rows?.duration ?: TimelineEditing.duration(clips), length) * pixelsPerSecond).toFloat().toDp() }
             if (rows != null) PictureRows(
                 clips, files, rows, current, trim, pixelsPerSecond, viewport, scroll, marked, Modifier.width(width).height(strip),
-                openTitle = openTitle, select = { onSelect(it, null) },
+                openTitle = openTitle, openImage = openImage, select = { onSelect(it, null) },
                 toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(it, null) },
                 focusTransition = focusTransition, soundless = soundless, markers = markers,
             )
@@ -463,6 +466,7 @@ internal fun Timeline(
                             trimsStart = trim?.leading == true || TimelineEditing.overlap(clips, index - 1) <= 0,
                             trimsEnd = trim?.leading == false || TimelineEditing.overlap(clips, index) <= 0,
                             offset = offset, pixelsPerSecond = pixelsPerSecond, viewport = viewport, scroll = scroll, openTitle = { openTitle(index, it) },
+                            openImage = { openImage(index, it) },
                             select = { onSelect(clip.id, null) }, toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(clip.id, null) },
                             soundless = clip.id in soundless,
                         )
@@ -597,6 +601,7 @@ internal fun ClipStrip(
     select: () -> Unit, toggle: () -> Unit,
     top: Int = 0, tileHeight: Dp = TileSize, waveHeight: Dp = WaveHeight, outline: Color? = null,
     soundless: Boolean = false,
+    openImage: (ImageOverlay) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val onSelect by rememberUpdatedState(select)
@@ -657,24 +662,29 @@ internal fun ClipStrip(
                 }
             }
         }
-        // Titles as labelled bars over the footage they cover; a tap opens the title on this piece.
+        // Titles, and pictures laid over the clip, as labelled bars over the footage they cover; a tap opens one on this piece.
         // Only the part the clip shows: a title may reach past a clip that was split or trimmed after it was placed.
-        // Titles showing at the same time go on rows of their own, so each can be read and tapped.
+        // Bars showing at the same time go on rows of their own, so each can be read and tapped.
         val editTitle = stringResource(R.string.title_edit)
+        val editImage = stringResource(R.string.image_edit)
+        val imageLabel = stringResource(R.string.image_tool)
+        class Bar(val start: Double, val end: Double, val label: String, val color: Color, val action: String, val open: () -> Unit)
+        val bars = clip.texts.orEmpty().map { title -> Bar(title.start, title.end, title.text, TitleColor, editTitle) { openTitle(title) } } +
+            clip.images.orEmpty().map { image -> Bar(image.start, image.end, imageLabel, ImageColor, editImage) { openImage(image) } }
         val rows = mutableListOf<Double>() // where the last bar of each row ends
-        for (title in clip.texts.orEmpty().sortedBy { it.start }) {
-            val from = maxOf(title.start, clip.start)
-            val to = minOf(title.end, clip.end)
+        for (bar in bars.sortedBy { it.start }) {
+            val from = maxOf(bar.start, clip.start)
+            val to = minOf(bar.end, clip.end)
             if (to <= from) continue
             val row = rows.indexOfFirst { it <= from }.let { if (it >= 0) it else if (rows.size < 4) rows.size else rows.indices.minBy { index -> rows[index] } }
             if (row == rows.size) rows += to else rows[row] = to
             Text(
-                title.text, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
+                bar.label, color = Color.Black, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip,
                 modifier = Modifier.offset { IntOffset((clip.offset(from) * pixelsPerSecond).roundToInt(), (row * 21.dp.toPx()).roundToInt()) }
                     .width(with(density) { ((clip.offset(to) - clip.offset(from)) * pixelsPerSecond).toFloat().toDp() })
-                    .background(TitleColor, RoundedCornerShape(3.dp))
-                    .clickable(onClickLabel = editTitle) { openTitle(title) }
-                    // Clear of the trim grip when the title starts with the clip.
+                    .background(bar.color, RoundedCornerShape(3.dp))
+                    .clickable(onClickLabel = bar.action, onClick = bar.open)
+                    // Clear of the trim grip when the bar starts with the clip.
                     .padding(start = if (current && from == clip.start) 13.dp else 3.dp, end = 3.dp),
             )
         }
@@ -789,6 +799,7 @@ private fun PictureRows(
     pixelsPerSecond: Float, viewport: Int, scroll: ScrollState, marked: MarkedView?, modifier: Modifier,
     openTitle: (index: Int, title: TextOverlay) -> Unit, select: (String) -> Unit, toggle: (String) -> Unit,
     focusTransition: (time: Double) -> Unit, soundless: Set<String> = emptySet(), markers: List<TransitionMarker> = emptyList(),
+    openImage: (index: Int, image: ImageOverlay) -> Unit = { _, _ -> },
 ) {
     val density = LocalDensity.current
     val tile = rowTile(rows)
@@ -814,7 +825,7 @@ private fun PictureRows(
                     trimsStart = trim?.leading == true || rows.trimsLeft.getOrElse(index) { true },
                     trimsEnd = trim?.leading == false || rows.trimsRight.getOrElse(index) { true },
                     offset = (rows.starts[index] * pixelsPerSecond).toFloat(), pixelsPerSecond = pixelsPerSecond, viewport = viewport, scroll = scroll,
-                    openTitle = { openTitle(index, it) }, select = { select(clip.id) }, toggle = { toggle(clip.id) },
+                    openTitle = { openTitle(index, it) }, openImage = { openImage(index, it) }, select = { select(clip.id) }, toggle = { toggle(clip.id) },
                     top = (rows.rows[index] * pitch).roundToInt(), tileHeight = tile, waveHeight = wave,
                     outline = GhostColor.takeIf { clip.id in rows.moving }, soundless = clip.id in soundless,
                 )

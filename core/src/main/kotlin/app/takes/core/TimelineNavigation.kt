@@ -218,6 +218,13 @@ class TimelineNavigation private constructor(
                     // A title is anchored to its footage: where it shows follows the clip's speed.
                     if (b > a) builder.change(recipe("text", TextOverlay.serializer(), text, setOf("start", "end")), start + clip.offset(a), start + clip.offset(b))
                 }
+                // A picture that shows is a change where it shows (TimelineNavigation.swift:103).
+                for (image in clip.images.orEmpty()) {
+                    if (image.opacity <= 0) continue
+                    val a = maxOf(image.start, clip.start)
+                    val b = minOf(image.end, clip.end)
+                    if (b > a) builder.change(recipe("image", ImageOverlay.serializer(), image, setOf("start", "end")), start + clip.offset(a), start + clip.offset(b))
+                }
                 sound(clip.audio, start, end)
             }
             // Every join with a transition, the opening and the close of every clip included, wherever the clip is.

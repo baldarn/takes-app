@@ -154,6 +154,7 @@ internal object TrackWrapping {
         frozenFrame = pick(saved.frozenFrame, old.frozenFrame, now.frozenFrame),
         mirror = pick(saved.mirror, old.mirror, now.mirror),
         pauses = pick(saved.pauses, old.pauses, now.pauses),
+        images = pick(saved.images, old.images, now.images),
     )
 
     /**

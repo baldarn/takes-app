@@ -257,6 +257,13 @@ data class TimelineClip(
      * no pause was removed.
      */
     val pauses: PauseSettings? = null,
+    /**
+     * Pictures over the clip's footage, as the original keeps them
+     * (YouRec/Project.swift:55, YouRec/VideoTools.swift:84-98): times in source
+     * seconds, so both pieces of a split keep them, drawn under its titles.
+     * Their files are in the project's folder. Null when the clip has none.
+     */
+    val images: List<ImageOverlay>? = null,
 ) {
     /** How fast the clip plays by its own speed setting: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
@@ -300,6 +307,8 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        // Readers before 23 would leave the pictures out.
+        !images.isNullOrEmpty() -> IMAGES_SCHEMA
         // Readers before 22 would play the pauses the clip has taken out.
         pauses != null -> PAUSES_SCHEMA
         mirror != null -> MIRROR_SCHEMA
@@ -328,6 +337,8 @@ data class TimelineClip(
         const val MIRROR_SCHEMA = 20
         /** Readers before it would play the pauses a clip has taken out. */
         const val PAUSES_SCHEMA = 22
+        /** Readers before it would leave out the pictures laid over a clip. */
+        const val IMAGES_SCHEMA = 23
     }
 }
 
@@ -622,8 +633,12 @@ data class Project(
     val fontFiles: List<String>
         get() = (snapshots.flatMap { FontLibrary.files(it.state) } + FontLibrary.files(captureLedger, null)).distinct().sorted()
 
-    /** Every file the project owns and needs: its recordings and sounds, then what its edits refer to. */
-    val mediaFiles: List<String> get() = sources.map { it.filename } + (effectFiles + fontFiles).distinct()
+    /** The pictures laid over clips, from any step of the history and from the takes (YouRec/Project.swift:286). */
+    val imageFiles: List<String>
+        get() = snapshots.flatMap { it.state.clips }.plus(captureLedger).flatMap { clip -> clip.images.orEmpty().map { it.filename } }.distinct().sorted()
+
+    /** Every file the project owns and needs: its recordings and sounds, then what its edits refer to (YouRec/Project.swift:302). */
+    val mediaFiles: List<String> get() = sources.map { it.filename } + (imageFiles + effectFiles + fontFiles).distinct()
     /** The footage, without imported sound files. */
     val recordings: List<SourceMedia> get() = sources.filter { it.audioOnly != true }
     val capturedDuration: Double get() = recordings.sumOf { it.duration }
@@ -816,6 +831,10 @@ data class Project(
                 if (words.map { it.id }.toSet().size != words.size) invalid()
                 if (words.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
                 clip.pauses?.let { if (!it.valid(source.duration)) invalid() }
+                // As the original checks them (YouRec/Project.swift:502-506), with a file name that stays in the folder.
+                val images = clip.images.orEmpty()
+                if (images.map { it.id }.toSet().size != images.size) invalid()
+                if (images.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
             }
             snapshot.checked = sources to captureLedger
         }
@@ -830,7 +849,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = TimelineClip.PAUSES_SCHEMA
+        const val LATEST_READABLE_SCHEMA = TimelineClip.IMAGES_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

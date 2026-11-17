@@ -238,17 +238,42 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
         return title.motion!!.pose(time - range.start, range.endInclusive - range.start)
     }
 
-    /** One title to draw: how opaque its clip makes it, and how its motion poses it. */
-    data class Shown(val title: TextOverlay, val share: Double, val pose: TitleMotion.Pose)
+    /**
+     * One title to draw, or one picture laid over a clip ([image], with no [title]): how opaque its clip makes it,
+     * and how its motion poses a title. A clip's pictures are drawn under its titles, in the layer of its picture, as
+     * the original draws them (YouRec/VideoToolCompositor.swift:396-420).
+     */
+    data class Shown(val title: TextOverlay?, val share: Double, val pose: TitleMotion.Pose = TitleMotion.Pose(), val image: ImageOverlay? = null) {
+        /** What is drawn, wherever in the footage it lies: the same title or picture on two clips is drawn once. */
+        val drawing: Any get() = title?.copy(start = 0.0, end = 0.0) ?: image!!.copy(start = 0.0, end = 0.0)
+
+        companion object {
+            /** [image], posed as its motion has it, to draw as much as [share]. */
+            fun picture(image: ImageOverlay, share: Double): Shown = Shown(null, share, image = image)
+        }
+    }
 
     /**
-     * Every title to draw at timeline second [time], as [TimelineEditing.titlesAt]
-     * lists them. A title on both clips of a dissolve is drawn once, whole:
-     * the two clips carry it over different footage seconds, so it is the
-     * same title when everything but those is the same.
+     * Every picture and title to draw at timeline second [time]: the pictures ([pictures]) under the titles, the
+     * titles as [TimelineEditing.titlesAt] lists them. A title on both clips of a dissolve is drawn once, whole:
+     * the two clips carry it over different footage seconds, so it is the same title when everything but those is
+     * the same.
      */
-    fun shown(clips: List<TimelineClip>, time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Shown> =
-        shown(TimelineEditing.titlesAt(clips, time, frames), time)
+    fun shown(clips: List<TimelineClip>, time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<Shown> {
+        val moment = TransitionScene.moment(clips, time, frames = frames)
+        return pictures(clips, moment) + shown(TransitionScene.titles(clips, moment), time)
+    }
+
+    /**
+     * The pictures laid over the clips of [moment] ([TransitionScene.images]), each with its clip's share of the frame,
+     * the outgoing side's first; one on both clips is drawn once, as much as the two together. What a renderer draws
+     * over the finished picture, without a transition shader; with one, each side's go into its picture ([sides]).
+     */
+    fun pictures(clips: List<TimelineClip>, moment: TransitionScene.Moment): List<Shown> {
+        fun of(source: TransitionScene.Source, share: Double) = if (share <= 0) emptyList() else TransitionScene.images(clips, source).map { Shown.picture(it, share) }
+        val listed = of(moment.first, moment.firstShare) + if (moment.second == moment.first) emptyList() else of(moment.second, moment.secondShare)
+        return listed.distinctBy { it.drawing }.map { shown -> shown.copy(share = minOf(1.0, listed.filter { it.drawing == shown.drawing }.sumOf { it.share })) }
+    }
 
     /** The titles [listed] at timeline second [time], each with its opacity, to draw as [shown] draws them. */
     fun shown(listed: List<Pair<TextOverlay, Double>>, time: Double): List<Shown> {
@@ -287,12 +312,13 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
      * pair once.
      */
     fun sides(clips: List<TimelineClip>, moment: TransitionScene.Moment, time: Double): Sides {
-        fun of(source: TransitionScene.Source) = TransitionScene.texts(clips, source).map { Shown(it, 1.0, pose(it, time)) }
+        // A clip's pictures under its titles (YouRec/VideoToolCompositor.swift:396-420).
+        fun of(source: TransitionScene.Source) =
+            TransitionScene.images(clips, source).map { Shown.picture(it, 1.0) } + TransitionScene.texts(clips, source).map { Shown(it, 1.0, pose(it, time)) }
         val first = of(moment.first)
         val second = if (moment.second == moment.first) emptyList() else of(moment.second)
         if (TransitionScene.titlesInSides(moment.frame)) return Sides(first, second, emptyList())
-        fun drawing(title: TextOverlay) = title.copy(start = 0.0, end = 0.0)
-        return Sides(emptyList(), emptyList(), (first + second).distinctBy { drawing(it.title) })
+        return Sides(emptyList(), emptyList(), (first + second).distinctBy { it.drawing })
     }
 
     private companion object {

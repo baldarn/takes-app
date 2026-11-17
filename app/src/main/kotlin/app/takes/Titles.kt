@@ -61,8 +61,9 @@ object TitleRenderer {
  *
  * It is made and used on the export's graphics context.
  */
-internal class TitleTextures(private val slots: Int, private val width: Int, private val height: Int, assets: AssetManager) {
-    private val painter = TitlePainter(assets)
+internal class TitleTextures(private val slots: Int, private val width: Int, private val height: Int, assets: AssetManager, folder: java.io.File? = null) {
+    // The pictures laid over clips are drawn under their titles, from the project's [folder].
+    private val painter = TitlePainter(assets, folder?.let { OverlayPictures(it) })
     private val bitmaps = arrayOfNulls<Bitmap>(slots)
     private val shown = Array(slots) { emptyList<TitleMotionRanges.Shown>() }
 

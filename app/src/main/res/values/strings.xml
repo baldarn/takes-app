@@ -538,6 +538,7 @@
     <string name="export_open_failed">No app on this device can open the movie.</string>
     <string name="export_no_clips">Add a recording before exporting.</string>
     <string name="export_source_missing">A source file is missing or unreadable. The project has been preserved.</string>
+    <string name="export_image_missing">An overlay image is missing. Open its Image bar on the timeline to replace or remove it. Your recordings and editing history are preserved.</string>
     <string name="export_fallback_name">Movie</string>
     <string name="export_save_failed">The exported movie could not be saved.</string>
     <string name="export_failed">Export failed: %1$s</string>
@@ -1086,4 +1087,21 @@
     <string name="cover_preparing">Preparing full-resolution JPEG</string>
     <string name="cover_failed">Couldn’t load this frame</string>
     <string name="cover_try_again">Try again</string>
+    <!-- Image tool: a picture over the footage (YouRec/EditorTools.swift:1207-1254). -->
+    <string name="image_tool">Image</string>
+    <string name="image_add">Add image</string>
+    <string name="image_edit">Edit image</string>
+    <string name="image_choose">Choose image</string>
+    <string name="image_replace">Replace image</string>
+    <string name="image_loading">Loading image…</string>
+    <string name="image_choose_below">Choose an image below</string>
+    <string name="image_unreadable">This picture could not be read.</string>
+    <string name="image_opacity">Opacity</string>
+    <string name="image_centre">Centre image</string>
+    <string name="image_percent">%1$d%%</string>
+    <string name="image_position_label">Image position</string>
+    <string name="image_size_label">Image size</string>
+    <string name="image_opacity_label">Image opacity</string>
+    <string name="image_across_label">Image horizontal position</string>
+    <string name="image_down_label">Image vertical position</string>
 </resources>

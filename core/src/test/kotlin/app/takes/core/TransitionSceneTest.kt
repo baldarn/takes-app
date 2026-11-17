@@ -203,7 +203,7 @@ class TransitionSceneTest {
         val fade = TrackRenderPlan.of(EditState(TimelineEditing.setJoin(titled, 1, TransitionSettings(style = TransitionStyle.FadeColor, duration = 2.0))!!.clips))
         for ((time, text) in listOf(3.5 to "One", 4.5 to "Two")) {
             val moment = fade.moment(time)
-            assertEquals(listOf(text), fade.titleSides(time).onDecks(moment)[TransitionScene.deckOf(moment.sources.single())!!].map { it.title.text })
+            assertEquals(listOf(text), fade.titleSides(time).onDecks(moment)[TransitionScene.deckOf(moment.sources.single())!!].map { it.title?.text })
         }
         // A split screen: no titles in either side, both once over the pair, a title on both clips once.
         val split = TimelineEditing.setJoin(titled, 1, TransitionSettings(style = TransitionStyle.Split, duration = 2.0))!!.clips

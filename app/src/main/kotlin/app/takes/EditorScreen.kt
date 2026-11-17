@@ -295,6 +295,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var subtitleWork by remember { mutableStateOf(false) } // downloading the model or transcribing
     // The Title tool: the title it is working on, shown in the preview and not saved until confirmed.
     var titling by remember { mutableStateOf<Titling?>(null) }
+    // The Image tool: the picture it is working on, shown in the preview and not saved until confirmed.
+    var imaging by remember { mutableStateOf<Imaging?>(null) }
     // Where a preview of a title's motion stops by itself.
     var auditionEnd by remember { mutableStateOf<Double?>(null) }
     // Where the picture goes back to when it has stopped there: the start of a transition played by itself, as in the original.
@@ -628,8 +630,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             framing
         }
     }
-    // The titles under the playhead, with the one being worked on as it is now.
-    val titledEdit = titling?.applied(edit)
+    // The titles and pictures under the playhead, with the one being worked on as it is now.
+    val titledEdit = titling?.applied(edit) ?: imaging?.shown(edit)
     val titled = titledEdit?.clips ?: clips
     val titlePlan = remember(titledEdit, plan) { titledEdit?.takeIf { it.isSequence }?.let { TrackRenderPlan.of(it) } ?: plan }
     // Worked out where they are drawn, at each frame, without composing the editor again. With the shader each clip's
@@ -643,9 +645,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     fun laneTitles() = lanePictures.orEmpty().map { index ->
         val picture = index?.let { layers?.pictures?.getOrNull(it) } ?: return@map emptyList()
         val clip = titleLayers?.pictures?.firstOrNull { it.id == picture.id }?.content ?: picture.content
-        if (clip.texts.isNullOrEmpty()) emptyList() else listOf(clip).let { alone -> TitleMotionRanges(alone).shown(alone, (playhead - picture.start).coerceIn(0.0, picture.duration), frames) }
+        if (clip.texts.isNullOrEmpty() && clip.images.isNullOrEmpty()) emptyList() else listOf(clip).let { alone -> TitleMotionRanges(alone).shown(alone, (playhead - picture.start).coerceIn(0.0, picture.duration), frames) }
     }
-    val titlePainter = remember { TitlePainter(context.assets) }
+    val titlePainter = remember(folder) { TitlePainter(context.assets, OverlayPictures(folder, OverlayPictures.PREVIEW_PIXELS)) }
     // Taking a color from the picture: the preview as it is on screen, without the titles over it.
     var previewBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var sampling by remember { mutableStateOf(false) }
@@ -852,7 +854,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val toolWeight = when {
         moving != null -> 0f
         placementWork != null || effecting != null || cropping != null -> 1f
-        titling != null || transitioning != null || pausing != null || subtitling != null || coloring != null -> 1.5f
+        titling != null || imaging != null || transitioning != null || pausing != null || subtitling != null || coloring != null -> 1.5f
         pacing != null -> 1f
         else -> 0f
     } * LocalDensity.current.fontScale.coerceIn(1f, 2f)
@@ -866,19 +868,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             else Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             // Undo and Redo as wide as their icons and Export with less room around its name, so that beside the picture in
             // landscape the five fit and Export is not broken over two lines.
-            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, Modifier.widthIn(min = 48.dp), enabled = project.canUndo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
-            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, Modifier.widthIn(min = 48.dp), enabled = project.canRedo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
+            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, Modifier.widthIn(min = 48.dp), enabled = project.canUndo && subtitling == null && titling == null && imaging == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, Modifier.widthIn(min = 48.dp), enabled = project.canRedo && subtitling == null && titling == null && imaging == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
             SnapToggle(snap.on, snap::toggle) { store.error = snapNote }
-            EditorSettingsButton(snap, enabled = subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null)
+            EditorSettingsButton(snap, enabled = subtitling == null && titling == null && imaging == null && transitioning == null && moving == null && placementWork == null)
             Button(
                 onClick = { editor.pause(); choosingExport = true }, modifier = Modifier.padding(start = 4.dp),
-                enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null,
+                enabled = clips.isNotEmpty() && subtitling == null && titling == null && imaging == null && transitioning == null && moving == null && placementWork == null,
                 contentPadding = if (landscape) PaddingValues(horizontal = 16.dp, vertical = 8.dp) else ButtonDefaults.ContentPadding,
             ) { Text(stringResource(R.string.editor_export), maxLines = 1) }
         }
         // The inspection zoom of the preview (EditorView.swift:1586-1601, PreviewZoom.kt): off while a tool works on the
         // picture with its own gestures, and back to 1× when the edit changes, as the original's player gets a new item.
-        val inspectable = titling == null && transitioning?.settings?.style != TransitionStyle.Split && cropping == null && effecting == null &&
+        val inspectable = titling == null && imaging == null && transitioning?.settings?.style != TransitionStyle.Split && cropping == null && effecting == null &&
             placementWork == null && subtitling == null && moving == null && clips.isNotEmpty()
         LaunchedEffect(inspectable, saved) { inspection.reset() }
         LaunchedEffect(canvas) { inspection.canvas = canvas?.let { FrameSize(it.first.toDouble(), it.second.toDouble()) } }
@@ -967,7 +969,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 // While a title is being worked on, a drag on the picture moves it and a pinch resizes it.
                 val work by rememberUpdatedState(titling)
                 var dragged by remember { mutableStateOf<Offset?>(null) } // where the drag is, before snapping to the middle
-                val titleMoving = if (titling == null) Modifier else Modifier.pointerInput(Unit) {
+                val titleMoving = if (titling == null && imaging == null) Modifier else Modifier.pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         val now = work ?: return@detectTransformGestures
                         fun snapped(value: Float) = if (abs(value - 0.5f) < 0.015f) 0.5 else value.toDouble()
@@ -1036,7 +1038,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val toggle by rememberUpdatedState(togglePlay)
                 val cancelPending by rememberUpdatedState(cancelPendingPlay)
                 val tapLabel = stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play)
-                val tapping = if (titling != null || transitioning?.settings?.style == TransitionStyle.Split || cropping != null || effecting != null || placementWork != null || clips.isEmpty()) Modifier
+                val tapping = if (titling != null || imaging != null || transitioning?.settings?.style == TransitionStyle.Split || cropping != null || effecting != null || placementWork != null || clips.isEmpty()) Modifier
                 else Modifier.pointerInput(Unit) { detectTapGestures(onTap = { cancelPending(); toggle() }) }.semantics { onClick(tapLabel) { cancelPending(); toggle(); true } }
                 // In a layer of its own: the titles are drawn again at every frame of a scrub, and nothing around them is.
                 Canvas(Modifier.fillMaxSize().then(titleMoving).then(framing).then(reframing).then(placeCaptions).then(tapping).graphicsLayer()) {
@@ -1048,6 +1050,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         captionLook?.let { captionLayout?.draw(target.nativeCanvas, size.width, size.height, playhead, it) }
                     }
                 }
+                imaging?.let { work -> ImageGestures(work, { imaging = it }) }
                 // With Placement open, the pictures as they will be placed, and the gestures that place them.
                 placementWork?.let { work ->
                     PlacementOverlay(
@@ -1066,7 +1069,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val fullLabel = stringResource(R.string.full_preview_open)
                 IconButton(
                     onClick = { cancelPendingPlay(); fullPreview = true }, Modifier.align(Alignment.TopEnd).semantics { contentDescription = fullLabel },
-                    enabled = titling == null && transitioning == null && cropping == null && effecting == null && subtitling == null && auditioning == null && moving == null && placementWork == null,
+                    enabled = titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && subtitling == null && auditioning == null && moving == null && placementWork == null,
                 ) { Icon(Icons.Filled.OpenInFull, null, tint = Color.White) }
             }
         }
@@ -1109,7 +1112,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val trimExtended = stringResource(R.string.sound_trim_extended)
         val levelGesture = LevelGesture(
             begin = begin@{ clip, sound, time ->
-                if (subtitling != null || titling != null || transitioning != null || cropping != null || effecting != null || trim != null || moving != null || placementWork != null) return@begin false
+                if (subtitling != null || titling != null || imaging != null || transitioning != null || cropping != null || effecting != null || trim != null || moving != null || placementWork != null) return@begin false
                 // The marked range or the whole selection when the finger goes down inside it; else the one waveform under it,
                 // which becomes what is selected (EditorTimeline.swift:617-625).
                 val range = marks.range?.takeIf { time >= it.start && time < it.end }
@@ -1224,20 +1227,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             live?.clips ?: leveled?.shown(shown) ?: shown, files, leveled?.takeIf { live == null }?.shownSounds(soundRows.items) ?: soundRows.items, names,
             // A tap picks one item, or lets go of it when it is all that is picked; a long press adds it or takes it out.
             select = { clip, audio ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
+                if (subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
                     val one = EditTargets(setOfNotNull(clip), setOfNotNull(audio))
                     marks = if (marks.range == null && marks.start == null && marks.selected == one) marks.cleared() else marks.selecting(clip, audio)
                 }
             },
             toggle = { clip, audio ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
+                if (subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
                     editor.pause()
                     marks = if (clip != null) marks.togglingClip(clip) else if (audio != null) marks.togglingAudio(audio) else marks
                 }
             },
             // A tap beside the clips and sounds goes there and lets go of everything; above them it only goes there.
             seek = { time, deselect ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
+                if (subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
                     if (deselect) marks = marks.selecting()
                     jump(time.coerceIn(0.0, duration))
                 }
@@ -1245,7 +1248,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // A title is opened from its bar, on the piece the bar is on. The picture goes to where that piece shows it.
             openTitle = { index, title ->
                 val clip = clips.getOrNull(index)
-                if (clip != null && subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null) {
+                if (clip != null && subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null) {
                     editor.pause()
                     TimelineEditing.titleRange(clips, index, title)?.let { range ->
                         if (playhead < range.start || playhead >= range.endInclusive) jump(range.start.coerceIn(0.0, duration))
@@ -1259,14 +1262,24 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // A leading trim of a row of clips keeps what follows still while the draft closes up; a draft of rows has every picture at its own place.
             shift = trim?.takeIf { it.leading && trimmed?.isSequence != false }?.let { ((it.clip.start - clips[it.index].start) * pixelsPerSecond).toFloat() } ?: 0f,
             scroll = scroll, touched = { editor.pause() },
+            // A picture is opened from its bar, on the piece the bar is on, as a title is.
+            openImage = { index, image ->
+                if (subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null) {
+                    editor.pause()
+                    Imaging.opening(clips, index, image)?.let { work ->
+                        if (playhead < work.range.start || playhead >= work.range.endInclusive) jump(work.range.start.coerceIn(0.0, duration))
+                        imaging = work
+                    }
+                }
+            },
             // A tap on the name of a transition puts the playhead on its join, where the row below offers it, as in the original.
             focusTransition = { time ->
-                if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
+                if (subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) {
                     marks = marks.selecting()
                     jump(time.coerceIn(0.0, duration))
                 }
             },
-            beginTrim = { leading -> if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) located?.let { trim = Trim(it, leading, clips[it]) } },
+            beginTrim = { leading -> if (subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null) located?.let { trim = Trim(it, leading, clips[it]) } },
             dragTrim = dragTrim, endTrim = endTrim,
             // A range still open runs to the playhead. Nothing is marked on a timeline a tool is redrawing.
             marked = if (transitioning == null && trim == null && auditioning == null && moving == null) markedView else null,
@@ -1278,11 +1291,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             length = maxOf(duration, session?.viewportDuration?.seconds ?: 0.0),
             boundaries = session?.takeIf { picker.picking }?.boundaries?.times,
             // The add buttons, while nothing else is under way (EditorTimeline.swift:318-320).
-            addSites = addSites.takeIf { subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null && auditioning == null },
+            addSites = addSites.takeIf { subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null && auditioning == null },
             addVideo = { site -> cancelPendingPlay(); editor.pause(); addSite = site; adding = true },
             bookmarks = bookmarks.times, openBookmarks = { editor.pause(); bookmarksOpen = true },
             // A sound selected by itself is trimmed by its handles, inwards a deletion and outwards a reveal (EditorView.swift:1241-1258).
-            trimSound = if (subtitling == null && titling == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null && auditioning == null) { id, leading, seconds ->
+            trimSound = if (subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null && auditioning == null) { id, leading, seconds ->
                 sounds.firstOrNull { it.id == id }?.let { item ->
                     TimelineEditing.trimAudioEdge(edit, id, leading, seconds, durations[item.sourceID] ?: item.sourceEnd)?.let { next ->
                         commit(next, playhead)
@@ -1463,6 +1476,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (index != null) commit(TimelineEditing.removeText(edit, index, work.title.id), playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; titling = null },
+                modifier = Modifier.layoutId(EditorSlot.Tools),
+            )
+        } else if (imaging != null) {
+            val work = imaging!!
+            // A new picture may go anywhere in the movie; an existing one is worked on inside the clip of the piece that was opened.
+            val bounds = work.clipID?.let { id -> clips.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.let { TimelineEditing.clipRange(clips, it) } } ?: 0.0..duration
+            ImageTool(
+                work, { imaging = it }, edit, bounds, { playhead }, editor.playing, jump, store, project.id,
+                commit = { commit(it, playhead) }, close = { editor.pause(); auditionEnd = null; imaging = null },
                 modifier = Modifier.layoutId(EditorSlot.Tools),
             )
         } else if (transitioning != null) {
@@ -1813,6 +1835,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     },
                     compact, enabled = located != null, contentPadding = tight,
                 ) { Text(stringResource(R.string.editor_title)) }
+                // A picture over the footage, beside Title as in the original's tools (EditorTools.swift:54): over the marked range, else three seconds from the playhead.
+                TextButton(onClick = {
+                    editor.pause()
+                    if (clips.isNotEmpty()) imaging = Imaging.adding(newImageRange(clips, playhead, marks.range?.let { it.start..it.end }))
+                }, compact, enabled = located != null, contentPadding = tight) { Text(stringResource(R.string.image_tool)) }
                 // On the join nearest to the playhead: between two clips, or the opening or the close of the movie.
                 // Off a row of clips a join has no number: drawn as off, a tap says why.
                 ReasonedButton(TrackEditState.unavailable(edit, SequenceOnly.Transition)?.text(), explain = { store.error = it }, enabled = located != null, onClick = {

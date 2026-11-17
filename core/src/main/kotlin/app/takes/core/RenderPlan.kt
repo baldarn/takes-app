@@ -205,14 +205,19 @@ data class RenderPlan(
     /** The captions showing at [time]. */
     fun captionsAt(time: Double): List<SubtitleCue> = SubtitleEditing.active(captions, time)
 
-    /** Whether any clip carries a title, so that titles are drawn over the movie at all. */
-    val titled: Boolean get() = clips.any { !it.texts.isNullOrEmpty() }
+    /** Whether any clip carries a title or a picture over it, so that titles and pictures are drawn over the movie at all. */
+    val titled: Boolean get() = clips.any { !it.texts.isNullOrEmpty() || !it.images.isNullOrEmpty() }
 
     private val titleRuns by lazy { TitleMotionRanges(clips) }
 
-    /** The titles to draw at [time], each once, with its opacity and the pose its motion gives it ([TitleMotionRanges.shown]). */
-    fun titlesShown(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<TitleMotionRanges.Shown> =
-        titleRuns.shown(titlesAt(time, frames), time)
+    /**
+     * The pictures laid over the clips and the titles to draw at [time], each once, with its opacity and the pose its
+     * motion gives it ([TitleMotionRanges.shown]): the pictures under the titles.
+     */
+    fun titlesShown(time: Double, frames: (TransitionLayout.Join) -> Double = { TransitionScene.FRAMES_PER_SECOND }): List<TitleMotionRanges.Shown> {
+        val moment = moment(time, frames = frames)
+        return titleRuns.pictures(clips, moment) + titleRuns.shown(TransitionScene.titles(clips, moment), time)
+    }
 
     /** Where the titles of [moment], the moment at timeline second [time], are drawn: into its sides, or over a split screen ([TitleMotionRanges.sides]). */
     fun titleSides(moment: TransitionScene.Moment, time: Double): TitleMotionRanges.Sides = titleRuns.sides(clips, moment, time)

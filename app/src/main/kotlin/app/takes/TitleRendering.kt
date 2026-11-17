@@ -17,6 +17,7 @@ import android.os.Build
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import app.takes.core.ImageOverlay
 import app.takes.core.Size
 import app.takes.core.TextOverlay
 import app.takes.core.TitleAlignment
@@ -338,7 +339,7 @@ class StyledText(assets: AssetManager, text: String, val design: TitleDesign, pr
  * and kept, posed by its motion. The preview and the export use the same code
  * at their own sizes. Not for two threads at once: each makes its own.
  */
-class TitlePainter(private val assets: AssetManager) {
+class TitlePainter(private val assets: AssetManager, private val pictures: OverlayPictures? = null) {
     private data class Key(val text: String, val x: Double, val y: Double, val size: Double, val design: TitleDesign?, val width: Float, val height: Float)
 
     // Access-ordered: the title being restyled makes a new picture at every change, and old ones go.
@@ -358,7 +359,12 @@ class TitlePainter(private val assets: AssetManager) {
 
     /** Draws [shown] on a picture of [width] by [height] pixels. [level] dims every title, as a fade to black does. */
     fun draw(target: Canvas, width: Float, height: Float, shown: List<TitleMotionRanges.Shown>, level: Float = 1f) {
-        for ((title, share, pose) in shown) {
+        for ((title, share, pose, image) in shown) {
+            if (image != null) {
+                picture(target, width, height, image, (share * level).toFloat())
+                continue
+            }
+            if (title == null) continue
             val opacity = (share * level * pose.opacity).toFloat().coerceIn(0f, 1f)
             if (opacity <= 0f) continue
             if (title.appearance == null && pose.copy(opacity = 1.0) == STILL) {
@@ -375,5 +381,20 @@ class TitlePainter(private val assets: AssetManager) {
             paint.alpha = (opacity * 255).toInt()
             target.drawBitmap(bitmap, source, place, paint)
         }
+    }
+
+    /**
+     * A picture laid over the clip, at its place and size in a picture of [width] by [height] pixels, as transparent
+     * as its opacity, blended as it is encoded (YouRec/VideoToolCompositor.swift:405-408, :444-453). [share] is how
+     * much of it shows, as for a title. One whose file cannot be read is left out.
+     */
+    private fun picture(target: Canvas, width: Float, height: Float, image: ImageOverlay, share: Float) {
+        val opacity = (share * image.opacity).toFloat().coerceIn(0f, 1f)
+        if (opacity <= 0f) return
+        val bitmap = pictures?.bitmap(image.filename) ?: return
+        val at = image.frame(Size(bitmap.width.toDouble(), bitmap.height.toDouble()), Size(width.toDouble(), height.toDouble()))
+        place.set(at.x.toFloat(), at.y.toFloat(), (at.x + at.width).toFloat(), (at.y + at.height).toFloat())
+        paint.alpha = Math.round(opacity * 255)
+        target.drawBitmap(bitmap, null, place, paint)
     }
 }

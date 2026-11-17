@@ -356,9 +356,9 @@ private fun Amount(
     }
 }
 
-/** How long the title stays: a row that opens the original's presets and its start and end sliders. */
+/** How long a title or a picture stays: a row that opens the original's presets and its start and end sliders (YouRec/EditorTools.swift:1353-1393). */
 @Composable
-private fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, change: (ClosedFloatingPointRange<Double>) -> Unit) {
+internal fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, change: (ClosedFloatingPointRange<Double>) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     // All in seconds of the movie, as the original: a title may run across cuts and clips of any speed.
     val timing = OverlayTiming(range, bounds)

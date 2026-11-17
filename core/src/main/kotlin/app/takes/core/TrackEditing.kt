@@ -486,6 +486,7 @@ object TrackEditing {
                 mirror = original.mirror?.let { it.copy(id = fresh(it.id)) },
                 pauses = original.pauses?.let { it.copy(id = fresh(it.id)) },
                 texts = original.texts?.map { it.copy(id = fresh(it.id)) },
+                images = original.images?.map { it.copy(id = fresh(it.id)) },
                 bookmarks = original.bookmarks?.map { it.copy(id = newID()) },
                 subtitleWords = original.subtitleWords?.map { it.copy(id = fresh(it.id), phraseID = fresh(it.phraseID)) },
             )

@@ -405,6 +405,35 @@ class ProjectStore(context: Context) {
         }
     }
 
+    /**
+     * A picture picked for the Image tool, upright, its longer side brought down to 4096 pixels, written as a PNG in
+     * the project's folder under a new name, as the original imports it (YouRec/EditorTools.swift:524-537): its file
+     * name, or null when it is not a picture that can be read.
+     */
+    suspend fun importImage(projectID: String, uri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            val picture = PhotoMovie.decode(resolver, uri, app.takes.core.ImageOverlay.MAXIMUM_PIXELS) ?: return@withContext null
+            val folder = disk.folder(projectID).apply { mkdirs() }
+            val file = File(folder, app.takes.core.ImageOverlay.importedName())
+            val bytes = java.io.ByteArrayOutputStream().also { picture.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            picture.recycle()
+            ProjectDisk.writeAtomically(bytes, file)
+            file.name
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Deletes the pictures imported while the Image tool was open that no step of the project names, when it closes
+     * (YouRec/EditorTools.swift:539-542).
+     */
+    fun discardImages(projectID: String, names: Collection<String>) {
+        val kept = projects.firstOrNull { it.id == projectID }?.imageFiles?.toSet() ?: return
+        val folder = disk.folder(projectID)
+        for (name in names) if (name !in kept && name.startsWith("image-") && name == File(name).name) File(folder, name).delete()
+    }
+
     suspend fun importLut(projectID: String, uri: Uri): ImportedLUT? = withContext(Dispatchers.IO) {
         try {
             val bytes = resolver.openInputStream(uri)?.use { input ->

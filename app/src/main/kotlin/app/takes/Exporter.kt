@@ -509,6 +509,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         // An edit with pictures over one another or apart is drawn by picture layers; past what the device decodes at once it is not drawn.
         val render = EditRender.of(project.edit, EditRendering.LANES)
         if (render is EditRender.TooManyLayers) throw Refusal(EditRendering.tooMany(context, render))
+        // A picture laid over a clip whose file is gone stops the export, as in the original (YouRec/MediaRenderer.swift:314-318).
+        if (project.edit.clips.flatMap { it.images.orEmpty() }.any { !File(folder, it.filename).isFile }) throw Refusal(context.getString(R.string.export_image_missing))
         if (render is EditRender.Layers) {
             layered(project, render.plan, folder, checkpoint, published)
             return@coroutineScope

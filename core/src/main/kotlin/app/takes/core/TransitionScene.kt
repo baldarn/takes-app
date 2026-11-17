@@ -185,6 +185,20 @@ object TransitionScene {
     }
 
     /**
+     * The pictures the clip of [source] lays over the second of its footage the side shows, posed by their motion
+     * ([ImageOverlays.shownAt]); none for a fill.
+     */
+    fun images(clips: List<TimelineClip>, source: Source): List<ImageOverlay> {
+        val (index, offset) = when (source) {
+            is Source.Clip -> source.index to source.offset
+            is Source.Held -> source.index to source.offset
+            is Source.Fill -> return emptyList()
+        }
+        val clip = clips.getOrNull(index) ?: return emptyList()
+        return ImageOverlays.shownAt(clip, offset)
+    }
+
+    /**
      * The titles of [moment] with their opacity, the outgoing side's first. A side that does not show gives none.
      * What a renderer draws without a transition shader (the preview before Android 13); with one, each side's
      * titles go into its picture ([TitleMotionRanges.sides]).
