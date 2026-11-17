@@ -28,8 +28,7 @@ import kotlin.math.truncate
  * the factor defaults to 1.
  *
  * Only the zoom of the gesture is here. Its second half, the pan of the
- * picture inside the lens, needs the original's `CameraFraming`
- * (YouRec/VideoEffects/CaptureZoomHistory.swift:5-32) and is not ported.
+ * picture inside the lens, is [PinchPan].
  *
  * Distances are the original's points, which are density-independent pixels
  * here.

@@ -185,7 +185,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     LaunchedEffect(capture.dualActive) { if (capture.dualActive) zoomOpen = false else dualEditing = false }
     // Being on is not remembered, as in the original: the light is off whenever the recorder opens.
     var frontLight by remember { mutableStateOf(false) }
-    var pinch by remember { mutableStateOf<PinchZoom?>(null) }
+    var pinch by remember { mutableStateOf<PinchShown?>(null) }
     // The live video effects, over the picture in place of the controls, as in the original (RecorderView.swift:252-267).
     var effectsOpen by remember { mutableStateOf(false) }
     var inspected by remember { mutableStateOf<VideoEffectID?>(null) }

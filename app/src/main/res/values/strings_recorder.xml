@@ -55,6 +55,9 @@
     <string name="recorder_zoom_time_shorter">Shorten</string>
     <string name="recorder_zoom_time_hint">Swipe up/down to change zoom time</string>
     <string name="recorder_pinch_on_release">%1$s  ·  %2$s on release</string>
+    <string name="recorder_pinch_zoom_in_to_pan">Zoom in to pan</string>
+    <string name="recorder_pinch_manual">%1$s  ·  Manual framing</string>
+    <string name="recorder_pinch_manual_on_release">%1$s  ·  Manual on release</string>
     <!-- Focus: the button of the camera strip, its hints, and the section of More settings. -->
     <string name="recorder_focus_auto">AF</string>
     <string name="recorder_focus_manual">MF</string>

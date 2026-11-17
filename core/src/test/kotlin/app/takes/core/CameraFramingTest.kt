@@ -106,4 +106,43 @@ class CameraFramingTest {
         assertTrue(PinchPan.changed(image, 1.0, 2.0, CameraFraming.MIDDLE, 2.02, CameraFraming.MIDDLE, 0.0, false, Affine.IDENTITY))
         assertTrue(PinchPan.changed(image, 1.0, 2.0, CameraFraming.MIDDLE, 2.0, Point(0.501, 0.5), 0.0, false, Affine.IDENTITY))
     }
+
+    // YouRec/RecorderZoomViewport.swift:198-206
+    @Test fun theBadgeAsksToZoomInAtTheWidestAndSaysWhenTheFollowIsTakenOver() {
+        assertEquals(PinchPan.Badge.ZoomInToPan, PinchPan.badge(dragged = true, wasFollowing = false, zoom = 1.0, minimumZoom = 1.0, changed = false))
+        assertEquals(PinchPan.Badge.Zoom, PinchPan.badge(dragged = true, wasFollowing = false, zoom = 2.0, minimumZoom = 1.0, changed = true))
+        assertEquals(PinchPan.Badge.Zoom, PinchPan.badge(dragged = false, wasFollowing = true, zoom = 2.0, minimumZoom = 1.0, changed = false))
+        assertEquals(PinchPan.Badge.Manual, PinchPan.badge(dragged = true, wasFollowing = true, zoom = 2.0, minimumZoom = 1.0, changed = true))
+        // At the widest a follow taken over still asks to zoom in first.
+        assertEquals(PinchPan.Badge.ZoomInToPan, PinchPan.badge(dragged = true, wasFollowing = true, zoom = 1.0, minimumZoom = 1.0, changed = false))
+    }
+
+    // YouRec/CaptureController.swift:1745-1752
+    @Test fun aSavedPanComesBackClampedOnlyWhenTheCameraIsZoomedIn() {
+        assertEquals(Point(0.3, 0.6), PinchPan.restored(0.3, 0.6, 2.0, 1.0, following = false, nativeZoom = false))
+        // Clamped to the crop of half the lens.
+        assertEquals(Point(0.25, 0.75), PinchPan.restored(0.0, 1.0, 2.0, 1.0, following = false, nativeZoom = false))
+        assertEquals(null, PinchPan.restored(0.3, 0.6, 1.0, 1.0, following = false, nativeZoom = false))
+        assertEquals(null, PinchPan.restored(0.3, 0.6, 2.0, 1.0, following = true, nativeZoom = false))
+        assertEquals(null, PinchPan.restored(0.3, 0.6, 2.0, 1.0, following = false, nativeZoom = true))
+        assertEquals(null, PinchPan.restored(null, 0.6, 2.0, 1.0, following = false, nativeZoom = false))
+        assertEquals(null, PinchPan.restored(0.5, 0.5, 2.0, 1.0, following = false, nativeZoom = false))
+    }
+
+    // YouRec/CaptureController.swift:913-924, 2205-2214
+    @Test fun aCentreIsGivenUpAtTheWidestOrNearTheMiddle() {
+        assertTrue(PinchPan.releases(Point(0.3, 0.3), 1.0, 1.0))
+        assertTrue(PinchPan.releases(Point(0.5005, 0.5), 2.0, 1.0))
+        assertFalse(PinchPan.releases(Point(0.502, 0.5), 2.0, 1.0))
+    }
+
+    // YouRec/ZoomTransition.swift:64-69
+    @Test fun aTimedMovePansOnTheZoomsCurve() {
+        val move = ZoomTransition(1.0, 4.0, 0.0, 2.0, Point(0.5, 0.5), Point(0.3, 0.7))
+        assertEquals(Point(0.5, 0.5), move.center(-1.0))
+        assertEquals(0.4, move.center(1.0)!!.x, 1e-12)
+        assertEquals(0.6, move.center(1.0)!!.y, 1e-12)
+        assertEquals(Point(0.3, 0.7), move.center(2.0))
+        assertEquals(null, ZoomTransition(1.0, 4.0, 0.0, 2.0).center(1.0))
+    }
 }

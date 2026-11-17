@@ -9,7 +9,15 @@ import kotlin.math.roundToInt
  * speed and acceleration reach zero at both ends. Driven by elapsed time, so
  * dropped callbacks never extend the selected duration.
  */
-data class ZoomTransition(val start: Double, val target: Double, val began: Double, val duration: Double) {
+data class ZoomTransition(
+    val start: Double,
+    val target: Double,
+    val began: Double,
+    val duration: Double,
+    /** The crop centre on the lens at the start and at the end, for a move that also pans (YouRec/ZoomTransition.swift:10-11). */
+    val startCenter: Point? = null,
+    val targetCenter: Point? = null,
+) {
     fun isFinished(time: Double): Boolean = duration <= 0 || time >= began + duration
 
     private fun progress(time: Double): Double {
@@ -23,6 +31,14 @@ data class ZoomTransition(val start: Double, val target: Double, val began: Doub
         if (isFinished(time)) return target
         if (time <= began) return start
         return 2.0.pow(log2(start) + log2(target / start) * progress(time))
+    }
+
+    /** The centre at [time], on the same curve as the zoom; null for a move that does not pan (YouRec/ZoomTransition.swift:64-69). */
+    fun center(time: Double): Point? {
+        val from = startCenter ?: return null
+        val to = targetCenter ?: return null
+        val t = progress(time)
+        return Point(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
     }
 
     companion object {

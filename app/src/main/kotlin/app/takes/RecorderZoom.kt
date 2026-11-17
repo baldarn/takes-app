@@ -56,7 +56,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.takes.core.PinchPan
 import app.takes.core.PinchZoom
+import app.takes.core.Point
+import app.takes.core.Size
 import app.takes.core.RecorderCameras
 import app.takes.core.ZoomTransition
 import java.text.NumberFormat
@@ -68,12 +71,15 @@ internal val ControlYellow = Color(0xFFFFD60A)
 /** The plate of a group of controls that sits on the picture. */
 internal val StripPlate = Color(0xB3262628)
 
+/** A pinch as its badge shows it: the zoom reached and what is said beside it. */
+internal data class PinchShown(val pinch: PinchZoom, val badge: PinchPan.Badge)
+
 /**
- * The gestures on the picture, as in the original: two fingers zoom, measured from where they went down,
+ * The gestures on the picture, as in the original: two fingers zoom and pan, measured from where they went down,
  * and one short touch that does not travel is a tap. A third finger gives the gesture up.
  * [show] is given the pinch while it lasts, for the badge, and null when it ends.
  */
-internal fun Modifier.pictureGestures(capture: CaptureController, show: (PinchZoom?) -> Unit, tap: (Offset) -> Unit): Modifier =
+internal fun Modifier.pictureGestures(capture: CaptureController, show: (PinchShown?) -> Unit, tap: (Offset) -> Unit): Modifier =
     pointerInput(capture) {
         awaitEachGesture {
             val down = awaitFirstDown()
@@ -84,7 +90,7 @@ internal fun Modifier.pictureGestures(capture: CaptureController, show: (PinchZo
             var pinch: PinchZoom? = null
             var travelled = false
             fun end(apply: Boolean) {
-                pinch?.let { if (apply && capture.cameraID == lens) capture.endPinch(it) }
+                pinch?.let { if (apply && capture.cameraID == lens) capture.endPinch(it) else capture.cancelPinch() }
                 pinch = null
                 show(null)
             }
@@ -115,15 +121,18 @@ internal fun Modifier.pictureGestures(capture: CaptureController, show: (PinchZo
                 // After a pinch ended, the fingers still down do not begin another.
                 if (startSpan < 0) continue
                 if (pinch == null && PinchZoom.begins(startSpan, span, (mid - startMid).getDistance().toDouble())) {
-                    pinch = capture.beginPinch(startSpan)
+                    pinch = capture.beginPinch(startSpan, Point(startMid.x.toDouble(), startMid.y.toDouble()))
                     if (pinch == null) startSpan = -1.0
                 }
                 pinch?.let { current ->
                     if (capture.cameraID != lens || !capture.canPinch) { end(apply = false); startSpan = -1.0; return@let }
-                    val step = current.moved(span)
-                    pinch = step.pinch
-                    step.apply?.let(capture::pinchZoom)
-                    show(step.pinch)
+                    // Where the recorded frame is shown, in the same points as the fingers. RecorderZoomViewport.swift:216-222.
+                    val bounds = Size(size.width / density.toDouble(), size.height / density.toDouble())
+                    val canvas = if (bounds.width < bounds.height) Size(9.0, 16.0) else Size(16.0, 9.0)
+                    val image = PinchZoom.pictureRect(bounds, canvas, fill = !capture.settings.fitFrame)
+                    val (next, badge) = capture.movePinch(current, span, Point(mid.x.toDouble(), mid.y.toDouble()), image)
+                    pinch = next
+                    show(PinchShown(next, badge))
                 }
             }
         }
@@ -134,10 +143,17 @@ internal fun Modifier.pictureGestures(capture: CaptureController, show: (PinchZo
  * when a zoom time is set, that the move waits for the release.
  */
 @Composable
-internal fun PinchBadge(pinch: PinchZoom, modifier: Modifier = Modifier) {
+internal fun PinchBadge(shown: PinchShown, modifier: Modifier = Modifier) {
+    val pinch = shown.pinch
     val zoom = PinchZoom.readout(pinch.zoom)
+    // RecorderZoomViewport.swift:198-206.
+    val text = when (shown.badge) {
+        PinchPan.Badge.ZoomInToPan -> stringResource(R.string.recorder_pinch_zoom_in_to_pan)
+        PinchPan.Badge.Manual -> stringResource(if (pinch.timed) R.string.recorder_pinch_manual_on_release else R.string.recorder_pinch_manual, zoom)
+        PinchPan.Badge.Zoom -> if (pinch.timed) stringResource(R.string.recorder_pinch_on_release, zoom, compactSeconds(pinch.seconds)) else zoom
+    }
     Text(
-        if (pinch.timed) stringResource(R.string.recorder_pinch_on_release, zoom, compactSeconds(pinch.seconds)) else zoom,
+        text,
         color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, maxLines = 1,
         modifier = modifier.height(28.dp).background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(14.dp)).padding(horizontal = 10.dp).wrapContentSize(),
     )

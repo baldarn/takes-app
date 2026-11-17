@@ -86,6 +86,9 @@ import app.takes.core.SubjectSample
 import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectSettings
 import app.takes.core.MicrophoneRoute
+import app.takes.core.Affine
+import app.takes.core.CameraFraming
+import app.takes.core.PinchPan
 import app.takes.core.PinchZoom
 import app.takes.core.Project
 import app.takes.core.RecorderCamera
@@ -189,6 +192,14 @@ class CaptureController(private val context: Context, private val store: Project
     val ready: Boolean get() = cameraID != null && camera != null
     var zoom by mutableStateOf(1.0); private set
     var zoomRange by mutableStateOf(1.0..1.0); private set
+    /**
+     * The crop centre placed by hand with two fingers on the camera in use, on its lens's whole picture in the
+     * camera's own orientation; null while the lens makes the zoom about its middle. The original's `manualCenter`
+     * (CaptureController.swift:911-933, 2248-2330), remembered for each camera (CaptureController.swift:1648-1664).
+     */
+    var panCenter by mutableStateOf<Point?>(null); private set
+    // The camera [panCenter] was read for.
+    private var panCamera: String? = null
     /** Seconds a zoom preset takes. Instant until the person chooses a time, as in the original. */
     val zoomDuration: Double get() = settings.zoomSeconds
     /** The level of the microphone, before a take and during it. The screen reads it at each frame. */
@@ -524,6 +535,11 @@ class CaptureController(private val context: Context, private val store: Project
         }
         // A segment being written keeps its recorder: the format changes between segments.
         val writing = phase == Phase.Recording || phase == Phase.Saving
+        // A camera chosen anew gives back its own centre placed by hand. CaptureController.swift:1742-1752.
+        if (choice.id != panCamera) {
+            panCenter = restoredPan(choice)
+            panCamera = choice.id
+        }
         // The frame assists stay as they were bound while a segment is written: they change between segments.
         val effects = if (writing) cases.effects else assistTargets(choice)
         // The pass over the frames draws 8 bits a colour: a take it changes is recorded in SDR.
@@ -555,6 +571,7 @@ class CaptureController(private val context: Context, private val store: Project
             settings.levelHorizon = false
             settings.followFace = false
             settings.focusPeaking = false
+            panCenter = null
         }
         if (bound == null) {
             camera = null
@@ -1325,7 +1342,7 @@ class CaptureController(private val context: Context, private val store: Project
 
     /** What the frames are drawn for when [choice] is bound: the recording too for the level and the follow, the preview alone for peaking. */
     private fun assistTargets(choice: CameraChoice): Int = when {
-        levels(choice) || settings.followFace -> CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE
+        levels(choice) || settings.followFace || panCenter != null || panning -> CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE
         // The camera moves draw over the preview alone, and look at the pictures for the subject.
         settings.focusPeaking || crashAvailable || dollyAvailable || drawsLooks -> CameraEffect.PREVIEW
         else -> 0
@@ -1334,8 +1351,11 @@ class CaptureController(private val context: Context, private val store: Project
     /** The bound camera's frames go through [frames] into the recording as well. */
     private val framesRecorded: Boolean get() = camera != null && cases.effects and CameraEffect.VIDEO_CAPTURE != 0
 
-    /** Follow face crops a lens kept at its widest, so the face can be followed across all of it: the zoom chosen is the crop's. */
-    private val followsDigitally: Boolean get() = framesRecorded && settings.followFace
+    /**
+     * Follow face crops a lens kept at its widest, so the face can be followed across all of it, and so does a centre
+     * placed by hand (CaptureController.swift:911-933, 2198-2201): the zoom chosen is the crop's.
+     */
+    private val followsDigitally: Boolean get() = framesRecorded && (settings.followFace || panCenter != null)
 
     /** The level horizon can be used with the camera in use. */
     val canLevel: Boolean get() = !(current?.front ?: true) && frames.levelAvailable
@@ -1369,6 +1389,11 @@ class CaptureController(private val context: Context, private val store: Project
             return
         }
         settings.followFace = on
+        // Following gives up the centre placed by hand. CaptureController.swift:871-880.
+        if (on) {
+            panCenter = null
+            cameraID?.let { storePan(it, null) }
+        }
         if (canChangeFormat) refreshAssists() else applyZoom(zoom)
     }
 
@@ -1407,6 +1432,7 @@ class CaptureController(private val context: Context, private val store: Project
             selectedZoom = if (digital) zoom else null,
             tracking = camera != null && cases.effects != 0 && tracksSubject,
             mirrored = current?.front == true && settings.mirrorRecording,
+            manual = panCenter.takeIf { framesRecorded && !settings.followFace },
         )
         frames.listenToGravity(level != null && inFront)
         updateDual()
@@ -1443,7 +1469,11 @@ class CaptureController(private val context: Context, private val store: Project
     fun switchCamera(id: String, nativeZoom: Boolean = false) {
         val choice = cameras.firstOrNull { it.id == id } ?: return
         if (id == cameraID || phase == Phase.Saving) return
-        if (nativeZoom) prefs.edit().putFloat("zoom.$id", 1f).apply()
+        if (nativeZoom) {
+            prefs.edit().putFloat("zoom.$id", 1f).apply()
+            storePan(id, null)
+        }
+        panning = false
         // The old camera's move must not resume when that camera is selected again.
         zoomRamp?.cancel()
         stopDolly(immediate = true, reason = DollyHint.MoveStopped)
@@ -1602,30 +1632,92 @@ class CaptureController(private val context: Context, private val store: Project
 
     // MARK: Zoom. Each camera remembers its own last applied value.
 
-    private fun applyZoom(value: Double, remember: Boolean = true) {
+    /**
+     * Sets the zoom, and the crop centre placed by hand, kept where the crop of that zoom reaches. Once settled
+     * ([remember]) the centre is given up at the lens's widest or back in the middle, and both are remembered for the
+     * camera (CaptureController.swift:913-924, 2205-2214, 2262-2274).
+     */
+    private fun applyZoom(value: Double, remember: Boolean = true, center: Point? = panCenter) {
         val bounded = value.coerceIn(zoomRange)
         zoom = bounded
-        // Follow face keeps the lens at its widest and makes the zoom with its crop.
+        var pan = center?.let { CameraFraming.clamped(it, zoomRange.start / bounded) }
+        if (remember && pan != null && PinchPan.releases(pan, bounded, zoomRange.start)) pan = null
+        val dropped = panCenter != null && pan == null
+        panCenter = pan
+        // Follow face and a centre placed by hand keep the lens at its widest and make the zoom with the crop.
         camera?.cameraControl?.setZoomRatio((if (followsDigitally) zoomRange.start else bounded).toFloat())
         updateFrames()
-        if (remember && !dualActive) cameraID?.let { prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply() }
+        if (remember && !dualActive) cameraID?.let {
+            prefs.edit().putFloat("zoom.$it", bounded.toFloat()).apply()
+            storePan(it, pan)
+        }
+        // The lens makes the zoom again: between segments its frames no longer need to pass through the app.
+        if (dropped && remember && !panning && canChangeFormat && !dualActive) refreshAssists()
     }
 
-    fun zoomTo(target: Double, seconds: Double = zoomDuration, forDolly: Boolean = false) {
+    private fun storePan(id: String, pan: Point?) {
+        prefs.edit().apply {
+            if (pan == null) remove("pan.$id.x").remove("pan.$id.y")
+            else putFloat("pan.$id.x", pan.x.toFloat()).putFloat("pan.$id.y", pan.y.toFloat())
+        }.apply()
+    }
+
+    /** The centre the camera [choice] had when it was last used, as the original gives it back (CaptureController.swift:1742-1752). */
+    private fun restoredPan(choice: CameraChoice): Point? {
+        fun read(key: String) = if (prefs.contains(key)) prefs.getFloat(key, 0.5f).toDouble() else null
+        val minimum = (choice.info.zoomState.value?.minZoomRatio ?: 1f).toDouble()
+        return PinchPan.restored(
+            read("pan.${choice.id}.x"), read("pan.${choice.id}.y"), prefs.getFloat("zoom.${choice.id}", 1f).toDouble(), minimum,
+            following = settings.followFace, nativeZoom = false,
+        )
+    }
+
+    /**
+     * A centre away from the middle is made by a crop of the frames on their way to the recording. Between segments,
+     * when they do not pass through the app yet, the camera is bound again so that they do; true when they do.
+     */
+    private fun cropsRecording(center: Point, zoom: Double): Boolean {
+        // Near the middle the lens makes the zoom by itself.
+        if (framesRecorded || PinchPan.releases(center, zoom, zoomRange.start)) return true
+        if (dualActive || !canChangeFormat) return false
+        panning = true
+        // Binding again sets the zoom saved for the camera.
+        cameraID?.let { prefs.edit().putFloat("zoom.$it", this.zoom.toFloat()).apply() }
+        rebind()
+        return framesRecorded
+    }
+
+    // A pan is being made: the frames pass through the app until it ends, even while its centre is the middle.
+    private var panning = false
+
+    /** The pan ended: with the centre given up, between segments the frames no longer pass through the app. */
+    private fun endPanning() {
+        if (!panning) return
+        panning = false
+        if (panCenter == null && canChangeFormat && !dualActive) refreshAssists()
+    }
+
+    fun zoomTo(target: Double, seconds: Double = zoomDuration, forDolly: Boolean = false, center: Point? = panCenter) {
         // A zoom chosen by hand ends a Dolly Zoom (CaptureController.swift:2275, 2350-2351).
         if (!forDolly) stopDolly(immediate = true, reason = DollyHint.MoveStopped)
         val bounded = target.coerceIn(zoomRange)
-        if (abs(bounded - zoom) < 0.001) return
+        var targetCenter = center?.let { CameraFraming.clamped(it, zoomRange.start / bounded) }
+        if (abs(bounded - zoom) < 0.001 && targetCenter == panCenter) { endPanning(); return }
         zoomRamp?.cancel()
-        if (seconds <= 0) { applyZoom(bounded); return }
-        val ramp = ZoomTransition(zoom, bounded, SystemClock.elapsedRealtimeNanos() / 1e9, seconds)
+        if (seconds <= 0) { applyZoom(bounded, center = targetCenter); endPanning(); return }
+        // A move that pans runs from the centre in use, the middle when the lens makes the zoom. ZoomTransition.swift:10-11, 64-69.
+        val startCenter = panCenter ?: CameraFraming.MIDDLE
+        if (targetCenter != null && panCenter == null && !cropsRecording(targetCenter, bounded)) targetCenter = null
+        val ramp = ZoomTransition(zoom, bounded, SystemClock.elapsedRealtimeNanos() / 1e9, seconds, startCenter.takeIf { targetCenter != null }, targetCenter)
         zoomRamp = scope.launch {
             while (true) {
                 val now = SystemClock.elapsedRealtimeNanos() / 1e9
-                applyZoom(ramp.value(now))
-                if (ramp.isFinished(now)) break
+                val done = ramp.isFinished(now)
+                applyZoom(ramp.value(now), remember = done, center = ramp.center(now) ?: panCenter)
+                if (done) break
                 delay(16)
             }
+            endPanning()
         }
     }
 
@@ -1643,13 +1735,104 @@ class CaptureController(private val context: Context, private val store: Project
         return PinchZoom.begin(zoom, span, zoomDuration, zoomRange.start, zoomRange.endInclusive)
     }
 
+    /**
+     * The pan half of a pinch (RecorderZoomViewport.swift:116-214): the centre it has reached, the zoom that centre
+     * was worked out for, where the fingers' midpoint was, whether they took the framing over from the face follow,
+     * whether the camera was already changed while they moved, and whether the move changed anything to keep.
+     */
+    private data class PinchFraming(
+        val start: Point,
+        val center: Point,
+        val zoom: Double,
+        val initialMid: Point,
+        val previousMid: Point,
+        val initialSpan: Double,
+        val wasFollowing: Boolean,
+        val dragged: Boolean = false,
+        val applied: Boolean = false,
+        val changed: Boolean = false,
+    ) {
+        val following: Boolean get() = wasFollowing && !dragged
+    }
+
+    private var pinchFraming: PinchFraming? = null
+
+    /** Whether two fingers can pan the picture: one camera, and its frames cropped on the way to the recording or able to be between segments. */
+    private val canPan: Boolean get() = !dualActive && (framesRecorded || canChangeFormat)
+
+    /**
+     * A pinch beginning with the fingers [span] apart about [mid], measured from here on as the original measures it.
+     * A move that is running stops where it is.
+     */
+    fun beginPinch(span: Double, mid: Point): PinchZoom? {
+        val pinch = beginPinch(span) ?: return null
+        val following = framesRecorded && settings.followFace
+        // Taking over from the face follow starts from what it shows. CaptureController.swift:2280-2287.
+        val start = (if (following) frames.visible?.center else panCenter) ?: CameraFraming.MIDDLE
+        pinchFraming = PinchFraming(start, start, zoom, mid, mid, pinch.startSpan, following)
+        return pinch
+    }
+
+    /**
+     * The fingers [span] apart about [mid] on a picture shown over [image], in view points: the zoom and the centre
+     * they reach, applied at once by an instant pinch (RecorderZoomViewport.swift:143-207), and what the badge says.
+     */
+    fun movePinch(pinch: PinchZoom, span: Double, mid: Point, image: Rect): Pair<PinchZoom, PinchPan.Badge> {
+        val step = pinch.moved(span)
+        val next = step.pinch
+        val state = pinchFraming
+        if (state == null || !canPan) {
+            step.apply?.let(::pinchZoom)
+            return next to PinchPan.Badge.Zoom
+        }
+        val minimum = zoomRange.start
+        val angle = (camera?.cameraInfo?.getSensorRotationDegrees(cases.video.targetRotation) ?: 90).toDouble()
+        val mirrored = current?.front == true && settings.mirrorPreview
+        val leveled = frames.levelled?.takeIf { levelling }?.screenTransform(flip = false) ?: Affine.IDENTITY
+        val moved = PinchPan.step(
+            image, minimum, state.zoom, state.center, next.zoom, state.previousMid, mid, state.initialMid, state.initialSpan, span,
+            angle, mirrored, leveled, state.wasFollowing, state.dragged,
+        )
+        val changed = PinchPan.changed(image, minimum, pinch.startZoom, state.start, next.zoom, moved.center, angle, mirrored, leveled)
+        var after = state.copy(center = moved.center, zoom = next.zoom, previousMid = mid, dragged = moved.dragged, changed = changed)
+        if (!next.timed && (next.zoom != state.zoom || moved.center != state.center)) {
+            if (after.following) pinchZoom(next.zoom)
+            else if (cropsRecording(moved.center, next.zoom)) {
+                takeOverFollow(after)
+                applyZoom(next.zoom, remember = false, center = moved.center)
+                after = after.copy(applied = true)
+            } else step.apply?.let(::pinchZoom)
+        }
+        pinchFraming = after
+        return next to PinchPan.badge(after.dragged, after.wasFollowing, next.zoom, minimum, changed)
+    }
+
+    // A pan by hand ends the face follow, keeping what it showed. CaptureController.swift:2207-2219.
+    private fun takeOverFollow(state: PinchFraming) {
+        if (state.wasFollowing && settings.followFace) settings.followFace = false
+    }
+
     /** A zoom the fingers are passing through: shown at once, remembered only when they lift. */
     fun pinchZoom(value: Double) = applyZoom(value, remember = false)
 
-    /** The fingers lifted at [target]: an instant pinch is remembered there, a timed one now runs. */
+    /** The fingers lifted: an instant pinch is remembered where it is, a timed one now runs (RecorderZoomViewport.swift:175-180). */
     fun endPinch(pinch: PinchZoom) {
-        val target = pinch.released() ?: return
-        if (pinch.timed) zoomTo(target, pinch.seconds) else applyZoom(target)
+        val state = pinchFraming
+        pinchFraming = null
+        val target = if (state == null || !canPan) pinch.released() else pinch.zoom.takeIf { state.changed || pinch.applied || state.applied }
+        if (target == null) { endPanning(); return }
+        // The centre the fingers reached, where the crop can make it.
+        val crops = state != null && canPan && !state.following && cropsRecording(state.center, target)
+        if (crops) takeOverFollow(state!!)
+        val center = if (crops) state!!.center else panCenter
+        if (pinch.timed) zoomTo(target, pinch.seconds, center = center)
+        else { applyZoom(target, center = center); endPanning() }
+    }
+
+    /** A pinch given up: nothing of it is kept. */
+    fun cancelPinch() {
+        pinchFraming = null
+        endPanning()
     }
 
     /** Sets the zoom transition time, kept within its bounds; says whether that changed it. */

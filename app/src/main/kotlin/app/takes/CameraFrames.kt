@@ -34,6 +34,7 @@ import app.takes.core.DualCameraMasks
 import app.takes.core.FaceFraming
 import app.takes.core.FaceTarget
 import app.takes.core.HorizonEstimate
+import app.takes.core.CameraFraming
 import app.takes.core.HorizonFraming
 import app.takes.core.HorizonLine
 import app.takes.core.LiveCrashZooms
@@ -94,6 +95,11 @@ class CameraFrames(context: Context) {
         val tracking: Boolean = false,
         /** The take is saved mirrored, the front camera's picture flipped. */
         val mirrored: Boolean = false,
+        /**
+         * A crop centre placed by hand with two fingers, on the lens's whole picture in the camera's own orientation;
+         * the crop makes [selectedZoom] about it on a lens kept at its widest (CaptureController.swift:911-933).
+         */
+        val manual: Point? = null,
     )
 
     /**
@@ -494,6 +500,10 @@ class CameraFrames(context: Context) {
 
     private var horizon = HorizonEstimate()
     private var framing = DualCameraLayout.Framing()
+    /** What the crop of the latest frame shows, as a framing of the lens, where a pinch that takes over from the face follow starts. */
+    @Volatile var visible: CameraFraming? = null; private set
+    /** The level horizon of the latest frame, which a pinch's pan turns its fingers' travel by (RecorderZoomViewport.swift:157). */
+    @Volatile var levelled: HorizonFraming? = null; private set
     private var reserve = 1.0
     private var target = FaceTarget()
     private var status = FollowStatus.Searching
@@ -563,7 +573,7 @@ class CameraFrames(context: Context) {
         }
         // Follow face: a crop of the picture that eases toward the face.
         if (wanted.follow != lastFollow) { lastFollow = wanted.follow; target = FaceTarget(); setStatus(FollowStatus.Searching) }
-        reserve = SingleCameraCrop.reserve(reserve, wanted.follow, manual = false, dt = dt)
+        reserve = SingleCameraCrop.reserve(reserve, wanted.follow, manual = wanted.manual != null && !wanted.follow, dt = dt)
         framing = framing.copy(zoom = SingleCameraCrop.zoom(wanted.inputZoom, wanted.selectedZoom, wanted.minimumZoom, reserve))
         if (wanted.tracking && !wanted.follow) analyse(now, null, wanted, level = false, pass)
         if (wanted.follow) {
@@ -575,7 +585,10 @@ class CameraFrames(context: Context) {
             // Back to the whole picture, centred, for the next time.
             framing = DualCameraLayout.Framing()
         }
-        val crop = SingleCameraCrop.crop(framing, null, wanted.inputZoom, wanted.minimumZoom, 0.0, false).rectangle
+        val crop = SingleCameraCrop.crop(framing, wanted.manual?.takeIf { !wanted.follow }, wanted.inputZoom, wanted.minimumZoom, 0.0, false)
+            .also { framing = it.framing }.rectangle
+        visible = SingleCameraCrop.visible(crop, wanted.inputZoom, wanted.minimumZoom, 0.0, false)
+        levelled = level
         val mapping = Affine(crop.width, 0.0, 0.0, crop.height, crop.minX, crop.minY)
         return (level?.sourceTransform(size)?.concatenating(mapping) ?: mapping).also { framed = it }
     }

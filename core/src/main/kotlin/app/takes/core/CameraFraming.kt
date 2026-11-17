@@ -171,6 +171,44 @@ object PinchPan {
         return Step(center, nowDragged)
     }
 
+    /** What the pinch's read-out says beside the zoom (YouRec/RecorderZoomViewport.swift:198-206). */
+    enum class Badge {
+        /** The zoom alone, or with the time it runs over on release. */
+        Zoom,
+        /** The fingers travelled at the lens's widest and nothing changed: "Zoom in to pan". */
+        ZoomInToPan,
+        /** The fingers took the framing over from the face follow: "Manual framing", or "Manual on release" when timed. */
+        Manual,
+    }
+
+    /** The read-out for a pinch that has reached [zoom] (YouRec/RecorderZoomViewport.swift:198-206). */
+    fun badge(dragged: Boolean, wasFollowing: Boolean, zoom: Double, minimumZoom: Double, changed: Boolean): Badge = when {
+        dragged && zoom <= minimumZoom + 0.001 && !changed -> Badge.ZoomInToPan
+        wasFollowing && dragged -> Badge.Manual
+        else -> Badge.Zoom
+    }
+
+    /**
+     * The centre a camera's saved pan gives back when it is chosen
+     * (YouRec/CaptureController.swift:1745-1752): none while following a face,
+     * when the camera starts at its own 1×, at its widest, or when the saved
+     * point clamped to the zoom is the middle.
+     */
+    fun restored(x: Double?, y: Double?, selectedZoom: Double, minimumZoom: Double, following: Boolean, nativeZoom: Boolean): Point? {
+        if (following || nativeZoom || selectedZoom <= minimumZoom || x == null || y == null || !x.isFinite() || !y.isFinite()) return null
+        val point = CameraFraming.clamped(Point(x, y), minimumZoom / selectedZoom)
+        return point.takeIf { it != CameraFraming.MIDDLE }
+    }
+
+    /**
+     * Whether a centre placed by hand is given up once the zoom is settled at
+     * [zoom]: at the lens's widest, or so near the middle that the crop moves
+     * less than 0.3 % of the picture, where the original gives the
+     * magnification back to the lens (YouRec/CaptureController.swift:913-924, 2205-2214).
+     */
+    fun releases(center: Point, zoom: Double, minimumZoom: Double): Boolean =
+        zoom <= minimumZoom + 0.00001 || hypot(center.x - 0.5, center.y - 0.5) * zoom / minimumZoom < 0.003
+
     /**
      * How far the shown picture must move, in view points, for a framing that
      * went from [startCenter] to [center] at a zoom ratio; and whether the
