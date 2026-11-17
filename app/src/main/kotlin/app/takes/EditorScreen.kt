@@ -335,7 +335,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 for (span in request.spans) {
                     if (Denoiser.windows(file, request.effects).any { it.covers(span.start, span.end) }) continue
                     cleaningProgress = 0f
-                    if (Denoiser.processWindow(file, request.effects, span) != null) cleaned++
+                    // In whole percents: the processing tells of every block it makes.
+                    if (Denoiser.processWindow(file, request.effects, span) { cleaningProgress = (it * 100).toInt() / 100f } != null) cleaned++
                 }
             }
         } finally {
@@ -1058,6 +1059,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
             // A tool's preview says how much it is magnified, as the original's (EditorView.swift:1526, 1541).
             InspectionReset(inspection, named = coloring != null || pacing != null || pausing != null || transitioning != null, Modifier.align(Alignment.BottomEnd))
+            cleaningProgress?.let { CleaningProgress(it, Modifier.align(Alignment.Center)) }
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
             else {
                 ReviewSpeed(reviewSpeed, reviewSpeedsOpen, Modifier.align(Alignment.BottomStart).padding(8.dp), toggle = { reviewSpeedsOpen = !reviewSpeedsOpen }, choose = chooseReviewSpeed)
@@ -1098,9 +1100,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     step = { by -> zoomTo(scale * if (by > 0) 1.5 else 1 / 1.5) },
                 )
             }
-        }
-        cleaningProgress?.let {
-            Text(stringResource(R.string.editor_reducing_noise, (it * 100).roundToInt()), color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
         }
         }
         // A level being chosen by dragging a waveform up or down: the original's quick volume (EditorTimeline.swift:609-687).

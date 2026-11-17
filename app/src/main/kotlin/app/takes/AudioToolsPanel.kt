@@ -195,3 +195,19 @@ internal class AudioToolWork(val state: EditState, val region: AudioToolRegion?,
             AudioToolWork(state, region, TrackAudioRegions.targets(state.toTimeline(), region, selection))
     }
 }
+
+/**
+ * The progress of Enhance audio processing the stretch about to be heard, over the middle of the preview, as the
+ * original shows its preparation (YouRec/EditorView.swift:468-478): a bar and the words with how much is done, on
+ * a dark rounded panel. Over the picture rather than beside it, so nothing moves when it comes and goes.
+ */
+@Composable
+fun CleaningProgress(progress: Float, modifier: Modifier = Modifier) {
+    Column(
+        modifier.background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(16.dp)).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        androidx.compose.material3.LinearProgressIndicator(progress = { progress }, modifier = Modifier.width(160.dp))
+        Text(stringResource(R.string.editor_reducing_noise, (progress * 100).roundToInt()), color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+    }
+}
