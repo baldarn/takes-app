@@ -16,8 +16,8 @@ if(ANDROID)
     # Phones with 16 KB memory pages only load libraries aligned to 16 KB. NDK r28 and
     # newer do this by default; saying it here keeps it true with an older NDK.
     target_link_options(deepfilter_jni PRIVATE -Wl,-z,max-page-size=16384)
-    # The app's build does not strip libraries, so this one is stripped here, and the parts of
-    # the C++ library it does not call are left out: 240 KB in place of 2.7 MB.
+    # Only the parts of the C++ library it uses: the app's build strips the rest for the APK and keeps the
+    # symbol tables for Play.
     target_compile_options(deepfilter_jni PRIVATE -ffunction-sections -fdata-sections)
     target_link_options(deepfilter_jni PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 else()

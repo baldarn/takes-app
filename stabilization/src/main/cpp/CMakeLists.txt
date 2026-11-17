@@ -20,7 +20,7 @@ if(ANDROID)
     target_link_options(stabilization_jni PRIVATE -Wl,-z,max-page-size=16384)
     # Only what the estimator uses of the C++ library it links in, to keep the app small.
     target_compile_options(stabilization_jni PRIVATE -ffunction-sections -fdata-sections)
-    # Without its debug information too: the release build packs the library as linked.
+    # The app's build strips it for the APK and keeps its symbol table for Play.
     target_link_options(stabilization_jni PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 else()
     # Built for the computer running the unit tests: jni.h comes from its JDK.
