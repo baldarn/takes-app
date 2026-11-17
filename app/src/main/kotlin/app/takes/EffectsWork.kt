@@ -41,7 +41,7 @@ internal object AndroidVideoEffects {
      * The third batch, the effects of it that change no timing: Quantization
      * with its palette from the scene (without face detail, which needs a
      * person mask), Chroma Key's spatial keyer on a solid colour, a picture
-     * from the phone or the picture blurred, and Night fix Fast. Freeze
+     * from the phone or the picture blurred, and Night fix. Freeze
      * Frame, Undercranking, Step Printing and Super 8's cadence change what
      * plays when, which is the playback map's.
      */
@@ -76,8 +76,6 @@ internal object AndroidVideoEffects {
     private val HIDDEN: Map<VideoEffectID, Set<String>> = mapOf(
         VideoEffectID.ChromaKey to setOf("cleanPlate", "backgroundAudio"),
         VideoEffectID.AutoBackground to setOf("matchColor", "matchStrength", "backgroundAudio"),
-        // Medium and Precise need optical flow.
-        VideoEffectID.NightFix to setOf("mode"),
     )
 
     /** Controls that need a person mask, hidden where this phone cannot make one: Color Isolation keeps "A color" only. */

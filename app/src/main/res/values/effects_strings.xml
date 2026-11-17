@@ -194,8 +194,8 @@
     <string name="effect_auto_background_summary">Keep people and blur or replace the background.</string>
     <string name="effect_auto_background_help">Keep people and replace or blur what is behind them. With no person visible, the whole frame becomes the background. Edge softness and Shrink / grow refine the outline; Light wrap blends it with the new background. Hair and fast motion can need careful adjustment. The person is found the first time the clip is shown or exported, which takes a few seconds.</string>
     <string name="effect_night_fix">Night fix</string>
-    <string name="effect_night_fix_summary">Lift dark footage and clean noise. Editor only.</string>
-    <string name="effect_night_fix_help">Brighten dark footage and reduce noise after recording, with a quick single-frame cleanup. Increase recovery gradually: strong settings can soften detail or expose color blotches.</string>
+    <string name="effect_night_fix_summary">Lift dark footage and clean noise. Choose fast cleanup or motion-aligned restoration. Editor only.</string>
+    <string name="effect_night_fix_help">Brighten dark footage and reduce noise after recording. Fast gives a quick result; higher quality modes use more processing time. Increase recovery gradually: strong settings can soften detail or expose color blotches.</string>
 
     <!-- Controls -->
     <string name="effect_control_intensity">Intensity</string>
@@ -352,6 +352,10 @@
     <string name="effect_choice_fill">Fill</string>
     <string name="effect_choice_fit">Fit</string>
     <string name="effect_choice_fast">Fast</string>
+    <string name="effect_choice_precise">Precise</string>
+    <string name="effect_night_mode_fast">Single-frame cleanup. Preview and export use this result, with no extra preparation.</string>
+    <string name="effect_night_mode_medium">Combines 3 motion-aligned frames for cleaner noise with less waiting.</string>
+    <string name="effect_night_mode_precise">Combines 9 motion-aligned frames for the strongest temporal cleanup. Takes longer to prepare.</string>
 
     <string name="effects_pick_picture">Choose picture</string>
     <string name="effects_change_picture">Change picture</string>

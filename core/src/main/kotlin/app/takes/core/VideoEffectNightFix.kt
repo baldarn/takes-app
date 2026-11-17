@@ -9,8 +9,9 @@ import kotlin.math.pow
  * across and down, and `nf_mix`, from YouRec/VideoEffects/VideoEffects.metal:640-727
  * (cited as `Metal`) as YouRec/VideoEffects/NightFix.swift:206-217 and
  * :339-351 (`NightFix`) run them. In Fast mode the fused picture is the raw
- * frame itself, so these passes are the whole effect. The motion-aligned
- * fusion of the other modes is not here.
+ * frame itself, so these passes are the whole effect. Medium and Precise
+ * give them the frame fused with its neighbours ([VideoEffectNightFusion])
+ * as well.
  *
  * The pictures hold BT.709-encoded values (the original's extended 709
  * working space), not linear light: the passes decode to linear where they
@@ -30,14 +31,16 @@ object VideoEffectNightFix {
     fun y(c: EffectVector): Double = c.dot(EffectColorMath.LUMA)
 
     /**
-     * `nf_adjust` with the fused picture the raw one: a local Wiener
+     * `nf_adjust`: the [fused] picture over the [raw] one by the reduction
+     * (up to 1), then a local Wiener
      * shrink of each pixel towards the mean of its 3 × 3 neighbourhood
      * (taps 0.85 pixels apart, wider above a reduction of 1), keeping what
      * stands out of the noise expected at [reduction], more so with
      * [detail]; then in linear light the shadows lifted by [brightness]
-     * stops, white held, `gain / (1 + (gain − 1) · y)`. Metal:682-706.
+     * stops, white held, `gain / (1 + (gain − 1) · y)`. Fast's fused picture
+     * is the raw one. Metal:682-706.
      */
-    fun adjust(raw: EffectImage, reduction: Double = 1.0, brightness: Double = 2.5, detail: Double = 0.5): EffectImage {
+    fun adjust(raw: EffectImage, reduction: Double = 1.0, brightness: Double = 2.5, detail: Double = 0.5, fused: EffectImage = raw): EffectImage {
         val amount = reduction
         val reach = 0.85 + maxOf(0.0, amount - 1) * 1.3
         val mixing = minOf(1.0, amount)
@@ -45,11 +48,12 @@ object VideoEffectNightFix {
         val gain = 2.0.pow(brightness)
         return EffectImage.of(raw.width, raw.height) { x, y ->
             val uv = raw.uv(x, y)
-            var c = raw.sample(uv)
+            var c = VideoEffectShaderMath.mix(raw.sample(uv), fused.sample(uv), mixing)
             var mean = EffectVector.ZERO
             var square = EffectVector.ZERO
             for (j in -1..1) for (i in -1..1) {
-                val n = raw.sample(Point(uv.x + i * reach / raw.width, uv.y + j * reach / raw.height))
+                val at = Point(uv.x + i * reach / raw.width, uv.y + j * reach / raw.height)
+                val n = VideoEffectShaderMath.mix(raw.sample(at), fused.sample(at), mixing)
                 mean += n / 9.0
                 square += n * n / 9.0
             }
@@ -108,12 +112,19 @@ object VideoEffectNightFix {
      * is at no intensity, or with neither reduction nor brightness.
      * NightFix:206-217.
      */
-    fun fast(raw: EffectImage, effect: VideoEffectSettings, time: Double): EffectImage {
+    fun fast(raw: EffectImage, effect: VideoEffectSettings, time: Double): EffectImage = restore(raw, raw, effect, time)
+
+    /**
+     * Night fix of a raw frame and its [fused] picture at one second of
+     * [effect], as [fast] with the fused picture in the adjust pass.
+     * NightFix:206-217, :339-351.
+     */
+    fun restore(raw: EffectImage, fused: EffectImage, effect: VideoEffectSettings, time: Double): EffectImage {
         val mix = effect.number("intensity", time)
         val amount = effect.number("reduction", time)
         val stops = effect.number("brightness", time)
         if (mix <= 0 || amount <= 0 && stops == 0.0) return raw
-        val first = adjust(raw, amount, stops, effect.number("detail", time))
+        val first = adjust(raw, amount, stops, effect.number("detail", time), fused)
         return mixed(raw, chroma(chroma(first, amount, true), amount, false), mix)
     }
 }

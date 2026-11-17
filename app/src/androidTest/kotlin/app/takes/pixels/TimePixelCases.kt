@@ -104,6 +104,16 @@ class FramesStage(private val bench: Bench, effect: GlEffect, private val width:
         return drain()
     }
 
+    /** What the program gives on as the frames it gave come back, until it gives no more. */
+    fun rest(): List<Pair<Long, Picture>> {
+        val out = ArrayList<Pair<Long, Picture>>()
+        do {
+            val more = drain()
+            out += more
+        } while (more.isNotEmpty())
+        return out
+    }
+
     private fun drain(): List<Pair<Long, Picture>> {
         val out = given.toList()
         given.clear()

@@ -28,7 +28,7 @@ import app.takes.core.VideoEffectQuantization
 internal object EffectPassShaders {
     const val TAPS = 24
 
-    private const val HEAD = """
+    const val HEAD = """
         #ifdef GL_FRAGMENT_PRECISION_HIGH
         precision highp float;
         #else
@@ -485,7 +485,7 @@ internal object EffectPassShaders {
     """
 
     // Night fix Fast works on the raw frame's BT.709-encoded values (VideoEffects.metal:640-727), read as they are.
-    private const val REC709 = """
+    const val REC709 = """
         vec3 encode709(vec3 x) { x = max(x, 0.0); return mix(4.5 * x, 1.099 * pow(x, vec3(0.45)) - 0.099, step(vec3(0.018), x)); }
         vec3 decode709(vec3 x) { x = max(x, 0.0); return mix(x / 4.5, pow((x + 0.099) / 1.099, vec3(1.0 / 0.45)), step(vec3(0.081), x)); }
     """

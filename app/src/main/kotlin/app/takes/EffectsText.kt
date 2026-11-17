@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import app.takes.core.EffectParameter
+import app.takes.core.NightFixMode
 import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectLibrarySection
 import app.takes.core.VideoEffectParameterSection
@@ -239,12 +240,20 @@ private val CHOICES: Map<String, Int> = mapOf(
     "Green" to R.string.effect_choice_green, "Result" to R.string.effect_choice_result, "Matte" to R.string.effect_choice_matte, "Original" to R.string.effect_choice_original,
     "Solid" to R.string.effect_choice_solid, "Image" to R.string.effect_choice_image, "Blur original" to R.string.effect_choice_blur_original,
     "Studio" to R.string.effect_choice_studio, "Window" to R.string.effect_choice_window, "Fill" to R.string.effect_choice_fill,
-    "Fit" to R.string.effect_choice_fit, "Fast" to R.string.effect_choice_fast,
+    "Fit" to R.string.effect_choice_fit, "Fast" to R.string.effect_choice_fast, "Precise" to R.string.effect_choice_precise,
     "Clean" to R.string.effect_choice_clean, "Print" to R.string.effect_choice_print, "Cut" to R.string.effect_choice_cut,
     "Continue" to R.string.effect_choice_continue, "Fade out over hold" to R.string.effect_choice_fade_out_over_hold,
     "Stretch" to R.string.effect_choice_stretch, "Compress" to R.string.effect_choice_compress,
     "In-out cubic" to R.string.effect_choice_in_out_cubic, "Linear" to R.string.effect_choice_linear,
 )
+
+/** What a Night fix mode does, as the original says under its choice (YouRec/VideoEffects/VideoEffectModel.swift:19-23). */
+@StringRes
+internal fun nightModeNote(mode: NightFixMode): Int = when (mode) {
+    NightFixMode.Fast -> R.string.effect_night_mode_fast
+    NightFixMode.Medium -> R.string.effect_night_mode_medium
+    NightFixMode.Precise -> R.string.effect_night_mode_precise
+}
 
 /** A choice of a picker as it is shown; the saved value stays the original's English. */
 @Composable

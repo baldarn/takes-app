@@ -192,8 +192,8 @@
     <string name="effect_auto_background_summary">Tieni le persone e sfoca o sostituisci lo sfondo.</string>
     <string name="effect_auto_background_help">Tieni le persone e sostituisci o sfoca ciò che c’è dietro. Se non si vede nessuno, tutta l’immagine diventa sfondo. Morbidezza dei bordi e Restringi / allarga rifiniscono il contorno; Avvolgimento della luce lo fonde con il nuovo sfondo. Capelli e movimenti veloci possono richiedere qualche ritocco. La persona viene trovata la prima volta che la clip è mostrata o esportata, e servono alcuni secondi.</string>
     <string name="effect_night_fix">Recupero notturno</string>
-    <string name="effect_night_fix_summary">Schiarisci le riprese scure e pulisci il rumore. Solo nell’editor.</string>
-    <string name="effect_night_fix_help">Schiarisci le riprese scure e riduci il rumore dopo la registrazione, con una pulizia rapida fotogramma per fotogramma. Aumenta il recupero gradualmente: impostazioni forti possono ammorbidire i dettagli o far emergere macchie di colore.</string>
+    <string name="effect_night_fix_summary">Schiarisci le riprese scure e pulisci il rumore. Scegli la pulizia rapida o il recupero allineato al movimento. Solo nell’editor.</string>
+    <string name="effect_night_fix_help">Schiarisci le riprese scure e riduci il rumore dopo la registrazione. Rapida dà subito un risultato; le modalità di qualità superiore richiedono più elaborazione. Aumenta il recupero gradualmente: impostazioni forti possono ammorbidire i dettagli o far emergere macchie di colore.</string>
 
     <string name="effect_control_intensity">Intensità</string>
     <string name="effect_control_exposure">Esposizione</string>
@@ -348,6 +348,10 @@
     <string name="effect_choice_fill">Riempi</string>
     <string name="effect_choice_fit">Adatta</string>
     <string name="effect_choice_fast">Rapida</string>
+    <string name="effect_choice_precise">Precisa</string>
+    <string name="effect_night_mode_fast">Pulizia di un solo fotogramma. Anteprima ed esportazione usano questo risultato, senza preparazione aggiuntiva.</string>
+    <string name="effect_night_mode_medium">Combina 3 fotogrammi allineati al movimento per un rumore più pulito con meno attesa.</string>
+    <string name="effect_night_mode_precise">Combina 9 fotogrammi allineati al movimento per la pulizia temporale più forte. Richiede più tempo di preparazione.</string>
 
     <string name="effects_pick_picture">Scegli un’immagine</string>
     <string name="effects_change_picture">Cambia immagine</string>

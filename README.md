@@ -111,7 +111,7 @@ The port is still in progress. What works today is listed under
 
 ## Not ported yet
 
-Dual camera (two cameras into one picture), Night fix's Medium and Precise modes, a
+Dual camera (two cameras into one picture), a
 Chroma Key's clean plate and video background, and HDR in the editor's preview (the
 exported movie keeps it). Apple Log capture and the speech restoration models (LavaSR,
 VoiceFixer) are left out on purpose. What differs in detail is listed in

@@ -336,6 +336,8 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
                         }) { change(work.beginningPick(parameter.id)) }
                         else -> {
                             EffectControl(effect, parameter, at, set, keys)
+                            // What Night fix's mode does, under its choice. VideoEffectsEditor.swift:1238-1245.
+                            if (effect.kind == VideoEffectID.NightFix && parameter.id == "mode") Text(stringResource(nightModeNote(effect.nightFixMode)), color = Soft, fontSize = 12.sp)
                             // Color Isolation's colour picked from the preview. VideoEffectsEditor.swift:1262-1265.
                             if (effect.kind == VideoEffectID.ColorIsolation && parameter.id == "color") {
                                 val pickLabel = stringResource(R.string.effects_pick_in_preview)

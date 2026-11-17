@@ -72,4 +72,9 @@
         android:name="app.takes.effects.StabilizationRunner"
         android:label="Stabilisation"
         android:targetPackage="app.takes.dev" />
+    <!-- Night fix in each mode on a recording, exported and timed: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.effects.NightFixExportRunner -->
+    <instrumentation
+        android:name="app.takes.effects.NightFixExportRunner"
+        android:label="Night fix exports"
+        android:targetPackage="app.takes.dev" />
 </manifest>
