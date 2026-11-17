@@ -16,6 +16,9 @@ val keystoreProperties = Properties().apply {
 android {
     namespace = "app.takes"
     compileSdk = 36
+    // The NDK the native modules are built with: also what strips their libraries for the APK and keeps their
+    // symbol tables for Play.
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "app.takes"
@@ -47,6 +50,8 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
+            // The native libraries' symbol tables go into the bundle, so Play can show readable native crash stacks.
+            ndk { debugSymbolLevel = "SYMBOL_TABLE" }
         }
         // The release as it ships, under its own name and icon, to try on a phone beside the store build.
         create("smoke") {

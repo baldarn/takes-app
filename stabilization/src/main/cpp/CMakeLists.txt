@@ -21,7 +21,7 @@ if(ANDROID)
     # Only what the estimator uses of the C++ library it links in, to keep the app small.
     target_compile_options(stabilization_jni PRIVATE -ffunction-sections -fdata-sections)
     # Without its debug information too: the release build packs the library as linked.
-    target_link_options(stabilization_jni PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL -Wl,--strip-all)
+    target_link_options(stabilization_jni PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 else()
     # Built for the computer running the unit tests: jni.h comes from its JDK.
     if(APPLE)

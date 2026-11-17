@@ -19,7 +19,7 @@ if(ANDROID)
     # The app's build does not strip libraries, so this one is stripped here, and the parts of
     # the C++ library it does not call are left out: 240 KB in place of 2.7 MB.
     target_compile_options(deepfilter_jni PRIVATE -ffunction-sections -fdata-sections)
-    target_link_options(deepfilter_jni PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL -s)
+    target_link_options(deepfilter_jni PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 else()
     # Built for the computer running the unit tests: jni.h comes from its JDK.
     if(APPLE)
