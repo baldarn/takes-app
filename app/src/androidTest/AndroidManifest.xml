@@ -52,4 +52,14 @@
         android:name="app.takes.effects.ExportSectionsRunner"
         android:label="Export sections timing"
         android:targetPackage="app.takes.dev" />
+    <!-- A sound file read from places partway into it: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.sound.DecodedSourceRunner -->
+    <instrumentation
+        android:name="app.takes.sound.DecodedSourceRunner"
+        android:label="Sound files read from partway"
+        android:targetPackage="app.takes.dev" />
+    <!-- An export of a sound item cut partway into its file: adb shell am instrument -w -e clip <name> -e music <name> -e case split app.takes.dev.test/app.takes.sound.SoundItemExportRunner -->
+    <instrumentation
+        android:name="app.takes.sound.SoundItemExportRunner"
+        android:label="Sound items cut partway, exported"
+        android:targetPackage="app.takes.dev" />
 </manifest>

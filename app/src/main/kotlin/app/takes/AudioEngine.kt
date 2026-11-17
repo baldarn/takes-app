@@ -11,6 +11,7 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import app.takes.core.AudioLevels
+import app.takes.core.DecodedFrames
 import app.takes.core.LiveAudioGain
 import app.takes.core.TrackMixEngine
 import app.takes.core.TrackMixPiece
@@ -28,7 +29,6 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /**
@@ -49,14 +49,12 @@ class DecodedSource(file: File, private val rate: Int, private val channels: Int
     private var ended = false
     private var idle = 0
 
-    private var sourceRate = 0
     private var sourceChannels = 0
     private var float = false
 
-    /** Decoded frames at the source's rate, already in the engine's channels, the first being source frame [base]. */
-    private var held = FloatArray(0)
-    private var size = 0
-    private var base = Long.MIN_VALUE
+    /** What has been decoded, read at the engine's rate and channels. */
+    private val frames = DecodedFrames(rate, channels)
+    private var block = FloatArray(0)
 
     /** True when the file has sound that could not be decoded. */
     var failed = false
@@ -72,7 +70,11 @@ class DecodedSource(file: File, private val rate: Int, private val channels: Int
                 val format = extractor.getTrackFormat(track)
                 extractor.selectTrack(track)
                 // A little early: the first frames a decoder gives after a jump are not yet at their level.
-                extractor.seekTo(maxOf(0L, ((from - offset - LEAD) * 1e6).toLong()), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                // Near the start, from the first sample, without a jump: AAC's priming lies before second 0
+                // (an edit list), and the decoder drops its encoder delay from what it is given first, so a jump
+                // to second 0 would lose the sound's first 1024 frames in place of the priming.
+                val start = from - offset - LEAD
+                if (start > 0) extractor.seekTo((start * 1e6).toLong(), MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
                 val decoder = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
                 decoder.configure(format, null, null, 0)
                 decoder.start()
@@ -85,45 +87,10 @@ class DecodedSource(file: File, private val rate: Int, private val channels: Int
     }
 
     override fun read(first: Long, count: Int, into: FloatArray, offset: Int) {
-        if (count <= 0) return
-        val direct = sourceRate == rate || sourceRate == 0
-        // The source frames these engine frames lie between.
-        fun place(frame: Long): Double = if (direct) frame.toDouble() else frame.toDouble() * sourceRate / rate
-        while (!ended && (sourceRate == 0 || base == Long.MIN_VALUE || base + size <= floor(place(first + count - 1)).toLong() + 1)) decode()
-        val exact = sourceRate == rate
-        for (frame in 0 until count) {
-            val at = first + frame
-            val target = (offset + frame) * channels
-            if (base == Long.MIN_VALUE || sourceRate == 0) { for (c in 0 until channels) into[target + c] = 0f; continue }
-            if (exact) {
-                val index = at - base
-                if (index in 0 until size) System.arraycopy(held, (index * channels).toInt(), into, target, channels)
-                else for (c in 0 until channels) into[target + c] = 0f
-            } else {
-                val position = place(at)
-                val lower = floor(position).toLong()
-                val share = (position - lower).toFloat()
-                val a = lower - base
-                for (c in 0 until channels) {
-                    val x = if (a in 0 until size) held[(a * channels).toInt() + c] else 0f
-                    val y = if (a + 1 in 0 until size) held[((a + 1) * channels).toInt() + c] else 0f
-                    into[target + c] = x + (y - x) * share
-                }
-            }
-        }
-        // What lies before the first frame read is never asked for again.
-        if (base != Long.MIN_VALUE && sourceRate > 0) {
-            val keep = floor(place(first)).toLong() - 1
-            val drop = (keep - base).coerceIn(0, size.toLong()).toInt()
-            if (drop > 0) {
-                System.arraycopy(held, drop * channels, held, 0, (size - drop) * channels)
-                size -= drop
-                base += drop
-            }
-        }
+        frames.read(first, count, into, offset) { decode(); !ended }
     }
 
-    /** Decodes the next block into [held]; at the end of the track marks it [ended]. */
+    /** Decodes the next block into [frames]; at the end of the track marks it [ended]. */
     private fun decode() {
         val decoder = codec ?: run { ended = true; return }
         try {
@@ -147,16 +114,16 @@ class DecodedSource(file: File, private val rate: Int, private val channels: Int
                     val encoding = if (pcm.containsKey(MediaFormat.KEY_PCM_ENCODING)) pcm.getInteger(MediaFormat.KEY_PCM_ENCODING) else AudioFormat.ENCODING_PCM_16BIT
                     if (encoding != AudioFormat.ENCODING_PCM_16BIT && encoding != AudioFormat.ENCODING_PCM_FLOAT) throw IOException("Sound is not decoded to 16 bits or floats")
                     // A format change in the middle of a track is not handled; the first one stands.
-                    if (sourceRate == 0) {
-                        sourceRate = pcm.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                    if (frames.sourceRate == 0) {
                         sourceChannels = pcm.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
                         float = encoding == AudioFormat.ENCODING_PCM_FLOAT
+                        frames.format(pcm.getInteger(MediaFormat.KEY_SAMPLE_RATE), sourceChannels)
                     }
                 } else if (output >= 0) {
                     idle = 0
                     val last = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                     var filled = false
-                    if (info.size > 0 && sourceRate > 0) {
+                    if (info.size > 0 && frames.sourceRate > 0) {
                         val buffer = decoder.getOutputBuffer(output)!!
                         buffer.position(info.offset).limit(info.offset + info.size)
                         take(buffer.order(ByteOrder.nativeOrder()), info.presentationTimeUs)
@@ -176,26 +143,11 @@ class DecodedSource(file: File, private val rate: Int, private val channels: Int
     }
 
     private fun take(bytes: ByteBuffer, time: Long) {
-        val width = if (float) 4 else 2
-        val frames = bytes.remaining() / (width * sourceChannels)
-        // The first block says where the sound begins; the rest follow it frame by frame.
-        if (base == Long.MIN_VALUE) base = Math.round((time / 1e6 + offset) * sourceRate)
-        if (held.size < (size + frames) * channels) held = held.copyOf(maxOf(held.size * 2, (size + frames) * channels))
-        val shorts = if (float) null else bytes.asShortBuffer()
-        val floats = if (float) bytes.asFloatBuffer() else null
-        fun sample(frame: Int, channel: Int): Float {
-            val index = frame * sourceChannels + channel
-            return floats?.get(index) ?: (shorts!!.get(index) / 32768f)
-        }
-        var at = size * channels
-        for (frame in 0 until frames) {
-            when {
-                channels == 1 -> { var sum = 0f; for (c in 0 until sourceChannels) sum += sample(frame, c); held[at++] = sum / sourceChannels }
-                sourceChannels == 1 -> { val value = sample(frame, 0); for (c in 0 until channels) held[at++] = value }
-                else -> for (c in 0 until channels) held[at++] = sample(frame, minOf(c, sourceChannels - 1))
-            }
-        }
-        size += frames
+        val count = if (float) bytes.remaining() / 4 else bytes.remaining() / 2
+        if (block.size < count) block = FloatArray(count)
+        if (float) bytes.asFloatBuffer().get(block, 0, count)
+        else { val shorts = bytes.asShortBuffer(); for (i in 0 until count) block[i] = shorts.get(i) / 32768f }
+        frames.add(block, count / sourceChannels, time / 1e6 + offset)
     }
 
     override fun close() {
