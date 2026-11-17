@@ -146,6 +146,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import app.takes.core.EditScope
 import app.takes.core.EditTime
+import app.takes.core.ClipAudio
 import app.takes.core.EditState
 import app.takes.core.EditTargets
 import app.takes.core.Project
@@ -330,7 +331,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // Which recordings have sound at all: one without takes no lane.
     var voiced by remember { mutableStateOf<Map<String, Boolean>?>(null) }
     LaunchedEffect(files) { voiced = withContext(Dispatchers.IO) { files.mapValues { hasSound(it.value) } } }
-    val mixPlan = remember(timeline, voiced) { voiced?.let { heard -> TrackMix.plan(timeline, voiced = { heard[it] == true }) } }
+    // The sound a fade being listened to or a level being dragged would give, heard before it is saved: the mix plays it in place of the edit's.
+    var soundTrial by remember { mutableStateOf<EditState?>(null) }
+    val mixOf = { trial: EditState?, heard: Map<String, Boolean> -> TrackMix.plan(trial?.toTimeline() ?: timeline, voiced = { heard[it] == true }) }
+    val mixPlan = remember(timeline, soundTrial, voiced) { voiced?.let { mixOf(soundTrial, it) } }
     LaunchedEffect(mixPlan, cleaned) { mixPlan?.let { editor.loadSound(it, files, Denoiser.input(files)) } }
     // While an edit drawn by layers exports, its players let go of their decoders: the export needs one a lane as well.
     val exporting = exporter.progress != null
@@ -1851,14 +1855,29 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             appliesTo = toolScopeLabel,
         )
     }
+    // Listening to a fade of the Sound dialog (TrackEditors.swift:381-390): the sound it would save, at 1×, from [from] to [until].
+    val listenTo = { base: EditState, targets: List<SoundTarget> ->
+        { from: Double, until: Double, change: (SoundTarget) -> ClipAudio ->
+            val trial = withSound(base, targets, change) ?: base
+            soundTrial = trial
+            // Loaded before playing, so the first moment heard is already the fade being tried.
+            voiced?.let { editor.loadSound(mixOf(trial, it), files, Denoiser.input(files)) }
+            auditionReturn = null
+            auditionEnd = until.takeIf { it < duration - 0.0005 }
+            playhead = from
+            editor.play(from)
+        }
+    }
+    val stopListening = { if (soundTrial != null) { soundTrial = null; auditionEnd = null; editor.pause() } }
     sounds.firstOrNull { it.id == chosenSound }?.let { item ->
         if (shapingSound) {
             val targets = soundTargets(edit, emptyList(), listOf(item.id), { "" }) { names[it.sourceID] ?: soundName }
             SoundDialog(
                 targets,
                 measure = { change -> Headroom.measure(withSound(edit, targets, change) ?: edit, files, setOf(item.id), item.start..item.end) },
-                save = { change -> commit(withSound(edit, targets, change), playhead); shapingSound = false; chosenSound = null },
-                dismiss = { shapingSound = false }, title = stringResource(R.string.sound_volume_and_fades),
+                save = { change -> stopListening(); commit(withSound(edit, targets, change), playhead); shapingSound = false; chosenSound = null },
+                dismiss = { stopListening(); shapingSound = false }, title = stringResource(R.string.sound_volume_and_fades),
+                listen = listenTo(edit, targets), playing = editor.playing, pause = { auditionEnd = null; editor.pause() },
             )
         } else {
             AudioItemDialog(
@@ -1885,6 +1904,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // Enhance audio and Censor act on the same sounds, in the marked range when there is one.
             tools = { kind ->
                 val selection = soundSelection(edit, toolScope?.clips ?: listOf(current.id), toolSounds, marks.range?.let { EditInterval.of(it.start, it.end) })
+                stopListening()
                 editingAudio = false
                 audioTool = kind to AudioToolWork(edit, null, selection)
             },
@@ -1893,6 +1913,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 else Headroom.measure(withSound(base, targets, change) ?: base, files, targets.map { it.id }.toSet(), targets.minOf { it.start }..targets.maxOf { it.end })
             },
             save = { change ->
+                stopListening()
                 // Nothing changed changes nothing: the cuts at the ends of a range are then not made either.
                 val next = withSound(base, targets, change)
                 commit(next, playhead)
@@ -1900,8 +1921,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 if (next != null && marks.range != null) marks = marks.cleared()
                 editingAudio = false
             },
-            dismiss = { editingAudio = false },
+            dismiss = { stopListening(); editingAudio = false },
             appliesTo = toolScopeLabel,
+            listen = listenTo(base, targets), playing = editor.playing, pause = { auditionEnd = null; editor.pause() },
         )
     }
     audioTool?.let { (kind, work) ->

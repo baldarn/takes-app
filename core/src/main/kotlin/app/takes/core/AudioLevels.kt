@@ -312,6 +312,17 @@ enum class AudioFadeEdge {
         val chosen = items.indices.filter(selected)
         return if (this == FadeIn) chosen.minByOrNull { items[it].start } else chosen.maxByOrNull { items[it].end }
     }
+
+    /**
+     * What "Listen to the fade" plays of an item from timeline second [start]
+     * to [end] whose fade at this edge lasts [seconds]: the fade and one
+     * second after a fade in, one second and the fade before a fade out,
+     * never past the item. YouRec/TrackEditors.swift:235-242.
+     */
+    fun listening(start: Double, end: Double, seconds: Double): ClosedFloatingPointRange<Double> {
+        val length = seconds + 1
+        return if (this == FadeIn) start..minOf(end, start + length) else maxOf(start, end - length)..end
+    }
 }
 
 /** The sound a level applies to: items by id, and optionally only a stretch of the timeline. */

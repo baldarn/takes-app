@@ -353,6 +353,17 @@ class AudioLevelsTest {
         assertEquals(2, AudioFadeEdge.FadeOut.index(later) { true })
     }
 
+    @Test fun listeningToAFadePlaysItAndASecondBeside() {
+        // YouRec/TrackEditors.swift:235-242: the fade's length and one second, from the start for a fade in, up to the end for a fade out.
+        assertEquals(2.0..4.5, AudioFadeEdge.FadeIn.listening(2.0, 10.0, 1.5))
+        assertEquals(7.5..10.0, AudioFadeEdge.FadeOut.listening(2.0, 10.0, 1.5))
+        // A fade that is off plays the second alone.
+        assertEquals(2.0..3.0, AudioFadeEdge.FadeIn.listening(2.0, 10.0, 0.0))
+        // Never past the item: a fade over the whole of it plays the whole of it.
+        assertEquals(2.0..10.0, AudioFadeEdge.FadeIn.listening(2.0, 10.0, 8.0))
+        assertEquals(2.0..10.0, AudioFadeEdge.FadeOut.listening(2.0, 10.0, 8.0))
+    }
+
     // MARK: Fades at cuts
 
     @Test fun aCutFadesOver384SamplesAt48kHz() {

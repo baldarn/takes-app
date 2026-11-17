@@ -16,7 +16,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -135,6 +140,11 @@ private fun seconds(value: Double): String = DecimalFormat("0.###", DecimalForma
  * returns how far the level can go; null when it cannot be measured.
  * [tools] opens Enhance audio or Censor on the same sounds, as the original's
  * other tools (TrackEditors.swift:212-380); null leaves them out.
+ *
+ * Beside each fade a button plays it as the dialog would save it, with the
+ * second after a fade in or before a fade out (TrackEditors.swift:95-127,
+ * :381-390): [listen] is given those timeline seconds and the sound to try,
+ * [playing] says whether the editor still plays, and [pause] stops it.
  */
 @Composable
 internal fun SoundDialog(
@@ -142,6 +152,7 @@ internal fun SoundDialog(
     measure: suspend (change: (SoundTarget) -> ClipAudio) -> AudioHeadroom?,
     save: (change: (SoundTarget) -> ClipAudio) -> Unit, dismiss: () -> Unit, appliesTo: String? = null,
     title: String = stringResource(R.string.sound_dialog_title), tools: ((AudioToolKind) -> Unit)? = null,
+    listen: ((from: Double, until: Double, change: (SoundTarget) -> ClipAudio) -> Unit)? = null, playing: Boolean = false, pause: () -> Unit = {},
 ) {
     val levels = remember(targets) { targets.map { it.audio.volumeDB } }
     val common = remember(levels) { AudioGainGrid.common(levels) }
@@ -153,6 +164,8 @@ internal fun SoundDialog(
     var muted by remember { mutableStateOf(targets.isNotEmpty() && targets.all { it.audio.muted }) }
     var muteChosen by remember { mutableStateOf(false) }
     var fadeEdits by remember { mutableStateOf(mapOf<AudioFadeEdge, Double>()) }
+    // The fade being listened to; Play shows Pause beside it while the editor plays it.
+    var listeningEdge by remember { mutableStateOf<AudioFadeEdge?>(null) }
     // One target for each fade: the first to begin and the last to end, the earliest in the list on a tie.
     val fadeTargets = remember(targets) {
         val places = targets.map { EditInterval.of(it.start, it.end) }
@@ -239,8 +252,26 @@ internal fun SoundDialog(
                         target = stringResource(R.string.sound_fade_target, target.name, preciseLabel(if (edge == AudioFadeEdge.FadeIn) target.start else target.end)),
                         seconds = fadeEdits[edge] ?: target.fadeSeconds(edge), limit = target.length,
                         change = { length ->
+                            // As the original, a change stops what is being heard: Play then plays the change.
+                            if (playing && listeningEdge != null) pause()
                             val value = EditTime.of(length).seconds
                             fadeEdits = if (value == target.fadeSeconds(edge)) fadeEdits - edge else fadeEdits + (edge to value)
+                        },
+                        playing = playing && listeningEdge == edge,
+                        listenLabel = stringResource(
+                            if (edge == AudioFadeEdge.FadeIn) { if (playing && listeningEdge == edge) R.string.sound_fade_in_pause else R.string.sound_fade_in_listen }
+                            else if (playing && listeningEdge == edge) R.string.sound_fade_out_pause else R.string.sound_fade_out_listen,
+                        ),
+                        listen = listen?.let { play ->
+                            {
+                                if (playing && listeningEdge == edge) pause()
+                                else {
+                                    listeningEdge = edge
+                                    val heard = edge.listening(target.start, target.end, fadeEdits[edge] ?: target.fadeSeconds(edge))
+                                    val (level, fades, silent) = Chosen(volumeChosen, fadeEdits, muted.takeIf { muteChosen })
+                                    play(heard.start, heard.endInclusive) { changed(it, level, fades, silent) }
+                                }
+                            }
                         },
                     )
                 }
@@ -270,9 +301,10 @@ private data class Chosen(val level: Boolean, val fades: Map<AudioFadeEdge, Doub
  * that opens a field for an exact number of seconds, and a slider whose
  * travel is logarithmic, so short fades are easy to set on a long item. The
  * slider moves in tenths of a second and reaches the item's whole length.
+ * Before the slider, when [listen] is given, Play or, while [playing], Pause.
  */
 @Composable
-private fun FadeRow(title: String, target: String, seconds: Double, limit: Double, change: (Double) -> Unit) {
+private fun FadeRow(title: String, target: String, seconds: Double, limit: Double, change: (Double) -> Unit, playing: Boolean = false, listenLabel: String = "", listen: (() -> Unit)? = null) {
     var entering by remember { mutableStateOf(false) }
     var entry by remember { mutableStateOf("") }
     val value = if (seconds == 0.0) stringResource(R.string.sound_fade_off) else stringResource(R.string.sound_fade_seconds, seconds(seconds))
@@ -287,6 +319,10 @@ private fun FadeRow(title: String, target: String, seconds: Double, limit: Doubl
         }
     }
     val scale = ln1p(maxOf(0.001, limit))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+    if (listen != null) IconButton(onClick = listen, modifier = Modifier.semantics { contentDescription = listenLabel }) {
+        Icon(if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow, null, tint = Color.White)
+    }
     Slider(
         value = (ln1p(seconds) / scale).toFloat().coerceIn(0f, 1f),
         onValueChange = { position ->
@@ -294,8 +330,9 @@ private fun FadeRow(title: String, target: String, seconds: Double, limit: Doubl
             change(if (position >= 1f) limit else minOf(limit, (raw * 10).roundToLong() / 10.0))
         },
         colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(0xFF66D4CF)),
-        modifier = Modifier.heightIn(min = 40.dp).semantics { contentDescription = title; stateDescription = value },
+        modifier = Modifier.weight(1f).heightIn(min = 40.dp).semantics { contentDescription = title; stateDescription = value },
     )
+    }
     if (entering) {
         // A typed number may use a comma; the item's whole length may be typed as it is shown, rounded.
         val typed = entry.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }
