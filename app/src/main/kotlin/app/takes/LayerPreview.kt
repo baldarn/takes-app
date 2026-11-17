@@ -95,7 +95,7 @@ internal fun LayerPictures(
                     translationY = layer.translationY.toFloat()
                 }
             }
-            AndroidView({ (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = lanes[index] } }, placed)
+            AndroidView({ (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = lanes[index]; PreviewViews.attach(lanes[index], this) } }, placed)
             // The titles of the picture belong to its layer: they are moved into its window with it.
             val shown = if (split != null && index in split.lanes) emptyList() else titles.getOrNull(index).orEmpty()
             if (shown.isNotEmpty()) Canvas(Modifier.fillMaxSize()) { drawIntoCanvas { painter.draw(it.nativeCanvas, size.width, size.height, shown) } }

@@ -187,6 +187,12 @@
 
     <!-- Color -->
     <string name="color_strength">Strength</string>
+    <string name="color_local_recovery">Local highlight recovery</string>
+    <string name="color_local_recovery_natural">Natural</string>
+    <string name="color_local_recovery_use_natural">Use natural highlight recovery</string>
+    <string name="color_local_recovery_reset">Reset local highlight recovery</string>
+    <string name="color_local_recovery_help">Compresses bright areas while retaining texture. Applies only to Log footage.</string>
+    <string name="color_local_recovery_unavailable">Available for Log footage. This grade’s recovery setting is saved but does not affect this footage.</string>
     <string name="color_highlights">Highlights</string>
     <string name="color_highlights_help">Adjusts bright tones before the look. Move left to lower them.</string>
     <string name="color_exposure">Exposure</string>

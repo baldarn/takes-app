@@ -152,7 +152,7 @@ internal fun DeckPictures(
             }
         }
         AndroidView(
-            { (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = decks[index]; held.attach(index, videoSurfaceView as? TextureView) } },
+            { (LayoutInflater.from(it).inflate(R.layout.deck, null) as PlayerView).apply { player = decks[index]; held.attach(index, videoSurfaceView as? TextureView); PreviewViews.attach(decks[index], this) } },
             placed,
         )
         // The frame a freeze holds, where the player fits its picture, with the deck's color and crop.

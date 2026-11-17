@@ -16,8 +16,8 @@ import kotlin.math.sqrt
  * as the original took them, cross-checked there against OpenColorIO's Apple
  * camera transforms.
  *
- * The local recovery of the original is a spatial filter over the frame
- * (`LogColor.localRecovery`) and is not here.
+ * The local recovery of the original, a filter over the whole frame
+ * (`LogColor.localRecovery`), is [LocalRecovery].
  */
 object LogColor {
     private const val A = 47.28711236
@@ -124,15 +124,35 @@ object LogColor {
      */
     fun highlights(scene: DoubleArray, amount: Double): DoubleArray {
         if (!amount.isFinite() || amount == 0.0) return scene
-        val a = max(-1.0, min(1.0, amount))
         val y = luma(scene)
-        val delta = max(0.0, y - KNEE)
-        val strength = max(0.000001, -a * 6.0)
-        val down = ln(1 + strength * delta) / strength
-        val up = delta * (1 + 2 * a * delta / (delta + KNEE))
-        val mapped = if (y <= KNEE) y else KNEE + if (a < 0) down else up
+        val mapped = highlightsLuminance(y, amount)
         val scale = if (y > 0.000001) mapped / y else 1.0
         return DoubleArray(3) { scene[it] * scale }
+    }
+
+    /** The luminance [y] becomes under Highlights at [amount] ([highlights]). */
+    fun highlightsLuminance(y: Double, amount: Double): Double {
+        if (!amount.isFinite() || amount == 0.0 || y <= KNEE) return y
+        val a = max(-1.0, min(1.0, amount))
+        val delta = y - KNEE
+        val strength = max(0.000001, -a * 6.0)
+        return KNEE + if (a < 0) ln(1 + strength * delta) / strength else delta * (1 + 2 * a * delta / (delta + KNEE))
+    }
+
+    /** The luminance that Highlights at [amount] turns into [mapped]: the inverse of [highlightsLuminance]. */
+    fun highlightsInverse(mapped: Double, amount: Double): Double {
+        if (!amount.isFinite() || amount == 0.0 || mapped <= KNEE) return mapped
+        val a = max(-1.0, min(1.0, amount))
+        val m = mapped - KNEE
+        val delta = if (a < 0) {
+            val strength = -a * 6.0
+            (kotlin.math.exp(strength * m) - 1) / strength
+        } else {
+            // m (δ + K) = δ (δ + K) + 2aδ², a quadratic in δ with one positive root.
+            val q = 1 + 2 * a
+            (m - KNEE + sqrt((KNEE - m) * (KNEE - m) + 4 * q * m * KNEE)) / (2 * q)
+        }
+        return KNEE + delta
     }
 
     /** Luminance at or below which Highlights changes nothing. */

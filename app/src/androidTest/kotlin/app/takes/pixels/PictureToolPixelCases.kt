@@ -216,6 +216,7 @@ class PictureToolPixelCases(private val bench: Bench) {
 
     fun all(): List<Case> = buildList {
         addAll(GradeMotionPixelCases(bench).all())
+        addAll(LocalRecoveryPixelCases(bench).all())
         for (settings in highlightSets) {
             add(case("export colour LUT with highlights ${settings.highlights}, exposure ${settings.exposure}") {
                 val drawn = exportGrade(settings)

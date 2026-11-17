@@ -190,6 +190,12 @@
 
     <!-- Color -->
     <string name="color_strength">Intensità</string>
+    <string name="color_local_recovery">Recupero locale delle alte luci</string>
+    <string name="color_local_recovery_natural">Naturale</string>
+    <string name="color_local_recovery_use_natural">Usa il recupero naturale delle alte luci</string>
+    <string name="color_local_recovery_reset">Azzera il recupero locale delle alte luci</string>
+    <string name="color_local_recovery_help">Comprime le zone chiare conservandone la trama. Vale solo per le riprese Log.</string>
+    <string name="color_local_recovery_unavailable">Disponibile per le riprese Log. Il recupero di questa gradazione resta salvato ma non agisce su queste riprese.</string>
     <string name="color_highlights">Alte luci</string>
     <string name="color_highlights_help">Regola i toni chiari prima del look. Sposta a sinistra per abbassarli.</string>
     <string name="color_exposure">Esposizione</string>

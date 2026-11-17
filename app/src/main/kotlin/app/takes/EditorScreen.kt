@@ -113,6 +113,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -901,6 +902,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         if (color != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ColorLuts.Preview(color.first, folder, color.second) else null
                     }
                 }
+                // A log clip's local highlight recovery reads the frame its player shows, each time it shows a new one.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && grades.any { it?.recovery != null }) {
+                    val players = if (layers != null) editor.lanes else editor.decks
+                    LaunchedEffect(grades, players) {
+                        while (true) {
+                            withFrameNanos { }
+                            grades.forEachIndexed { index, grade ->
+                                val (view, texture) = players.getOrNull(index)?.let(PreviewViews::of) ?: return@forEachIndexed
+                                grade?.recovery?.sample(texture, view)
+                            }
+                        }
+                    }
+                }
                 // The video effects after the color, as the export draws them: at the source second the deck shows.
                 val effectPreviews = remember { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) List(EditRendering.LANES) { EffectPreview() } else null }
                 // A palette from the scene is analysed in the background the first time it is shown, and drawn once it is.
@@ -910,6 +924,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@List null
                     // A moving grade at the source second the deck shows, as its crop: read at each frame only while one is on view.
                     val grade = grades[deck]?.let { preview ->
+                        preview.recovery?.version?.intValue // read, so that the picture is drawn again with the frame's recovery
                         if (!preview.moves) preview.effect() else shownClips[deck]?.let { (clip, start) ->
                             preview.effect(GradeMotion.fraction(clip, playhead - start, deckColors[deck]?.first) ?: 0.0)
                         }
@@ -1607,6 +1622,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 apply = { done(work.applied()) }, remove = { done(work.applied(removing = true)) },
                 cancel = { editor.pause(); coloring = null },
                 modifier = Modifier.layoutId(EditorSlot.Tools),
+                // The recordings of the tool's clips in Log, for its local highlight recovery (EditorTools.swift:774-784).
+                logSources = work.base.clips.filter { it.id in work.ids }.map { it.sourceID }.toSet().count { it in logProfiles },
             )
         } else if (pacing != null) {
             val work = pacing!!

@@ -19,6 +19,7 @@ import app.takes.core.ColorGrade
 import app.takes.core.ColorSettings
 import app.takes.core.GradeMotion
 import app.takes.core.LUTInput
+import app.takes.core.LocalRecovery
 import app.takes.core.TimelineClip
 import java.io.File
 import java.nio.ByteBuffer
@@ -167,6 +168,14 @@ class ClipColor(private val effects: MutableList<Effect>, private val hdr: Boole
      */
     fun look(settings: ColorSettings, folder: File, log: LUTInput?, clip: TimelineClip? = null, begins: Double = 0.0) {
         val ends = GradeMotion.ends(settings)
+        // Log footage with a local highlight recovery: the filter's passes before the table ([RecoveredColorLut]).
+        val grades = if (ends != null && clip != null) ends.toList() else listOf(settings)
+        if (log != null && sdr && grades.any { LocalRecovery.strength(it) > 0 }) {
+            effects += RecoveredColorLut(grades.map { RecoveredColorLut.End(ColorLuts.table(it, folder, log), it, log) }) { us ->
+                if (clip == null) 0.0 else GradeMotion.fraction(clip, us / 1e6 - begins, settings) ?: 0.0
+            }
+            return
+        }
         if (ends != null && clip != null) {
             val a = ColorLuts.table(ends.first, folder, log)
             val b = ColorLuts.table(ends.second, folder, log)
@@ -207,7 +216,7 @@ private class HdrPass(
         val program = program ?: GlProgram(VERTEX, fragment).also {
             it.setBufferAttribute("aFramePosition", GlUtil.getNormalizedCoordinateBounds(), GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE)
             program = it
-            luts = IntArray(tables.size) { index -> texture(tables[index]) }
+            luts = IntArray(tables.size) { index -> lutTexture(tables[index]) }
         }
         program.use()
         program.setSamplerTexIdUniform("uTex", inputTexId, 0)
@@ -216,25 +225,6 @@ private class HdrPass(
         program.bindAttributesAndUniforms()
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GlUtil.checkGlError()
-    }
-
-    /** The table as a texture of its blue slices side by side, red across each and green down, eight bits as Media3's table. */
-    private fun texture(table: FloatArray): Int {
-        val n = ColorGrade.DIMENSION
-        val bytes = ByteBuffer.allocateDirect(n * n * n * 4).order(ByteOrder.nativeOrder())
-        for (green in 0 until n) for (blue in 0 until n) for (red in 0 until n) {
-            val index = ((blue * n + green) * n + red) * 3
-            for (channel in 0..2) bytes.put((table[index + channel] * 255).roundToInt().coerceIn(0, 255).toByte())
-            bytes.put(255.toByte())
-        }
-        bytes.rewind()
-        val texture = GlUtil.generateTexture()
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
-        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, n * n, n, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bytes)
-        for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
-        for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
-        GlUtil.checkGlError()
-        return texture
     }
 
     override fun release() {
@@ -251,4 +241,23 @@ private class HdrPass(
             void main() { gl_Position = aFramePosition; vTex = aFramePosition.xy * 0.5 + 0.5; }
         """
     }
+}
+
+/** A colour table as a texture of its blue slices side by side, red across each and green down, eight bits as Media3's table. */
+internal fun lutTexture(table: FloatArray): Int {
+    val n = ColorGrade.DIMENSION
+    val bytes = ByteBuffer.allocateDirect(n * n * n * 4).order(ByteOrder.nativeOrder())
+    for (green in 0 until n) for (blue in 0 until n) for (red in 0 until n) {
+        val index = ((blue * n + green) * n + red) * 3
+        for (channel in 0..2) bytes.put((table[index + channel] * 255).roundToInt().coerceIn(0, 255).toByte())
+        bytes.put(255.toByte())
+    }
+    bytes.rewind()
+    val texture = GlUtil.generateTexture()
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+    GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, n * n, n, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bytes)
+    for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
+    for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
+    GlUtil.checkGlError()
+    return texture
 }

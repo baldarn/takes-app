@@ -141,6 +141,7 @@ internal class Coloring(
 @Composable
 internal fun ColorPanel(
     work: Coloring, folder: File, importLut: suspend (Uri) -> ImportedLUT?, apply: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
+    logSources: Int = 0,
 ) {
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -173,7 +174,7 @@ internal fun ColorPanel(
                     showsEndpointMenu = false,
                 )
             }
-            ColorGradeControls(work, folder, importLut)
+            ColorGradeControls(work, folder, importLut, logSources)
             if (work.existing) {
                 // Remove look, when the tool was opened on clips with a grade (EditorTools.swift:1096-1100).
                 TextButton(onClick = remove, modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)) {
@@ -187,13 +188,14 @@ internal fun ColorPanel(
 
 /**
  * The controls of the original's Color tool, in its order (YouRec/ColorGradeControls.swift:12-121): the name of the
- * look or LUT with its favourite star and Import, its strength, Highlights, exposure and white balance behind a
+ * look or LUT with its favourite star and Import, its strength, the local highlight recovery where the clips include
+ * footage in Log ([logSources] recordings of them) or the grade has one, Highlights, exposure and white balance behind a
  * disclosure, the library in tabs (built-in looks, imported LUTs, favourites, saved grades), for a LUT what it
  * expects, and Save grade.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ColorGradeControls(work: Coloring, folder: File, importLut: suspend (Uri) -> ImportedLUT?) {
+private fun ColorGradeControls(work: Coloring, folder: File, importLut: suspend (Uri) -> ImportedLUT?, logSources: Int) {
     val color = work.color
     fun change(next: ColorSettings) { work.color = next }
     val context = LocalContext.current
@@ -229,6 +231,32 @@ private fun ColorGradeControls(work: Coloring, folder: File, importLut: suspend 
     // Strength does nothing to Natural without a LUT, and is off there as in the original (ColorGradeControls.swift:26).
     Level(stringResource(R.string.color_strength), color.amount, ColorControl.Strength, enabled = color.look != ColorLook.Natural || color.imported != null) {
         change(work.color.copy(amount = it))
+    }
+    // Local highlight recovery, for Log footage only (ColorGradeControls.swift:29-50): shown while the clips include
+    // some or the grade has one, and off without Log footage, its setting kept with the grade.
+    val recovery = color.localRecovery ?: 0.0
+    if (logSources > 0 || recovery > 0) {
+        val enabled = logSources > 0
+        val name = stringResource(R.string.color_local_recovery)
+        val useNatural = stringResource(R.string.color_local_recovery_use_natural)
+        val reset = stringResource(R.string.color_local_recovery_reset)
+        val value = ColorControl.LocalRecovery.label(recovery)
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(name, color = if (enabled) Color.White else Soft, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            // Natural is 100% (docs/log-and-luts.md:64).
+            TextButton(onClick = { change(work.color.copy(localRecovery = 1.0)) }, enabled = enabled, modifier = Modifier.semantics { contentDescription = useNatural }) {
+                Text(stringResource(R.string.color_local_recovery_natural), fontSize = 13.sp)
+            }
+            TextButton(
+                onClick = { change(work.color.copy(localRecovery = null)) }, enabled = enabled,
+                modifier = Modifier.semantics { contentDescription = reset; stateDescription = value },
+            ) { Text(value, color = if (enabled) Color.White else Soft, fontSize = 13.sp) }
+        }
+        Slider(
+            value = recovery.toFloat(), onValueChange = { change(work.color.copy(localRecovery = ColorControl.LocalRecovery.stepped(it.toDouble()).takeIf { v -> v != 0.0 })) },
+            enabled = enabled, valueRange = 0f..1f, modifier = Modifier.semantics { contentDescription = name },
+        )
+        Text(stringResource(if (enabled) R.string.color_local_recovery_help else R.string.color_local_recovery_unavailable), color = Soft, fontSize = 12.sp)
     }
     // A correction left at zero is stored as nothing, as in the original.
     val highlights = color.highlights ?: 0.0

@@ -72,7 +72,7 @@ object ColorGrade {
      * approximation of the original's temperature filter, not a match for it.
      * Highlights follows them in linear light, as the original's grade applies
      * it before any look (YouRec/VideoToolCompositor.swift:503-511, [LogColor.highlights]).
-     * Local recovery is in the model but not applied yet.
+     * Local recovery applies to log recordings only ([LocalRecovery]).
      */
     fun balance(settings: ColorSettings, red: Double, green: Double, blue: Double): DoubleArray {
         val exposure = settings.exposure ?: 0.0
@@ -96,13 +96,29 @@ object ColorGrade {
      * viewed, or an imported LUT on what it expects ([LogColor.lutInput]),
      * at the grade's strength. The result is display-encoded 0–1.
      */
-    fun applyLog(settings: ColorSettings, lut: CubeLUT?, input: LUTInput?, profile: LUTInput, red: Double, green: Double, blue: Double): DoubleArray {
+    fun applyLog(settings: ColorSettings, lut: CubeLUT?, input: LUTInput?, profile: LUTInput, red: Double, green: Double, blue: Double): DoubleArray =
+        fromLogBalanced(settings, lut, input, logBalanced(settings, profile, red, green, blue))
+
+    /**
+     * The light of a log recording's code values after exposure, warmth, tint and Highlights: what the original's
+     * local recovery works on (YouRec/VideoToolCompositor.swift:505-513), linear Rec.709 with its headroom.
+     */
+    fun logBalanced(settings: ColorSettings, profile: LUTInput, red: Double, green: Double, blue: Double): DoubleArray {
         val scene = LogColor.decode(doubleArrayOf(red, green, blue), profile)
+        val gains = logGains(settings)
+        return LogColor.highlights(DoubleArray(3) { maxOf(0.0, scene[it]) * gains[it] }, settings.highlights ?: 0.0)
+    }
+
+    /** Exposure and the channel gains of warmth and tint, together, on each channel of a log recording's light. */
+    fun logGains(settings: ColorSettings): DoubleArray {
         val gain = 2.0.pow(settings.exposure ?: 0.0)
         val warmth = settings.warmth ?: 0.0
         val tint = settings.tint ?: 0.0
-        val gains = doubleArrayOf(1 + 0.12 * warmth, 1 - 0.10 * tint, 1 - 0.12 * warmth)
-        val balanced = LogColor.highlights(DoubleArray(3) { maxOf(0.0, scene[it]) * gain * gains[it] }, settings.highlights ?: 0.0)
+        return doubleArrayOf(gain * (1 + 0.12 * warmth), gain * (1 - 0.10 * tint), gain * (1 - 0.12 * warmth))
+    }
+
+    /** The rest of [applyLog] from the balanced light ([logBalanced]): the viewing transform, then the look or LUT. */
+    fun fromLogBalanced(settings: ColorSettings, lut: CubeLUT?, input: LUTInput?, balanced: DoubleArray): DoubleArray {
         val viewed = LogColor.display(balanced)
         val shown = DoubleArray(3) { toDisplay(viewed[it]) }
         if (settings.amount <= 0 || (lut == null && settings.look == ColorLook.Natural)) return shown

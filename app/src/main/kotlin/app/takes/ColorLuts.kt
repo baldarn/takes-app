@@ -13,6 +13,7 @@ import app.takes.core.ColorSettings
 import app.takes.core.CubeLUT
 import app.takes.core.GradeMotion
 import app.takes.core.LUTInput
+import app.takes.core.LocalRecovery
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -128,8 +129,18 @@ object ColorLuts {
         /** Whether the grade moves, so that what it draws depends on the moment shown. */
         val moves: Boolean get() = ends != null
 
+        /**
+         * On log footage with a local highlight recovery, the recovery, which needs the frame shown
+         * ([LocalRecoveryPreview.sample]); null elsewhere, where the grade is its table alone.
+         */
+        val recovery: LocalRecoveryPreview? = run {
+            val grades = ends?.toList() ?: listOf(settings)
+            if (sourceLog == null || grades.none { LocalRecovery.strength(it) > 0 }) null
+            else LocalRecoveryPreview(grades, sourceLog, grades.map { strip(it, folder, sourceLog) })
+        }
+
         /** The effect at [fraction] of the way from A to B; a fixed grade ignores it. */
-        fun effect(fraction: Double = 0.0): RenderEffect = when {
+        fun effect(fraction: Double = 0.0): RenderEffect = recovery?.effect(fraction) ?: when {
             ends == null || fraction <= 0 -> fixed
             fraction >= 1 -> atB
             else -> {
