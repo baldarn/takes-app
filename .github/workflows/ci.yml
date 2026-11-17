@@ -80,12 +80,17 @@ jobs:
           retention-days: 7
 
   pixels:
-    name: Pixel tests of the shaders on an emulator
+    name: Pixel tests of the shaders on an emulator (${{ matrix.shard }} of 4)
     runs-on: ubuntu-latest
     # The whole suite took about 41 minutes on a 4-core emulator with SwiftShader on a desktop
     # computer, and with its 475 cases about 95 minutes on GitHub's runner: the export's effect
-    # chain is slow to draw on the processor.
-    timeout-minutes: 150
+    # chain is slow to draw on the processor. So four runners share it, each taking every fourth
+    # case, and one that fails does not stop the others.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     env:
       API_LEVEL: 35
     steps:
@@ -169,4 +174,4 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: ./scripts/pixel-tests.sh
+          script: ./scripts/pixel-tests.sh -e shards 4 -e shard ${{ matrix.shard }}

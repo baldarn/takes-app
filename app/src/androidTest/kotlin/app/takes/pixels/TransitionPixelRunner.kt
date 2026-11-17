@@ -41,15 +41,21 @@ class Case(val name: String, val body: Checks.() -> Unit)
  *     adb shell am instrument -w app.takes.dev.test/app.takes.pixels.TransitionPixelRunner
  *
  * `-e only <text>` runs the cases whose name contains the text, or one of
- * several texts between `|`. Each case is reported as an instrumentation
+ * several texts between `|`. `-e shards <n> -e shard <i>` runs every n-th case from the
+ * i-th (counting from 0) of those chosen, so n runs side by side share the suite, its slow
+ * cases spread over all of them. Each case is reported as an instrumentation
  * status in the form test runners print, and the closing report ends with `OK (n tests)` or `FAILURES!!!`.
  */
 class TransitionPixelRunner : Instrumentation() {
     private var only: String? = null
+    private var shards = 1
+    private var shard = 0
 
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
         only = arguments?.getString("only")
+        shards = arguments?.getString("shards")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        shard = arguments?.getString("shard")?.toIntOrNull()?.coerceIn(0, shards - 1) ?: 0
         start()
     }
 
@@ -67,6 +73,7 @@ class TransitionPixelRunner : Instrumentation() {
             val layers = LayerPixelCases(bench)
             val cases = (suite.all() + effects.all() + EffectPixelCases(bench, 480, 270).batchB() + EffectPixelCases(bench, 320, 180).batchC() + TimePixelCases(bench).all() + layers.all() + TitlePixelCases(bench).all() + ImagePixelCases(bench).all() + PictureToolPixelCases(bench).all() + PersonPixelCases(bench).all() + TemporalMattePixelCases(bench).all() + NightFusionPixelCases(bench).all() + HdrPixelCases(bench).all() + BackgroundMoviePixelCases(bench).all())
                 .filter { case -> only?.split('|')?.any { case.name.contains(it) } ?: true }
+                .filterIndexed { index, _ -> index % shards == shard }
             cases.forEachIndexed { index, case ->
                 val status = Bundle().apply {
                     putString("id", "TransitionPixelRunner")
