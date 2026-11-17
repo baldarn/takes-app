@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -608,7 +608,8 @@ private fun CueRow(cue: SubtitleCue, now: Boolean, chosen: Boolean, enabled: Boo
             .clickable(enabled = enabled, onClick = tap).padding(10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(cueTime(cue.start), color = Soft, fontSize = 12.sp, modifier = Modifier.width(48.dp))
+        // At least the original's 45 points, and wider rather than broken where the text is large.
+        Text(cueTime(cue.start), color = Soft, fontSize = 12.sp, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 48.dp))
         Text(cue.text, color = if (now || chosen) Color.White else Soft, fontSize = 14.sp, fontWeight = if (now) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
         if (now) Icon(Icons.AutoMirrored.Filled.VolumeUp, stringResource(R.string.subtitles_current), Modifier.size(16.dp), tint = Current)
     }
@@ -684,7 +685,7 @@ private fun Disclosure(label: String, open: Boolean, toggle: () -> Unit) {
 @Composable
 private fun Level(label: String, value: Double, range: ClosedFloatingPointRange<Float>, enabled: Boolean, change: (Double) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Soft, fontSize = 13.sp, modifier = Modifier.width(96.dp))
+        Text(label, color = Soft, fontSize = 13.sp, maxLines = 1, softWrap = false, modifier = Modifier.widthIn(min = 96.dp).padding(end = 8.dp))
         Slider(value = value.toFloat().coerceIn(range), onValueChange = { change(it.toDouble()) }, valueRange = range, enabled = enabled,
             modifier = Modifier.weight(1f).semantics { contentDescription = label })
     }

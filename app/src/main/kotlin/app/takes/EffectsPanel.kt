@@ -135,33 +135,42 @@ internal fun EffectsPanel(
 @Composable
 private fun NavigationRow(work: EffectsWork, count: Int, change: (EffectsWork) -> Unit) {
     val page = work.page
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Where the name and the buttons do not fit side by side, as with large text, the buttons go under the name
+    // rather than cutting it, as the original's ViewThatFits rows (VideoEffectsEditor.swift:1128-1131).
+    FlowRow(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp), Arrangement.SpaceBetween,
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
         val canGoBack = page != EffectsPage.Applied && (page != EffectsPage.Library || count > 0)
-        if (canGoBack) {
-            IconButton(onClick = {
-                change(work.copy(page = if (page is EffectsPage.Section) EffectsPage.Library else EffectsPage.Applied))
-            }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.effects_back), tint = Color.White) }
-        } else Spacer(Modifier.width(12.dp))
         val title = when (page) {
             EffectsPage.Applied -> stringResource(R.string.effects_applied_count, count)
             EffectsPage.Library -> stringResource(R.string.effects_add_title)
             is EffectsPage.Section -> stringResource(page.section.look.title)
             EffectsPage.Inspector -> stringResource(R.string.effects_back_count, count)
         }
-        Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        // The picture with or without the effects, as the original's eye over its preview.
-        if (work.hasEffects) {
-            val hint = stringResource(R.string.effects_compare_hint)
-            val state = stringResource(if (work.bypass) R.string.effects_compare_original else R.string.effects_compare_effects)
-            TextButton(onClick = { change(work.copy(bypass = !work.bypass)) }, modifier = Modifier.semantics { contentDescription = hint; stateDescription = state }) {
-                Icon(if (work.bypass) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, null, Modifier.size(18.dp))
-                Text(state, Modifier.padding(start = 6.dp), fontSize = 13.sp)
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (canGoBack) {
+                IconButton(onClick = {
+                    change(work.copy(page = if (page is EffectsPage.Section) EffectsPage.Library else EffectsPage.Applied))
+                }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.effects_back), tint = Color.White) }
+            } else Spacer(Modifier.width(12.dp))
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (page == EffectsPage.Applied || page == EffectsPage.Inspector) {
-            TextButton(onClick = { change(work.copy(page = EffectsPage.Library)) }) {
-                Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
-                Text(stringResource(R.string.effects_add), Modifier.padding(start = 4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // The picture with or without the effects, as the original's eye over its preview.
+            if (work.hasEffects) {
+                val hint = stringResource(R.string.effects_compare_hint)
+                val state = stringResource(if (work.bypass) R.string.effects_compare_original else R.string.effects_compare_effects)
+                TextButton(onClick = { change(work.copy(bypass = !work.bypass)) }, modifier = Modifier.semantics { contentDescription = hint; stateDescription = state }) {
+                    Icon(if (work.bypass) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, null, Modifier.size(18.dp))
+                    Text(state, Modifier.padding(start = 6.dp), fontSize = 13.sp)
+                }
+            }
+            if (page == EffectsPage.Applied || page == EffectsPage.Inspector) {
+                TextButton(onClick = { change(work.copy(page = EffectsPage.Library)) }) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
+                    Text(stringResource(R.string.effects_add), Modifier.padding(start = 4.dp))
+                }
             }
         }
     }
@@ -318,12 +327,12 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: Doub
         }
     }
     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    // Reset goes under Remove where the two do not fit on a line, rather than breaking its name.
+    FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, itemVerticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = { confirmRemove = true }) {
             Icon(Icons.Outlined.Delete, null, Modifier.size(18.dp), tint = Color(0xFFFF6B6B))
             Text(stringResource(R.string.effects_remove), Modifier.padding(start = 6.dp), color = Color(0xFFFF6B6B))
         }
-        Spacer(Modifier.weight(1f))
         if (effect.kind != VideoEffectID.ColorCorrection) TextButton(onClick = { confirmReset = true }) { Text(stringResource(R.string.effects_reset)) }
     }
     if (help) {

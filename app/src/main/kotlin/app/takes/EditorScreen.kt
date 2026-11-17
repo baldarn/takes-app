@@ -76,6 +76,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import app.takes.core.PlacementDraft
 import app.takes.core.PlacementSpots
 import app.takes.core.SequenceOnly
@@ -818,9 +819,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     } * LocalDensity.current.fontScale.coerceIn(1f, 2f)
     val timelineRows = rememberScrollState()
     val toolRows = rememberScrollState()
-    EditorFrame(landscape, toolWeight, modifier.fillMaxSize().then(previewing)) {
+    val accessible = accessibilityText()
+    EditorFrame(landscape, accessible, toolWeight, modifier.fillMaxSize().then(previewing)) {
         Row(Modifier.layoutId(EditorSlot.Header).fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            // Beside the tools with large text there is no room for the name: the original's header in landscape has none (EditorView.swift:428).
+            if (landscape && accessible) Spacer(Modifier.weight(1f))
+            else Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
             TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
             SnapToggle(snap.on, snap::toggle) { store.error = snapNote }
@@ -1929,11 +1933,13 @@ private enum class EditorSlot { Header, Preview, Transport, Timeline, Tools }
  * The editor's screen. In portrait, from the top: the header, the picture, the transport, the timeline and the tools;
  * the picture takes what is left, shared with a tool panel by [toolWeight] when one is open. In landscape, as the
  * original's (EditorView.swift:354-383): the timeline runs along the bottom, and above it the picture, under the
- * header, stands beside the transport and the tools, which take 52 % of the width. The keyboard leaves no room
+ * header, stands beside the transport and the tools, which take 52 % of the width. With [accessible] text the
+ * original gives the controls 56 % of the width and the whole height (EditorView.swift:366-370): here the tools
+ * have the height beside the picture, and the timeline runs under the picture alone. The keyboard leaves no room
  * for the timeline in landscape: it goes while the keyboard is up.
  */
 @Composable
-private fun EditorFrame(landscape: Boolean, toolWeight: Float, modifier: Modifier, content: @Composable () -> Unit) {
+private fun EditorFrame(landscape: Boolean, accessible: Boolean, toolWeight: Float, modifier: Modifier, content: @Composable () -> Unit) {
     Layout(content, modifier) { measurables, constraints ->
         val width = constraints.maxWidth
         val height = constraints.maxHeight
@@ -1959,15 +1965,16 @@ private fun EditorFrame(landscape: Boolean, toolWeight: Float, modifier: Modifie
                 listOf(header, preview, transport, timeline, tools).forEach { it?.place(0, y); y += it?.height ?: 0 }
             }
         } else {
-            val side = (width * 0.52f).toInt()
+            val side = (width * (if (accessible) 0.56f else 0.52f)).toInt()
             val picture = width - side
             // With the keyboard up there is no room for it: the picture and the tool being typed into keep the screen.
-            timeline = if (height < 240.dp.roundToPx()) null else slot(EditorSlot.Timeline)?.natural(width, height / 2)
+            timeline = if (height < 240.dp.roundToPx()) null else slot(EditorSlot.Timeline)?.natural(if (accessible) picture else width, height / 2)
             val top = height - (timeline?.height ?: 0)
             header = slot(EditorSlot.Header)?.natural(picture, top)
             preview = slot(EditorSlot.Preview)?.measure(Constraints.fixed(picture, maxOf(0, top - (header?.height ?: 0))))
-            transport = slot(EditorSlot.Transport)?.natural(side, top)
-            val room = maxOf(0, top - (transport?.height ?: 0))
+            val column = if (accessible) height else top
+            transport = slot(EditorSlot.Transport)?.natural(side, column)
+            val room = maxOf(0, column - (transport?.height ?: 0))
             val panel = slot(EditorSlot.Tools)
             tools = if (panel != null && toolWeight > 0) panel.measure(Constraints.fixed(side, room)) else panel?.natural(side, room)
             layout(width, height) {

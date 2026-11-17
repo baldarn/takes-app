@@ -202,14 +202,19 @@ internal fun MoveBar(
             }
         }
         val shift = signedSeconds(offset)
+        val accessible = accessibilityText()
         val shiftLabel = stringResource(R.string.move_offset_description, shift)
         val moved: @Composable (Modifier) -> Unit = { modifier ->
             Column(modifier.padding(horizontal = 8.dp).semantics(mergeDescendants = true) { contentDescription = shiftLabel }, horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(stringResource(R.string.move_offset, shift), color = MoveColor, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1)
-                Text(if (session.snap != null) stringResource(R.string.move_snapped) else stringResource(R.string.move_hint), color = Quiet, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Over the nudges, as large text stands it, the hint has the width to go onto more lines.
+                Text(
+                    if (session.snap != null) stringResource(R.string.move_snapped) else stringResource(R.string.move_hint), color = Quiet, fontSize = 11.sp,
+                    maxLines = if (accessible) 3 else 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                )
             }
         }
-        if (accessibilityText()) {
+        if (accessible) {
             moved(Modifier.fillMaxWidth())
             FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { nudgeEarlier(); nudgeLater() }
         } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

@@ -62,6 +62,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -150,7 +151,8 @@ internal fun PlacementPanel(
                 Text(stringResource(R.string.placement_title), color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 val title = draft.members.joinToString(" + ") { "V${numbers[it] ?: 0}" } + " · " +
                     preciseLabel(draft.lower) + "–" + preciseLabel(draft.upper + PlacementDraft.FRAME)
-                Text(title, color = Soft, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // The pictures and the times on two lines where large text leaves no room for one.
+                Text(title, color = Soft, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
             TextButton(onClick = apply, enabled = draft.members.size > 1) { Text(stringResource(R.string.placement_apply), fontWeight = FontWeight.Bold) }
         }
