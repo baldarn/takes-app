@@ -104,6 +104,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -164,6 +165,7 @@ import app.takes.core.TimelineZoom
 import app.takes.core.ToolCompare
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import android.content.res.Configuration
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.layoutId
@@ -861,11 +863,17 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // Beside the tools with large text there is no room for the name: the original's header in landscape has none (EditorView.swift:428).
             if (landscape && accessible) Spacer(Modifier.weight(1f))
             else Text(project.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, enabled = project.canUndo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
-            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, enabled = project.canRedo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
+            // Undo and Redo as wide as their icons and Export with less room around its name, so that beside the picture in
+            // landscape the five fit and Export is not broken over two lines.
+            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.undo(project.id) }, Modifier.widthIn(min = 48.dp), enabled = project.canUndo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Undo, stringResource(R.string.editor_undo)) }
+            TextButton(onClick = { editor.pause(); marks = marks.cleared(); store.redo(project.id) }, Modifier.widthIn(min = 48.dp), enabled = project.canRedo && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Icon(Icons.AutoMirrored.Filled.Redo, stringResource(R.string.editor_redo)) }
             SnapToggle(snap.on, snap::toggle) { store.error = snapNote }
             EditorSettingsButton(snap, enabled = subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null)
-            Button(onClick = { editor.pause(); choosingExport = true }, modifier = Modifier.padding(start = 4.dp), enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null) { Text(stringResource(R.string.editor_export)) }
+            Button(
+                onClick = { editor.pause(); choosingExport = true }, modifier = Modifier.padding(start = 4.dp),
+                enabled = clips.isNotEmpty() && subtitling == null && titling == null && transitioning == null && moving == null && placementWork == null,
+                contentPadding = if (landscape) PaddingValues(horizontal = 16.dp, vertical = 8.dp) else ButtonDefaults.ContentPadding,
+            ) { Text(stringResource(R.string.editor_export), maxLines = 1) }
         }
         // The inspection zoom of the preview (EditorView.swift:1586-1601, PreviewZoom.kt): off while a tool works on the
         // picture with its own gestures, and back to 1× when the edit changes, as the original's player gets a new item.
