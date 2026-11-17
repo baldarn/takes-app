@@ -275,7 +275,13 @@ internal object NightFusionShaders {
         void main() { gl_FragColor = vec4(decode709(at(pixel())), 1.0); }
     """
 
-    /** `nf_fuse`: a neighbour [uOther] added to the sums [uAccum] where the flow puts the pixel (VideoEffectNightFusion.fuse). */
+    /**
+     * `nf_fuse`: a neighbour [uOther] added to the sums [uAccum] where the flow puts the pixel (VideoEffectNightFusion.fuse).
+     * Every read is made before the tests, which then only choose what is written, where the original returns early
+     * (Metal:667-669): a read in control flow that differs between the pixels of a 2 × 2 quad has no defined
+     * derivatives, and SwiftShader, the emulators' GL, gave the pixels still in it wrong values beside a pixel that
+     * had left, a row and a column of them along the edges past which a neighbour is not added.
+     */
     val FUSE = """
         ${EffectPassShaders.HEAD}
         ${EffectPassShaders.REC709}
@@ -298,15 +304,15 @@ internal object NightFusionShaders {
             vec4 sum = texel(uAccum, uOut, q);
             vec2 f = own(uForward, uv).rg;
             vec2 at = uv + f / uGuide;
-            if (any(lessThan(at, 1.0 / uGuide)) || any(greaterThan(at, 1.0 - 2.0 / uGuide))) { gl_FragColor = sum; return; }
+            bool inside = !any(lessThan(at, 1.0 / uGuide)) && !any(greaterThan(at, 1.0 - 2.0 / uGuide));
             vec2 b = own(uBackward, at).rg;
             float agreement = length(f + b);
-            if (!(agreement <= 3.0)) { gl_FragColor = sum; return; }
             vec3 d = smoothOf(uTex, uv) - smoothOf(uOther, at);
+            vec3 other = decode709(exactOf(uOther, uIn, at).rgb);
             float t = uOffset / 3.0;
             float noise = 6.0 / 255.0 * 1.5;
             float w = exp(-agreement * agreement / (0.8 * 0.8)) * exp(-dot(d, d) / (3.0 * noise * noise)) * exp(-0.5 * t * t);
-            gl_FragColor = sum + vec4(decode709(exactOf(uOther, uIn, at).rgb) * w, w);
+            gl_FragColor = inside && agreement <= 3.0 ? sum + vec4(other * w, w) : sum;
         }
     """
 
