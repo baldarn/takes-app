@@ -29,9 +29,9 @@ In section 5, the image overlay row was brought up to date on 2026-11-17 from th
 
 | Status | Count |
 |---|---|
-| DONE | 157 |
+| DONE | 158 |
 | PARTIAL | 34 |
-| CORE ONLY | 3 |
+| CORE ONLY | 2 |
 | MISSING | 9 |
 | N/A | 6 |
 | Total | 209 |
@@ -44,7 +44,7 @@ Per area:
 | 2. Recovery and storage | 3 | 4 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 24 | 7 | 0 | 3 | 0 |
-| 5. Editor: picture tools | 11 | 3 | 2 | 2 | 0 |
+| 5. Editor: picture tools | 12 | 3 | 1 | 2 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
 | 8. Audio | 19 | 0 | 0 | 2 | 0 |
