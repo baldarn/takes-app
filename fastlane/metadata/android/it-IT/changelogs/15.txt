@@ -1,0 +1,1 @@
+Corregge un arresto all'apertura dell'editor su Android 13, un silenzio nell'audio delle clip a 44,1 kHz che non partono dall'inizio, e gli export con Sfondo automatico che fallivano prima dell'analisi della persona.

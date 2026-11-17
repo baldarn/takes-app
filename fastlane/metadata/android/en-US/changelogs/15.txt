@@ -1,0 +1,1 @@
+Fixes a crash when opening the editor on Android 13, a silence in the sound of clips at 44.1 kHz that don't start at their beginning, and exports with Auto Background failing before the person was analysed.
