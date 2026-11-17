@@ -833,6 +833,9 @@ class CameraFrames(context: Context) {
         private var skewCount = 0
         @Volatile private var snapshot = DualReport(0, 0, 0.0, 0.0)
         private val horizons = arrayOf(HorizonEstimate(), HorizonEstimate())
+        // The level's look at each feed's picture: when it was last looked at, and whether a look is under way.
+        private val lastLine = DoubleArray(2) { Double.NEGATIVE_INFINITY }
+        @Volatile private var lining = false
         private var levelSet: Double? = null
         private val following = arrayOf(DualCameraLayout.Framing(), DualCameraLayout.Framing())
         private var lastLayout: DualCameraLayout? = null
@@ -990,6 +993,7 @@ class CameraFrames(context: Context) {
             if (d.levelDegrees != levelSet) { horizons[0] = HorizonEstimate(); horizons[1] = HorizonEstimate(); levelSet = d.levelDegrees }
             val g = gravity?.takeIf { nanos - gravityAt < 250_000_000L }
             val roll = g?.let { HorizonEstimate.roll(-it[0] / SensorManager.GRAVITY_EARTH.toDouble(), -it[1] / SensorManager.GRAVITY_EARTH.toDouble(), 90.0, false) }
+            if (d.levelDegrees != null && roll != null && abs(roll) < 13 * Math.PI / 180) levelLines(d, roll, now)
             val feedSizes = Array(2) { f ->
                 val sideways = (d.upright[f] % 180 + 180) % 180 != 0
                 Size((if (sideways) sizes[f].height else sizes[f].width).toDouble(), (if (sideways) sizes[f].width else sizes[f].height).toDouble())
@@ -1082,6 +1086,47 @@ class CameraFrames(context: Context) {
                 main.post { onDualFraming?.invoke(first, second) }
             }
             return shown
+        }
+
+        /**
+         * The picture's long edge for the level horizon of a rear feed, as with one camera: a feed at a time, each at
+         * most every 0.24 s, 256 on its long side, looked at off this thread (HorizonLevel.swift:243-265).
+         */
+        private fun levelLines(d: Dual, roll: Double, now: Double) {
+            if (lining) return
+            val f = (0..1).filter { !d.front[it] && now - lastLine[it] >= 0.24 }.minByOrNull { lastLine[it] } ?: return
+            if (sizes[f].width <= 0 || sizes[f].height <= 0) return
+            lining = true
+            lastLine[f] = now
+            val scale = 256.0 / max(sizes[f].width, sizes[f].height)
+            val w = max(2, (sizes[f].width * scale).toInt()) and 1.inv()
+            val h = max(2, (sizes[f].height * scale).toInt()) and 1.inv()
+            small.size(w, h)
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, small.frameBuffer)
+            GLES20.glViewport(0, 0, w, h)
+            // The camera's own picture, as one camera's is looked at; the first row read back is its top row.
+            feed(textures[f], Affine.IDENTITY)
+            val pixels = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
+            GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+            val estimate = horizons[f]
+            val upright = d.upright[f]
+            analysis.execute {
+                val line = try {
+                    val luma = ByteArray(w * h) { i ->
+                        val p = i * 4
+                        (((pixels.get(p).toInt() and 0xFF) * 54 + (pixels.get(p + 1).toInt() and 0xFF) * 183 + (pixels.get(p + 2).toInt() and 0xFF) * 19) shr 8).toByte()
+                    }
+                    sample(luma, w, h, upright)
+                } catch (_: Exception) {
+                    null
+                }
+                preview.handler.post {
+                    lining = false
+                    // Not for an estimate begun afresh since.
+                    if (horizons[f] === estimate) estimate.observe(line, roll, now)
+                }
+            }
         }
 
         /** Both feeds standing, 480 on the long side, looked at for faces five times a second off this thread. DualFaceDetector.swift:19. */

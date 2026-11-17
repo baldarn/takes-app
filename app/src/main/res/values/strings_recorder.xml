@@ -90,6 +90,9 @@
     <string name="recorder_stabilize_active">Camera stabilized</string>
     <string name="recorder_stabilize_inactive">Stabilization inactive</string>
     <string name="recorder_stabilize_unavailable">Stabilization unavailable for this camera</string>
+    <string name="recorder_stabilize_both">Both cameras stabilized</string>
+    <string name="recorder_stabilize_one">%1$s only · other camera unsupported</string>
+    <string name="recorder_stabilize_pair_unavailable">Stabilization unavailable for this camera pair</string>
     <string name="recorder_stabilize_help">The phone\'s camera stabilization reduces hand shake and crops the picture slightly. Choose it before recording or while paused.</string>
     <string name="recorder_color">Recording color</string>
     <string name="recorder_color_sdr">SDR</string>

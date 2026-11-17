@@ -171,16 +171,23 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
     var help by remember { mutableStateOf<String?>(null) }
     val tiles = mutableListOf<@Composable (Modifier) -> Unit>().apply {
         if (capture.offersStabilization) add { modifier ->
-            val on = capture.format.stabilization != CaptureFormat.Stabilization.Off
-            val status = stringResource(when {
-                !capture.offers.stabilization -> R.string.recorder_stabilize_unavailable
-                on -> R.string.recorder_stabilize_active
-                else -> R.string.recorder_stabilize_inactive
-            })
+            // With two cameras it is offered as the original does, and says which cameras it steadies. CaptureController.swift:73-77, 823-827.
+            val dual = capture.dualActive
+            val on = if (dual) capture.settings.stabilization else capture.format.stabilization != CaptureFormat.Stabilization.Off
+            val steadied = capture.dualStabilized
+            val status = when {
+                dual && steadied == null -> null
+                dual && steadied!!.size == 2 -> stringResource(R.string.recorder_stabilize_both)
+                dual && steadied!!.size == 1 -> stringResource(R.string.recorder_stabilize_one, steadied.first())
+                dual -> stringResource(R.string.recorder_stabilize_pair_unavailable)
+                !capture.offers.stabilization -> stringResource(R.string.recorder_stabilize_unavailable)
+                on -> stringResource(R.string.recorder_stabilize_active)
+                else -> stringResource(R.string.recorder_stabilize_inactive)
+            }
             AssistTile(
                 stringResource(R.string.recorder_stabilize), Icons.Filled.CenterFocusWeak, on,
-                enabled = capture.canChangeFormat && !capture.dualActive && (capture.offers.stabilization || capture.settings.stabilization),
-                details = status + "\n\n" + stringResource(R.string.recorder_stabilize_help), explain = { help = it }, modifier = modifier,
+                enabled = capture.canChangeFormat && (dual || capture.offers.stabilization || capture.settings.stabilization),
+                details = listOfNotNull(status, stringResource(R.string.recorder_stabilize_help)).joinToString("\n\n"), explain = { help = it }, modifier = modifier,
             ) { capture.chooseStabilization(!capture.settings.stabilization) }
         }
     }

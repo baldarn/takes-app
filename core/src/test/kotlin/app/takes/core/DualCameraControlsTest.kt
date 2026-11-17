@@ -1,6 +1,7 @@
 package app.takes.core
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -148,5 +149,19 @@ class DualCameraControlsTest {
         assertEquals("0|1", same.id)
         assertEquals(true, turned)
         assertEquals(front to rear, DualCameraControls.slots(current, swapped = true))
+    }
+
+    // YouRec/MultiCameraCapture.swift:103, 113-119: a camera pairs only where it records 1920 x 1080 at 30 fps.
+    @Test fun aCameraPairsOnlyWhereItRecords1080pAt30() {
+        // A Pixel 9a's cameras: concurrent classes of 1920 x 1440 and 1280 x 720.
+        val classes = listOf(1920 to 1440, 1280 to 720)
+        val outputs = listOf(4080 to 3072, 1920 to 1080, 1280 to 720)
+        assertTrue(DualCameraControls.recordsPair(classes, outputs, listOf(15..30, 60..60)))
+        assertTrue(DualCameraControls.recordsPair(listOf(1080 to 1920), listOf(1080 to 1920), listOf(30..30)))
+        // Only 720p while another camera runs.
+        assertFalse(DualCameraControls.recordsPair(listOf(1280 to 720), outputs, listOf(15..30)))
+        assertFalse(DualCameraControls.recordsPair(classes, listOf(1440 to 1080, 1280 to 720), listOf(15..30)))
+        assertFalse(DualCameraControls.recordsPair(classes, outputs, listOf(15..24, 60..60)))
+        assertFalse(DualCameraControls.recordsPair(emptyList(), outputs, listOf(30..30)))
     }
 }

@@ -2,6 +2,8 @@ package app.takes
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCharacteristics
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -648,9 +650,35 @@ class CaptureController(private val context: Context, private val store: Project
         val declared = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_CONCURRENT)
         dualPairs = if (!declared) emptyList() else runCatching {
             val combinations = provider.availableConcurrentCameraInfos.map { set -> set.map { Camera2CameraInfo.from(it).cameraId }.toSet() }
-            DualCameraControls.pairs(cameras.map(::dualCamera), combinations)
+            DualCameraControls.pairs(cameras.filter { Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && recordsPair(it) }.map(::dualCamera), combinations)
         }.getOrDefault(emptyList())
     }
+
+    /**
+     * The camera streams 1920 × 1080 beside another camera, as the system guarantees for concurrent cameras, at 30
+     * frames a second: a pair is offered only where both do (MultiCameraCapture.swift:103, 113-119).
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
+    private fun recordsPair(choice: CameraChoice): Boolean {
+        val info = Camera2CameraInfo.from(choice.info)
+        val combinations = info.getCameraCharacteristic(CameraCharacteristics.SCALER_MANDATORY_CONCURRENT_STREAM_COMBINATIONS) ?: return false
+        val maxima = combinations.flatMap { combination ->
+            combination.streamsInformation.filter { it.format == ImageFormat.PRIVATE || it.format == ImageFormat.YUV_420_888 }
+                .flatMap { stream -> stream.availableSizes.map { it.width to it.height } }
+        }
+        val outputs = info.getCameraCharacteristic(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            ?.getOutputSizes(ImageFormat.PRIVATE).orEmpty().map { it.width to it.height }
+        val rates = info.getCameraCharacteristic(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty().map { it.lower..it.upper }
+        return DualCameraControls.recordsPair(maxima, outputs, rates)
+    }
+
+    /**
+     * With Stabilize on and two cameras, the names of the cameras steadied, in the pair's order; null with Stabilize
+     * off (MultiCameraCapture.swift:321-328).
+     */
+    var dualStabilized by mutableStateOf<List<String>?>(null); private set
+    // The host camera is steadied: the level horizon then waits for the picture's own movement to settle.
+    private var dualSteady = false
 
     /** Two cameras can be turned on or off, or the pair changed, now: between segments, as in the original. */
     val canChangeCameras: Boolean get() = canChangeFormat
@@ -707,6 +735,7 @@ class CaptureController(private val context: Context, private val store: Project
             mirrorPreview = settings.mirrorPreview,
             mirrorRecording = settings.mirrorRecording,
             levelDegrees = if (settings.levelHorizon && frames.levelAvailable && feeds.any { !it.front }) settings.horizonDegrees else null,
+            stabilized = dualSteady,
             follow = settings.followFace,
         )
     }
@@ -727,15 +756,19 @@ class CaptureController(private val context: Context, private val store: Project
         val hostChoice = feeds[host]
         val guestChoice = feeds[1 - host]
         val writing = phase == Phase.Recording
-        val wanted = CaptureFormat.of(CaptureFormat.Wish(false, false, false), hostChoice.offers)
-        for (fixed in listOf(true, false)) {
+        // Stabilize steadies each camera that can, and the pair is bound without it where the phone refuses it with. MultiCameraCapture.swift:113-160.
+        val attempts = listOf(settings.stabilization, false).distinct().flatMap { stabilize -> listOf(true, false).map { stabilize to it } }
+        for ((stabilize, fixed) in attempts) {
+            val wanted = CaptureFormat.of(CaptureFormat.Wish(false, false, stabilize), hostChoice.offers)
             if (!writing) {
                 format = if (fixed) wanted else wanted.copy(fixedRate = false)
                 cases = build(format, cases.video.targetRotation, CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE, mirrors = false)
             }
+            val guestSteady = stabilize && guestChoice.offers.previewStabilization
             val guest = Preview.Builder()
                 .setResolutionSelector(ResolutionSelector.Builder().setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY).build())
                 .apply { if (fixed) setTargetFrameRate(THIRTY) }
+                .apply { if (guestSteady) setPreviewStabilizationEnabled(true) }
                 .build()
                 .also { it.setSurfaceProvider(frames.dualGuest) }
             camera = null
@@ -760,6 +793,11 @@ class CaptureController(private val context: Context, private val store: Project
                 null
             } ?: continue
             concurrent = bound
+            // The cameras steadied, for Stabilize's status. MultiCameraCapture.swift:321-328.
+            val hostSteady = format.stabilization != CaptureFormat.Stabilization.Off
+            dualStabilized = if (!settings.stabilization) null
+                else feeds.filterIndexed { index, _ -> if (index == host) hostSteady else guestSteady }.map { it.label }
+            dualSteady = hostSteady
             val hostCamera = bound.cameras.firstOrNull { Camera2CameraInfo.from(it.cameraInfo).cameraId == hostChoice.id } ?: bound.cameras.first()
             // Both lenses at their own 1×, as the original sets each device's zoom (MultiCameraCapture.swift:143).
             bound.cameras.forEach { it.cameraControl.setZoomRatio(1f) }

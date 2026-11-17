@@ -125,6 +125,17 @@ object DualCameraControls {
         return pairs.sortedBy { if (it.second.front) 0 else 1 }
     }
 
+    /**
+     * Whether a camera can record its part of the pair: a size of 1920 × 1080 among its [outputSizes], within the
+     * largest it is guaranteed to stream while another camera runs ([concurrentMaxima], the system's classes such as
+     * 1920 × 1440), at 30 frames a second within one of its [frameRates]; sizes are width by height in either
+     * orientation. A camera that cannot is left out of every pair, as the original offers a pair only where both
+     * cameras have such a format (MultiCameraCapture.swift:103, 113-119).
+     */
+    fun recordsPair(concurrentMaxima: List<kotlin.Pair<Int, Int>>, outputSizes: List<kotlin.Pair<Int, Int>>, frameRates: List<IntRange>): Boolean =
+        concurrentMaxima.any { (w, h) -> maxOf(w, h) >= 1920 && minOf(w, h) >= 1080 } &&
+            outputSizes.any { (w, h) -> maxOf(w, h) == 1920 && minOf(w, h) == 1080 } && frameRates.any { 30 in it }
+
     /** The cameras of every pair, once each, in rank order: the First menu. RecorderView.swift:661-667. */
     fun cameras(pairs: List<Pair>): List<Camera> = pairs.flatMap { listOf(it.first, it.second) }.distinctBy { it.id }.sortedBy { it.rank }
 
