@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -42,14 +44,15 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 
 private val Muted = Color(0xFFA0A4AB)
 private val CardFill = Color.White.copy(alpha = 0.07f)
 
 /**
  * The editor's Settings, as the Settings section of the original's tools (YouRec/EditorTools.swift:79-106): Snap
- * to cuts, kept with the magnet beside Undo and Redo ([SnapSetting]), and the font library. A touch and hold on a
- * setting gives its explanation, as in the original.
+ * to cuts, kept with the magnet beside Undo and Redo ([SnapSetting]), Match listening levels ([ListeningLevels]),
+ * and the font library. A touch and hold on a setting gives its explanation, as in the original.
  */
 @Composable
 internal fun EditorSettingsButton(snap: SnapSetting, enabled: Boolean) {
@@ -77,12 +80,19 @@ private fun EditorSettingsDialog(snap: SnapSetting, close: () -> Unit) {
     }
     val snapTitle = stringResource(R.string.editor_snap)
     val snapExplanation = stringResource(R.string.settings_snap_explanation)
+    val context = LocalContext.current
+    var matching by remember { mutableStateOf(ListeningLevels.matching(context)) }
+    val matchTitle = stringResource(R.string.enhance_match)
+    val matchExplanation = stringResource(R.string.settings_match_explanation)
     AlertDialog(
         onDismissRequest = close,
         title = { Text(stringResource(R.string.settings_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SettingCard(snapTitle, stringResource(R.string.settings_snap_hint), snap.on, snap::toggle) { help = snapTitle to snapExplanation }
+                SettingCard(matchTitle, stringResource(R.string.settings_match_hint), matching, { matching = !matching; ListeningLevels.match(context, matching) }) {
+                    help = matchTitle to matchExplanation
+                }
                 Row(
                     Modifier.fillMaxWidth().heightIn(min = 48.dp).background(CardFill, RoundedCornerShape(14.dp))
                         .combinedClickable(role = Role.Button, onClick = { fonts = true }).padding(horizontal = 12.dp),
@@ -120,3 +130,20 @@ private fun SettingCard(title: String, hint: String, on: Boolean, toggle: () -> 
     }
 }
 
+
+/**
+ * Match listening levels: whether Enhance audio plays Bypass and Enhanced equally loud, kept across launches under
+ * the original's key (YouRec/EditorController.swift:88-89), on until turned off. The editor's Settings and the
+ * switch in Enhance audio (A/EnhanceInspector.kt) are the same setting, as in the original (TrackEditors.swift:184, 314).
+ */
+internal object ListeningLevels {
+    private const val STORE = "enhance"
+    private const val KEY = "matchListeningLevels"
+
+    fun matching(context: Context): Boolean =
+        runCatching { context.getSharedPreferences(STORE, Context.MODE_PRIVATE).getBoolean(KEY, true) }.getOrDefault(true)
+
+    fun match(context: Context, on: Boolean) {
+        runCatching { context.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit { putBoolean(KEY, on) } }
+    }
+}

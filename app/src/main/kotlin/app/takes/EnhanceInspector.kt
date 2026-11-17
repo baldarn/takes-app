@@ -1,6 +1,5 @@
 package app.takes
 
-import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -150,10 +149,9 @@ internal fun EnhanceInspector(
     dismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    val preferences = remember { context.getSharedPreferences("enhance", Context.MODE_PRIVATE) }
     val scope0 = remember(work) { work.chain }
     var comparison by remember {
-        mutableStateOf(AudioChainComparison(effects = scope0.effects, matchListeningLevels = preferences.getBoolean("matchListeningLevels", true)))
+        mutableStateOf(AudioChainComparison(effects = scope0.effects, matchListeningLevels = ListeningLevels.matching(context)))
     }
     val effects = comparison.effects
     var selectedID by remember { mutableStateOf(effects.firstOrNull()?.id) }
@@ -304,7 +302,7 @@ internal fun EnhanceInspector(
                     ) {
                         Text(stringResource(R.string.enhance_match), color = if (comparison.allowsMatching) Color.White else Secondary, modifier = Modifier.weight(1f))
                         Switch(checked = comparison.matching, enabled = comparison.allowsMatching, onCheckedChange = { on ->
-                            runCatching { preferences.edit().putBoolean("matchListeningLevels", on).apply() }
+                            ListeningLevels.match(context, on)
                             val wasPlaying = playing
                             invalidate()
                             comparison = comparison.matching(on)

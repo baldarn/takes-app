@@ -27,8 +27,8 @@ In section 8, the rows of the chain of Enhance audio (noise reduction with both 
 
 | Status | Count |
 |---|---|
-| DONE | 151 |
-| PARTIAL | 36 |
+| DONE | 152 |
+| PARTIAL | 35 |
 | CORE ONLY | 4 |
 | MISSING | 12 |
 | N/A | 6 |
@@ -49,7 +49,7 @@ Per area:
 | 9. Subtitles | 11 | 1 | 0 | 1 | 0 |
 | 10. Video effects | 7 | 6 | 0 | 1 | 1 |
 | 11. Export | 11 | 1 | 0 | 0 | 0 |
-| 12. Settings, credits, localisation, accessibility | 4 | 1 | 0 | 0 | 2 |
+| 12. Settings, credits, localisation, accessibility | 5 | 0 | 0 | 0 | 2 |
 
 The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
 
@@ -334,7 +334,7 @@ The original's catalogue is 24 effects (`O/VideoEffects/VideoEffectModel.swift:3
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
 | Credits and licence notices | O/CreditsView.swift:6-58 | DONE | A/Credits.kt:38, res/raw | — | | |
-| Editor settings: Snap to cuts, Match listening levels, Fonts | O/EditorTools.swift:79-106 | PARTIAL | A/EditorSettings.kt (the gear beside the Snap magnet in the editor's top row: Snap to cuts with its hint and, on a touch and hold, its explanation; Fonts, which opens A/FontLibraryPanel.kt) | Match listening levels: Enhance audio has no Bypass and Enhanced comparison yet for it to level, so the switch is left out until it has. The original keeps its settings at the end of its Tools sheet; the editor here has no such sheet, so they are a dialog of their own | S | Yes |
+| Editor settings: Snap to cuts, Match listening levels, Fonts | O/EditorTools.swift:79-106 | DONE | A/EditorSettings.kt (the gear beside the Snap magnet in the editor's top row: Snap to cuts and Match listening levels with their hints and, on a touch and hold, their explanations; Fonts, which opens A/FontLibraryPanel.kt). Match listening levels is kept under the original's key `matchListeningLevels`, on until turned off (O/EditorController.swift:88-89), and is the same setting as the switch in Enhance audio (A/EnhanceInspector.kt, `ListeningLevels`) | The original keeps its settings at the end of its Tools sheet; the editor here has no such sheet, so they are a dialog of their own | | |
 | Onboarding | not found in the original | N/A | — | The original has none | | |
 | Localisation | English only (project.pbxproj:644-647) | DONE | values/, values-it/ | — | | |
 | Accessibility labels on controls | identifiers throughout, e.g. O/RecorderView.swift | DONE | `contentDescription`/`semantics` in every screen read (e.g. A/RecorderScreen.kt:290-293, A/EditorScreen.kt:667-684) | No stable test tags comparable to the original's identifiers | | |

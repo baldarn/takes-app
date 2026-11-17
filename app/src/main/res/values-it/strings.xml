@@ -761,6 +761,8 @@
     <string name="settings_title">Impostazioni</string>
     <string name="settings_snap_hint">Allinea il cursore e i segni della selezione ai confini vicini delle clip.</string>
     <string name="settings_snap_explanation">Quando smetti di scorrere vicino al confine di una clip, il cursore vi si aggancia esattamente. Anche i segni della selezione si agganciano ai confini vicini. Disattivalo per posizionare liberamente.\n\nVale per i confini delle clip, non per i tagli dentro un effetto Pause.</string>
+    <string name="settings_match_hint">In Migliora audio, riproduce allo stesso volume l\'audio escluso e quello migliorato. Le esportazioni non cambiano.</string>
+    <string name="settings_match_explanation">In Migliora audio, riproduce l\'audio escluso e quello migliorato a un volume simile, così puoi confrontare la qualità del suono senza che la versione più forte sembri migliore.\n\nCambia solo il volume dell\'anteprima. L\'audio esportato mantiene il guadagno dei filtri. Il pareggio è sospeso automaticamente quando è attivo un filtro Guadagno in uscita, così le regolazioni del guadagno restano udibili. Disattivalo per sentire i livelli reali anche con gli altri filtri.</string>
     <string name="settings_fonts_hint">Importa e rimuovi i font per testi e sottotitoli.</string>
     <string name="settings_hold_note">Tieni premuta un\'impostazione per una spiegazione.</string>
     <string name="settings_got_it">Ho capito</string>

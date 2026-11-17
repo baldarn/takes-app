@@ -752,6 +752,8 @@
     <string name="settings_title">Settings</string>
     <string name="settings_snap_hint">Align the playhead and selection marks with nearby clip boundaries.</string>
     <string name="settings_snap_explanation">When you stop scrubbing near a clip boundary, the playhead snaps exactly to it. Selection marks also snap to nearby boundaries. Turn it off for free placement.\n\nThis applies to clip boundaries, not the cuts inside a Pauses effect.</string>
+    <string name="settings_match_hint">Match Bypass and Enhanced volume inside Enhance audio. Exports are unchanged.</string>
+    <string name="settings_match_explanation">Plays Bypass and Enhanced audio at similar volume in Enhance audio, so you can compare sound quality without the louder version seeming better.\n\nThis changes preview volume only. Exported audio keeps your filter gain. Matching is automatically suspended when an Output gain filter is enabled, so gain adjustments remain audible. Turn it off to hear actual levels for other filters too.</string>
     <string name="settings_fonts_hint">Import and remove fonts for text and subtitles.</string>
     <string name="settings_hold_note">Touch and hold a setting for an explanation.</string>
     <string name="settings_got_it">Got it</string>
