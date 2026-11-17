@@ -83,8 +83,9 @@ jobs:
     name: Pixel tests of the shaders on an emulator
     runs-on: ubuntu-latest
     # The whole suite took about 41 minutes on a 4-core emulator with SwiftShader on a desktop
-    # computer: the export's effect chain is slow to draw on the processor.
-    timeout-minutes: 90
+    # computer, and with its 475 cases about 95 minutes on GitHub's runner: the export's effect
+    # chain is slow to draw on the processor.
+    timeout-minutes: 150
     env:
       API_LEVEL: 35
     steps:
