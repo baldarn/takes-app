@@ -81,12 +81,12 @@ internal fun EditorSettingsSection(snap: SnapSetting) {
                 .combinedClickable(role = Role.Button, onClick = { fonts = true }).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Outlined.TextFormat, null, Modifier.size(24.dp))
+            Icon(Icons.Outlined.TextFormat, null, Modifier.size(24.dp), tint = Color.White)
             Column(Modifier.weight(1f).padding(start = 10.dp, top = 6.dp, bottom = 6.dp)) {
-                Text(stringResource(R.string.fonts_title), fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.fonts_title), color = Color.White, fontWeight = FontWeight.SemiBold)
                 Text(stringResource(R.string.settings_fonts_hint), color = Muted, fontSize = 12.sp)
             }
-            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Muted)
         }
         Text(stringResource(R.string.settings_hold_note), color = Muted, fontSize = 12.sp)
     }
@@ -103,7 +103,7 @@ private fun SettingCard(title: String, hint: String, on: Boolean, toggle: () -> 
             .clearAndSetSemantics { role = Role.Switch; contentDescription = "$title. $hint"; stateDescription = state },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+            Text(title, Modifier.weight(1f), color = Color.White, fontWeight = FontWeight.SemiBold)
             Switch(on, null)
         }
         Text(hint, color = Muted, fontSize = 12.sp)
