@@ -185,16 +185,23 @@ object TimelineEditing {
     }
 
     /**
-     * Cuts the clip showing at [time] in two. Refused inside a transition.
-     * No fit changes: the transition into the clip stays on the first piece
-     * and the one out of it goes with the second, as they were. Both pieces
-     * keep every title and every word; each keeps the level, and of each fade
-     * what falls in it; a bookmark stays with the piece that plays it.
+     * Cuts the clip showing at [time] in two, and every sound item playing
+     * there, as the original cuts everything under the playhead when nothing
+     * is selected (YouRec/TimelineEditing.swift:45-62). Refused inside a
+     * transition. No fit changes: the transition into the clip stays on the
+     * first piece and the one out of it goes with the second, as they were.
+     * Both pieces keep every title and every word; each keeps the level, and
+     * of each fade what falls in it; a bookmark stays with the piece that
+     * plays it. A sound item's pieces stay on its track and play on without
+     * a break; the first keeps its id.
      *
-     * The cut is the track model's ([TrackEditing.split]) of the clip's
-     * picture and the sound that follows it, where today's rules say:
+     * The cut is the track model's ([TrackEditing.split]) of everything under
+     * the playhead, where today's rules say:
      */
-    fun split(state: EditState, time: Double): EditState? {
+    fun split(state: EditState, time: Double): EditState? = split(state, time, sounds = true)
+
+    /** [split]; with [sounds] false the sound items are left whole, as an insertion needs them (`insert-moves-sound-items`). */
+    private fun split(state: EditState, time: Double, sounds: Boolean): EditState? {
         // Off a sequence: the original's cut at the playhead, on the 1/30 s grid, of everything under it ([TrackEditing.splitAtPlayhead]).
         if (!state.isSequence) return if (time.isFinite()) TrackEditState.editing(state) { TrackEditing.splitAtPlayhead(it, time) } else null
         val base = TrackWrapping.fitted(state)
@@ -206,12 +213,24 @@ object TimelineEditing {
         // Not inside a transition: the picture or the sound of two clips is in play there.
         if (layout(clips).all.any { it.transition != null && time > it.range.start && time < it.range.endInclusive }) return null
         // Kept until S3b (split-on-the-grid): the cut is where the playhead is, not on the frame nearest to it.
-        // Kept until S5 (split-cuts-sound-items): the clip alone is cut; a sound of its own under the playhead is not.
         val cut = clip.sourceTime(offset)
         val slack = TransitionLayout.TICK * maxOf(1.0, clip.rate)
-        val result = TrackWrapping.edit(base, sound = false) { timeline ->
+        // Since S5 (split-cuts-sound-items) the sound items under the playhead are cut too, each exactly at [time] as the clip is.
+        val under = if (sounds) base.audio.orEmpty().filter { time > it.start && time < it.end } else emptyList()
+        val settled = { piece: AudioItem ->
+            val whole = under.firstOrNull { it.id == piece.id }
+            val later = under.firstOrNull { it.id != piece.id && it.sourceID == piece.sourceID && kotlin.math.abs(it.end - piece.end) <= TransitionLayout.TICK && kotlin.math.abs(piece.start - time) <= TransitionLayout.TICK }
+            when {
+                whole != null -> piece.copy(sourceEnd = TrackWrapping.exactly(piece.sourceEnd, whole.sourceStart + (time - whole.start)))
+                later != null -> piece.copy(
+                    start = TrackWrapping.exactly(piece.start, time), sourceStart = TrackWrapping.exactly(piece.sourceStart, later.sourceStart + (time - later.start)), track = later.track,
+                )
+                else -> piece
+            }
+        }
+        val result = TrackWrapping.edit(base, sound = sounds, settled = settled) { timeline ->
             val picture = timeline.video.firstOrNull { it.id == clip.id } ?: return@edit null
-            timeline.split(picture.start + EditTime.of(offset), timeline.selection(clip.id)).timeline
+            timeline.split(picture.start + EditTime.of(offset), if (sounds) TrackLinking.entireSelection(timeline) else timeline.selection(clip.id)).timeline
         } ?: return null
         if (result.clips.size != clips.size + 1) return null
         return result.copy(clips = result.clips.mapIndexed { place, piece ->
@@ -315,7 +334,7 @@ object TimelineEditing {
         if (index < 0) {
             index = 0
             locate(base.clips, at)?.let { (found, offset) ->
-                val cut = split(base, at)
+                val cut = split(base, at, sounds = false)
                 if (cut != null) { base = cut; index = found + 1 }
                 // Where no cut can be made (on an edge, to the tick), the footage goes to the nearer edge.
                 else index = if (offset <= base.clips[found].duration / 2) found else found + 1

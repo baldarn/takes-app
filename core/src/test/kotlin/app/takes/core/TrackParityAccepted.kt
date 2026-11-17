@@ -64,5 +64,14 @@ internal object TrackParityAccepted {
         "close-that-holds-pushes-nothing",
     )
 
-    val kinds: Set<String> = unreachable + invisible + adopted
+    /**
+     * Adopted at S5 (docs/TRACKS-PARITY-DECISIONS.md, "At S5"): a split cuts
+     * the sound items under the playhead too, as the original's does with
+     * nothing selected (YouRec/TimelineEditing.swift:45-62).
+     */
+    private val adoptedAtS5 = setOf(
+        "split-cuts-sound-items",
+    )
+
+    val kinds: Set<String> = unreachable + invisible + adopted + adoptedAtS5
 }

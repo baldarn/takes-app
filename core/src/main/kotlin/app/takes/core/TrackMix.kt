@@ -155,8 +155,10 @@ data class TrackMixPlan(val duration: EditTime, val lanes: List<TrackMixLane>) {
  * Where this differs from the original, by choice:
  *
  *  - a piece that continues the sound on some lane goes on that lane, before
- *    the first free one: the original takes the first free lane and, when an
- *    earlier lane is free too, cuts the continuous sound with two fades;
+ *    the first free one, and a piece that starts with it at the same moment
+ *    leaves that lane to it: the original takes the first free lane and,
+ *    when an earlier lane is free too, cuts the continuous sound with two
+ *    fades;
  *  - one envelope per piece rather than per run of the source, so a change
  *    of speed inside one stretch of the source is not cut (the original
  *    renders such a stretch as one file, and its runs then continue);
@@ -198,7 +200,27 @@ object TrackMix {
                 last.sameRate(first) && prior.envelope.inRamp == inRamp && prior.envelope.outRamp == outRamp
         }
 
-        for (item in timeline.audio.withIndex().sortedWith(compareBy({ it.value.start }, { it.index })).map { it.value }) {
+        val order = timeline.audio.withIndex().sortedWith(compareBy({ it.value.start }, { it.index })).map { it.value }
+
+        /**
+         * True when a sound after the [position]th of [order] starts at [start]
+         * with the source of the last piece of [lane] where that one leaves
+         * off: the piece that would carry it on, which the lane is kept for.
+         */
+        fun awaited(lane: Lane, start: EditTime, position: Int): Boolean {
+            val last = lane.pieces.lastOrNull() ?: return false
+            if (lane.end != start) return false
+            for (index in position + 1 until order.size) {
+                val other = order[index]
+                if (other.start > start) break
+                if (other.start != start || other.muted || other.sourceID != last.sourceID) continue
+                val first = other.mapping.runs.firstOrNull() ?: continue
+                if (!first.isHold && abs(first.sourceStart - last.runs.last().sourceEnd) < SAME_SOURCE) return true
+            }
+            return false
+        }
+
+        for ((position, item) in order.withIndex()) {
             if (item.muted || !voiced(item.sourceID)) continue
             val length = item.mapping.duration
             val points = sortedSetOf(0L, length.ticks)
@@ -232,7 +254,8 @@ object TrackMix {
 
                 val carried = lanes.firstOrNull { lane -> lane.format == kind && lane.pieces.lastOrNull()?.let { continues(it, start, input, first, inRamp, outRamp) } == true }
                 val lane = carried ?: lanes.firstOrNull { lane ->
-                    if (lane.end > start || lane.format != kind) return@firstOrNull false
+                    // Nor one whose sound a piece starting here carries on: the sound pieces of a split go on without a dip.
+                    if (lane.end > start || lane.format != kind || awaited(lane, start, position)) return@firstOrNull false
                     // A retimed piece right after another gets a processor of its own unless it carries that one's sound on.
                     val prior = lane.pieces.lastOrNull() ?: return@firstOrNull true
                     lane.end != start || (prior.runs.last().atSpeed && first.atSpeed)

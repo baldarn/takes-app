@@ -346,7 +346,7 @@ class AudioUnlinkingTest {
         assertEquals(edit.clips[1].sourceTime(1.0), rest.sourceStart, 1e-12)
     }
 
-    @Test fun splittingThePictureDoesNotCutDetachedSound() {
+    @Test fun splittingThePictureCutsItsDetachedSoundToo() {
         val titled = state.copy(clips = listOf(a, b.copy(texts = listOf(TextOverlay(start = 1.0, end = 5.0)), bookmarks = listOf(Bookmark(time = 4.0))), c))
         val unlinked = AudioUnlinking.unlink(titled, 1)!!
         // Titles and bookmarks stay with the picture.
@@ -354,19 +354,22 @@ class AudioUnlinkingTest {
         assertEquals(titled.clips[1].bookmarks, unlinked.clips[1].bookmarks)
         val sound = unlinked.audio!!.single()
         val split = TimelineEditing.split(unlinked, 6.0)!!
-        // Two silent pictures over one uncut sound: everything is heard once, as before.
-        assertEquals(listOf(sound), split.audio)
+        // With nothing selected everything under the playhead is cut, the sound too (YouRec/TimelineEditing.swift:45-62):
+        // two pieces on its track that play on without a break, each the detached sound of its piece of the picture, by
+        // its id; everything is heard once, as before.
+        val (first, second) = split.audio!!
+        assertEquals(sound.copy(sourceEnd = 3.0), first)
+        assertEquals(split.clips[2].id, second.id)
+        assertEquals(listOf(sound.sourceID, 6.0, 3.0, sound.sourceEnd, sound.track), listOf(second.sourceID, second.start, second.sourceStart, second.sourceEnd, second.track))
         assertEquals(listOf(true, true), split.clips.subList(1, 3).map { it.audio!!.muted })
-        for (time in listOf(4.5, 5.9, 6.0, 7.5, 8.9)) assertEquals(1.0, heard(split, b.id, time) + heard(split, split.clips[2].id, time), 0.0)
-        // The first piece keeps the clip's id and with it the sound; the second is a plain muted clip.
-        assertEquals(sound, AudioUnlinking.detachedSound(split, 1))
-        assertNull(AudioUnlinking.detachedSound(split, 2))
+        for (time in listOf(4.5, 5.9, 6.1, 7.5, 8.9)) assertEquals(1.0, heard(split, b.id, time) + heard(split, split.clips[2].id, time), 0.0)
+        assertEquals(first, AudioUnlinking.detachedSound(split, 1))
+        assertEquals(second, AudioUnlinking.detachedSound(split, 2))
         assertEquals(0.0, AudioUnlinking.syncOffset(split, 1)!!, 0.0)
+        assertEquals(0.0, AudioUnlinking.syncOffset(split, 2)!!, 0.0)
         assertTrue(AudioUnlinking.valid(split))
-        // The sound is longer than the first piece now, so they do not relink until it is cut to match.
-        assertNull(AudioUnlinking.relink(split, 1))
-        val cut = TimelineEditing.trimAudio(split, b.id, 6.0, leading = false)!!
-        val relinked = AudioUnlinking.relink(cut, 1)!!
+        // Each piece of the sound matches its picture, so each relinks.
+        val relinked = AudioUnlinking.relink(AudioUnlinking.relink(split, 1)!!, 2)!!
         assertNull(relinked.audio)
         assertNull(relinked.clips[1].audio)
         assertEquals(listOf(1.0 to 3.0, 3.0 to 6.0), relinked.clips.subList(1, 3).map { it.start to it.end })

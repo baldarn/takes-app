@@ -162,9 +162,10 @@ internal object TrackWrapping {
      * read the same before and after are the ones [state] has, untouched.
      *
      * [sound] false leaves the sound items as they are, whatever the
-     * operation did to them: kept until S5 (`split-cuts-sound-items`,
-     * `scope-cuts-sound-items`, `insert-moves-sound-items`), an edit of the
-     * picture neither cuts nor moves a sound of its own.
+     * operation did to them: kept until S5 (`scope-cuts-sound-items`,
+     * `insert-moves-sound-items`), an edit of the picture neither cuts nor
+     * moves a sound of its own; a split cuts them since S5
+     * (`split-cuts-sound-items`).
      * A sound item that is new or has moved is given to [settled], which
      * says what the caller knows better than the timeline (the second it was
      * put at, not the tick), and then put on a track ([place]).
@@ -208,7 +209,10 @@ internal object TrackWrapping {
             }
             for (item in state.audio.orEmpty()) wanted[item.id]?.let { result += written(it) }
             for (item in now.items) if (item.id !in mine) result += written(item)
-            for (index in result.indices) if (result[index].id in moved) result[index] = place(result.filterIndexed { other, _ -> other != index }, settled(result[index])) ?: return null
+            // Every one settled first, so each is placed among the others where they will be: the pieces a split leaves of
+            // two sounds go back on their own tracks.
+            for (index in result.indices) if (result[index].id in moved) result[index] = settled(result[index])
+            for (index in result.indices) if (result[index].id in moved) result[index] = place(result.filterIndexed { other, _ -> other != index }, result[index]) ?: return null
             audio = result.sortedBy { it.start }.ifEmpty { null }
         }
 

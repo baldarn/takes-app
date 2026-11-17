@@ -18,7 +18,8 @@ import kotlin.math.abs
  * that reaches past the last picture plays on to its end (N6), where today
  * it is cut off with the picture, so it is compared only up to there.
  * Another is a fix: sound unlinked from a clip carries on into the sound of
- * the clip after it without a dip, when it picks it up where it left off.
+ * the clip after it without a dip, when it picks it up where it left off,
+ * and so does a sound item into the piece a split left of it.
  */
 class TrackMixGateTest {
     private val full = listOf("TAKES_PARITY_GATE", "TAKES_PARITY_FULL", "TAKES_RECORD_PARITY").any { System.getenv(it) == "1" }
@@ -82,13 +83,15 @@ class TrackMixGateTest {
         if (!near(plan.duration.seconds, longest, time) && plan.duration.seconds < longest) problems += "lasts ${plan.duration.seconds}, not $longest"
 
         // Sound unlinked from a clip and the sound of the clip after it, when one carries the other on, are a sound item
-        // and a clip's sound today, which never continue each other; on lanes they continue, as in the original.
+        // and a clip's sound today, which never continue each other; on lanes they continue, as in the original. So do
+        // the two pieces a split leaves of a sound item (since S5, split-cuts-sound-items): "Splitting continuous
+        // independent audio introduces no fade or volume dip" (Tests/TrackMediaTests.swift:362).
         for (piece in plan.pieces) {
             if (!piece.continues) continue
             val prior = plan.lanes[piece.lane].pieces.let { it[it.indexOf(piece) - 1] }
             val before = expected[prior.owner] ?: continue
             val after = expected[piece.owner] ?: continue
-            if (before.clip == after.clip) continue
+            if (before.clip && after.clip) continue
             before.segment = before.segment.copy(fadeOut = 0.0)
             after.segment = after.segment.copy(fadeIn = 0.0, initialOwner = prior.owner, initialVolume = before.segment.volume)
         }

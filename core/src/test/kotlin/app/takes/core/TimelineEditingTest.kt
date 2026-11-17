@@ -33,6 +33,35 @@ class TimelineEditingTest {
         assertEquals(2, split.captureBase)
     }
 
+    @Test fun splitCutsTheSoundsUnderThePlayheadToo() {
+        // YouRec/TimelineEditing.swift:45-62: with nothing selected everything under the playhead is cut, music and voice included.
+        val music = AudioItem(id = "M", sourceID = "music", start = 1.0, sourceStart = 2.0, sourceEnd = 8.0, audio = ClipAudio(volumeDB = -6.0, fadeIn = 1.0, fadeOut = 2.0))
+        val voice = AudioItem(id = "V", sourceID = "voice", start = 4.5, sourceStart = 0.0, sourceEnd = 1.0, track = 1)
+        val scored = state.copy(audio = listOf(music, voice))
+        val split = TimelineEditing.split(scored, 5.0)!!
+        assertEquals(3, split.clips.size)
+        val (first, voiceFirst, second, voiceSecond) = split.audio!!.sortedWith(compareBy({ it.start }, { it.track }))
+        // Each sound in two pieces on its own track, the first keeping its id, cut exactly at the playhead and contiguous in the source.
+        assertEquals(listOf("M", 1.0, 2.0, 6.0, 0), listOf(first.id, first.start, first.sourceStart, first.sourceEnd, first.track))
+        assertEquals(listOf("music", 5.0, 6.0, 8.0, 0), listOf(second.sourceID, second.start, second.sourceStart, second.sourceEnd, second.track))
+        assertEquals(listOf("V", 4.5, 0.0, 0.5, 1), listOf(voiceFirst.id, voiceFirst.start, voiceFirst.sourceStart, voiceFirst.sourceEnd, voiceFirst.track))
+        assertEquals(listOf("voice", 5.0, 0.5, 1.0, 1), listOf(voiceSecond.sourceID, voiceSecond.start, voiceSecond.sourceStart, voiceSecond.sourceEnd, voiceSecond.track))
+        // Both keep the level; the fade in stays on the first piece and the fade out goes with the second (YouRec/TrackTimeline.swift:133-151).
+        assertEquals(listOf(-6.0, -6.0), listOf(first, second).map { it.audio!!.volumeDB })
+        assertEquals(listOf(1.0 to 0.0, 0.0 to 2.0), listOf(first, second).map { it.audio!!.fadeIn to it.audio!!.fadeOut })
+        // Tests/TrackMediaTests.swift:358-361: "Splitting continuous independent audio introduces no fade or volume dip".
+        val plan = TrackMix.plan(split.toTimeline())
+        val pieces = plan.pieces.filter { it.sourceID == "music" || it.sourceID == "voice" }.sortedBy { it.start }
+        assertEquals(4, pieces.size)
+        assertEquals(listOf(false, false, true, true), pieces.map { it.continues })
+        for (sound in listOf("music", "voice")) {
+            val (before, after) = pieces.filter { it.sourceID == sound }
+            assertEquals(before.lane, after.lane)
+            assertEquals(0.0, before.envelope.fadeOut, 0.0)
+            assertEquals(0.0, after.envelope.fadeIn, 0.0)
+        }
+    }
+
     @Test fun splitNeedsRoomOnBothSides() {
         assertNull(TimelineEditing.split(state, 0.0))
         assertNull(TimelineEditing.split(state, 4.0))

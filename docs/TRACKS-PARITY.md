@@ -22,13 +22,13 @@ Ids made during the call, the track of a sound item, the order of a clip's bookm
 - **different**: both give a sequence, and the two differ.
 - **not expressible**: the result is a valid timeline that no sequence of clips with two sound tracks plays. No function answers one while a project saves a sequence.
 
-The edits: 18 small ones made for one situation each, 128 steps of the histories of the golden projects (all but the long one), and 300 made by 30 seeded sequences of the functions as they were. 91309 calls.
+The edits: 18 small ones made for one situation each, 128 steps of the histories of the golden projects (all but the long one), and 300 made by 30 seeded sequences of the functions as they were. 91323 calls.
 
 ## By function
 
 | Function | Calls | Identical | Different | Not expressible | Kinds |
 |---|---:|---:|---:|---:|---|
-| `TimelineEditing.split` | 1931 | 1485 | 446 | 0 | [split-refused-near-an-edge](#split-refused-near-an-edge), [words-of-unlinked-sound](#words-of-unlinked-sound), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound) |
+| `TimelineEditing.split` | 1931 | 1165 | 766 | 0 | [split-refused-near-an-edge](#split-refused-near-an-edge), [split-cuts-sound-items](#split-cuts-sound-items), [words-of-unlinked-sound](#words-of-unlinked-sound), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound) |
 | `TimelineEditing.delete` | 621 | 597 | 1 | 23 | [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple) |
 | `TimelineEditing.move` | 1396 | 1335 | 19 | 42 | [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [move-finds-no-cut-among-unlinked-pictures](#move-finds-no-cut-among-unlinked-pictures), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple) |
 | `TimelineEditing.insert` | 2822 | 2355 | 467 | 0 | [split-refused-near-an-edge](#split-refused-near-an-edge), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [unlinked-clip-remembers-no-sound](#unlinked-clip-remembers-no-sound) |
@@ -45,35 +45,35 @@ The edits: 18 small ones made for one situation each, 128 steps of the histories
 | `TimelineEditing.setAudio` | 3708 | 3698 | 10 | 0 | [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
 | `AudioUnlinking.setSound` | 3708 | 3696 | 12 | 0 | [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
 | `TimelineEditing.addAudio` | 1062 | 1062 | 0 | 0 |  |
-| `RangeEditing.delete` | 4519 | 3719 | 498 | 302 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [playhead-in-time-a-transition-holds](#playhead-in-time-a-transition-holds), [bookmark-outlives-its-footage](#bookmark-outlives-its-footage) |
+| `RangeEditing.delete` | 4519 | 3721 | 499 | 299 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [later-piece-new-identity](#later-piece-new-identity), [removed-transition-leaves-its-time](#removed-transition-leaves-its-time), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple), [words-of-unlinked-sound](#words-of-unlinked-sound), [playhead-in-time-a-transition-holds](#playhead-in-time-a-transition-holds), [bookmark-outlives-its-footage](#bookmark-outlives-its-footage) |
 | `RangeEditing.copy` | 4519 | 4519 | 0 | 0 |  |
 | `RangeEditing.cut` | 4519 | 4519 | 0 | 0 |  |
 | `RangeEditing.paste` | 13557 | 13557 | 0 | 0 |  |
-| `RangeEditing.scoped` | 4519 | 3687 | 629 | 203 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple) |
+| `RangeEditing.scoped` | 4519 | 3688 | 630 | 201 | [range-end-within-a-frame-of-a-cut](#range-end-within-a-frame-of-a-cut), [range-inside-a-transition](#range-inside-a-transition), [unlinked-picture-does-not-ripple](#unlinked-picture-does-not-ripple) |
 | `SubtitleEditing.install` | 446 | 446 | 0 | 0 |  |
 | `SubtitleEditing.cues` | 446 | 446 | 0 | 0 |  |
 | `SubtitleEditing.transcript` | 446 | 446 | 0 | 0 |  |
 | `SubtitleEditing.groupingAvailable` | 446 | 446 | 0 | 0 |  |
-| `AudioUnlinking.unlink` | 612 | 612 | 0 | 0 |  |
-| `AudioUnlinking.relink` | 612 | 612 | 0 | 0 |  |
-| `AudioUnlinking.restoreSync` | 612 | 612 | 0 | 0 |  |
-| `AudioUnlinking.syncOffset` | 612 | 612 | 0 | 0 |  |
+| `AudioUnlinking.unlink` | 613 | 613 | 0 | 0 |  |
+| `AudioUnlinking.relink` | 613 | 613 | 0 | 0 |  |
+| `AudioUnlinking.restoreSync` | 613 | 613 | 0 | 0 |  |
+| `AudioUnlinking.syncOffset` | 613 | 613 | 0 | 0 |  |
 | `TimelineEditing.duration` | 446 | 446 | 0 | 0 |  |
 | `TimelineEditing.clipStart` | 446 | 446 | 0 | 0 |  |
 | `RangeEditing.joinTimes` | 446 | 446 | 0 | 0 |  |
 | `TimelineEditing.bookmarkTimes` | 446 | 446 | 0 | 0 |  |
 | `RangeEditing.transitionAt` | 1931 | 1931 | 0 | 0 |  |
-| `TimelineEditing.moveAudio` | 897 | 897 | 0 | 0 |  |
-| `TimelineEditing.trimAudio` | 897 | 573 | 324 | 0 | [split-refused-near-an-edge](#split-refused-near-an-edge), [words-of-unlinked-sound](#words-of-unlinked-sound) |
-| `TimelineEditing.setAudioItemSound` | 897 | 885 | 12 | 0 | [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
-| `TimelineEditing.removeAudio` | 299 | 283 | 16 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound) |
+| `TimelineEditing.moveAudio` | 900 | 900 | 0 | 0 |  |
+| `TimelineEditing.trimAudio` | 900 | 575 | 325 | 0 | [split-refused-near-an-edge](#split-refused-near-an-edge), [words-of-unlinked-sound](#words-of-unlinked-sound) |
+| `TimelineEditing.setAudioItemSound` | 900 | 888 | 12 | 0 | [fade-no-longer-than-its-item](#fade-no-longer-than-its-item) |
+| `TimelineEditing.removeAudio` | 300 | 284 | 16 | 0 | [words-of-unlinked-sound](#words-of-unlinked-sound) |
 | `SubtitleEditing.remove` | 81 | 81 | 0 | 0 |  |
 | `SubtitleEditing.restyle` | 81 | 81 | 0 | 0 |  |
 | `SubtitleEditing.regroup` | 243 | 243 | 0 | 0 |  |
 | `SubtitleEditing.correct` | 93 | 93 | 0 | 0 |  |
 | `SubtitleEditing.delete` | 93 | 93 | 0 | 0 |  |
 | `TimelineEditing.removeText` | 14 | 14 | 0 | 0 |  |
-| **all** | 91309 | 87557 | 2758 | 994 | |
+| **all** | 91323 | 87253 | 3081 | 989 | |
 
 ## The kinds of difference
 
@@ -154,7 +154,7 @@ through the track model
 - Track model: Both pictures playing there are cut at the exact second. The pieces keep overlapping; the transition stays when both its pictures still have its footage and is removed otherwise, and what is copied can be two pictures that play at once. A range from the first instant of an opening takes the clip with its opening.
 - Visible effect: Delete, Cut, Copy and a tool on a range marked into a dissolve leave two pictures on top of each other for the rest of the dissolve's time, or a short gap, where today the edit snaps to the join. What is copied begins where the range does, not at the join, so its sound items lie that much earlier against its picture. A range marked exactly over a clip that carries an opening and is not first takes the whole clip, where today the length of the opening is left behind.
 - Rule: YouRec/TrackTimeline.swift:1080-1094 (the items are cut at the range's ends), :857-895 (the prune keeps or drops the relation) (plan: N12)
-- Seen in: `RangeEditing.delete` 354, `RangeEditing.scoped` 431 (402 not expressible; 38 together with another kind)
+- Seen in: `RangeEditing.delete` 352, `RangeEditing.scoped` 430 (397 not expressible; 39 together with another kind)
 - Accepted: yes
 
 `RangeEditing.scoped(range 10–11.5)` on `a dissolve`:
@@ -258,7 +258,7 @@ through the track model
 - Track model: Words belong to sounds. The unlinked sound of a clip is an ordinary sound that is not muted: it keeps the words, shows them where it now plays, is transcribed, and loses them when it is deleted. Cut in pieces, each piece keeps them. A copy of the picture alone has no words, and so does not carry the look of the captions.
 - Visible effect: After Unlink the captions of that clip stay on screen and follow the sound when it is moved, where today they disappear. Deleting the unlinked sound deletes its captions.
 - Rule: YouRec/TrackTimeline.swift:184; YouRec/Subtitles.swift:155-180, :205-246 (plan: N10)
-- Seen in: `TimelineEditing.split` 109, `TimelineEditing.trimAudio` 135, `TimelineEditing.insert` 22, `TimelineEditing.removeAudio` 16, `RangeEditing.delete` 3 (3 not expressible; 0 together with another kind)
+- Seen in: `TimelineEditing.split` 89, `TimelineEditing.trimAudio` 135, `TimelineEditing.insert` 22, `TimelineEditing.removeAudio` 16, `RangeEditing.delete` 3 (3 not expressible; 0 together with another kind)
 - Accepted: yes
 
 `TimelineEditing.split(at 20.05)` on `unlinked sound`:
@@ -413,7 +413,7 @@ through the track model
 - Track model: A cut is refused only when a piece would be shorter than one tick; pieces of any length are kept, and footage is inserted exactly where asked.
 - Visible effect: Clips and sound pieces a few frames long, which today cannot be made.
 - Rule: YouRec/TrackTimeline.swift:1011-1014 (plan: N8)
-- Seen in: `TimelineEditing.split` 325, `TimelineEditing.insert` 346, `TimelineEditing.trimAudio` 189 (0 not expressible; 0 together with another kind)
+- Seen in: `TimelineEditing.split` 325, `TimelineEditing.insert` 346, `TimelineEditing.trimAudio` 190 (0 not expressible; 0 together with another kind)
 - Accepted: yes
 
 `TimelineEditing.split(at 0.05)` on `one take`:
@@ -458,6 +458,43 @@ through the track model
     c4 @6 S1 6–12
     (12 s of picture)
     clips a tool applies to: [2]
+```
+
+### split-cuts-sound-items
+
+**A cut at the playhead also cuts the sound items under it.**
+
+- Today: Only the clip is cut; music or a voice-over running under the playhead stays one item, and so does the unlinked sound of the clip.
+- Track model: With nothing selected, everything under the playhead is cut: the picture, its sound, and every other sound playing there.
+- Visible effect: The music is in two pieces after a split. They play on without a break, and each can then be moved or deleted by itself.
+- Rule: YouRec/TimelineEditing.swift:45-62
+- Seen in: `TimelineEditing.split` 352 (0 not expressible; 12 together with another kind)
+- Accepted: yes
+
+`TimelineEditing.split(at 15.2)` on `unlinked sound`:
+
+```
+before
+    c1 @0 S1 0–12
+    c2 @12 S2 0–8 [muted]
+    c3 @20 S3 0–6
+    sound of c2 @12 S2 0–8
+    (26 s of picture)
+today
+    c1 @0 S1 0–12
+    c2 @12 S2 0–3.2 [muted]
+    c4 @15.2 S2 3.2–8 [muted]
+    c3 @20 S3 0–6
+    sound of c2 @12 S2 0–8
+    (26 s of picture)
+through the track model
+    c1 @0 S1 0–12
+    c2 @12 S2 0–3.2 [muted]
+    c5 @15.2 S2 3.2–8 [muted]
+    c3 @20 S3 0–6
+    sound of c2 @12 S2 0–3.2
+    sound of c5 @15.2 S2 3.2–8
+    (26 s of picture)
 ```
 
 ### bookmark-outlives-its-footage
@@ -513,10 +550,10 @@ through the track model
 - Track model: A picture whose sound is unlinked has no sound. Its pieces are pictures without sound, and deleting the unlinked sound leaves a picture without sound; in the sequence form each is a muted clip that remembers nothing.
 - Visible effect: None while the clip is muted. Today Unmute on such a piece brings the recorded sound back at the level it had (a second time, beside the unlinked sound, while that is still there); through the track model there is no sound to unmute.
 - Rule: YouRec/TrackTimeline.swift:575-579 (unlinking removes the link; level, mute and fades are the sound's, :174-177), :771-776 (a sound deleted by itself is gone) (plan: N9)
-- Seen in: `TimelineEditing.split` 12, `TimelineEditing.insert` 7 (0 not expressible; 0 together with another kind)
+- Seen in: `TimelineEditing.split` 12, `TimelineEditing.insert` 7 (0 not expressible; 12 together with another kind)
 - Accepted: yes
 
-`TimelineEditing.split(at 9.465)` on `golden unlinked-sound, step 2`:
+`TimelineEditing.insert(a clip of 2.5 s at 9.967)` on `golden unlinked-sound, step 2`:
 
 ```
 before
@@ -527,18 +564,20 @@ before
     (18 s of picture)
 today
     c1 @0 S1 0–6
-    c2 @6 S2 0–3.465 [muted]
-    c4 @9.465 S2 3.465–6 [muted, -3 dB, fades 0/0.5]
-    c3 @12 S3 0–6
+    c2 @6 S2 0–3.967 [muted]
+    c4 @9.967 S1 0–2.5
+    c5 @12.467 S2 3.967–6 [muted, -3 dB, fades 0/0.5]
+    c3 @14.5 S3 0–6
     sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-    (18 s of picture)
+    (20.5 s of picture)
 through the track model
     c1 @0 S1 0–6
-    c2 @6 S2 0–3.465 [muted]
-    c5 @9.465 S2 3.465–6 [muted]
-    c3 @12 S3 0–6
+    c2 @6 S2 0–3.967 [muted]
+    c4 @9.967 S1 0–2.5
+    c6 @12.467 S2 3.967–6 [muted]
+    c3 @14.5 S3 0–6
     sound of c2 @6 S2 0–6 [-3 dB, fades 0/0.5]
-    (18 s of picture)
+    (20.5 s of picture)
 ```
 
 ### fade-no-longer-than-its-item
@@ -586,7 +625,7 @@ through the track model
 - Track model: A cut gives the later piece a new id and the earlier piece keeps the old one, so when the earlier piece is then deleted, what stays has the new id.
 - Visible effect: None on screen. A selection, or anything else that remembers the item by id, no longer finds it.
 - Rule: YouRec/TrackTimeline.swift:1015-1017, :1036-1039
-- Seen in: `RangeEditing.delete` 33 (0 not expressible; 24 together with another kind)
+- Seen in: `RangeEditing.delete` 34 (0 not expressible; 25 together with another kind)
 - Accepted: yes
 
 `RangeEditing.delete(range 17.75–20, the playhead at 16.344)` on `generated 6, step 6`:
@@ -625,7 +664,7 @@ Every difference found is of one of the kinds above.
 
 ## Fades
 
-A fade longer than half its item, which the sequence form used to play for half the item only, was set in 1597 calls: 1563 identical, 34 not, of which 34 differ in a fade. Those are fades asked longer than the whole item (fade-no-longer-than-its-item).
+A fade longer than half its item, which the sequence form used to play for half the item only, was set in 1598 calls: 1564 identical, 34 not, of which 34 differ in a fade. Those are fades asked longer than the whole item (fade-no-longer-than-its-item).
 The sequence form now holds a fade with its length and how far into it the item begins, so a fade capped at half its item is no kind of difference here.
 
 ## Ids across the whole edit
@@ -636,19 +675,19 @@ Today the id of a bookmark and of a transition is unique within its clip; the tr
 |---|---:|---:|---:|---|
 | Golden projects, every step | 450 | 0 | 0 | none |
 | Seeded sequences | 300 | 0 | 0 | none |
-| Answers of the functions as they were, in the suite | 72286 | – | – | none |
+| Answers of the functions as they were, in the suite | 72296 | – | – | none |
 
 ## Timelines of the answers
 
-Of the 73119 edits the functions answered in the suite, each converted to a timeline, the invariants (`TrackInvariants.violation`) refuse 0.
+Of the 73130 edits the functions answered in the suite, each converted to a timeline, the invariants (`TrackInvariants.violation`) refuse 0.
 
 ## Saved bytes
 
-In 72262 calls both sides answer an edit. In 68746 of them the two edits are the same JSON, byte for byte, once the ids made during the call are renamed in the order they appear: nothing is read through the conversion and no time is rounded. The others, by function:
+In 72272 calls both sides answer an edit. In 68440 of them the two edits are the same JSON, byte for byte, once the ids made during the call are renamed in the order they appear: nothing is read through the conversion and no time is rounded. The others, by function:
 
 | Function | Both answer | Not the same bytes | Of which identical as compared above |
 |---|---:|---:|---:|
-| `TimelineEditing.split` | 1120 | 33 | 1 |
+| `TimelineEditing.split` | 1120 | 353 | 1 |
 | `TimelineEditing.delete` | 621 | 24 | 0 |
 | `TimelineEditing.move` | 1244 | 50 | 0 |
 | `TimelineEditing.insert` | 2822 | 467 | 0 |
@@ -658,16 +697,16 @@ In 72262 calls both sides answer an edit. In 68746 of them the two edits are the
 | `TimelineEditing.setTransition` | 3676 | 20 | 0 |
 | `TimelineEditing.setAudio` | 3123 | 10 | 0 |
 | `AudioUnlinking.setSound` | 3104 | 12 | 0 |
-| `RangeEditing.delete` | 4371 | 696 | 23 |
-| `RangeEditing.scoped` | 4519 | 831 | 8 |
-| `TimelineEditing.trimAudio` | 577 | 4 | 0 |
-| `TimelineEditing.setAudioItemSound` | 897 | 12 | 0 |
-| `TimelineEditing.removeAudio` | 299 | 16 | 0 |
+| `RangeEditing.delete` | 4371 | 694 | 23 |
+| `RangeEditing.scoped` | 4519 | 829 | 7 |
+| `TimelineEditing.trimAudio` | 579 | 4 | 0 |
+| `TimelineEditing.setAudioItemSound` | 900 | 12 | 0 |
+| `TimelineEditing.removeAudio` | 300 | 16 | 0 |
 
 ## The sample
 
 What the tests check when nothing is set in the environment: the calls on 68 of the edits (the 18 small ones, every 8th step of the golden projects, every 9th seeded edit), the same calls the whole suite makes on them.
-14967 calls: 14432 identical, 408 different, 127 not expressible, 0 with something not explained.
+14967 calls: 14385 identical, 455 different, 127 not expressible, 0 with something not explained.
 
 | Kind | Calls in the sample |
 |---|---:|
@@ -675,10 +714,11 @@ What the tests check when nothing is set in the environment: the calls on 68 of 
 | range-inside-a-transition | 106 |
 | handle-trim-outwards-overlaps | 25 |
 | handle-trim-inwards-is-a-deletion | 52 |
-| words-of-unlinked-sound | 47 |
+| words-of-unlinked-sound | 43 |
 | removed-transition-leaves-its-time | 27 |
 | split-refused-near-an-edge | 122 |
 | range-end-within-a-frame-of-a-cut | 108 |
+| split-cuts-sound-items | 53 |
 | unlinked-clip-remembers-no-sound | 3 |
 | fade-no-longer-than-its-item | 6 |
 | later-piece-new-identity | 4 |

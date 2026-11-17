@@ -44,7 +44,7 @@ the original's behaviour arrives in the later stage named, where it is announced
 | split-refused-near-an-edge | Kept until S4 | Pieces a few frames long are legal in the original; the preview and the export handle one-frame pieces since 0.7, but the timeline cannot show or grab them well yet. |
 | split-on-the-grid | Kept until S3b | Moving a cut by up to half a frame changes existing habits and saved numbers; adopt when the format changes, not before. |
 | range-end-within-a-frame-of-a-cut | Kept until S3b | With the grid. |
-| split-cuts-sound-items | Kept until S5 | Wanted; music in two pieces after a split is visible and must be drawn as such. |
+| split-cuts-sound-items | Kept until S5 | Wanted; music in two pieces after a split is visible and must be drawn as such. Adopted: see "At S5". |
 | scope-cuts-sound-items | Kept until S5 | |
 | insert-moves-sound-items | Kept until S5 | The largest audible change for existing projects: music follows the picture instead of the clock. Announce it. |
 | bookmark-at-the-last-second | Invisible | Adopt in S2-B. |
@@ -198,3 +198,8 @@ and the new calls are the original's behaviour by construction.
 kept by the track model (`TrackBookmarks.hidden`) and dropped by `RangeEditing` and
 `removeIntervals`, which S12 does not change.
 
+## At S5
+
+| Kind | Decision | Why |
+|---|---|---|
+| split-cuts-sound-items | Adopted | `TimelineEditing.split` cuts everything under the playhead, the sound items too, as the original's split does with nothing selected (`TimelineEditing.swift:45-62`, `TrackEditing.splitAtPlayhead`). Each piece of a sound stays on its track, cut at the second given as the clip is (until `split-on-the-grid`); the first keeps the item's id, and a sound unlinked from the clip gives each piece of the picture its own piece, by its id. The two pieces play on without a break: the mix plan carries the sound of one into the other, and a piece that starts at the same moment leaves that lane to it (`TrackMix.plan`), which the mix gate checks ("Splitting continuous independent audio introduces no fade or volume dip", `Tests/TrackMediaTests.swift:362`). An insertion still cuts the picture alone: `insert-moves-sound-items` stays kept until S5's insertion. The timeline draws each piece as its own sound. |
