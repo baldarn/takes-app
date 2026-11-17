@@ -279,4 +279,35 @@ class StabilizationClipTest {
         assertEquals("2", EffectPreviewWindow.seconds(0.0..2.5))
         assertEquals("0.4", EffectPreviewWindow.seconds(1.0..1.4))
     }
+
+    /**
+     * YouRec/EditorTools.swift:472-482, :731-743 and EffectApplication.swift:20-41: the tool measures ten seconds of
+     * its clips joined end to end, each clip cut to its part inside them, around the playhead.
+     */
+    @Test fun theToolPreviewsEveryClipOfTheWindow() {
+        val a = TimelineClip(id = "A", sourceID = "S1", start = 2.0, end = 8.0) // 6 s at 0
+        val b = TimelineClip(id = "B", sourceID = "S2", start = 10.0, end = 14.0) // 4 s at 6
+        val c = TimelineClip(id = "C", sourceID = "S1", start = 20.0, end = 30.0) // 10 s at 10
+        val pieces = listOf(EffectPreviewWindow.Piece(a, 0.0), EffectPreviewWindow.Piece(b, 6.0), EffectPreviewWindow.Piece(c, 10.0))
+        // The playhead in B: 7 s into the sequence, so 2…12 of it, the end of A, all of B and the start of C.
+        val inB = EffectPreviewWindow.sample(pieces, 7.0)
+        assertEquals(2.0..12.0, inB.window)
+        assertEquals(listOf("A", "B", "C"), inB.parts.map { it.clip.id })
+        assertEquals(listOf(4.0 to 8.0, 10.0 to 14.0, 20.0 to 22.0), inB.parts.map { it.sourceFrom to it.sourceTo })
+        assertEquals(listOf(2.0 to 6.0, 0.0 to 4.0, 0.0 to 2.0), inB.parts.map { it.from to it.to })
+        // Only the clips inside the window.
+        assertEquals(listOf("C"), EffectPreviewWindow.sample(pieces, 18.0).parts.map { it.clip.id })
+        // A selection away from the playhead: the nearest edge of the nearest clip, counted in the joined clips.
+        val apart = listOf(EffectPreviewWindow.Piece(a, 0.0), EffectPreviewWindow.Piece(c, 40.0))
+        val after = EffectPreviewWindow.sample(apart, 60.0)
+        assertEquals(11.0..16.0, after.window) // C's end, the end of the joined clips
+        assertEquals(listOf(25.0 to 30.0), after.parts.map { it.sourceFrom to it.sourceTo })
+        val between = EffectPreviewWindow.sample(apart, 10.0) // 4 s after A, 30 s before C: A's end
+        assertEquals(1.0..11.0, between.window)
+        assertEquals(listOf(3.0 to 8.0, 20.0 to 25.0), between.parts.map { it.sourceFrom to it.sourceTo })
+        // A clip at twice its speed shows twice the footage in the same time.
+        val fast = a.copy(speed = SpeedSettings(rate = 2.0))
+        val quick = EffectPreviewWindow.sample(listOf(EffectPreviewWindow.Piece(fast, 0.0)), 1.0)
+        assertEquals(2.0 to 8.0, quick.parts.single().sourceFrom to quick.parts.single().sourceTo)
+    }
 }

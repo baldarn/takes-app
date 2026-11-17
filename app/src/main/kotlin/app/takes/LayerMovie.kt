@@ -86,8 +86,14 @@ class LayerMovie(
             if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
             val source = size(shown.sourceID)
             // A stabilised clip's frame is corrected before it is framed (YouRec/VideoToolCompositor.swift:158-161).
-            stabilization[clip.id]?.let { add(StabilizationEffect(clip, begins, it, rotations[shown.sourceID] ?: 0)) }
-            if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, begins, source, frame))
+            // Corrected and framed in one step when it can be, so that what the correction moves past the picture's own
+            // edges is kept where the frame has room for it (YouRec/VideoToolCompositor.swift:158-162).
+            val corrected = stabilization[clip.id]
+            if (corrected != null && source != null) add(StabilizedFramingEffect(clip, begins, corrected, rotations[shown.sourceID] ?: 0, source, frame))
+            else {
+                corrected?.let { add(StabilizationEffect(clip, begins, it, rotations[shown.sourceID] ?: 0)) }
+                if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, begins, source, frame))
+            }
             add(fit())
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
             if (holdsFrames(clip)) add(TimeHoldEffect(clip, begins, rate.toDouble()))

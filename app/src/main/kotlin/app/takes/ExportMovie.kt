@@ -164,8 +164,14 @@ class ExportMovie(
             // A crop fills the frame with part of the footage, frame by frame; fitting then has nothing left to do.
             val source = size(shown.sourceID)
             // A stabilised clip's frame is corrected before it is framed (YouRec/VideoToolCompositor.swift:158-161).
-            stabilization[clip.id]?.let { add(StabilizationEffect(clip, shown.start - origin, it, rotations[shown.sourceID] ?: 0)) }
-            if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, shown.start - origin, source, frame))
+            // Corrected and framed in one step when it can be, so that what the correction moves past the picture's own
+            // edges is kept where the frame has room for it (YouRec/VideoToolCompositor.swift:158-162).
+            val corrected = stabilization[clip.id]
+            if (corrected != null && source != null) add(StabilizedFramingEffect(clip, shown.start - origin, corrected, rotations[shown.sourceID] ?: 0, source, frame))
+            else {
+                corrected?.let { add(StabilizationEffect(clip, shown.start - origin, it, rotations[shown.sourceID] ?: 0)) }
+                if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, shown.start - origin, source, frame))
+            }
             add(fit())
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
             // A held frame, of a freeze or a cadence, is kept before the effects, which draw it at the second it holds.

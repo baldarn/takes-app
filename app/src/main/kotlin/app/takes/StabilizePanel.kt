@@ -61,21 +61,23 @@ private val Chosen = Color(0xFFFF4D57)
 
 /**
  * The Stabilize tool open on [from], the edit as it was saved: on the clips of [scope] (a range or a selection,
- * cut as the other tools cut it), else on [shown], the clip under the playhead, as the original's tool workspace
- * applies it (YouRec/EditorTools.swift:437-442, 710-712). [shown] begins at second [shownStart] of the movie; the
- * tool previews it, ten seconds of it around [anchor] (:472-482, 731-742).
+ * cut as the other tools cut it), else on the clips of [pieces], as the original's tool workspace applies it
+ * (YouRec/EditorTools.swift:437-442, 710-712). [pieces] are the clips it works on, each with the second of the movie
+ * it begins at; the tool previews ten seconds of them joined end to end, around [anchor], every clip inside them
+ * (:472-482, 731-743, 787-801). [shownBy] finds the clip of the edit on view that shows a part of them, which the
+ * editor's preview draws corrected.
  */
 internal class Stabilizing(
     val from: EditState, val scope: RangeEditing.Scoped?, val label: String?, val ranged: Boolean,
-    val shown: TimelineClip, val shownStart: Double, val anchor: Double,
+    val pieces: List<EffectPreviewWindow.Piece>, val anchor: Double, shownBy: (EffectPreviewWindow.Part) -> TimelineClip?,
 ) {
-    private val targets: List<TimelineClip> = scope?.let { s -> s.state.clips.filter { it.id in s.clips } } ?: listOf(shown)
+    private val targets: List<TimelineClip> = scope?.let { s -> s.state.clips.filter { it.id in s.clips } } ?: pieces.map { it.clip }
 
     /** The level the clips have when they all have the same one, Off aside (:437-440). */
     val saved: StabilizationLevel? = targets.map { it.stabilization?.level ?: StabilizationLevel.Off }.toSet().singleOrNull()?.takeIf { it != StabilizationLevel.Off }
 
-    /** The level chosen; the subject's own, or Standard (:442). */
-    var level by mutableStateOf(shown.stabilization?.level ?: StabilizationLevel.Standard)
+    /** The level chosen; the first clip's own, or Standard (:441-442). */
+    var level by mutableStateOf(pieces.firstOrNull()?.clip?.stabilization?.level ?: StabilizationLevel.Standard)
 
     /** The clips shown as they were (Before) or stabilised (After) (:1266-1272). */
     var original by mutableStateOf(false)
@@ -86,17 +88,26 @@ internal class Stabilizing(
     /** How far the preview's window is measured, while it is. */
     var progress by mutableStateOf<Double?>(null)
 
-    /** The plan of the window at [level], once measured. */
-    var plan by mutableStateOf<StabilizationPlan?>(null)
+    /** The plans of the window at [level], once measured, by the clip on view they are for. */
+    var plans by mutableStateOf<Map<String, StabilizationPlan>>(emptyMap())
 
     var failed by mutableStateOf(false)
     var attempt by mutableIntStateOf(0)
 
-    /** The window previewed, in seconds of the movie. */
-    val window = EffectPreviewWindow.range(anchor, shownStart..shownStart + shown.duration)
+    /** What the preview measures: ten seconds of the clips joined, and each clip's part of them. */
+    val sample = EffectPreviewWindow.sample(pieces, anchor)
 
-    /** The same window in source seconds of [shown]. */
-    val sourceWindow = shown.sourceTime(window.start - shownStart)..shown.sourceTime(window.endInclusive - shownStart)
+    /** The window previewed, in seconds of the clips joined. */
+    val window = sample.window
+
+    /** Each part of the window with the clip on view that shows it. */
+    val shown: List<Pair<EffectPreviewWindow.Part, TimelineClip>> = sample.parts.mapNotNull { part -> shownBy(part)?.let { part to it } }
+
+    /** The crop the window needs: the largest of its clips' (:797-800). */
+    val zoom: Double? get() = plans.values.maxOfOrNull { it.zoom }
+
+    /** Whether some frames of the window could not be tracked reliably (:797-800). */
+    val weakTracking: Boolean get() = plans.values.any { it.trackingFraction < 0.65 }
 
     /** The edit with the level chosen on every clip it applies to, null when nothing changes. */
     fun applied(): EditState? {
@@ -122,28 +133,41 @@ internal class Stabilizing(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun StabilizePanel(
-    work: Stabilizing, preview: PreviewStabilization, source: SourceMedia?, folder: File,
+    work: Stabilizing, preview: PreviewStabilization, sources: Map<String, SourceMedia>, folder: File,
     apply: (EditState?) -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
-    // The window measured for the level chosen, and shown in the editor's preview in place of the clip's own plan.
+    // The window measured for the level chosen, clip by clip, and shown in the editor's preview in place of the
+    // clips' own plans (EditorTools.swift:787-801).
     LaunchedEffect(work, work.level, work.stopped, work.attempt) {
         work.failed = false
-        val candidate = work.shown.copy(stabilization = work.shown.stabilizing(work.level))
-        val (from, to) = work.sourceWindow.start to work.sourceWindow.endInclusive
-        if (work.level == StabilizationLevel.Off || source == null || work.stopped || to - from < 0.1) {
-            work.plan = null
-            preview.trial = mapOf(work.shown.id to PreviewStabilization.Trial(candidate, null, from, to))
+        val candidates = work.shown.map { (part, clip) -> Triple(part, clip, clip.copy(stabilization = clip.stabilizing(work.level))) }
+        fun trials(plans: Map<String, StabilizationPlan>) = candidates.associate { (part, clip, candidate) ->
+            clip.id to PreviewStabilization.Trial(candidate, plans[clip.id], part.sourceFrom, part.sourceTo)
+        }
+        if (work.level == StabilizationLevel.Off || work.stopped) {
+            work.plans = emptyMap()
+            preview.trial = trials(emptyMap())
             return@LaunchedEffect
         }
         work.progress = 0.0
         val context = currentCoroutineContext()
         try {
-            val made = withContext(Dispatchers.IO) {
-                preview.rotation(source)
-                Stabilizer.samplePlan(source, candidate, work.level, from, to, folder, progress = { work.progress = it }, cancel = { !context.isActive })
+            val made = HashMap<String, StabilizationPlan>()
+            for ((index, entry) in candidates.withIndex()) {
+                val (part, clip, candidate) = entry
+                val source = sources[clip.sourceID] ?: continue
+                if (part.sourceTo - part.sourceFrom < 0.1) continue
+                val plan = withContext(Dispatchers.IO) {
+                    preview.rotation(source)
+                    Stabilizer.samplePlan(
+                        source, candidate, work.level, part.sourceFrom, part.sourceTo, folder,
+                        progress = { work.progress = (index + it) / maxOf(1, candidates.size) }, cancel = { !context.isActive },
+                    )
+                }
+                if (plan != null) made[clip.id] = plan
             }
-            work.plan = made
-            preview.trial = mapOf(work.shown.id to PreviewStabilization.Trial(candidate, made, from, to))
+            work.plans = made
+            preview.trial = trials(made)
         } catch (_: java.util.concurrent.CancellationException) {
         } catch (problem: Exception) {
             android.util.Log.w("Stabilization", "preview failed", problem)
@@ -209,8 +233,8 @@ internal fun StabilizePanel(
                     }
                 }
             }
-            val plan = work.plan
-            if (plan != null && plan.trackingFraction < 0.65) {
+            val zoom = work.zoom
+            if (work.weakTracking) {
                 Text(stringResource(R.string.stabilize_tracking_warning), color = Color(0xFFFF9F0A), fontSize = 12.sp)
             }
             Text(stringResource(work.level.explanation), color = Soft, fontSize = 14.sp)
@@ -231,7 +255,7 @@ internal fun StabilizePanel(
                 }
                 // The crop the level needs, as the zoom that hides the edges (:1304-1306).
                 work.level == StabilizationLevel.Off -> Text(stringResource(R.string.stabilize_original_framing), color = Soft, fontSize = 12.sp)
-                plan != null -> Text(stringResource(R.string.stabilize_crop_zoom, String.format(Locale.getDefault(), "%.2f", plan.zoom)), color = Soft, fontSize = 12.sp)
+                zoom != null -> Text(stringResource(R.string.stabilize_crop_zoom, String.format(Locale.getDefault(), "%.2f", zoom)), color = Soft, fontSize = 12.sp)
             }
             if (work.ranged) Text(stringResource(R.string.stabilize_range_edges), color = Soft, fontSize = 12.sp)
         }

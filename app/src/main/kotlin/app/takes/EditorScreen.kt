@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.asComposeRenderEffect
 import app.takes.core.ColorLook
 import app.takes.core.ColorSettings
 import app.takes.core.CropDraft
+import app.takes.core.EffectPreviewWindow
 import app.takes.core.GradeMotion
 import app.takes.core.LUTInput
 import app.takes.core.ImportedLUT
@@ -521,6 +522,23 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val shown = trimmed?.clips ?: clips
     // Where each clip begins: in a row of clips the layout's, off a row its picture's own start.
     val clipStart = { state: EditState, index: Int -> TrackEditState.clipStart(state, index) ?: 0.0 }
+    // The clips of a scope the Stabilize tool works on, in the order they play, each with where it begins.
+    val stabilizePieces = { scoped: RangeEditing.Scoped ->
+        scoped.state.clips.indices.filter { scoped.state.clips[it].id in scoped.clips }
+            .map { EffectPreviewWindow.Piece(scoped.state.clips[it], clipStart(scoped.state, it)) }.sortedBy { it.start }
+    }
+    // The clip of the edit on view that shows a part of the tool's clips: the one of its recording at the middle of the part.
+    val stabilizeShownBy = { shownEdit: EditState ->
+        val shownBy: (EffectPreviewWindow.Part) -> TimelineClip? = { part ->
+            val middle = part.start + (part.from + part.to) / 2
+            shownEdit.clips.indices.firstOrNull { index ->
+                val clip = shownEdit.clips[index]
+                val start = clipStart(shownEdit, index)
+                clip.sourceID == part.clip.sourceID && middle >= start - 0.0005 && middle <= start + clip.duration + 0.0005
+            }?.let { shownEdit.clips[it] }
+        }
+        shownBy
+    }
     val dragTrim = drag@{ pixels: Float ->
         val draft = trim ?: return@drag
         val original = clips.getOrNull(draft.index) ?: return@drag
@@ -1684,7 +1702,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // An edit made meanwhile, such as a take that arrives, ends the tool.
             LaunchedEffect(saved) { if (work.from != saved) stabilizing = null }
             StabilizePanel(
-                work, stabilization, project.sources.firstOrNull { it.id == work.shown.sourceID }, folder,
+                work, stabilization, project.sources.associateBy { it.id }, folder,
                 // One undo step for the whole tool; the playhead stays where it is.
                 apply = { next ->
                     stabilizing = null
@@ -1914,10 +1932,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             PlacementDraft.open(timeline, found.participants, region.start)?.let { placementWork = Placing(it, found, timeline) }
                         }
                     }
-                    EditorTool.Stabilize -> if (clip != null) stabilizing = Stabilizing(
-                        saved, RangeEditing.Scoped(edit, listOf(clip.id)), null, ranged = false,
-                        shown = clip, shownStart = clipStart(edit, index), anchor = playhead.coerceIn(region.start, region.end),
-                    )
+                    EditorTool.Stabilize -> if (clip != null) {
+                        val scoped = RangeEditing.Scoped(edit, listOf(clip.id))
+                        stabilizing = Stabilizing(
+                            saved, scoped, null, ranged = false,
+                            pieces = stabilizePieces(scoped), anchor = playhead.coerceIn(region.start, region.end), shownBy = stabilizeShownBy(edit),
+                        )
+                    }
                 }
             }
             val removeRegion: (ToolRegion, String) -> Unit = { region, label ->
@@ -2056,14 +2077,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         if (clips.isNotEmpty()) imaging = Imaging.adding(over ?: newImageRange(clips, playhead, marks.range?.let { it.start..it.end }), selected.takeIf { over != null })
                     },
                     SheetTool.Effects to SheetEntry(canAdjust && scopeHasClips) { toolSubject?.let { subject -> effecting = EffectsWork.opening(edit, toolScope, subject) } },
-                    // Stabilize after the effects, as the original's tools (EditorTools.swift:61): the clips of the scope, previewed on the
-                    // one under the playhead.
-                    SheetTool.Stabilize to SheetEntry(canAdjust && scopeHasClips && located != null) {
-                        val at = located
-                        val shown = clips.indexOfFirst { it.id == toolSubject?.id }.takeIf { it >= 0 } ?: at
-                        if (shown != null) stabilizing = Stabilizing(
+                    // Stabilize after the effects, as the original's tools (EditorTools.swift:61): the clips of the scope, previewed ten
+                    // seconds of them around the playhead, or around the nearest edge of the nearest one (:472-482).
+                    SheetTool.Stabilize to SheetEntry(canAdjust && scopeHasClips) {
+                        stabilizing = Stabilizing(
                             saved, toolScope, toolScopeLabel, ranged = marks.scope is EditScope.Range,
-                            shown = clips[shown], shownStart = clipStart(edit, shown), anchor = playhead,
+                            pieces = stabilizePieces(toolScope), anchor = playhead, shownBy = stabilizeShownBy(edit),
                         )
                     },
                     // The picture shown while framing is the clip of the scope nearest the playhead, which stays where it is

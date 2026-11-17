@@ -296,7 +296,29 @@ class StabilizationMeasure(val width: Int, val height: Int, val duration: Double
     fun analysis(): StabilizationAnalysis? =
         if (samples.isEmpty()) null else StabilizationAnalysis(width, height, duration, samples.toList(), tracked)
 
+    /** The time of the last frame added, from the stretch's start; negative before the first. */
+    val measured: Double get() = previousTime
+
+    /** What to keep to go on later: the path so far and [previousFrame], the last frame added at the analysis size (:191-196). */
+    fun checkpoint(previousFrame: ByteArray): StabilizationCheckpoint? = analysis()?.let { StabilizationCheckpoint(it, previousFrame, previousTime) }
+
     companion object {
+        /**
+         * The measurement [checkpoint] stopped, going on from its last frame: its path, the pose and
+         * segment of that frame and the frames tracked (:139-141). Check [StabilizationCheckpoint.resumes] first.
+         */
+        fun resuming(checkpoint: StabilizationCheckpoint): StabilizationMeasure {
+            val path = checkpoint.path
+            val last = path.samples.last()
+            return StabilizationMeasure(path.width, path.height, path.duration).apply {
+                samples.addAll(path.samples)
+                previousTime = checkpoint.timestamp
+                pose = last.pose
+                segment = last.segment
+                tracked = path.trackedFrames
+            }
+        }
+
         /**
          * The time of a frame shown at source second [presentation] in the stretch from [start]:
          * one shown before the stretch counts from its start (:153).
@@ -423,6 +445,54 @@ object EffectPreviewWindow {
     fun range(position: Double, selection: ClosedFloatingPointRange<Double>): ClosedFloatingPointRange<Double> {
         val anchor = min(selection.endInclusive, max(selection.start, position))
         return max(selection.start, anchor - 5)..min(selection.endInclusive, anchor + 5)
+    }
+
+    /** A clip of the Stabilize tool, with the second of the movie it begins at. */
+    data class Piece(val clip: TimelineClip, val start: Double)
+
+    /**
+     * What the Stabilize tool previews of [pieces], the clips it works on in the order they play: ten seconds of
+     * them joined end to end, around [anchor] (YouRec/EditorTools.swift:472-482, :731-743). [window] is in seconds
+     * of that joined sequence, and [parts] the stretch of each clip inside it.
+     */
+    data class Sample(val window: ClosedFloatingPointRange<Double>, val parts: List<Part>)
+
+    /**
+     * The part of [clip] the preview measures: [from]…[to] seconds into the clip, which begins at second [start]
+     * of the movie, showing source seconds [sourceFrom]…[sourceTo] (EffectApplication.swift:20-41).
+     */
+    data class Part(val clip: TimelineClip, val start: Double, val from: Double, val to: Double, val sourceFrom: Double, val sourceTo: Double)
+
+    /**
+     * The sample of [pieces] around the playhead at [position]: the anchor is the playhead where it is in one of
+     * them, else the nearest edge of the nearest one, counted in the clips joined end to end (EditorTools.swift:472-482).
+     * A clip outside the window is left out; a held frame is measured whole (EffectApplication.swift:34-41).
+     */
+    fun sample(pieces: List<Piece>, position: Double): Sample {
+        var offset = 0.0
+        var nearest = Double.POSITIVE_INFINITY
+        var anchor = 0.0
+        for (piece in pieces) {
+            val local = min(piece.clip.duration, max(0.0, position - piece.start))
+            val distance = abs(position - (piece.start + local))
+            if (distance < nearest) { nearest = distance; anchor = offset + local }
+            offset += piece.clip.duration
+        }
+        val window = range(anchor, 0.0..offset)
+        val parts = ArrayList<Part>()
+        var at = 0.0
+        for (piece in pieces) {
+            val clip = piece.clip
+            val from = max(0.0, window.start - at)
+            val to = min(clip.duration, window.endInclusive - at)
+            at += clip.duration
+            if (to <= from) continue
+            val (a, b) = if (clip.frozenFrame != null) 0.0 to clip.duration else from to to
+            val sourceFrom = if (clip.frozenFrame != null) clip.start else clip.sourceTime(a)
+            val sourceTo = if (clip.frozenFrame != null) clip.end else clip.sourceTime(b)
+            if (sourceTo > sourceFrom) parts += Part(clip, piece.start, a, b, sourceFrom, sourceTo)
+        }
+        return Sample(window, parts)
     }
 
     /** The length of [range] as the label says it, "10" or "0.4": a decimal only under a second, halves to even as Foundation formats (:14-17). */

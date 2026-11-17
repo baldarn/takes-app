@@ -47,6 +47,32 @@ class StabilizationEffect(
     }
 }
 
+/**
+ * A stabilised clip's picture in the export, corrected and framed in one step into the movie's frame of [canvas],
+ * as the original draws it (YouRec/VideoToolCompositor.swift:141, 158-162): the correction of the source frame, then
+ * the clip's framing, its crop and flip or the whole picture fitted, and only then cut to the frame. A clip of another
+ * shape than the frame shows the zoomed footage in what would be its bars, as the original's and as the preview's.
+ *
+ * [source] is the recording's upright size; [begins] and [rotation] as for [StabilizationEffect].
+ */
+class StabilizedFramingEffect(
+    private val clip: TimelineClip, private val begins: Double, private val plan: StabilizationPlan, private val rotation: Int,
+    private val source: FrameSize, private val canvas: FrameSize,
+) : MatrixTransformation {
+    private val matrix = android.graphics.Matrix()
+
+    override fun configure(inputWidth: Int, inputHeight: Int): androidx.media3.common.util.Size = androidx.media3.common.util.Size(canvas.width.toInt(), canvas.height.toInt())
+
+    override fun getMatrix(presentationTimeUs: Long): android.graphics.Matrix {
+        val offset = (presentationTimeUs / 1e6 - begins).coerceIn(0.0, clip.duration)
+        val frame = app.takes.core.PictureFraming.frame(clip, offset, source, canvas)
+        val correction = StabilizationFrames.correction(plan, clip, clip.sourceTime(offset), rotation)
+        // Media3 moves the corners of the picture in −1…1 coordinates, y upward, and draws what stays inside the frame.
+        matrix.setValues(correction.concatenating(frame.transform).normalized(source, canvas).matrixValues())
+        return matrix
+    }
+}
+
 object StabilizationFrames {
     /** The correction of the frame at source second [source] of [clip] in upright pixels: from its plan, timed from the reference start. */
     fun correction(plan: StabilizationPlan, clip: TimelineClip, source: Double, rotation: Int): Affine =
