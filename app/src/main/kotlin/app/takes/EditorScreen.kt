@@ -414,9 +414,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
         }
     }
+    // The length now: a Move's draft can change it without changing the clips the timeline reads.
+    val scrolledLength by rememberUpdatedState(duration)
     LaunchedEffect(clips, pixelsPerSecond) {
         snapshotFlow { scroll.value }.drop(1).collect { pixels ->
+            val duration = scrolledLength
             val time = (pixels / pixelsPerSecond).toDouble().coerceIn(0.0, duration)
+            // Picking a stop, the timeline may run past the end of the draft: the time shown goes on there, where the
+            // playhead stays at the end, as the original's (EditorView.swift:584-590).
+            picker.browse = (pixels / pixelsPerSecond).toDouble().takeIf { picker.picking && it > duration }
             // Our own scrollTo lands within half a pixel of the playhead.
             if (!editor.playing && abs(time - playhead) > 0.6 / pixelsPerSecond) {
                 playhead = time
@@ -1185,7 +1191,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         Column(Modifier.layoutId(EditorSlot.Transport)) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             // Measured after the buttons, so at a large font size the time goes on two lines rather than they shrink.
-            PlayheadTime({ playhead }, duration, Modifier.weight(1f, fill = false))
+            PlayheadTime({ picker.browse?.takeIf { picker.picking } ?: playhead }, duration, Modifier.weight(1f, fill = false))
             val tight = PaddingValues(horizontal = 6.dp)
             // As the original's transport: the bookmarks in one menu, and on either side of Play the previous and the
             // next change, which a tap takes to the nearest cut or change of treatment and a hold to the nearest change only.

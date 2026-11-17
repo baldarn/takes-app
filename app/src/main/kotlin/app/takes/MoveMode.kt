@@ -108,16 +108,22 @@ internal fun signedSeconds(seconds: Double): String {
 
 /**
  * The boundary picker of Move (EditorView.swift:288-302, :709-731): whether
- * it is on, and the stops a tap on one dashed line could mean.
+ * it is on, and the stops a tap on one dashed line could mean. Scrolling
+ * while it is on moves the playhead, paused, as the original's seek does
+ * (EditorView.swift:586-590); [browse] is the second the timeline is scrolled
+ * to past the end of the draft, where the playhead stops, and what the time
+ * says there (EditorView.swift:550, :584).
  */
 @Stable
 internal class MovePicker {
     var picking by mutableStateOf(false)
     var nearby by mutableStateOf<List<EditTime>>(emptyList())
+    var browse by mutableStateOf<Double?>(null)
 
     fun reset() {
         picking = false
         nearby = emptyList()
+        browse = null
     }
 }
 
@@ -135,7 +141,7 @@ internal fun MoveControls(
     MoveBar(
         session, picker.picking,
         previous = { session.previousStop?.let(place) }, next = { session.nextStop?.let(place) },
-        pick = { on -> if (on) pause(); picker.picking = on },
+        pick = { on -> if (on) { pause(); picker.browse = null }; picker.picking = on },
         nudge = { frames -> update(session.nudged(frames)) },
         scope = { chosen -> update(session.changingScope(chosen)) },
         cancel = { end(false) }, done = { end(true) },
