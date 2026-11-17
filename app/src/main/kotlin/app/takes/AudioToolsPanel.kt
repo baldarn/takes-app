@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -160,11 +161,12 @@ internal fun AudioToolBadges(timeline: TrackTimeline, scroll: ScrollState, pixel
             val w = with(density) { ((badge.interval.end - badge.interval.start).seconds * pixelsPerSecond).toFloat().toDp() }
             val enhance = badge.kind == AudioToolKind.Enhance
             Box(
-                Modifier.offset { IntOffset(left.roundToInt(), (row * 18).dp.roundToPx()) }.width(w).height(16.dp)
+                // As long as its region even past the width of the screen, which would otherwise cut it short.
+                Modifier.offset { IntOffset(left.roundToInt(), (row * 18).dp.roundToPx()) }.wrapContentWidth(Alignment.Start, unbounded = true).width(w).height(16.dp)
                     .background((if (enhance) EnhanceColor else CensorColor).copy(alpha = 0.85f), RoundedCornerShape(4.dp))
                     .clickable { open(badge) },
             ) {
-                Text(stringResource(if (enhance) R.string.enhance_badge else R.string.censor_badge), color = Color.Black, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(start = 4.dp))
+                Text(stringResource(if (enhance) R.string.enhance_badge else R.string.censor_badge), color = Color.Black, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 1, modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp))
             }
         }
     }
