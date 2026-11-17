@@ -31,8 +31,8 @@ In sections 1 and 2, the rows on the tabs during an import, the selected project
 
 | Status | Count |
 |---|---|
-| DONE | 166 |
-| PARTIAL | 28 |
+| DONE | 167 |
+| PARTIAL | 27 |
 | CORE ONLY | 2 |
 | MISSING | 7 |
 | N/A | 6 |
@@ -45,7 +45,7 @@ Per area:
 | 1. App shell and project list | 23 | 0 | 0 | 0 | 0 |
 | 2. Recovery and storage | 7 | 0 | 0 | 0 | 0 |
 | 3. Recorder and camera | 30 | 8 | 1 | 0 | 3 |
-| 4. Editor: timeline, playback, structure | 24 | 7 | 0 | 3 | 0 |
+| 4. Editor: timeline, playback, structure | 25 | 6 | 0 | 3 | 0 |
 | 5. Editor: picture tools | 13 | 3 | 1 | 1 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
@@ -151,7 +151,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Preview of the edit with play/pause | O/EditorView.swift:449, 565 | DONE | A/EditorScreen.kt (`togglePlay`, a tap on the picture while no tool takes its gestures) | — | | |
 | Scrolling thumbnail timeline with waveform under a fixed playhead; scrubbing pauses | O/EditorTimeline.swift:506-525 | DONE | A/EditorScreen.kt:934-1037 | — | | |
 | Timeline zoom | O/EditorTimeline.swift:577-582, 186-191 | DONE | A/EditorTimeline.kt (pinch, ruler), A/Transport.kt (`ZoomMenu`, with a step in and out), C/TimelineZoom.kt: whole project to 720 dp/s | The playhead stays in the middle at every scale, as it does in Takes; the original lets it move while the whole project fits. The pinch keeps the playhead under the middle instead of the point between the fingers, as the original's does. | | |
-| Detailed waveform at high zoom (1000 bins/s tiles) | O/WaveformDetail.swift:4-66 | PARTIAL | C/Waveform.kt:42 (50 peaks/s), A/EditorScreen.kt:1074-1088; the tiles and the peak pyramid are in C/WaveformTiles.kt | Decoding the tiles on screen and drawing them | M | Yes |
+| Detailed waveform at high zoom (1000 bins/s tiles) | O/WaveformDetail.swift:4-66, O/EditorTimeline.swift:452-499, 818-858 | DONE | C/WaveformTiles.kt (`WaveformTile`, its envelope across two tiles); A/Waveforms.kt (`WaveformDetails`: the four-second tiles decoded from the file's own sound, only those on screen, the last 64 kept, known by path, size and time of change); A/EditorTimeline.kt (`ClipStrip`): from 100 dp a second, the tiles of the screen in view and a screen to either side asked for 0.1 s after it changes, each column a dp wide drawn from its lowest to its highest sample at the square root of its level and the clip's gain, the overview's peak where a tile is not decoded yet | Drawn under the pictures, where this port draws a clip's sound; the sounds on the audio tracks have no waveform here at any zoom. The tiles are of the file as recorded, not of an Enhance audio region's processed sound | | |
 | Timecode and duration | O/EditorTimeline.swift:1052-1055 | DONE | A/EditorScreen.kt:656 | — | | |
 | Review speed 1–3× with pitch kept | O/EditorView.swift:454-465 | DONE | A/Transport.kt (`ReviewSpeed`), A/EditorPlayer.kt (`play(time, speed)`); reviews of a cut, a transition or the playhead play at 1× | — | | |
 | Double-tap play "quick review" with pre/post-roll and return; preview a cut | O/EditorView.swift:526-547, O/EditorController.swift:408-467 | DONE | A/EditorScreen.kt (`playTapped`, `quickReview`), C/ReviewWindows.kt; with a screen reader Play plays at once and the review is an action of the button | — | | |

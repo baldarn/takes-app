@@ -16,6 +16,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.positionChange
 import app.takes.core.WaveformBuilder
+import app.takes.core.WaveformTile
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import app.takes.core.EditTime
 import app.takes.core.TrackMove
 import app.takes.core.TrackEditing
@@ -106,6 +112,9 @@ private val Muted = Color(0xFFA0A4AB)
 private val TileSize = 56.dp
 private val WaveHeight = 30.dp
 private val WaveColor = Color(0xFF7DB7FF)
+
+/** From how many dp a second the waveform is drawn in detail, as the original's (YouRec/EditorTimeline.swift:453, 840). */
+private const val DETAIL_SCALE = 100f
 private val SoundColor = Color(0xFF7BD389)
 private val TrackHeight = 26.dp
 private val StripTop = 17.dp
@@ -623,6 +632,24 @@ internal fun ClipStrip(
     // The waveform is drawn a screen to either side of the one in view, so a scroll draws it again only once it has gone a screen.
     val screen by remember(offset, viewport) { derivedStateOf { floor((scroll.value - offset) / viewport.coerceAtLeast(1)).toInt() } }
     val loudness = (clip.audio?.gain ?: 1.0).toFloat()
+    // Zoomed in to 100 dp a second or more, the waveform is drawn from the four-second tiles of a thousand bins a second the
+    // timeline shows, as the original's (EditorTimeline.swift:452-499, 840-846): asked for a tenth of a second after the
+    // screen in view changes, at most 64, and drawn as they come; the overview stands in for a tile not decoded yet.
+    val detailed = !soundless && pixelsPerSecond / density.density >= DETAIL_SCALE
+    val details = remember(file) { mutableStateMapOf<Int, WaveformTile>() }
+    if (detailed) LaunchedEffect(file, clip, pixelsPerSecond, viewport, offset, width) {
+        snapshotFlow { screen }.collectLatest { at ->
+            val from = ((at - 1f) * viewport).coerceAtLeast(0f)
+            val to = minOf(width, (at + 2f) * viewport)
+            if (to <= from) return@collectLatest
+            val a = clip.sourceTime((from / pixelsPerSecond).toDouble())
+            val b = clip.sourceTime((to / pixelsPerSecond).toDouble())
+            val wanted = (WaveformTile.index(minOf(a, b))..WaveformTile.index(maxOf(a, b))).take(64)
+            details.keys.retainAll(wanted.toSet())
+            delay(100)
+            for (index in wanted) if (index !in details) WaveformDetails.tile(file, index)?.let { details[index] = it }
+        }
+    }
     Box(
         Modifier.offset { IntOffset(offset.roundToInt(), top) }.width(with(density) { width.toDp() })
             .border(if (current || outline != null) 2.dp else 1.dp, outline ?: if (current) Color.White else Color.Black)
@@ -648,6 +675,28 @@ internal fun ClipStrip(
                 // A picture whose sound was unlinked has none here: the sound is drawn on a row of its own.
                 if (soundless) return@Canvas
                 val levels = peaks ?: return@Canvas
+                if (detailed) {
+                    // A line a dp wide from the lowest sample to the highest, each the square root of its level, as the original
+                    // draws them (EditorTimeline.swift:818-858): the tile's envelope where it is decoded, the overview's peak around
+                    // the middle where it is not yet.
+                    val column = 1.dp.toPx()
+                    val half = size.height / 2
+                    val least = 0.5.dp.toPx()
+                    val color = if (loudness == 0f) Muted else WaveColor
+                    var x = ((screen - 1f) * viewport).coerceAtLeast(0f).let { (it / column).toInt() * column }
+                    val last = minOf(size.width, (screen + 2f) * viewport)
+                    while (x < last) {
+                        val from = clip.sourceTime((x / pixelsPerSecond).toDouble())
+                        val to = maxOf(from, clip.sourceTime(((x + column) / pixelsPerSecond).toDouble()))
+                        val envelope = WaveformTile.envelope({ details[it] }, from, to)
+                            ?: WaveformBuilder.level(levels, from, minOf(clip.end, to)).let { -it to it }
+                        val top = maxOf(least, sqrt((envelope.second * loudness).coerceIn(0f, 1f)) * half)
+                        val bottom = maxOf(least, sqrt((-envelope.first * loudness).coerceIn(0f, 1f)) * half)
+                        drawLine(color, Offset(x + column / 2, half - top), Offset(x + column / 2, half + bottom), column)
+                        x += column
+                    }
+                    return@Canvas
+                }
                 val step = 3.dp.toPx()
                 // Draw only the columns near the screen.
                 var x = ((screen - 1f) * viewport).coerceAtLeast(0f).let { (it / step).toInt() * step }
