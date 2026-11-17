@@ -111,6 +111,17 @@ object LiveVideoEffects {
      */
     fun serious(status: Int): Boolean = status >= 3
     fun critical(status: Int): Boolean = status >= 4
+
+    /**
+     * Whether the drawing of the looks is timed with the GPU's timer queries (`GL_EXT_disjoint_timer_query`), as the
+     * original reads the GPU's time from Metal, on the GPU named [renderer] with [extensions]; else the drawing is
+     * waited for and timed by the processor. Never on an Arm Mali: its driver dereferences a null pointer when a query
+     * is asked about after a framebuffer drawn into while it ran was deleted (a target the looks resize), and the
+     * recorder dies (a Galaxy A54's Mali-G68 at a Stop and at every start with Halation and Quantization).
+     */
+    fun timesGpu(extensions: String?, renderer: String?): Boolean =
+        extensions?.split(' ')?.contains("GL_EXT_disjoint_timer_query") == true &&
+            renderer?.contains("Mali", ignoreCase = true) == false
 }
 
 /**

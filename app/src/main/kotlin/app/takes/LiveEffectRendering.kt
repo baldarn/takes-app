@@ -159,7 +159,8 @@ internal class LiveEffectRendering(private val context: Context) {
     /**
      * The time the GPU takes to draw a frame's looks, as the original reads it from Metal (MetalEffectRenderer.gpuSeconds):
      * with the timer queries of `GL_EXT_disjoint_timer_query`, read a few frames later so that nothing waits for them.
-     * Without them, the CPU's time with the drawing waited for.
+     * Without them, and on a GPU whose driver cannot be asked about them safely ([LiveVideoEffects.timesGpu]), the
+     * CPU's time with the drawing waited for. Used on the thread whose context made the queries, which keeps it.
      */
     private class GpuTimer {
         private class Query(val id: Int, var source: Double = 0.0, var rendered: Double = 0.0, var cpu: Double = 0.0, var pending: Boolean = false)
@@ -171,8 +172,10 @@ internal class LiveEffectRendering(private val context: Context) {
         /** Starts timing a frame; false where the phone cannot. */
         fun begin(): Boolean {
             if (supported == null) {
-                supported = android.opengl.GLES20.glGetString(android.opengl.GLES20.GL_EXTENSIONS)?.contains("GL_EXT_disjoint_timer_query") == true &&
-                    EffectMatteWindow.supported()
+                supported = LiveVideoEffects.timesGpu(
+                    android.opengl.GLES20.glGetString(android.opengl.GLES20.GL_EXTENSIONS),
+                    android.opengl.GLES20.glGetString(android.opengl.GLES20.GL_RENDERER),
+                ) && EffectMatteWindow.supported()
                 if (supported == true) {
                     val ids = IntArray(6)
                     android.opengl.GLES30.glGenQueries(ids.size, ids, 0)
@@ -180,6 +183,8 @@ internal class LiveEffectRendering(private val context: Context) {
                 }
             }
             if (supported != true) return false
+            // A frame that failed while timed left its query running: it is ended and not read.
+            current?.let { android.opengl.GLES30.glEndQuery(TIME_ELAPSED); free.addLast(it); current = null }
             val query = free.removeFirstOrNull() ?: return false
             android.opengl.GLES30.glBeginQuery(TIME_ELAPSED, query.id)
             current = query
@@ -218,6 +223,18 @@ internal class LiveEffectRendering(private val context: Context) {
                 if (disjoint[0] == 0) take((value[0].toLong() and 0xffffffffL) / 1e9, query.source, query.rendered)
                 free.addLast(query)
             }
+        }
+
+        /** Deletes the queries, pending or not, unread: before the context that made them goes. */
+        fun release() {
+            if (current != null) android.opengl.GLES30.glEndQuery(TIME_ELAPSED)
+            val ids = (queries + free + listOfNotNull(current)).map { it.id }.toIntArray()
+            if (ids.isNotEmpty()) android.opengl.GLES30.glDeleteQueries(ids.size, ids, 0)
+            queries.clear()
+            free.clear()
+            current = null
+            cpuOnly = null
+            supported = null
         }
 
         private companion object {
@@ -540,6 +557,7 @@ internal class LiveEffectRendering(private val context: Context) {
     private val blit = Blit()
 
     fun release() {
+        timer.release()
         program?.release()
         program = null
         upright.release()

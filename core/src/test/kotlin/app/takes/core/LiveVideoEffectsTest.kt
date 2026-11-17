@@ -64,6 +64,17 @@ class LiveVideoEffectsTest {
         assertTrue(all.none { it.kind == VideoEffectID.Quantization })
     }
 
+    // Android's own: the GPU's timer queries where the driver offers them and reads them safely, never on a Mali.
+    @Test fun gpuTimedWithTimerQueriesExceptOnMali() {
+        val timer = "GL_OES_EGL_image GL_EXT_disjoint_timer_query GL_EXT_color_buffer_float"
+        assertTrue(LiveVideoEffects.timesGpu(timer, "Adreno (TM) 740"))
+        assertFalse(LiveVideoEffects.timesGpu(timer, "Mali-G68"))
+        assertFalse(LiveVideoEffects.timesGpu(timer, "Mali-G715"))
+        assertFalse(LiveVideoEffects.timesGpu("GL_OES_EGL_image GL_EXT_disjoint_timer_query_webgl2", "Adreno (TM) 740"))
+        assertFalse(LiveVideoEffects.timesGpu(null, "Adreno (TM) 740"))
+        assertFalse(LiveVideoEffects.timesGpu(timer, null))
+    }
+
     // Tests/VideoEffectModelTests.swift:359-402.
     @Test fun budgetLowersSizeBeforeLook() {
         val budget = VideoEffectLiveBudget()
