@@ -39,6 +39,7 @@ import app.takes.core.CapturedEffectAnalysis
 import app.takes.core.HorizonFraming
 import app.takes.core.HorizonLine
 import app.takes.core.LiveCrashZooms
+import app.takes.core.MovieClock
 import app.takes.core.EffectPalette
 import app.takes.core.EffectRGB
 import app.takes.core.LiveVideoEffects
@@ -131,6 +132,8 @@ class CameraFrames(context: Context) {
     @Volatile var looks = Looks()
     /** Where the palettes the looks show while a segment is recorded are kept, to be saved beside it (LiveVideoEffects.swift:643-646). */
     @Volatile var capturedLooks: CapturedEffectAnalysis.Recorder? = null
+    /** The clock of the movie of the segment being recorded, told how long the preview takes to draw a frame. */
+    @Volatile var clock: MovieClock? = null
     /** Android's thermal status, for the lighter processing when the phone is warm. */
     @Volatile var thermal = 0
     /** Called on the main thread when the note on the looks' quality changes, and whether the phone is warm. */
@@ -397,7 +400,10 @@ class CameraFrames(context: Context) {
                     false
                 }
                 looksShown = drewLooks
-                if (looking.recording) capture(lookTime, shown, drewLooks, crash != null && crash.zoom > 1.0001, now, wanted, surfaceTexture.timestamp, nanos, moving.origin)
+                if (looking.recording) {
+                    clock?.drawn(surfaceTexture.timestamp, nanos)
+                    capture(lookTime, shown, drewLooks, crash != null && crash.zoom > 1.0001, now, wanted, surfaceTexture.timestamp, nanos, moving.origin)
+                }
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, eglContext)) continue
@@ -616,7 +622,7 @@ class CameraFrames(context: Context) {
      * It is kept at the time the camera took the frame, [stamp], on the segment's clock from [origin], where the camera
      * stamps its frames on the clock of [SystemClock.elapsedRealtimeNanos] as [nanos], the time it is drawn, is: the
      * preview draws a frame a tenth of a second after it is taken, on a Galaxy A54. The analysis then brings the times
-     * to the movie's ([CapturedEffectAnalysis.Recorder.shift]).
+     * to the movie's ([CapturedEffectAnalysis.Recorder.shift], [MovieClock.takenLead]).
      */
     private fun capture(
         lookTime: Double, shown: List<VideoEffectSettings>, drewLooks: Boolean, pushed: Boolean, now: Double, wanted: Assists,
@@ -1068,7 +1074,10 @@ class CameraFrames(context: Context) {
                 }
                 looksShown = drewLooks
                 // The preview's canvas mirrored otherwise than the recording's: its masks are not the recording's.
-                if (looking.recording) capture(lookTime, shown, drewLooks, apart, now, Assists(), nanos, nanos, moves.origin)
+                if (looking.recording) {
+                    clock?.drawn(time, nanos)
+                    capture(lookTime, shown, drewLooks, apart, now, Assists(), time, nanos, moves.origin)
+                }
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, preview.eglContext)) continue

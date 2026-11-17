@@ -237,6 +237,36 @@ class CameraMovesTest {
         assertEquals(VideoEffectSettings.MAXIMUM_TIME, open.end, 0.0)
     }
 
+    // The moves brought from the effect clock to the movie's, as the original times a press by the frame its writer was
+    // given (LiveVideoEffects.swift:354-358): each draws the same picture so much earlier.
+    @Test fun movesAreShiftedOntoTheMoviesClock() {
+        val pressed = LiveCrashZooms().triggered(4.9857, crash(returns = true), Point(0.3, 0.6))!!
+        val released = LiveCrashZooms(listOf(crash().copy(start = 2.0, end = 10.0, releaseTime = 3.0, phaseOffset = 0.0)))
+        val carried = LiveCrashZooms(listOf(crash().copy(start = 0.0, end = 5.0, releaseTime = null, phaseOffset = 0.5)))
+        val by = 0.19
+        for (moves in listOf(pressed, released, carried)) {
+            val shifted = moves.shifted(by)
+            assertTrue(shifted.moves.all { it.valid })
+            for (t in listOf(0.0, 0.1, 1.0, 2.05, 2.5, 3.1, 4.9, 5.0, 5.1, 5.3, 7.0, 8.0)) {
+                val before = moves.look(t + by)
+                val after = shifted.look(t)
+                assertEquals("at $t", before?.zoom, after?.zoom)
+                assertEquals(before?.target, after?.target)
+            }
+        }
+        val start = pressed.shifted(by).moves.single()
+        assertEquals(4.7957, start.start, 1e-12)
+        assertEquals(pressed.moves.single().end - by, start.end, 1e-12)
+        // Under way at the movie's first frame: it starts there, the time it had run kept as its phase.
+        val under = carried.shifted(by).moves.single()
+        assertEquals(0.0, under.start, 0.0)
+        assertEquals(0.69, under.phaseOffset!!, 1e-12)
+        // One held for good keeps its end; one over before the movie's first frame is dropped.
+        assertEquals(VideoEffectSettings.MAXIMUM_TIME, LiveCrashZooms().triggered(1.0, crash(), null)!!.shifted(by).moves.single().end, 0.0)
+        assertTrue(LiveCrashZooms(listOf(crash().copy(start = 0.0, end = 0.1, phaseOffset = 0.0))).shifted(by).moves.isEmpty())
+        assertEquals(pressed, pressed.shifted(0.0))
+    }
+
     @Test fun theLookIsTheEditorsCrashZoom() {
         val moves = LiveCrashZooms().triggered(1.0, crash(), Point(0.25, 0.6))!!
         val effect = moves.moves.single()

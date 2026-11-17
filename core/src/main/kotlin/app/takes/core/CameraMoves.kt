@@ -163,6 +163,27 @@ data class LiveCrashZooms(val moves: List<VideoEffectSettings> = emptyList()) {
         },
     )
 
+    /**
+     * The moves on a clock [by] seconds behind, each drawing the same picture [by] seconds earlier: from the effect clock
+     * to the movie's ([MovieClock.drawnLead]). A move under way at the new clock's zero starts there, the time it had
+     * run kept as its phase, as [carried] keeps it; one over by then is dropped. LiveVideoEffects.swift:354-358 times
+     * the press by the frame the movie's writer was given.
+     */
+    fun shifted(by: Double): LiveCrashZooms {
+        if (by == 0.0) return this
+        return LiveCrashZooms(
+            moves.mapNotNull { effect ->
+                val end = if (effect.end == VideoEffectSettings.MAXIMUM_TIME) effect.end else effect.end - by
+                if (end <= 0.0) return@mapNotNull null
+                val start = effect.start - by
+                effect.copy(
+                    start = max(0.0, start), end = end, releaseTime = effect.releaseTime?.let { it - by },
+                    phaseOffset = if (start < 0.0) (effect.phaseOffset ?: 0.0) - start else effect.phaseOffset,
+                )
+            },
+        )
+    }
+
     /** How the picture is drawn at [time]: the magnification, the reach of its radial blur and its target. Metal:87-94, 361-366. */
     fun look(time: Double, tracked: Point? = null): CrashLook? {
         val effect = active(time) ?: return null
