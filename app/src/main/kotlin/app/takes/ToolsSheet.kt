@@ -70,7 +70,7 @@ private val Muted = Color(0xFFA0A4AB)
 private val SheetFill = Color(0xFF0F0F0F)
 
 /** The tools the sheet offers, in the original's order (YouRec/EditorTools.swift:37-62). */
-internal enum class SheetTool { AddVideo, AddAudio, Title, Image, Effects, Crop, Color, Speed, Pauses, Enhance, Censor, Subtitles }
+internal enum class SheetTool { AddVideo, AddAudio, Title, Image, Effects, Stabilize, Crop, Color, Speed, Pauses, Enhance, Censor, Subtitles }
 
 /** One tool of the sheet: whether it can be used now, and what opens it once the sheet has closed. */
 internal class SheetEntry(val enabled: Boolean, val open: () -> Unit)
@@ -99,6 +99,7 @@ private fun SheetTool.tool(): EditorTool? = when (this) {
     SheetTool.Title -> EditorTool.Text
     SheetTool.Image -> EditorTool.Image
     SheetTool.Effects -> EditorTool.VideoEffects
+    SheetTool.Stabilize -> EditorTool.Stabilize
     SheetTool.Crop -> EditorTool.Crop
     SheetTool.Color -> EditorTool.Color
     SheetTool.Speed -> EditorTool.Speed
@@ -156,7 +157,7 @@ internal fun ToolsSheet(
             }
             Section(stringResource(R.string.tools_adjust), scope)
             FitGrid(2, spacing = 10.dp) {
-                for (tool in listOf(SheetTool.Effects, SheetTool.Crop, SheetTool.Color, SheetTool.Speed, SheetTool.Pauses, SheetTool.Enhance, SheetTool.Censor, SheetTool.Subtitles)) {
+                for (tool in listOf(SheetTool.Effects, SheetTool.Stabilize, SheetTool.Crop, SheetTool.Color, SheetTool.Speed, SheetTool.Pauses, SheetTool.Enhance, SheetTool.Censor, SheetTool.Subtitles)) {
                     ToolCard(tool, entries.getValue(tool)) { action -> if (tool == SheetTool.Censor && !canCensor) censorHelp = true else choose(action) }
                 }
             }

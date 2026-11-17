@@ -412,6 +412,7 @@ object TrackClipboard {
                     crop = content.crop?.let { it.copy(id = fresh(it.id)) },
                     mirror = content.mirror?.let { it.copy(id = fresh(it.id)) },
                     pauses = content.pauses?.let { it.copy(id = fresh(it.id)) },
+                    stabilization = content.stabilization?.let { it.copy(id = it.id?.let(::fresh)) },
                     color = content.color?.let { it.copy(id = fresh(it.id)) },
                     texts = content.texts?.map { it.copy(id = fresh(it.id)) },
                     images = content.images?.map { it.copy(id = fresh(it.id)) },

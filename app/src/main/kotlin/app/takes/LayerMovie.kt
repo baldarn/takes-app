@@ -53,6 +53,9 @@ class LayerMovie(
     private val black: File, private val luts: File,
     /** The HDR transfer of each recording that is HDR ([HdrMovie.transfer]): any makes the movie HDR. */
     private val transfers: Map<String, Int> = emptyMap(),
+    /** The corrections of the stabilised clips, by clip id ([StabilizationFrames.plans]), and the clockwise turn of each recording. */
+    private val stabilization: Map<String, app.takes.core.StabilizationPlan> = emptyMap(),
+    private val rotations: Map<String, Int> = emptyMap(),
 ) : MovieRender {
     // The frame a still holds is found on the movie's grid, as the original's export finds it (LayerPlan.atFrameRate).
     private val plan = planned.atFrameRate(TransitionScene.frameRate(ceiling).toDouble())
@@ -82,6 +85,8 @@ class LayerMovie(
             LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log, clip, begins) }
             if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
             val source = size(shown.sourceID)
+            // A stabilised clip's frame is corrected before it is framed (YouRec/VideoToolCompositor.swift:158-161).
+            stabilization[clip.id]?.let { add(StabilizationEffect(clip, begins, it, rotations[shown.sourceID] ?: 0)) }
             if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, begins, source, frame))
             add(fit())
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0

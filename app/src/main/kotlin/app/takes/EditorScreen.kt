@@ -554,6 +554,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val rate: (TransitionLayout.Join) -> Double = { movie }
         rate
     }
+    // The Stabilize tool, while it is open.
+    var stabilizing by remember { mutableStateOf<Stabilizing?>(null) }
     var adding by remember { mutableStateOf(false) }
     // The add button of the timeline the panel was opened from; null for the Add video tool, which adds at the playhead.
     var addSite by remember { mutableStateOf<VideoInsertionSite?>(null) }
@@ -587,6 +589,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The color each deck shows.
     val folder = remember(project.id) { store.disk.folder(project.id) }
+    // Stabilised clips: their camera paths measured in the background, and what the Stabilize tool previews.
+    val stabilization = remember(folder) { PreviewStabilization(folder) }
+    val stabilizedClips = (layers?.pictures?.map { it.content } ?: plan.clips).filter { it.stabilization != null }
+    LaunchedEffect(stabilization, stabilizedClips) { stabilization.follow(stabilizedClips, project.sources.associateBy { it.id }) }
     // Imported fonts come from this project's copies first.
     DisposableEffect(folder) { ImportedFonts.openFolder = folder; onDispose { if (ImportedFonts.openFolder == folder) ImportedFonts.openFolder = null } }
     // The recordings in Apple Log, whose picture is decoded to display before any grade, as in the export.
@@ -618,7 +624,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
         }
     }
-    val deckFrames = shownClips.mapIndexed { deck, shown ->
+    val croppedFrames = shownClips.mapIndexed { deck, shown ->
         val size = shown?.let { sizes[it.first.sourceID] }
         val tool = cropping
         // A clip's own crop and flip: sampled at the source second when the picture is drawn, which a scrub does not compose again.
@@ -641,6 +647,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
             framing
         }
+    }
+    // A stabilised clip's frame corrected before it is framed, the frame its deck shows chosen by the decoder's time.
+    val deckFrames = croppedFrames.mapIndexed { deck, framing ->
+        val shown = shownClips.getOrNull(deck)
+        stabilization.framing(shown, shown?.let { sizes[it.first.sourceID] }, shown?.let { (clip, _) -> project.sources.firstOrNull { it.id == clip.sourceID } },
+            sent = { editor.sentFrame(deck) }, playhead = { playhead }, base = framing)
     }
     // The titles and pictures under the playhead, with the one being worked on as it is now.
     val titledEdit = titling?.applied(edit) ?: imaging?.shown(edit)
@@ -875,7 +887,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val toolWeight = when {
         moving != null -> 0f
         placementWork != null || effecting != null || cropping != null -> 1f
-        titling != null || imaging != null || transitioning != null || pausing != null || subtitling != null || coloring != null -> 1.5f
+        titling != null || imaging != null || transitioning != null || pausing != null || subtitling != null || coloring != null || stabilizing != null -> 1.5f
         pacing != null -> 1f
         else -> 0f
     } * LocalDensity.current.fontScale.coerceIn(1f, 2f)
@@ -985,6 +997,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         refusal != null -> LayersRefused(refusal)
                         else -> Box {
                             DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures, titles = deckTitles(), painter = titlePainter)
+                            StabilizationStatus(stabilization, Modifier.align(Alignment.TopStart))
                             // Past the last picture the movie is black under its sound, as it is exported.
                             if (pastPictures) Box(Modifier.matchParentSize().background(Color.Black))
                         }
@@ -1116,7 +1129,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
             }
             // A tool's preview says how much it is magnified, as the original's (EditorView.swift:1526, 1541).
-            InspectionReset(inspection, named = coloring != null || pacing != null || pausing != null || transitioning != null, Modifier.align(Alignment.BottomEnd))
+            InspectionReset(inspection, named = coloring != null || pacing != null || pausing != null || transitioning != null || stabilizing != null, Modifier.align(Alignment.BottomEnd))
             cleaningProgress?.let { CleaningProgress(it, Modifier.align(Alignment.Center)) }
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
             else {
@@ -1595,6 +1608,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 cancel = { editor.pause(); auditionEnd = null; transitioning = null },
                 modifier = Modifier.layoutId(EditorSlot.Tools),
             )
+        } else if (stabilizing != null) {
+            val work = stabilizing!!
+            // An edit made meanwhile, such as a take that arrives, ends the tool.
+            LaunchedEffect(saved) { if (work.from != saved) stabilizing = null }
+            StabilizePanel(
+                work, stabilization, project.sources.firstOrNull { it.id == work.shown.sourceID }, folder,
+                // One undo step for the whole tool; the playhead stays where it is.
+                apply = { next ->
+                    stabilizing = null
+                    val scoped = work.scope
+                    if (next != null) { if (scoped != null) applyScoped(scoped, next, playhead) else commit(next, playhead) }
+                },
+                cancel = { stabilizing = null },
+                modifier = Modifier.layoutId(EditorSlot.Tools),
+            )
         } else if (pausing != null) {
             val work = pausing!!
             // An edit made meanwhile, such as a take that arrives, ends the tool.
@@ -1815,7 +1843,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             PlacementDraft.open(timeline, found.participants, region.start)?.let { placementWork = Placing(it, found, timeline) }
                         }
                     }
-                    EditorTool.Stabilize -> Unit
+                    EditorTool.Stabilize -> if (clip != null) stabilizing = Stabilizing(
+                        saved, RangeEditing.Scoped(edit, listOf(clip.id)), null, ranged = false,
+                        shown = clip, shownStart = clipStart(edit, index), anchor = playhead.coerceIn(region.start, region.end),
+                    )
                 }
             }
             val removeRegion: (ToolRegion, String) -> Unit = { region, label ->
@@ -1954,6 +1985,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         if (clips.isNotEmpty()) imaging = Imaging.adding(over ?: newImageRange(clips, playhead, marks.range?.let { it.start..it.end }), selected.takeIf { over != null })
                     },
                     SheetTool.Effects to SheetEntry(canAdjust && scopeHasClips) { toolSubject?.let { subject -> effecting = EffectsWork.opening(edit, toolScope, subject) } },
+                    // Stabilize after the effects, as the original's tools (EditorTools.swift:61): the clips of the scope, previewed on the
+                    // one under the playhead.
+                    SheetTool.Stabilize to SheetEntry(canAdjust && scopeHasClips && located != null) {
+                        val at = located
+                        val shown = clips.indexOfFirst { it.id == toolSubject?.id }.takeIf { it >= 0 } ?: at
+                        if (shown != null) stabilizing = Stabilizing(
+                            saved, toolScope, toolScopeLabel, ranged = marks.scope is EditScope.Range,
+                            shown = clips[shown], shownStart = clipStart(edit, shown), anchor = playhead,
+                        )
+                    },
                     // The picture shown while framing is the clip under the playhead: of a scope, one of its clips.
                     SheetTool.Crop to SheetEntry(canAdjust && scopeFramed) {
                         val subject = toolSubject

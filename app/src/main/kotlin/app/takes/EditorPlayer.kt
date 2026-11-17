@@ -56,6 +56,31 @@ internal class EditorPlayer(private val context: Context) {
         }
     }
     val decks: List<ExoPlayer> = lanes.subList(0, RenderPlan.DECKS)
+
+    // The time of the frame each lane last sent to its view, as the decoder stamped it, and a count that changes with it.
+    private val sentFrames = List(lanes.size) { java.util.concurrent.atomic.AtomicLong(C.TIME_UNSET) }
+    private val sentCount = java.util.concurrent.atomic.AtomicInteger()
+    private val frameSent = androidx.compose.runtime.mutableIntStateOf(0)
+
+    init {
+        lanes.forEachIndexed { lane, player ->
+            // Called on the playback thread as a frame goes to the view: the frame the view shows next.
+            player.setVideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+                sentFrames[lane].set(presentationTimeUs)
+                frameSent.intValue = sentCount.incrementAndGet()
+            }
+        }
+    }
+
+    /**
+     * The source second of the frame [lane] last sent to its view, the one it shows: what a stabilised clip's
+     * correction is chosen by, frame by frame, where the playhead is only near it. Reading it in a drawing draws
+     * again with each frame.
+     */
+    fun sentFrame(lane: Int): Double? {
+        frameSent.intValue
+        return sentFrames.getOrNull(lane)?.get()?.takeIf { it != C.TIME_UNSET }?.let { it / 1e6 }
+    }
     private val sources = DefaultMediaSourceFactory(context)
 
     /**

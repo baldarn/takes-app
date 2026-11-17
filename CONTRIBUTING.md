@@ -18,7 +18,7 @@ You need:
 - JDK 17;
 - the Android SDK with platform 36 (`compileSdk` 36; the app runs on Android 8, API 26, or
   newer);
-- the NDK 29.0.14206865 and CMake 3.22.1, for the `rnnoise` and `deepfilter` modules.
+- the NDK 29.0.14206865 and CMake 3.22.1, for the `rnnoise`, `deepfilter` and `stabilization` modules.
 
 Install the SDK parts from Android Studio's SDK Manager, or with
 `sdkmanager "platforms;android-36" "ndk;29.0.14206865" "cmake;3.22.1"`. Gradle finds the
@@ -56,18 +56,19 @@ work with `debug`; nothing in a pull request needs the key.
     ./gradlew :rnnoise:testDebugUnitTest     # the C library, built for your computer
     ./gradlew :speech:testDebugUnitTest      # model download and recognizer
     ./gradlew :deepfilter:testDebugUnitTest  # DeepFilterNet3 noise reduction, the real network
+    ./gradlew :stabilization:testDebugUnitTest  # the original's motion estimator, built for your computer
     ./gradlew :app:lintDebug                 # Android lint
 
 Before a pull request, run what the maintainer and the CI run:
 
-    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :app:lintDebug :app:assembleDebug
+    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
 - `core` holds nearly all the tests. They pin numbers taken from the original: its own
   test cases and the arithmetic of its source. A test says where its numbers come from
   in a comment, as a path in the original's repository with lines, for example
   `// Tests/TransitionTests.swift:14-16` or `YouRec/Transitions.swift:39-164`. New core
   tests do the same.
-- The `rnnoise`, `speech` and `deepfilter` tests run native code on your computer, so they
+- The `rnnoise`, `speech`, `deepfilter` and `stabilization` tests run native code on your computer, so they
   need a C and C++ compiler and are set up for Linux and macOS. The speech tests that recognize real
   recordings are skipped unless you pass a folder for their models; see
   [`speech/README.md`](speech/README.md).
@@ -104,6 +105,8 @@ Before a pull request, run what the maintainer and the CI run:
 - `speech/` — Whisper through sherpa-onnx, and the verified download of its model.
 - `deepfilter/` — DeepFilterNet3 noise reduction run by ONNX Runtime, with its weights
   fetched and checked when the app is built.
+- `stabilization/` — the original's motion estimator for the Stabilize tool, its C++ built
+  with the NDK, with a small Kotlin API.
 - `docs/` — `PARITY.md` (what the original does and where the port stands),
   `TRACKS-PLAN.md` (the move to the original's track timeline, in stages), the reviews
   of the recorder, the transitions and the subtitles against the original, and research

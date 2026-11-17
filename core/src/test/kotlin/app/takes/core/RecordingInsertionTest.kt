@@ -420,7 +420,7 @@ class RecordingInsertionTest {
         assertEquals(10, LegacyProject.addRecording(plain.beginRecordingInsertion(10.0), b, 0).schemaVersion)
         // Now the step is a timeline, as every edit step is.
         assertEquals(TrackTimeline.SCHEMA, plain.beginRecordingInsertion(10.0).addRecording(b).schemaVersion)
-        assertEquals(23, Project.LATEST_READABLE_SCHEMA) // subtitles, title designs, the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23)
+        assertEquals(24, Project.LATEST_READABLE_SCHEMA) // subtitles, title designs, the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23), then stabilisation (24)
     }
 
     @Test fun aProjectWithoutInsertionsIsSavedAsBefore() {

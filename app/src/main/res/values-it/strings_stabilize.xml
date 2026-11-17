@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Stabilize tool (YouRec/EditorTools.swift:1286-1310, YouRec/StabilizationPath.swift:4-15). -->
+<resources>
+    <string name="stabilize_title">Stabilizza</string>
+    <string name="stabilize_window">Anteprima di %1$s s</string>
+    <string name="stabilize_apply_changes">Applica modifiche</string>
+    <string name="stabilize_done">Fine</string>
+    <string name="stabilize_before">Prima</string>
+    <string name="stabilize_after">Dopo</string>
+    <string name="stabilize_applied">Applicata</string>
+    <string name="stabilize_applying">Stabilizzazione in corso · %1$d%%</string>
+    <string name="stabilize_off">No</string>
+    <string name="stabilize_light">Leggera</string>
+    <string name="stabilize_standard">Standard</string>
+    <string name="stabilize_strong">Forte</string>
+    <string name="stabilize_off_detail">Mantiene il movimento originale della videocamera.</string>
+    <string name="stabilize_light_detail">Attenua i piccoli tremolii. Mantiene più inquadratura.</string>
+    <string name="stabilize_standard_detail">Rende fluido il movimento a mano libera con un ritaglio equilibrato.</string>
+    <string name="stabilize_strong_detail">Movimento più stabile con un ritaglio più stretto.</string>
+    <string name="stabilize_tracking_warning">Alcuni fotogrammi di questa anteprima non sono stati seguiti in modo affidabile.</string>
+    <string name="stabilize_preparing">Preparazione dell\'anteprima di %1$s s</string>
+    <string name="stabilize_progress">Avanzamento dell\'anteprima della stabilizzazione</string>
+    <string name="stabilize_stop">Ferma</string>
+    <string name="stabilize_resume">Anteprima della stabilizzazione</string>
+    <string name="stabilize_failed">Non è stato possibile misurare il movimento di questa clip.</string>
+    <string name="stabilize_retry">Riprova</string>
+    <string name="stabilize_original_framing">Inquadratura originale</string>
+    <string name="stabilize_crop_zoom">Zoom di ritaglio %1$s× · Audio invariato</string>
+    <string name="stabilize_range_edges">L\'inquadratura può cambiare ai bordi di questa selezione.</string>
+</resources>

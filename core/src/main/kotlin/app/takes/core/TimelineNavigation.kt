@@ -172,7 +172,7 @@ class TimelineNavigation private constructor(
          * audio tracks, and every join with a transition. A clip's start or
          * end strictly inside one of its own transitions is not a cut: the
          * join stands for it. Treatments, each over the stretch it applies to:
-         *  - a clip's crop, its speed when not 1, its color when it has a look
+         *  - a clip's crop, its speed when not 1, its stabilisation when not Off, its color when it has a look
          *    with an amount above zero, its pauses taken out, and a cut where
          *    each pause was;
          *  - each title with text, over the part of it the clip shows;
@@ -206,6 +206,9 @@ class TimelineNavigation private constructor(
                 builder.cut(start, borrowed).cut(end, borrowed)
                 clip.crop?.let { builder.change(recipe("crop", CropSettings.serializer(), it), start, end) }
                 clip.speed?.takeIf { it.rate != 1.0 }?.let { builder.change(recipe("speed", SpeedSettings.serializer(), it), start, end) }
+                // Stabilisation over the clip, without the reference range a split keeps (TimelineNavigation.swift:99).
+                clip.stabilization?.takeIf { it.level != StabilizationLevel.Off }
+                    ?.let { builder.change(recipe("stabilize", StabilizationSettings.serializer(), it, setOf("referenceStart", "referenceEnd")), start, end) }
                 // Pauses taken out: the settings over the clip, and a cut where each one was (TimelineNavigation.swift:85-88, :100).
                 clip.pauses?.let { builder.change(recipe("pauses", PauseSettings.serializer(), it, setOf("cuts", "candidates", "analyzed")), start, end) }
                 if (clip.paused) for (piece in PicturePlayback.pieces(clip.playbackSpans).drop(1)) builder.cut(start + piece.from, borrowed)

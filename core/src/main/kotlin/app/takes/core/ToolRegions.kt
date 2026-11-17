@@ -119,6 +119,8 @@ object ToolRegions {
             clip.crop?.let { add(EditorTool.Crop, it.id, whole, ToolRegionLabel.Framing(it.zoom, it.rotation)) }
             clip.speed?.let { add(EditorTool.Speed, it.id, whole, ToolRegionLabel.Rate(it.rate)) }
             clip.color?.let { add(EditorTool.Color, it.id, whole, ToolRegionLabel.Grade(it)) }
+            // Under its effect id, else the clip's, as the original names an unnamed one (VideoTools.swift:590).
+            clip.stabilization?.takeIf { it.level != StabilizationLevel.Off }?.let { add(EditorTool.Stabilize, it.id ?: clip.id, whole, ToolRegionLabel.Tool) }
             clip.pauses?.let { add(EditorTool.Pauses, it.id, whole, ToolRegionLabel.Tool) }
             for (text in clip.texts.orEmpty()) part(text.start, text.end)?.let { add(EditorTool.Text, text.id, it, ToolRegionLabel.Text(text.text)) }
         }
@@ -212,7 +214,7 @@ object ToolRegions {
             EditorTool.Color -> recipe { if (it.color?.id == region.effectID) it.copy(color = null) else it }
             EditorTool.Crop -> recipe { if (it.crop?.id == region.effectID) it.copy(crop = null) else it }
             EditorTool.Mirror -> recipe { if (it.mirror?.id == region.effectID) it.copy(mirror = null) else it }
-            EditorTool.Stabilize -> null
+            EditorTool.Stabilize -> recipe { if ((it.stabilization?.id ?: it.id) == region.effectID) it.copy(stabilization = null) else it }
         }
     }
 

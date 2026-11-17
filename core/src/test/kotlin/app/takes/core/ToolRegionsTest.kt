@@ -75,6 +75,23 @@ class ToolRegionsTest {
         assertNull(ToolRegions.removing(split, first.copy(effectID = "other")))
     }
 
+    // YouRec/VideoTools.swift:590, 545: a stabilised clip is a region over the whole clip under its effect id, else the
+    // clip's; Off is none; removing it takes the setting away from its own piece.
+    @Test fun aStabilisedClipIsARegion() {
+        val strong = TimelineEditing.setStabilization(EditState(listOf(a, b)), 1, StabilizationLevel.Strong, id = "steady")!!
+        val region = ToolRegions.of(strong).single { it.tool == EditorTool.Stabilize }
+        assertEquals("steady", region.effectID)
+        assertEquals(4.0 to 10.0, region.start to region.end)
+        assertEquals(ToolRegionLabel.Tool, region.label)
+        val unnamed = EditState(listOf(a, b.copy(stabilization = StabilizationSettings(StabilizationLevel.Light))))
+        assertEquals("b", ToolRegions.of(unnamed).single { it.tool == EditorTool.Stabilize }.effectID)
+        assertTrue(ToolRegions.of(EditState(listOf(b.copy(stabilization = StabilizationSettings(StabilizationLevel.Off))))).none { it.tool == EditorTool.Stabilize })
+        val split = TimelineEditing.split(strong, 7.0)!!
+        val first = ToolRegions.of(split).first { it.tool == EditorTool.Stabilize }
+        assertEquals(listOf(null, StabilizationLevel.Strong), ToolRegions.removing(split, first)!!.clips.drop(1).map { it.stabilization?.level })
+        assertNull(ToolRegions.removing(unnamed, ToolRegions.of(unnamed).single { it.tool == EditorTool.Stabilize })!!.clips[1].stabilization)
+    }
+
     // YouRec/VideoTools.swift:597-602, 512-518: a sound's level and fades are one region; removing it puts the sound back
     // at 0 dB, unmuted and without fades.
     @Test fun aSoundsLevelIsARegionAndRemovingItResetsIt() {

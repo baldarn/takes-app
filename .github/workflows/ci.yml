@@ -27,7 +27,7 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # The runner image has an Android SDK. The rnnoise module needs this NDK, and its host
+      # The runner image has an Android SDK. The native modules need this NDK, and their host
       # tests call the SDK's CMake 3.22.1 directly, before the Android Gradle plugin would fetch it.
       - name: Install the NDK and CMake
         run: |
@@ -60,7 +60,7 @@ jobs:
 
       # No keystore here: only the debug build is assembled, which needs none.
       - name: Test, lint and build
-        run: ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
       - name: Keep the reports of a failed run
         if: failure()

@@ -38,7 +38,16 @@ data class PictureFrame(
     val fraction: Double?,
     /** The flips in [transform], after the framing. */
     val mirror: MirrorSettings? = null,
+    /**
+     * A stabilised clip's correction of this frame, in upright source pixels, applied before
+     * [transform] as the original applies it before the framing (YouRec/VideoToolCompositor.swift:158-161).
+     * Only [layer] reads it.
+     */
+    val stabilization: Affine? = null,
 ) {
+    /** This frame of a picture corrected by [correction] before it is framed. */
+    fun stabilized(correction: Affine): PictureFrame = copy(stabilization = correction)
+
     /**
      * The same picture as a view that fits the whole source inside a box the
      * size of [canvas] shows it once enlarged, turned, flipped and moved by
@@ -48,6 +57,7 @@ data class PictureFrame(
      */
     val layer: ViewLayer
         get() {
+            stabilization?.let { return ViewLayer.of(source, canvas, it.concatenating(transform)) }
             val fitted = minOf(canvas.width / source.width, canvas.height / source.height)
             val enlarge = if (fitted > 0) scale / fitted else 1.0
             val middle = Point(source.width / 2, source.height / 2).applying(transform)
@@ -75,7 +85,25 @@ data class PictureFrame(
 }
 
 /** A graphics layer's scale, clockwise turn in degrees and move, in the pixels of the view; see [PictureFrame.layer]. */
-data class ViewLayer(val scaleX: Double, val scaleY: Double, val rotation: Double, val translationX: Double, val translationY: Double)
+data class ViewLayer(val scaleX: Double, val scaleY: Double, val rotation: Double, val translationX: Double, val translationY: Double) {
+    companion object {
+        /**
+         * The layer that shows a view fitting the whole [source] inside a box the size of
+         * [canvas] as [target] draws it: any transform that scales, turns, flips and moves the
+         * picture without shearing it. The layer scales, then turns, then moves, about the
+         * middle of the box.
+         */
+        fun of(source: Size, canvas: Size, target: Affine): ViewLayer {
+            val layer = PictureFraming.fit(source, canvas).inverted().concatenating(target)
+            val scaleX = kotlin.math.hypot(layer.a, layer.b)
+            val radians = kotlin.math.atan2(layer.b, layer.a)
+            val scaleY = -layer.c * sin(radians) + layer.d * cos(radians)
+            val middle = Point(canvas.width / 2, canvas.height / 2)
+            val moved = middle.applying(layer)
+            return ViewLayer(scaleX, scaleY, radians * 180 / Math.PI, moved.x - middle.x, moved.y - middle.y)
+        }
+    }
+}
 
 object PictureFraming {
     /**

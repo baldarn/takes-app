@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Stabilize tool (YouRec/EditorTools.swift:1286-1310, YouRec/StabilizationPath.swift:4-15). -->
+<resources>
+    <string name="stabilize_title">Stabilize</string>
+    <string name="stabilize_window">%1$s s preview</string>
+    <string name="stabilize_apply_changes">Apply changes</string>
+    <string name="stabilize_done">Done</string>
+    <string name="stabilize_before">Before</string>
+    <string name="stabilize_after">After</string>
+    <string name="stabilize_applied">Applied</string>
+    <string name="stabilize_applying">Applying stabilization · %1$d%%</string>
+    <string name="stabilize_off">Off</string>
+    <string name="stabilize_light">Light</string>
+    <string name="stabilize_standard">Standard</string>
+    <string name="stabilize_strong">Strong</string>
+    <string name="stabilize_off_detail">Keep the original camera movement.</string>
+    <string name="stabilize_light_detail">Soften small shakes. Keep more of the frame.</string>
+    <string name="stabilize_standard_detail">Smooth handheld movement with a balanced crop.</string>
+    <string name="stabilize_strong_detail">Steadier movement with a tighter crop.</string>
+    <string name="stabilize_tracking_warning">Some frames in this preview could not be tracked reliably.</string>
+    <string name="stabilize_preparing">Preparing %1$s s preview</string>
+    <string name="stabilize_progress">Stabilization preview progress</string>
+    <string name="stabilize_stop">Stop</string>
+    <string name="stabilize_resume">Preview stabilization</string>
+    <string name="stabilize_failed">The motion of this clip could not be measured.</string>
+    <string name="stabilize_retry">Retry</string>
+    <string name="stabilize_original_framing">Original framing</string>
+    <string name="stabilize_crop_zoom">Crop zoom %1$s× · Audio unchanged</string>
+    <string name="stabilize_range_edges">Framing can change at the edges of this selection.</string>
+</resources>

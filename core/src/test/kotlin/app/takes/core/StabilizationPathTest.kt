@@ -14,9 +14,10 @@ import kotlin.math.sin
 /**
  * The stabilisation path. Tests marked TRANSLATED carry over the iPhone app's
  * stabilizationTests (Tests/StabilizationTests.swift:4-55) against
- * YouRec/StabilizationPath.swift:4-196. Its persistence, split and media
- * checks (lines 57-156) need the saved model and the renderer, which hold no
- * stabilisation yet; the reference range they rely on is tested here alone.
+ * YouRec/StabilizationPath.swift:4-196. Its persistence and split checks
+ * (lines 63-75) are in StabilizationClipTest; its media checks (lines 77-156)
+ * need real footage and the renderer, and are made on a device
+ * (docs/STABILIZATION-PROBE.md).
  */
 class StabilizationPathTest {
     private val frames = 240

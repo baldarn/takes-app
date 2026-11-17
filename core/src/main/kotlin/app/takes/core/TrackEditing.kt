@@ -485,6 +485,7 @@ object TrackEditing {
                 crop = original.crop?.let { it.copy(id = fresh(it.id)) },
                 mirror = original.mirror?.let { it.copy(id = fresh(it.id)) },
                 pauses = original.pauses?.let { it.copy(id = fresh(it.id)) },
+                stabilization = original.stabilization?.let { it.copy(id = it.id?.let(::fresh)) },
                 texts = original.texts?.map { it.copy(id = fresh(it.id)) },
                 images = original.images?.map { it.copy(id = fresh(it.id)) },
                 bookmarks = original.bookmarks?.map { it.copy(id = newID()) },

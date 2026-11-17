@@ -67,4 +67,9 @@
         android:name="app.takes.sound.SoundItemExportRunner"
         android:label="Sound items cut partway, exported"
         android:targetPackage="app.takes.dev" />
+    <!-- Stabilisation of a recording, measured, planned and exported: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.effects.StabilizationRunner -->
+    <instrumentation
+        android:name="app.takes.effects.StabilizationRunner"
+        android:label="Stabilisation"
+        android:targetPackage="app.takes.dev" />
 </manifest>

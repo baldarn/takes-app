@@ -76,6 +76,7 @@ dependencies {
     implementation(project(":rnnoise"))
     implementation(project(":speech"))
     implementation(project(":deepfilter"))
+    implementation(project(":stabilization"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

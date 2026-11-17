@@ -264,6 +264,12 @@ data class TimelineClip(
      * Their files are in the project's folder. Null when the clip has none.
      */
     val images: List<ImageOverlay>? = null,
+    /**
+     * The clip's video stabilisation, as the original saves it (YouRec/Project.swift:47-48,
+     * YouRec/StabilizationPath.swift:24-32). Null plays the footage as it was shot; the original
+     * removes the setting rather than keep Off (YouRec/EditorTools.swift:711).
+     */
+    val stabilization: StabilizationSettings? = null,
 ) {
     /** How fast the clip plays by its own speed setting: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
@@ -307,6 +313,8 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        // Readers before 24 would show the footage unstabilised.
+        stabilization != null -> STABILIZATION_SCHEMA
         // Readers before 23 would leave the pictures out.
         !images.isNullOrEmpty() -> IMAGES_SCHEMA
         // Readers before 22 would play the pauses the clip has taken out.
@@ -339,6 +347,8 @@ data class TimelineClip(
         const val PAUSES_SCHEMA = 22
         /** Readers before it would leave out the pictures laid over a clip. */
         const val IMAGES_SCHEMA = 23
+        /** Readers before it would show a stabilised clip as it was shot. */
+        const val STABILIZATION_SCHEMA = 24
     }
 }
 
@@ -465,7 +475,7 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
      */
     val schema: Int get() = maxOf(
         if (state.layered != null) TrackTimeline.LAYERED_SCHEMA else TrackTimeline.SCHEMA,
-        // A held frame or a time effect ([TimelineClip.TIME_EFFECTS_SCHEMA]), a mirror ([TimelineClip.MIRROR_SCHEMA]) or pauses ([TimelineClip.PAUSES_SCHEMA]) on a clip.
+        // A held frame or a time effect ([TimelineClip.TIME_EFFECTS_SCHEMA]), a mirror ([TimelineClip.MIRROR_SCHEMA]), pauses ([TimelineClip.PAUSES_SCHEMA]) or stabilisation ([TimelineClip.STABILIZATION_SCHEMA]) on a clip.
         (timeline?.video?.map { it.content } ?: state.clips).maxOfOrNull { it.schema } ?: 0,
         if (state.outputSize != null) EditState.OUTPUT_SIZE_SCHEMA else 0,
     )
@@ -838,6 +848,7 @@ data class Project(
                 val images = clip.images.orEmpty()
                 if (images.map { it.id }.toSet().size != images.size) invalid()
                 if (images.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
+                clip.stabilization?.let { if (!it.valid(source.duration)) invalid() }
             }
             snapshot.checked = sources to captureLedger
         }
@@ -852,7 +863,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = TimelineClip.IMAGES_SCHEMA
+        const val LATEST_READABLE_SCHEMA = TimelineClip.STABILIZATION_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

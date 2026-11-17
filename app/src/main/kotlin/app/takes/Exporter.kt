@@ -543,6 +543,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
 
         val sound = prepareSound(project, files)
         preparePeople(project, files)
+        // The camera path of every stabilised clip, measured now where the editor has not yet (YouRec/MediaRenderer.swift:303-311).
+        val stabilized = StabilizationFrames.plans(asked.clips, project.sources.associateBy { it.id }, folder) { report(ExportProgress.of(ExportProgress.Step.Timeline, it)) }
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
         // The movie lasts as long as its longest item, as in the original: past the last clip it goes on in black under the sound.
         val duration = sound.duration(asked.duration, store.soundLength(project))
@@ -556,6 +558,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 black = blackStill(context), luts = folder,
                 media = project.sources.associateBy { it.id },
                 transfers = transfers,
+                stabilization = stabilized,
+                rotations = used.filter { id -> plan.clips.any { it.sourceID == id && it.id in stabilized } }.associateWith { PersonMasks.rotation(files.getValue(it)) },
             )
         }
         orSdr(used.associateWith { files.getValue(it) }, duration, checkpoint, { withContext(Dispatchers.IO) { movie(it) } }) {
@@ -637,6 +641,9 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
         }
         val sound = prepareSound(project, files)
         preparePeople(project, files)
+        val stabilized = StabilizationFrames.plans(plan.pictures.map { it.content }, project.sources.associateBy { it.id }, folder) {
+            report(ExportProgress.of(ExportProgress.Step.Timeline, it))
+        }
         report(ExportProgress.of(ExportProgress.Step.Timeline, 1.0))
         val duration = sound.duration(plan.duration)
         val used = plan.pictures.map { it.sourceID }.distinct()
@@ -647,6 +654,8 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                 rates = used.associateWith { files[it]?.let(::frameRate) },
                 black = blackStill(context), luts = folder,
                 transfers = transfers,
+                stabilization = stabilized,
+                rotations = used.filter { id -> plan.pictures.any { it.sourceID == id && it.content.id in stabilized } }.associateWith { PersonMasks.rotation(files.getValue(it)) },
             )
         }
         orSdr(used.associateWith { files.getValue(it) }, duration, checkpoint, { withContext(Dispatchers.IO) { movie(it) } }) {

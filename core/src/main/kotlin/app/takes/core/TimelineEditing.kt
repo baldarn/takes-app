@@ -1069,6 +1069,19 @@ object TimelineEditing {
         return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(mirror = next) })
     }
 
+    /**
+     * Stabilises the clip at [index] at [level], as the Stabilize tool applies it to each
+     * clip of its scope (YouRec/EditorTools.swift:710-712): Off takes the setting away, any
+     * other level keeps the clip's reference range and gets [id], the effect's. Null when
+     * nothing changes.
+     */
+    fun setStabilization(state: EditState, index: Int, level: StabilizationLevel, id: String? = null): EditState? {
+        val clip = state.clips.getOrNull(index) ?: return null
+        val next = if (level == StabilizationLevel.Off) null else clip.stabilizing(level).copy(id = id ?: clip.stabilization?.id ?: newID())
+        if (next == clip.stabilization) return null
+        return recipes(state, state.clips.toMutableList().also { it[index] = clip.copy(stabilization = next) })
+    }
+
     // MARK: Speed
 
     /**

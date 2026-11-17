@@ -1,5 +1,7 @@
 package app.takes.core
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
@@ -16,6 +18,7 @@ import kotlin.math.sin
  * does it in plain C++, `YouRec/StabilizationMotion.cpp`); this is what turns
  * it into a transform per frame.
  */
+@Serializable
 enum class StabilizationLevel(
     /** Seconds of the Gaussian that smooths the camera's path. */
     val sigma: Double,
@@ -23,10 +26,10 @@ enum class StabilizationLevel(
     val maximumZoom: Double,
     val detail: String,
 ) {
-    Off(0.0, 1.0, "Keep the original camera movement."),
-    Light(0.12, 1.045, "Soften small shakes. Keep more of the frame."),
-    Standard(0.28, 1.10, "Smooth handheld movement with a balanced crop."),
-    Strong(0.5, 1.18, "Steadier movement with a tighter crop."),
+    @SerialName("off") Off(0.0, 1.0, "Keep the original camera movement."),
+    @SerialName("light") Light(0.12, 1.045, "Soften small shakes. Keep more of the frame."),
+    @SerialName("standard") Standard(0.28, 1.10, "Smooth handheld movement with a balanced crop."),
+    @SerialName("strong") Strong(0.5, 1.18, "Steadier movement with a tighter crop."),
     ;
 
     /** The original's raw value, as saved. */
@@ -36,8 +39,10 @@ enum class StabilizationLevel(
 /**
  * A clip's stabilisation. The reference range is the analysed range of the
  * take, kept through splits and ripple cuts so the pieces share one path and
- * one crop, with no new analysis and no jump in framing.
+ * one crop, with no new analysis and no jump in framing. Saved as the
+ * original saves it (YouRec/StabilizationPath.swift:24-32).
  */
+@Serializable
 data class StabilizationSettings(
     val level: StabilizationLevel,
     val version: Int = 1,
@@ -45,7 +50,19 @@ data class StabilizationSettings(
     val referenceStart: Double? = null,
     val referenceEnd: Double? = null,
 ) {
+    /** Whether a project may hold it, on a recording of [sourceDuration] seconds (YouRec/Project.swift:513-517). */
+    fun valid(sourceDuration: Double): Boolean {
+        if (version != 1) return false
+        val start = referenceStart
+        val end = referenceEnd
+        if (start == null || end == null) return start == null && end == null
+        return start.isFinite() && end.isFinite() && start >= 0 && end > start && end <= sourceDuration + 0.001
+    }
+
     companion object {
+        /** The version of the settings this port reads and writes, as the original's (YouRec/VideoStabilizer.swift:90). */
+        const val VERSION = 1
+
         /** The start of the range to analyse for a clip from [start] to [end] with [current] settings. */
         fun rangeStart(start: Double, current: StabilizationSettings?): Double = min(start, current?.referenceStart ?: start)
 
@@ -57,7 +74,17 @@ data class StabilizationSettings(
     }
 }
 
+/** The start of the range a clip's stabilisation is measured over: its own, or the reference it keeps from before a split or a trim (YouRec/StabilizationPath.swift:35). */
+val TimelineClip.stabilizationStart: Double get() = StabilizationSettings.rangeStart(start, stabilization)
+
+/** The end of that range (:36). */
+val TimelineClip.stabilizationEnd: Double get() = StabilizationSettings.rangeEnd(end, stabilization)
+
+/** The settings the clip gets for [level], keeping its reference range (:37-39). */
+fun TimelineClip.stabilizing(level: StabilizationLevel): StabilizationSettings = StabilizationSettings.stabilizing(level, start, end, stabilization)
+
 /** A similarity about the centre of the encoded (unrotated) frame. */
+@Serializable
 data class StabilizationPose(val x: Double = 0.0, val y: Double = 0.0, val angle: Double = 0.0, val logScale: Double = 0.0) {
     val scale: Double get() = exp(logScale)
 
@@ -109,8 +136,15 @@ data class StabilizationPose(val x: Double = 0.0, val y: Double = 0.0, val angle
 }
 
 /** The camera's pose at a time of the source; a new [segment] starts at a cut or a tracking reset. */
+@Serializable
 data class StabilizationSample(val time: Double, val pose: StabilizationPose, val segment: Int)
 
+/**
+ * The measured camera path of a stretch of a recording: its encoded (unrotated) size, the
+ * stretch's length, and a pose for every source frame in it, timed from the stretch's start.
+ * Kept in the project's cache as the original keeps it (YouRec/VideoStabilizer.swift:36-49).
+ */
+@Serializable
 data class StabilizationAnalysis(
     val width: Int,
     val height: Int,
@@ -127,7 +161,19 @@ data class StabilizationAnalysis(
 
     companion object {
         const val VERSION = "yourec-stabilization-2"
+
+        /**
+         * The name of the cached analysis of the stretch [start]…[end] of the recording named by
+         * [fingerprint]: the hash of the analysis version, the recording and the stretch, as the
+         * original names it (YouRec/VideoStabilizer.swift:33-35).
+         */
+        fun key(fingerprint: String, start: Double, end: Double): String = sha256("$VERSION|$fingerprint|$start|$end".toByteArray())
+
+        fun decode(data: ByteArray): StabilizationAnalysis? =
+            runCatching { documentJson.decodeFromString(serializer(), data.decodeToString()) }.getOrNull()
     }
+
+    fun encoded(): ByteArray = documentJson.encodeToString(serializer(), this).toByteArray()
 }
 
 data class StabilizationPlan(
@@ -155,6 +201,107 @@ data class StabilizationPlan(
             if (samples[middle].time <= time + 0.000001) low = middle + 1 else high = middle
         }
         return samples[max(0, low - 1)].pose.transform(size, zoom)
+    }
+
+    /**
+     * [transform] for the picture turned upright by [rotation] clockwise degrees (0, 90, 180
+     * or 270), as the port's renderers receive it: the original corrects the encoded frame
+     * before its orientation is applied (YouRec/VideoToolCompositor.swift:158-161), which is
+     * this correction carried through the turn. Upright pixels, top-left origin.
+     */
+    fun uprightTransform(time: Double, rotation: Int): Affine {
+        val correction = transform(time)
+        val turn = upright(rotation)
+        return if (turn == Affine.IDENTITY) correction else turn.inverted().concatenating(correction).concatenating(turn)
+    }
+
+    /** Encoded pixels to upright pixels for a picture of [size] turned by [rotation] clockwise degrees. */
+    fun upright(rotation: Int): Affine = when (((rotation % 360) + 360) % 360) {
+        90 -> Affine(0.0, 1.0, -1.0, 0.0, size.height, 0.0)
+        180 -> Affine(-1.0, 0.0, 0.0, -1.0, size.width, size.height)
+        270 -> Affine(0.0, -1.0, 1.0, 0.0, 0.0, size.width)
+        else -> Affine.IDENTITY
+    }
+
+    /**
+     * The plan of a sample that starts [offset] seconds after the clip's reference start, timed
+     * from that start: the tool's preview measures only a window around the playhead and its
+     * corrections keep the clip's clock (YouRec/VideoStabilizer.swift:98-110).
+     */
+    fun shifted(offset: Double): StabilizationPlan = copy(samples = samples.map { it.copy(time = it.time + offset) })
+}
+
+/**
+ * The camera path being measured, frame by frame, as the original's `measure` builds it
+ * (YouRec/VideoStabilizer.swift:119-206): the motion between consecutive frames, scaled from
+ * the analysis size to the encoded size, is chained into a pose for each frame; a frame that
+ * cannot be tracked, comes more than 0.15 s after the one before, or would make the pose
+ * invalid starts a new segment from the identity.
+ *
+ * [width] × [height] is the encoded size of the recording, [duration] the length of the stretch
+ * measured. A frame is first offered with [accepts], at its time from the stretch's start; only
+ * an accepted frame is compared with the previous one and given to [add].
+ */
+class StabilizationMeasure(val width: Int, val height: Int, val duration: Double) {
+    /** The size frames are compared at: the longer side at most 640, each at least 64 (:129-130). */
+    val analysisWidth: Int
+    val analysisHeight: Int
+
+    init {
+        val ratio = min(1.0, 640.0 / max(width, height))
+        analysisWidth = max(64, roundedAwayFromZero(width * ratio).toInt())
+        analysisHeight = max(64, roundedAwayFromZero(height * ratio).toInt())
+    }
+
+    /** The motion from the previous frame to the current one, as the estimator gives it at the analysis size. */
+    data class Motion(val x: Double, val y: Double, val angle: Double, val logScale: Double, val valid: Boolean)
+
+    private val samples = ArrayList<StabilizationSample>()
+    private var previousTime = Double.NEGATIVE_INFINITY
+    private var pose = StabilizationPose.IDENTITY
+    private var segment = 0
+    private var tracked = 0
+
+    /** How many frames are measured. */
+    val count: Int get() = samples.size
+
+    /** Whether a frame [time] seconds into the stretch is measured: one inside it and after the last (:153-159). */
+    fun accepts(time: Double): Boolean = time.isFinite() && time < duration && time > previousTime
+
+    /** Adds the frame at [time], with the [motion] from the previous frame (null for the first). */
+    fun add(time: Double, motion: Motion?) {
+        check(accepts(time)) { "frame at $time s is not measured" }
+        if (samples.isNotEmpty()) {
+            if (motion != null && motion.valid && time - previousTime < 0.15) {
+                // Uniform analysis scaling preserves a similarity; the translation is scaled by each side's own ratio (:180-183).
+                val step = StabilizationPose(motion.x * width / analysisWidth, motion.y * height / analysisHeight, motion.angle, motion.logScale)
+                val next = step.applying(pose)
+                if (next.valid) {
+                    pose = next
+                    tracked++
+                } else {
+                    segment++
+                    pose = StabilizationPose.IDENTITY
+                }
+            } else {
+                segment++
+                pose = StabilizationPose.IDENTITY
+            }
+        }
+        samples.add(StabilizationSample(if (samples.isEmpty()) 0.0 else time, pose, segment))
+        previousTime = time
+    }
+
+    /** The analysis of the frames added; null when there were none (:203). */
+    fun analysis(): StabilizationAnalysis? =
+        if (samples.isEmpty()) null else StabilizationAnalysis(width, height, duration, samples.toList(), tracked)
+
+    companion object {
+        /**
+         * The time of a frame shown at source second [presentation] in the stretch from [start]:
+         * one shown before the stretch counts from its start (:153).
+         */
+        fun time(presentation: Double, start: Double): Double = max(0.0, presentation - start)
     }
 }
 
@@ -265,5 +412,22 @@ object StabilizationPath {
     private fun fade(seconds: Double): Double {
         val x = min(1.0, max(0.0, seconds / FADE_SECONDS))
         return x * x * (3 - 2 * x)
+    }
+}
+
+/**
+ * The stretch of the movie a tool previews before it measures the whole of its footage: ten seconds around the
+ * playhead inside what it applies to (YouRec/EffectApplication.swift:9-18).
+ */
+object EffectPreviewWindow {
+    fun range(position: Double, selection: ClosedFloatingPointRange<Double>): ClosedFloatingPointRange<Double> {
+        val anchor = min(selection.endInclusive, max(selection.start, position))
+        return max(selection.start, anchor - 5)..min(selection.endInclusive, anchor + 5)
+    }
+
+    /** The length of [range] as the label says it, "10" or "0.4": a decimal only under a second, halves to even as Foundation formats (:14-17). */
+    fun seconds(range: ClosedFloatingPointRange<Double>): String {
+        val seconds = range.endInclusive - range.start
+        return java.math.BigDecimal(seconds).setScale(if (seconds < 1) 1 else 0, java.math.RoundingMode.HALF_EVEN).toPlainString()
     }
 }
