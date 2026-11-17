@@ -64,6 +64,12 @@ interface EffectAssets {
      */
     fun subject(effect: VideoEffectSettings, sourceTime: Double): EffectSubject? = null
 
+    /**
+     * The quality [effect] is drawn at at source second [sourceTime]: lighter where the recorder's preview drew it
+     * lighter while the take was recorded, as the analysis saved with it says (VideoEffectAssets.swift:474).
+     */
+    fun quality(effect: VideoEffectSettings, sourceTime: Double): app.takes.core.VideoEffectQuality = app.takes.core.VideoEffectQuality.Full
+
     companion object {
         val NONE: EffectAssets = object : EffectAssets {}
 
@@ -114,10 +120,32 @@ class SourceAssets(
         val file = source ?: return@lazy null
         val recording = media ?: return@lazy null
         val app = context?.applicationContext ?: return@lazy null
-        if (!PersonMasks.available()) null else PersonFrames(app, recording, file)
+        if (!PersonMasks.available()) null else PersonFrames(app, recording, file, CapturedAnalyses.raw(file, clip))
     }
 
-    override fun person(sourceTime: Double, smoothed: Boolean): PersonFrame? = people?.frame(sourceTime, smoothed, wait, ready)
+    /** The analysis saved with the take that the frame at [sourceTime] reads (VideoEffectAssets.swift:375-379). */
+    private fun saved(sourceTime: Double): CapturedAnalyses.Opened? {
+        val file = source ?: return null
+        val effect = CapturedEffectAnalysis.source(clip.videoEffects, sourceTime) ?: return null
+        return CapturedAnalyses.of(file, effect)
+    }
+
+    /**
+     * The masks the recorder's preview drew with, saved with the take, while there are some there, the smoothed ones
+     * where they were kept; else those the editor finds (VideoEffectAssets.swift:402-433).
+     */
+    override fun person(sourceTime: Double, smoothed: Boolean): PersonFrame? {
+        val size = upright
+        val saved = saved(sourceTime)
+        if (saved != null && size != null && (if (smoothed) saved.analysis.hasMotionAwareAutoBackground else saved.analysis.masks.isNotEmpty())) {
+            // Upright, as the preview found them: laid on the frame without a turn.
+            saved.mask(sourceTime, smoothed)?.let { return PersonFrame(it, 0, size) }
+        }
+        return people?.frame(sourceTime, smoothed, wait, ready)
+    }
+
+    override fun quality(effect: VideoEffectSettings, sourceTime: Double): app.takes.core.VideoEffectQuality =
+        saved(sourceTime)?.analysis?.quality(effect.analysisID, sourceTime) ?: app.takes.core.VideoEffectQuality.Full
 
     override fun analysed(effect: VideoEffectSettings, sourceTime: Double): EffectPalette? {
         val file = source ?: return null
@@ -134,7 +162,7 @@ class SourceAssets(
         val length = clip.videoEffects.orEmpty().filter { it.analysisFile == name }.maxOfOrNull { it.end } ?: return null
         val recipe = CaptureEffectsFile.read(file, length)
         if (!CapturedEffectAnalysis.palettesHold(effect, clip.videoEffects.orEmpty(), recipe, plain)) return null
-        return CapturedPalettes.track(File(file.parentFile, name), effect.analysisID)
+        return CapturedAnalyses.of(file, effect)?.analysis?.palettes?.get(effect.analysisID)?.track?.takeIf { it.frames.isNotEmpty() }
     }
 
     private val upright by lazy { source?.let(::displaySize)?.let { GeometrySize(it.first.toDouble(), it.second.toDouble()) } }
@@ -171,8 +199,8 @@ class SourceAssets(
  * recording's project folder. A chunk not made yet is made then and there ([wait]), or in the background
  * with [ready] called once it is there.
  */
-internal class PersonFrames(private val context: Context, private val media: SourceMedia, private val file: File) {
-    private val reader = PersonMasks.reader(context, media, file.parentFile ?: File("."))
+internal class PersonFrames(private val context: Context, private val media: SourceMedia, private val file: File, private val captured: PersonMasks.Captured? = null) {
+    private val reader = PersonMasks.reader(context, media, file.parentFile ?: File("."), captured?.name)
     private val rotation = PersonMasks.rotation(file)
     private val upright = displaySize(file)?.let { GeometrySize(it.first.toDouble(), it.second.toDouble()) }
 
@@ -199,7 +227,7 @@ internal class PersonFrames(private val context: Context, private val media: Sou
     private fun analyse(chunk: Int) {
         val span = PersonMaskChunks.span(chunk, media.duration)
         try {
-            PersonMasks.analyse(context, media, file.parentFile ?: return, from = span.start, to = span.start)
+            PersonMasks.analyse(context, media, file.parentFile ?: return, from = span.start, to = span.start, captured = captured)
         } catch (problem: Exception) {
             if (problem is java.util.concurrent.CancellationException) throw problem
             android.util.Log.w("Takes", "person masks of ${media.filename} at ${span.start} s", problem)
@@ -260,17 +288,72 @@ internal object EffectPictures {
  * it; here it is the recording's own frame, before its colour, crop and those
  * effects.
  */
-/** The palettes saved with a take by the recorder (CapturedEffectAnalysis), read once each. */
-object CapturedPalettes {
-    private val read = ConcurrentHashMap<String, Map<String, EffectPaletteTrack>>()
+/**
+ * The analyses saved with takes by the recorder ([CapturedEffectAnalysis]), each read once and its masks read from
+ * its data file as they are asked for, as the original's renderer keeps a reader for each (MediaRenderer.swift:252-260).
+ */
+object CapturedAnalyses {
+    /** One analysis and its data file; its masks are read one at a time. */
+    class Opened(val name: String, val analysis: CapturedEffectAnalysis, private val data: File) {
+        private var masks: CapturedEffectAnalysis.Masks? = null
+        private var failed = false
 
-    fun track(file: File, id: String): EffectPaletteTrack? {
-        val key = file.path + "|" + file.lastModified()
-        val tracks = read.getOrPut(key) {
-            if (read.size > 16) read.clear()
-            CapturedEffectAnalysis.read(file)?.palettes?.mapValues { it.value.track }.orEmpty()
+        /** The raw mask shown at [time], or with [auto] Auto Background's smoothed one; null without one, or where it cannot be read. */
+        @Synchronized
+        fun mask(time: Double, auto: Boolean = false): PersonMaskChunks.Mask? {
+            if (failed) return null
+            return try {
+                (masks ?: CapturedEffectAnalysis.Masks(analysis, data).also { masks = it }).mask(time, auto)
+            } catch (problem: Exception) {
+                android.util.Log.w("CapturedAnalyses", "masks of $name", problem)
+                failed = true
+                null
+            }
         }
-        return tracks[id]?.takeIf { it.frames.isNotEmpty() }
+
+        @Synchronized
+        fun close() {
+            masks?.close()
+            masks = null
+        }
+    }
+
+    private val read = ConcurrentHashMap<String, java.util.Optional<Opened>>()
+
+    /** The analysis [effect] names, beside its take [movie]; null when it has none or it cannot be trusted. */
+    fun of(movie: File, effect: VideoEffectSettings): Opened? {
+        val name = effect.analysisFile ?: return null
+        val folder = movie.parentFile ?: return null
+        val file = File(folder, name)
+        val data = File(folder, effect.analysisDataFile ?: return null)
+        val key = file.path + "|" + file.lastModified() + "|" + data.length()
+        return read.getOrPut(key) {
+            if (read.size > 16) {
+                read.values.forEach { it.orElse(null)?.close() }
+                read.clear()
+            }
+            java.util.Optional.ofNullable(CapturedEffectAnalysis.read(file, data)?.let { Opened(name, it, data) })
+        }.orElse(null)
+    }
+
+    /**
+     * The raw masks saved with the take of [clip], which the editor's analysis reads in place of its model's when Auto
+     * Background's smoothed masks were not kept with them (MediaRenderer.swift:378-381); null otherwise.
+     */
+    fun raw(movie: File, clip: TimelineClip): PersonMasks.Captured? {
+        val effect = clip.videoEffects.orEmpty().firstOrNull { it.enabled && it.analysisFile != null } ?: return null
+        val opened = of(movie, effect)?.takeIf { it.analysis.masks.isNotEmpty() && !it.analysis.hasMotionAwareAutoBackground } ?: return null
+        return PersonMasks.Captured(opened.name) { time -> opened.mask(time) }
+    }
+
+    /**
+     * Whether the masks saved with the take of [clip] serve its effects over [span] without analysing its footage
+     * ([CapturedEffectAnalysis.masksServe]).
+     */
+    fun serve(movie: File, clip: TimelineClip, span: ClosedFloatingPointRange<Double>): Boolean {
+        val effect = clip.videoEffects.orEmpty().firstOrNull { it.enabled && it.analysisFile != null } ?: return false
+        val auto = clip.videoEffects.orEmpty().any { it.enabled && it.kind == VideoEffectID.AutoBackground }
+        return CapturedEffectAnalysis.masksServe(of(movie, effect)?.analysis, auto, span.start, span.endInclusive)
     }
 }
 

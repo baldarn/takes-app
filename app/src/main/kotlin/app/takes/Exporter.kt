@@ -582,9 +582,12 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
             for (clip in project.edit.clips) {
                 val span = app.takes.core.VideoEffectPersonInputs.personSpan(clip) ?: continue
                 val source = media[clip.sourceID] ?: continue
-                val folder = files[clip.sourceID]?.parentFile ?: continue
+                val movie = files[clip.sourceID] ?: continue
+                val folder = movie.parentFile ?: continue
+                // The masks the recorder's preview drew with, saved with the take, need no analysis (MediaRenderer.swift:376-378).
+                if (CapturedAnalyses.serve(movie, clip, span)) continue
                 try {
-                    PersonMasks.analyse(context, source, folder, from = span.start, to = span.endInclusive, cancel = { !isActive })
+                    PersonMasks.analyse(context, source, folder, from = span.start, to = span.endInclusive, cancel = { !isActive }, captured = CapturedAnalyses.raw(movie, clip))
                 } catch (problem: Exception) {
                     if (problem is CancellationException) throw problem
                     android.util.Log.w("Exporter", "person masks of ${source.filename}", problem)

@@ -82,7 +82,7 @@ internal class LiveEffectRendering(private val context: Context) {
      * a frame [tool] draws the picture even with no effect on it.
      * Returns false when nothing is to be shown, the frame to be drawn as it is.
      */
-    fun draw(effects: List<VideoEffectSettings>, time: Double, sourceWidth: Int, sourceHeight: Int, thermal: Int, tool: Boolean, drawCamera: (Int, Int) -> Unit): Boolean {
+    fun draw(effects: List<VideoEffectSettings>, time: Double, sourceWidth: Int, sourceHeight: Int, thermal: Int, tool: Boolean, pushed: Boolean = false, drawCamera: (Int, Int) -> Unit): Boolean {
         val began = SystemClock.elapsedRealtimeNanos()
         val enabled = effects.filter { it.enabled }
         if (enabled.isEmpty() && !tool) return false
@@ -124,7 +124,7 @@ internal class LiveEffectRendering(private val context: Context) {
             drawCamera(w, h)
             capturing(time, sourceWidth, sourceHeight)
             val timing = timer.begin()
-            analyse(effects, time)
+            analyse(effects, time, pushed)
             chain.clip = clip(effects)
             val shader = program ?: (chain.toGlShaderProgram(context, false) as BaseGlShaderProgram).also { program = it }
             shader.configure(w, h)
@@ -346,10 +346,35 @@ internal class LiveEffectRendering(private val context: Context) {
         }
     }
 
+    /** The person masks found on one picture, and whether the preview's Crash Zoom had pushed it in. */
+    private class Found(val person: PersonFrame, val smoothed: PersonFrame, val pushed: Boolean)
+    @Volatile private var found: Found? = null
+
+    /**
+     * What the frame just drawn with [effects] showed, for the analysis saved with a take
+     * (LiveVideoEffects.swift:641-646): the palettes, the person masks it drew with (the smoothed ones for an Auto
+     * Background) and the quality of each effect. Null masks when none is drawn.
+     */
+    fun captured(effects: List<VideoEffectSettings>, time: Double): Captured {
+        val shown = found?.takeIf { needsPerson(effects) }
+        val auto = effects.any { it.enabled && it.kind == VideoEffectID.AutoBackground }
+        val quality = if (chain.lite) VideoEffectQuality.Lite else VideoEffectQuality.Full
+        return Captured(
+            shownPalettes(effects, time), shown?.person?.mask, shown?.smoothed?.mask?.takeIf { auto }, shown?.pushed == true,
+            effects.associate { it.id to quality },
+        )
+    }
+
+    class Captured(
+        val palettes: Map<String, EffectPalette>, val person: PersonMaskChunks.Mask?, val auto: PersonMaskChunks.Mask?, val pushed: Boolean,
+        val qualities: Map<String, VideoEffectQuality>,
+    )
+
     /** Starts the looks afresh: the person, the palettes and the held frame. LiveVideoEffects.swift:168-200. */
     fun reset() {
         person = null
         smoothed = null
+        found = null
         synchronized(palettes) { palettes.clear() }
         heldIndex = -1
     }
@@ -365,7 +390,7 @@ internal class LiveEffectRendering(private val context: Context) {
     }
 
     /** Copies a small picture from [upright] for the segmenter and the palette, and looks at it off this thread. */
-    private fun analyse(effects: List<VideoEffectSettings>, time: Double) {
+    private fun analyse(effects: List<VideoEffectSettings>, time: Double, pushed: Boolean) {
         if (needsPerson(effects) && !segmenting && PersonMasks.available()) {
             segmenting = true
             val side = PersonMasks.SIDE
@@ -390,9 +415,12 @@ internal class LiveEffectRendering(private val context: Context) {
                     }
                     val model = segmenter ?: PersonMasks.Live(context).also { segmenter = it }
                     val rows = model.mask(rgb)
-                    val soft = smoothing.push(rows, side, side, luma, time, geometry)
-                    person = PersonFrame(PersonMaskChunks.Mask(time, side, side, rows), 0, size)
-                    smoothed = PersonFrame(PersonMaskChunks.Mask(time, side, side, soft), 0, size)
+                    val smooth = smoothing.push(rows, side, side, luma, time, geometry)
+                    val found = PersonFrame(PersonMaskChunks.Mask(time, side, side, rows), 0, size)
+                    val soft = PersonFrame(PersonMaskChunks.Mask(time, side, side, smooth), 0, size)
+                    this.found = Found(found, soft, pushed)
+                    person = found
+                    smoothed = soft
                 } catch (problem: Exception) {
                     Log.w(TAG, "No person mask", problem)
                 } finally {

@@ -110,13 +110,21 @@ object PersonMasks {
         }.also { model = it }
     }
 
-    /** The folder of the masks of [source], in the project folder [folder]. */
-    fun directory(context: Context, source: SourceMedia, folder: File): File =
-        PersonMaskChunks.directory(folder, PersonMaskChunks.key(source, model(context).revision, COMPUTE))
+    /**
+     * The raw masks the recorder's preview found, saved with the take ([app.takes.core.CapturedEffectAnalysis]), which
+     * an analysis reads in place of the model's where it has one, as the original's does (VideoEffectCaptureAnalysis.swift:358-367):
+     * [name] is its file's, part of the masks' key (:315-318), and [mask] gives the one shown at a source time, upright,
+     * or null.
+     */
+    class Captured(val name: String, val mask: (Double) -> PersonMaskChunks.Mask?)
+
+    /** The folder of the masks of [source], in the project folder [folder], made with the [captured] masks if any. */
+    fun directory(context: Context, source: SourceMedia, folder: File, captured: String? = null): File =
+        PersonMaskChunks.directory(folder, PersonMaskChunks.key(source, model(context).revision, COMPUTE, captured))
 
     /** Reads the masks of [source] by source time; a chunk not analysed yet gives null. Needs no native library. */
-    fun reader(context: Context, source: SourceMedia, folder: File): PersonMaskChunks.Reader =
-        PersonMaskChunks.Reader(directory(context, source, folder))
+    fun reader(context: Context, source: SourceMedia, folder: File, captured: String? = null): PersonMaskChunks.Reader =
+        PersonMaskChunks.Reader(directory(context, source, folder, captured))
 
     private val claims = ConcurrentHashMap<String, Any>()
 
@@ -135,9 +143,9 @@ object PersonMasks {
     fun analyse(
         context: Context, source: SourceMedia, folder: File, from: Double? = null, to: Double? = null, generate: Boolean = true,
         progress: (Float) -> Unit = {}, cancel: () -> Boolean = { false },
-        frame: ((PersonMaskChunks.Mask, Boolean) -> Unit)? = null,
+        frame: ((PersonMaskChunks.Mask, Boolean) -> Unit)? = null, captured: Captured? = null,
     ): Analysis {
-        val directory = directory(context, source, folder)
+        val directory = directory(context, source, folder, captured?.name)
         val wanted = PersonMaskChunks.chunks(source.duration, from, to)
         val made = mutableListOf<Int>()
         var complete = true
@@ -158,7 +166,7 @@ object PersonMasks {
                     val opened = movie ?: Movie(File(folder, source.filename)).also { movie = it }
                     val model = segmenter ?: Segmenter(model(context).buffer).also { segmenter = it }
                     val span = PersonMaskChunks.span(index, source.duration)
-                    val writer = opened.read(span, model, cancel, frame) { part -> progress((done + part) / wanted.count().toFloat()) }
+                    val writer = opened.read(span, model, cancel, frame, captured) { part -> progress((done + part) / wanted.count().toFloat()) }
                     if (writer == null || writer.count == 0) throw IllegalStateException("no frames in ${span.start}…${span.end} s of ${source.filename}")
                     writer.write(file)
                     made += index
@@ -254,7 +262,7 @@ object PersonMasks {
          */
         fun read(
             span: PersonMaskChunks.Span, segmenter: Segmenter, cancel: () -> Boolean,
-            frame: ((PersonMaskChunks.Mask, Boolean) -> Unit)?, progress: (Float) -> Unit,
+            frame: ((PersonMaskChunks.Mask, Boolean) -> Unit)?, captured: Captured?, progress: (Float) -> Unit,
         ): PersonMaskChunks.Writer? {
             val begin = span.warm
             // A smoother of the chunk's own, from its warm-up: nothing is carried from another chunk (:358, :515-519).
@@ -299,7 +307,8 @@ object PersonMasks {
                         if (image != null) {
                             // The frame's shape and turn: another one starts the smoother afresh, as another file does in the original (:369).
                             val geometry = "$rotation:${image.cropRect.width()}x${image.cropRect.height()}"
-                            val rows = image.use { segment(it, segmenter) }
+                            val saved = captured?.mask?.invoke(time)?.takeIf { it.width == SIDE && it.height == SIDE }
+                            val rows = image.use { segment(it, segmenter, saved) }
                             val smoothed = smoothing.push(rows, SIDE, SIDE, luma, time, geometry)
                             val kept = span.keeps(time)
                             frame?.invoke(PersonMaskChunks.Mask(time, SIDE, SIDE, rows), kept)
@@ -321,8 +330,11 @@ object PersonMasks {
         }
 
 
-        /** The mask of [image], in its own coordinates: [SIDE] × [SIDE] over its visible part. */
-        private fun segment(image: Image, segmenter: Segmenter): ByteArray {
+        /**
+         * The mask of [image], in its own coordinates: [SIDE] × [SIDE] over its visible part; [saved], an upright mask
+         * the recorder found, in place of the model's. The smoother's guide is read from the frame either way.
+         */
+        private fun segment(image: Image, segmenter: Segmenter, saved: PersonMaskChunks.Mask? = null): ByteArray {
             val crop = image.cropRect
             val planes = image.planes
             val y = planes[0]
@@ -393,12 +405,17 @@ object PersonMasks {
                     luma[gy * SIDE + gx] = .2126f * linear(red) + .7152f * linear(green) + .0722f * linear(blue)
                 }
             }
+            val rows = ByteArray(SIDE * SIDE)
+            if (saved != null) {
+                // The saved mask is upright, as the model's output: turned to the stored frame's grid the same way.
+                for (gy in 0 until SIDE) for (gx in 0 until SIDE) rows[gy * SIDE + gx] = saved.rows[a + gx * dx + gy * dy]
+                return rows
+            }
             segmenter.input.rewind()
             segmenter.input.asFloatBuffer().put(rgb)
             segmenter.run()
             // Back to the stored frame's grid, as bytes.
             val alpha = segmenter.alpha
-            val rows = ByteArray(SIDE * SIDE)
             for (gy in 0 until SIDE) for (gx in 0 until SIDE) {
                 rows[gy * SIDE + gx] = (alpha[a + gx * dx + gy * dy].coerceIn(0f, 1f) * 255f + .5f).toInt().toByte()
             }

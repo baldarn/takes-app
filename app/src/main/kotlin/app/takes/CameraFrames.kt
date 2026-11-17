@@ -182,6 +182,7 @@ class CameraFrames(context: Context) {
         seed = point
         tracker = null
         tracked = null
+        trackedSample = null
         generation++
     }
 
@@ -387,7 +388,7 @@ class CameraFrames(context: Context) {
                 audition = tried
                 // A frame tool draws the picture it reads from, with no effect on it if need be.
                 drewLooks = (looking.tool || shown.any { it.enabled }) && try {
-                    live.draw(shown, lookTime, uprightWidth, uprightHeight, thermal, looking.tool) { width, height ->
+                    live.draw(shown, lookTime, uprightWidth, uprightHeight, thermal, looking.tool, pushed = crash != null && crash.zoom > 1.0001) { width, height ->
                         GLES20.glViewport(0, 0, width, height)
                         render(uprightMatrix(wanted.upright, wanted.mirrored), effect, peaking = false, crash = crash)
                     }
@@ -396,7 +397,7 @@ class CameraFrames(context: Context) {
                     false
                 }
                 looksShown = drewLooks
-                if (drewLooks && looking.recording) capturedLooks?.append(lookTime, live.shownPalettes(shown, lookTime))
+                if (looking.recording) capture(lookTime, shown, drewLooks, crash != null && crash.zoom > 1.0001, now, wanted)
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, eglContext)) continue
@@ -603,6 +604,26 @@ class CameraFrames(context: Context) {
     private var tracker: SubjectTracker? = null
     /** The subject's centre in the recorded frame, and when it was seen: Crash Zoom's target while it follows a face. */
     @Volatile private var tracked: Pair<Point, Double>? = null
+    /** The subject followed, its box in the recorded frame, and when it was seen: saved with a take. */
+    @Volatile private var trackedSample: Pair<app.takes.core.SubjectSample, Double>? = null
+
+    /**
+     * Adds what the frame drawn at [lookTime] showed to the analysis saved with the segment being recorded, as the
+     * original appends each frame's (LiveVideoEffects.swift:641-646): what the looks [shown] drew, when [drewLooks],
+     * their masks unless [pushed] in, and the subject a camera move follows, the one seen within half a second of
+     * [now] (:534), or none while it is looked for in vain.
+     */
+    private fun capture(lookTime: Double, shown: List<VideoEffectSettings>, drewLooks: Boolean, pushed: Boolean, now: Double, wanted: Assists) {
+        val analysis = capturedLooks ?: return
+        val drawn = if (drewLooks) live.captured(shown, lookTime) else null
+        val subject = if (wanted.tracking) trackedSample?.takeIf { now - it.second <= 0.5 }?.first?.let {
+            app.takes.core.EffectSubjectSample.of(lookTime, it.box, it.confidence, it.face)
+        } else null
+        analysis.append(
+            lookTime, drawn?.palettes.orEmpty(), drawn?.person, drawn?.auto, drawn?.qualities.orEmpty(), subject,
+            tracking = wanted.tracking, pushed = pushed || drawn?.pushed == true,
+        )
+    }
     private var frameStamp = 0L
     /** The latest framing worked out, which the pass that does not lead draws. */
     @Volatile private var framed = Affine.IDENTITY
@@ -627,7 +648,10 @@ class CameraFrames(context: Context) {
             val b = framed(Point(sample.box.maxX, sample.box.maxY))
             SubjectTracker.intersectUnit(Rect(min(a.x, b.x), min(a.y, b.y), abs(a.x - b.x), abs(a.y - b.y)))?.let { sample.copy(box = it) }
         }
-        if (framed != null) tracked = framed.center to now
+        if (framed != null) {
+            tracked = framed.center to now
+            trackedSample = framed to now
+        }
         val report = Subject(framed, whole, now, zoom)
         main.post { onSubject?.invoke(report) }
     }
@@ -1025,7 +1049,7 @@ class CameraFrames(context: Context) {
                 val (shown, tried) = LiveVideoEffects.displayed(looking.effects, lookTime, looking.recording, audition)
                 audition = tried
                 drewLooks = (looking.tool || shown.any { it.enabled }) && try {
-                    live.draw(shown, lookTime, canvasWidth, canvasHeight, thermal, looking.tool) { width, height ->
+                    live.draw(shown, lookTime, canvasWidth, canvasHeight, thermal, looking.tool, pushed = apart) { width, height ->
                         GLES20.glViewport(0, 0, width, height)
                         copy(shownCanvas.texture)
                     }
@@ -1034,7 +1058,8 @@ class CameraFrames(context: Context) {
                     false
                 }
                 looksShown = drewLooks
-                if (drewLooks && looking.recording) capturedLooks?.append(lookTime, live.shownPalettes(shown, lookTime))
+                // The preview's canvas mirrored otherwise than the recording's: its masks are not the recording's.
+                if (looking.recording) capture(lookTime, shown, drewLooks, apart, now, Assists())
             }
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, preview.eglContext)) continue

@@ -1281,6 +1281,8 @@ class VideoEffectChain(
             var reading = inputTexId
             passes.forEachIndexed { index, pass ->
                 val last = index == passes.size - 1
+                // Lighter where the recorder's preview drew the take's effect lighter (VideoEffectAssets.swift:474).
+                passLite = lite || settings(pass)?.let { assets.quality(it, sourceTime) } == app.takes.core.VideoEffectQuality.Lite
                 val auxiliary = auxiliary(pass, EffectSource(reading, size.width, size.height, encoded = true))
                 val grain = EffectShader.grain(pass)
                 val lattice = grain?.let { lattice(it.first, it.second, pass.frame) }
@@ -1306,7 +1308,7 @@ class VideoEffectChain(
             return when (pass.effect) {
                 VideoEffectID.Halation -> {
                     val small = EffectSource(gpu.highlights(source, "small", quarterWidth, quarterHeight, .75, .1))
-                    val detail = if (lite) .5 else 1.0
+                    val detail = if (passLite) .5 else 1.0
                     Auxiliary(
                         aux = gpu.blur(small, "aux", width * 0.01 / 4 * detail).texture,
                         back = gpu.blur(small, "back", width * 0.006 / 4 * detail).texture,
@@ -1316,7 +1318,7 @@ class VideoEffectChain(
                 VideoEffectID.Widescreen -> {
                     val flares = if (pass.number("flares") > 0) {
                         val small = EffectSource(gpu.highlights(source, "small", quarterWidth, quarterHeight, .9, .05))
-                        gpu.blur(small, "aux", width / 24.0 / 4 * (if (lite) .5 else 1.0), horizontalOnly = true).texture
+                        gpu.blur(small, "aux", width / 24.0 / 4 * (if (passLite) .5 else 1.0), horizontalOnly = true).texture
                     } else {
                         0
                     }
@@ -1324,14 +1326,14 @@ class VideoEffectChain(
                     Auxiliary(aux = flares, back = fill)
                 }
                 VideoEffectID.SixteenMM -> if (pass.number("softness") > 0) {
-                    Auxiliary(aux = (if (lite) gpu.blur(source, "aux", 1.5 * scale, maxOf(2, width / 2), maxOf(2, height / 2)) else gpu.blur(source, "aux", 1.5 * scale)).texture)
+                    Auxiliary(aux = (if (passLite) gpu.blur(source, "aux", 1.5 * scale, maxOf(2, width / 2), maxOf(2, height / 2)) else gpu.blur(source, "aux", 1.5 * scale)).texture)
                 } else {
                     Auxiliary()
                 }
-                VideoEffectID.SuperEight -> Auxiliary(aux = (if (lite) gpu.blur(source, "aux", 2 * scale, maxOf(2, width / 2), maxOf(2, height / 2)) else gpu.blur(source, "aux", 2 * scale)).texture)
+                VideoEffectID.SuperEight -> Auxiliary(aux = (if (passLite) gpu.blur(source, "aux", 2 * scale, maxOf(2, width / 2), maxOf(2, height / 2)) else gpu.blur(source, "aux", 2 * scale)).texture)
                 VideoEffectID.Quantization -> {
                     val smoothed = pass.number("smoothing").takeIf { it > 0 }?.let { smoothing ->
-                        gpu.bilateral(source, "aux", VideoEffectQuantization.smoothingPlan(width, height, smoothing, lite)).texture
+                        gpu.bilateral(source, "aux", VideoEffectQuantization.smoothingPlan(width, height, smoothing, passLite)).texture
                     } ?: 0
                     // Face detail: the frame blurred by 8 pixels at 1080 at half its size, and the raw person mask (Renderer:459-461).
                     val person = if (pass.number("faceDetail") > .5 && pass.number("colors") <= 4) person(width, height) else null
@@ -1347,7 +1349,7 @@ class VideoEffectChain(
                 VideoEffectID.ColorIsolation -> {
                     val temporal = settings(pass)?.usesTemporalMatte == true
                     val matte = if (pass.number("mode") > .5) {
-                        person(width, height)?.let { person -> gpu.refined(EffectSource(person), source, "isolation", pass.number("softness"), person = true, lite = lite) }
+                        person(width, height)?.let { person -> gpu.refined(EffectSource(person), source, "isolation", pass.number("softness"), person = true, lite = passLite) }
                     } else if (temporal) {
                         val color = EffectShader.slot(pass, 1)
                         gpu.isolationAlpha(source, "isolation", app.takes.core.EffectVector(color[0].toDouble(), color[1].toDouble(), color[2].toDouble()), pass.p[2].x, pass.p[3].x)
@@ -1414,7 +1416,7 @@ class VideoEffectChain(
             // The person hint, at a quarter of the size: the garbage matte outside the grown person and the holdout inside
             // the shrunk one (Renderer:513-519, Metal:474-479).
             if (pass.number("personHint") > .5) {
-                val reduction = if (lite) 8 else 4
+                val reduction = if (passLite) 8 else 4
                 val w = maxOf(2, width / reduction)
                 val h = maxOf(2, height / reduction)
                 person(width, height)?.let { person ->
@@ -1528,7 +1530,7 @@ class VideoEffectChain(
             // The smoothed stream for a recipe of algorithm 1, the raw masks for an older one (VideoEffectModel.swift:191-202).
             val stream = clip.videoEffects.orEmpty().firstOrNull { it.id == pass.id }?.usesAutoMaskStream == true
             val person = person(width, height, stream) ?: return Auxiliary(extras = FloatArray(8))
-            val mask = gpu.refined(EffectSource(person), source, "auto", pass.number("softness"), pass.number("grow"), person = true, lite = lite)
+            val mask = gpu.refined(EffectSource(person), source, "auto", pass.number("softness"), pass.number("grow"), person = true, lite = passLite)
             val estimate = gpu.backgroundEstimate(source, EffectSource(mask), "estimate")
             val gain = 2.0.pow(pass.number("backgroundBrightness"))
             val wrap = pass.number("wrap")
@@ -1562,7 +1564,7 @@ class VideoEffectChain(
         private fun dollyZoom(pass: EffectUniforms, source: EffectSource): Auxiliary {
             val extras = EffectShader.extras(pass, source.width, source.height)
             val person = person(source.width, source.height) ?: return Auxiliary(extras = extras)
-            val mask = gpu.refined(EffectSource(person), source, "dolly", app.takes.core.DollyZoomFormulas.SOFTNESS, person = true, lite = lite)
+            val mask = gpu.refined(EffectSource(person), source, "dolly", app.takes.core.DollyZoomFormulas.SOFTNESS, person = true, lite = passLite)
             val estimate = gpu.backgroundEstimate(source, EffectSource(mask), "dolly.estimate", fill = true)
             extras[1] = 1f
             return Auxiliary(aux = mask.texture, more = estimate.texture, extras = extras)
@@ -1571,6 +1573,8 @@ class VideoEffectChain(
         // The person in the frame being drawn: its mask, asked for once a frame, uploaded once, laid on the frame at each size asked.
         private var frameOffset = 0.0
         private var frameSourceTime = 0.0
+        // The pass being drawn is drawn lighter ([lite], or [EffectAssets.quality]).
+        private var passLite = false
         private val personFrames = HashMap<Boolean, PersonFrame?>()
         private val windows = HashMap<String, EffectMatteWindow>()
         private var windowsWork = true

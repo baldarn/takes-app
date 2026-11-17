@@ -426,6 +426,8 @@ class CaptureController(private val context: Context, private val store: Project
 
     // One at a time and in order, so the newest list is the one left on disk.
     private val eventFiles = Dispatchers.IO.limitedParallelism(1)
+    /** Where the masks the looks drew with while a segment is recorded are compressed and written, off the frames' thread. */
+    private val analysisWriter = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "Effect analysis").apply { isDaemon = true } }
 
     /**
      * Adds an event to the segment and saves the list beside the movie at once, as the original does:
@@ -901,23 +903,25 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     /**
-     * Saves the live effects and the Crash Zooms of [current] beside its movie, at once, as the original does when the
-     * segment begins and at each Crash Zoom; a picture they show is copied beside it. LiveVideoEffects.swift:281-310, 375-382.
-     */
-    /**
-     * Saves the segment's effects beside it, with what the looks showed while it was recorded so that the editor
-     * draws them the same way: when it begins, at each Crash Zoom, and when it ends ([last]), when the analysis is
-     * complete (LiveVideoEffects.swift:303-336, 374-382).
+     * Saves the segment's effects beside it, at once, with what the looks showed while it was recorded so that the
+     * editor draws them the same way: when it begins, at each Crash Zoom, and when it ends ([last]), when the analysis
+     * is complete; a picture they show is copied beside it (LiveVideoEffects.swift:281-336, 374-382).
      */
     private fun saveRecipe(current: Segment, first: Boolean = false, last: Boolean = false) {
         if (first) {
-            current.analysis = if (CapturedEffectAnalysis.wanted(liveEffects)) CapturedEffectAnalysis.Recorder() else null
+            current.analysis = if (CapturedEffectAnalysis.wanted(liveEffects)) {
+                CapturedEffectAnalysis.Recorder(executor = analysisWriter).also { it.begin(current.file.parentFile ?: File(".")) }
+            } else null
             frames.capturedLooks = current.analysis
         }
         val analysis = current.analysis
         if (last && frames.capturedLooks === analysis) frames.capturedLooks = null
         val made = LiveVideoEffects.recipe(liveEffects, crash.moves)
-        if (made.isEmpty()) return
+        if (made.isEmpty()) {
+            // Nothing names the analysis: its files go.
+            if (last && analysis != null) scope.launch(eventFiles) { runCatching { analysis.discard(current.file.parentFile ?: File(".")) } }
+            return
+        }
         val recipe = analysis?.label(made) ?: made
         current.moves = recipe
         val pictures = LiveVideoEffects.mediaFiles(liveEffects)
@@ -928,7 +932,7 @@ class CaptureController(private val context: Context, private val store: Project
                     val target = File(current.file.parentFile, name)
                     if (!target.exists()) File(source, name).takeIf { it.isFile }?.copyTo(target)
                 }
-                analysis?.save(current.file.parentFile)
+                analysis?.save(current.file.parentFile, last)
                 CaptureEffectsFile.write(recipe, current.file)
             }
         }

@@ -28,7 +28,7 @@ import kotlin.math.min
  * the footage looked at 15 times a second over the span the effect covers, the faces found in each frame or, where
  * there is none, the person, and the subject chosen and followed by [EffectSubjectTracker]. The track is kept in the
  * project's `Cache/subjects/`, named by the recording, the span and the point, and in memory, for the preview and
- * the export.
+ * the export. A take's own effects follow the subject the recorder's preview followed, saved with it.
  *
  * Android has neither Vision's face rectangles nor its human rectangles: the faces are the platform's
  * [FaceDetector]'s, as the recorder's face follow finds them (CameraFrames.kt), and the person is the box around the
@@ -56,6 +56,7 @@ object SubjectTracks {
      * which takes seconds: never on the main thread, and before an export rather than while it draws.
      */
     fun track(context: Context, file: File, media: SourceMedia, clip: TimelineClip, effect: VideoEffectSettings): EffectSubjectTrack {
+        captured(file, effect)?.let { return it }
         val name = name(media, clip, effect)
         tracks[name]?.let { return it }
         synchronized(claims.computeIfAbsent(name) { Any() }) {
@@ -100,6 +101,7 @@ object SubjectTracks {
 
     /** The track when it is kept or on disk; else null, with the analysis begun in the background and [ready] called when it is done. */
     fun cached(context: Context, file: File, media: SourceMedia, clip: TimelineClip, effect: VideoEffectSettings, ready: () -> Unit): EffectSubjectTrack? {
+        captured(file, effect)?.let { return it }
         val name = name(media, clip, effect)
         tracks[name]?.let { return it }
         if (working.add(name)) background.execute {
@@ -114,6 +116,14 @@ object SubjectTracks {
         }
         return null
     }
+
+    /**
+     * The subject the recorder's preview followed for [effect] while its take was recorded, saved with the take: the
+     * original draws an effect of the take with it and analyses only those added in the editor (MediaRenderer.swift:407,
+     * VideoEffectAssets.swift:476). Null when the take has none, as one recorded before the subject was saved.
+     */
+    private fun captured(file: File, effect: VideoEffectSettings): EffectSubjectTrack? =
+        if (effect.analysisFile == null) null else CapturedAnalyses.of(file, effect)?.analysis?.subjects
 
     private fun analyse(context: Context, file: File, media: SourceMedia, clip: TimelineClip, effect: VideoEffectSettings): EffectSubjectTrack {
         val span = EffectSubjectAnalysis.span(effect, clip)
