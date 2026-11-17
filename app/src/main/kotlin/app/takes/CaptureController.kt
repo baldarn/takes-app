@@ -60,6 +60,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import app.takes.core.CaptureEffectsFile
+import app.takes.core.ChromaScreen
+import app.takes.core.EffectPalette
+import app.takes.core.EffectValue
+import app.takes.core.IsolationHue
+import app.takes.core.LiveVideoEffects
+import app.takes.core.VideoEffectBackgroundPlacement
+import app.takes.core.VideoEffectPlacementGesture
 import app.takes.core.CaptureEvent
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CaptureFormat
@@ -126,7 +133,7 @@ class CaptureController(private val context: Context, private val store: Project
         var abandoned = false // the recorder did not report its end in time; see [abandon]
         var indexed = false // in the project
         var microphone: String? = null // the microphone it began with, whose recording gain it is given
-        var moves = emptyList<VideoEffectSettings>() // its Crash Zooms, as last saved beside it
+        var moves = emptyList<VideoEffectSettings>() // its live effects and Crash Zooms, as last saved beside it
     }
 
     private val prefs = context.getSharedPreferences("recorder", Context.MODE_PRIVATE)
@@ -138,6 +145,8 @@ class CaptureController(private val context: Context, private val store: Project
     val frames = CameraFrames(context).apply {
         onFollowStatus = { followStatus = it }
         onSubject = { subject(it) }
+        onLookQuality = { note, warm -> lookQuality = note; lookWarm = warm }
+        onPalette = { id, palette -> palettePicked(id, palette) }
     }
     /** What follow face is doing, for its tile. */
     var followStatus by mutableStateOf(CameraFrames.FollowStatus.Searching); private set
@@ -602,6 +611,8 @@ class CaptureController(private val context: Context, private val store: Project
             frames.target(subjectPoint)
         }
         publishMoves()
+        if (LiveVideoEffects.looks(before) != LiveVideoEffects.looks(effects)) frames.resetLooks()
+        publishLooks()
         if (canChangeFormat) refreshAssists() else updateFrames()
     }
 
@@ -640,12 +651,221 @@ class CaptureController(private val context: Context, private val store: Project
         }
     }
 
-    /** Saves the Crash Zooms of [current] beside its movie, at once, as the original does at each one. LiveVideoEffects.swift:375-382. */
+    /**
+     * Saves the live effects and the Crash Zooms of [current] beside its movie, at once, as the original does when the
+     * segment begins and at each Crash Zoom; a picture they show is copied beside it. LiveVideoEffects.swift:281-310, 375-382.
+     */
     private fun saveRecipe(current: Segment) {
-        val moves = crash.moves
-        if (moves.isEmpty()) return
-        current.moves = moves
-        scope.launch(eventFiles) { runCatching { CaptureEffectsFile.write(moves, current.file) } }
+        val recipe = LiveVideoEffects.recipe(liveEffects, crash.moves)
+        if (recipe.isEmpty()) return
+        current.moves = recipe
+        val pictures = LiveVideoEffects.mediaFiles(liveEffects)
+        val source = frames.effectsFolder
+        scope.launch(eventFiles) {
+            runCatching {
+                for (name in pictures) {
+                    val target = File(current.file.parentFile, name)
+                    if (!target.exists()) File(source, name).takeIf { it.isFile }?.copyTo(target)
+                }
+                CaptureEffectsFile.write(recipe, current.file)
+            }
+        }
+    }
+
+    // MARK: Live looks: the other effects of the panel, drawn over the preview (LiveVideoEffects.swift, CaptureController.swift:254-366).
+
+    /** The note on the looks' quality, and whether the phone is warm (CaptureController.swift:209-210). */
+    var lookQuality by mutableStateOf<LiveVideoEffects.QualityNote?>(null); private set
+    var lookWarm by mutableStateOf(false); private set
+
+    /** A frame tool under way: the effect whose colour is picked from the preview, and its control. */
+    var colorPick by mutableStateOf<Pair<String, String>?>(null); private set
+    /** The Quantization whose palette is taken from the next frame, and whether it is saved. */
+    var paletteSampling by mutableStateOf<String?>(null); private set
+    private var paletteSave = false
+    private var paletteTimeout: Job? = null
+    /** The effect whose picture is being placed on the preview, with the placement so far. */
+    var positioning by mutableStateOf<String?>(null); private set
+    var placement by mutableStateOf<VideoEffectBackgroundPlacement?>(null); private set
+    private var positionDraft: VideoEffectSettings? = null
+    /** A frame tool could not be used, or a sample was not a colour the effect takes. */
+    var effectWarning by mutableStateOf<String?>(null)
+
+    /** A frame tool is open over the preview: the panel steps aside for it. RecorderView.swift:86. */
+    val frameToolActive: Boolean get() = colorPick != null || positioning != null
+
+    /** Tells [frames] the looks to draw: those set, or while a tool is open what it is chosen against. */
+    private fun publishLooks() {
+        val effects = liveEffects
+        val shown = colorPick?.let { (id, _) -> LiveVideoEffects.prefix(effects, id) }
+            ?: positioning?.let { id -> LiveVideoEffects.prefix(effects, id) + listOfNotNull(positionDraft?.copy(enabled = true)) }
+            ?: LiveVideoEffects.looks(effects)
+        frames.looks = CameraFrames.Looks(shown, recording = phase == Phase.Recording, tool = colorPick != null || positioning != null)
+    }
+
+    /** The looks need the frames to pass through the recorder's own pass. */
+    private val drawsLooks: Boolean get() = LiveVideoEffects.drawsLook(liveEffects) || frameToolActive
+
+    /** Tries a Negative Strobe in the preview. CaptureController.swift:287. */
+    fun tryStrobe(id: String) { if (!hasActiveTake) frames.tryStrobe(id) }
+
+    /** The panel shows another effect's controls: a strobe being tried stops. CaptureController.swift:266-270. */
+    fun endStrobe() { frames.endStrobe() }
+
+    /** Ends a frame tool without its result. CaptureController.swift:367-376. */
+    fun cancelFrameTools() {
+        val changed = colorPick != null || positioning != null
+        colorPick = null
+        positioning = null
+        placement = null
+        positionDraft = null
+        paletteSampling = null
+        paletteTimeout?.cancel()
+        if (changed) {
+            publishLooks()
+            if (canChangeFormat) refreshAssists()
+        }
+    }
+
+    /** Picks [parameter] of [id] from the preview: the next tap on it. CaptureController.swift:335-341. */
+    fun beginColorPick(id: String, parameter: String) {
+        if (hasActiveTake) return
+        cancelFrameTools()
+        stopDolly(immediate = false, reason = DollyHint.TapFace)
+        colorPick = id to parameter
+        publishLooks()
+        if (canChangeFormat) refreshAssists()
+    }
+
+    /** The tap of a colour pick, at [point] of the recorded frame. LiveVideoEffects.swift:256-263, CaptureController.swift:516-528. */
+    fun pickColor(point: Point) {
+        val (id, parameter) = colorPick ?: return
+        frames.pickColor(point.x, point.y) { color ->
+            if (colorPick?.first != id || hasActiveTake) return@pickColor
+            val effect = liveEffects.firstOrNull { it.id == id }
+            cancelFrameTools()
+            if (color == null || effect == null) { effectWarning = context.getString(R.string.live_effects_tool_failed); return@pickColor }
+            if (parameter == "screenColor" && !ChromaScreen.accepts(color)) { effectWarning = context.getString(R.string.live_effects_screen_invalid); return@pickColor }
+            if (effect.kind == VideoEffectID.ColorIsolation && parameter == "color" && !IsolationHue.accepts(color)) { effectWarning = context.getString(R.string.isolation_invalid_hue); return@pickColor }
+            var next = effect.with(parameter, EffectValue.Color(color))
+            if (parameter == "screenColor") next = next.with("autoScreen", EffectValue.Toggle(false)).with("screenType", EffectValue.Choice("Auto"))
+            setLiveEffects(liveEffects.map { if (it.id == id) next else it })
+        }
+    }
+
+    /** Takes a Quantization's palette from the next frame: locks it, and with [save] keeps it as Saved. CaptureController.swift:325-334. */
+    fun sampleEffectPalette(id: String, save: Boolean = false) {
+        if (hasActiveTake) return
+        cancelFrameTools()
+        paletteSampling = id
+        paletteSave = save
+        frames.samplePalette(id)
+        paletteTimeout = scope.launch {
+            delay(6000)
+            if (paletteSampling == id) {
+                cancelFrameTools()
+                effectWarning = context.getString(R.string.live_effects_palette_failed)
+            }
+        }
+    }
+
+    private fun palettePicked(id: String, palette: EffectPalette?) {
+        if (paletteSampling != id || hasActiveTake) return
+        val save = paletteSave
+        cancelFrameTools()
+        val effect = liveEffects.firstOrNull { it.id == id } ?: return
+        if (palette == null || palette.colors.size != effect.number("colors").toInt()) { effectWarning = context.getString(R.string.live_effects_palette_failed); return }
+        var next = effect.copy(lockedPalette = palette).with("lockPalette", EffectValue.Toggle(true))
+        if (save) next = next.copy(palette = palette.colors).with("palette", EffectValue.Choice("Saved"))
+        setLiveEffects(liveEffects.map { if (it.id == id) next else it })
+    }
+
+    /** Places the picked picture of [id] on the preview with the fingers. CaptureController.swift:288-300. */
+    fun beginBackgroundPosition(id: String) {
+        if (hasActiveTake) return
+        val effect = liveEffects.firstOrNull { it.id == id } ?: return
+        val name = (effect.value("media", 0.0) as? EffectValue.Media)?.file ?: return
+        val picture = EffectPictures.get(File(frames.effectsFolder, name)) ?: run { effectWarning = context.getString(R.string.live_effects_tool_failed); return }
+        val canvas = frameSize ?: run { effectWarning = context.getString(R.string.live_effects_wait_preview); return }
+        cancelFrameTools()
+        stopDolly(immediate = false, reason = DollyHint.TapFace)
+        placement = VideoEffectBackgroundPlacement(
+            effect.number("backgroundX"), effect.number("backgroundY"), effect.number("backgroundZoom"),
+            canvas, app.takes.core.Size(picture.width.toDouble(), picture.height.toDouble()), fill = effect.choice("fit") != "Fit",
+        )
+        positionDraft = effect
+        positioning = id
+        publishLooks()
+        if (canChangeFormat) refreshAssists()
+    }
+
+    /** A drag or a pinch on the preview while placing a picture. CaptureController.swift:302-314. */
+    fun moveBackground(gesture: VideoEffectPlacementGesture) {
+        val current = placement ?: return
+        val next = current.applying(gesture)
+        placement = next
+        positionDraft = positionDraft?.with("backgroundX", EffectValue.Number(next.x))?.with("backgroundY", EffectValue.Number(next.y))
+            ?.with("backgroundZoom", EffectValue.Number(next.zoom))
+        publishLooks()
+    }
+
+    /** Centre: the picture back in the middle at its smallest. */
+    fun resetBackgroundPosition() {
+        val current = placement ?: return
+        placement = current.copy(x = 0.5, y = 0.5, zoom = 1.0)
+        moveBackground(VideoEffectPlacementGesture.Ended)
+    }
+
+    /** Done keeps the placement, Revert leaves the effect as it was. CaptureController.swift:315-324. */
+    fun finishBackgroundPosition(revert: Boolean = false) {
+        val draft = positionDraft
+        cancelFrameTools()
+        if (!revert && draft != null) setLiveEffects(liveEffects.map { if (it.id == draft.id) draft.copy(enabled = it.enabled) else it })
+    }
+
+    /** The recorded frame's size, upright, for placing a picture on it. */
+    private val frameSize: app.takes.core.Size?
+        get() {
+            val info = cases.preview.resolutionInfo ?: return null
+            val size = info.resolution
+            return if (info.rotationDegrees % 180 != 0) app.takes.core.Size(size.height.toDouble(), size.width.toDouble())
+            else app.takes.core.Size(size.width.toDouble(), size.height.toDouble())
+        }
+
+    /** A picture from the phone for a look's background, kept in the live effects' folder: its name, or null. */
+    suspend fun importLivePicture(uri: android.net.Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+            val extension = when (bounds.outMimeType) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                "image/heif", "image/heic" -> "heic"
+                else -> "jpg"
+            }
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+            // Named as the editor names a picture it keeps, so that it is the same file once beside a take.
+            val file = File(frames.effectsFolder, "effect-picture-${hash.take(32)}.$extension")
+            if (!file.isFile) app.takes.core.ProjectDisk.writeAtomically(bytes, file)
+            file.name
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Follows the phone's heat, for the looks' lighter processing (LiveVideoEffects.swift:495-498). */
+    private fun followHeat() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+        val power = context.getSystemService(android.os.PowerManager::class.java) ?: return
+        frames.thermal = power.currentThermalStatus
+        power.addThermalStatusListener(ContextCompat.getMainExecutor(context)) { frames.thermal = it }
+    }
+
+    init {
+        followHeat()
+        publishLooks()
     }
 
     /**
@@ -849,7 +1069,7 @@ class CaptureController(private val context: Context, private val store: Project
     private fun assistTargets(choice: CameraChoice): Int = when {
         levels(choice) || settings.followFace -> CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE
         // The camera moves draw over the preview alone, and look at the pictures for the subject.
-        settings.focusPeaking || crashAvailable || dollyAvailable -> CameraEffect.PREVIEW
+        settings.focusPeaking || crashAvailable || dollyAvailable || drawsLooks -> CameraEffect.PREVIEW
         else -> 0
     }
 
@@ -1141,7 +1361,7 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     /** Whether the picture can be pinched: a camera with a zoom range, and nothing being saved. */
-    val canPinch: Boolean get() = ready && phase != Phase.Saving && zoomRange.endInclusive > zoomRange.start
+    val canPinch: Boolean get() = ready && phase != Phase.Saving && zoomRange.endInclusive > zoomRange.start && positioning == null
 
     /**
      * A pinch beginning with the fingers [span] apart, measured from here on as the original measures it.
@@ -1234,8 +1454,10 @@ class CaptureController(private val context: Context, private val store: Project
         // A Crash Zoom under way goes on in the segment, on its clock; a Dolly Zoom goes on too (CaptureController.swift:1463).
         crash = crash.carried(effectTime())
         phase = Phase.Recording
+        cancelFrameTools()
         movesOrigin = SystemClock.elapsedRealtimeNanos()
         publishMoves()
+        publishLooks()
         saveRecipe(next)
         if (dollyFollower != null) note(next, CaptureEvent(time = 0.0, kind = "dollyStart", detail = "Dolly Zoom continuing from the preview"))
         recording = pending.start(ContextCompat.getMainExecutor(context)) { event -> handle(next, event) }
@@ -1283,6 +1505,7 @@ class CaptureController(private val context: Context, private val store: Project
         phase = Phase.Saving
         movesOrigin = SystemClock.elapsedRealtimeNanos()
         publishMoves()
+        publishLooks()
         recording?.stop()
         scope.launch {
             // In steps, so that time the system kept the app frozen in the background is not counted.
@@ -1393,7 +1616,7 @@ class CaptureController(private val context: Context, private val store: Project
         val events = CaptureEvent.recovered(current.events.map { if (it.time >= seconds) it.copy(time = last) else it }, seconds).ifEmpty { null }
         // The recording gain of its microphone, as the level of the take's clip: the file stays as it was recorded.
         val gain = settings.recordingGain(current.microphone)
-        // The Crash Zooms of the take arrive as effects of its clip: the movie itself is clean.
+        // The live effects and Crash Zooms of the take arrive as effects of its clip: the movie itself is clean.
         val effects = current.moves.takeIf { it.isNotEmpty() }?.let { VideoEffectSettings.capturedRecipe(it, seconds).ifEmpty { null } }
         current.indexed = store.addRecording(current.projectID, SourceMedia(id = current.id, filename = current.file.name, duration = seconds, events = events), gain, effects)
     }

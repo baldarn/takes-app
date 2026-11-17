@@ -69,6 +69,22 @@ internal object EffectPassShaders {
         vec2 pixel() { return vec2(floor(gl_FragCoord.x), uOut.y - 1.0 - floor(gl_FragCoord.y)); }
     """
 
+    /**
+     * [fragment] with its reads between pixels done by the texture's filtering, in the picture's encoding, then
+     * decoded: the recorder's live effects ([EffectGpu.fast]).
+     */
+    fun fast(fragment: String): String {
+        val start = fragment.indexOf("vec3 read(vec2 uv) {")
+        val end = fragment.indexOf("// Read between pixel centres from whole pixels")
+        if (start < 0 || end < start) return fragment
+        return fragment.substring(0, start) + FAST_READ + "\n        " + fragment.substring(end)
+    }
+
+    private const val FAST_READ = """vec3 read(vec2 uv) {
+            vec3 c = texture2D(uTex, vec2(uv.x, 1.0 - uv.y)).rgb;
+            return uEncoded > 0.5 ? lin(clamp(c, 0.0, 1.0)) : c;
+        }"""
+
     /** `ve_highlights`: [uStep] input pixels a side under each output pixel, read at whole pixels when [uIntegral]. */
     val HIGHLIGHTS = """
         $HEAD
@@ -566,8 +582,15 @@ internal class EffectGpu {
         return null
     }
 
+    /**
+     * The recorder's live effects: pictures read between pixels with the texture's own filtering, in their encoding,
+     * where the export mixes four pixels in linear light (EffectPassShaders.fast). Several times cheaper on a phone's
+     * GPU; an export never sets it.
+     */
+    var fast = false
+
     fun program(fragment: String): GlProgram = programs.getOrPut(fragment) {
-        GlProgram(EffectPassShaders.VERTEX, fragment).also {
+        GlProgram(EffectPassShaders.VERTEX, if (fast) EffectPassShaders.fast(fragment) else fragment).also {
             it.setBufferAttribute("aFramePosition", GlUtil.getNormalizedCoordinateBounds(), GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE)
         }
     }

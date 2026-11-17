@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Gli effetti video dal vivo del registratore: i look disegnati sull'anteprima e i loro strumenti (YouRec/VideoEffects/LiveEffectsPanel.swift). -->
+    <string name="live_effects_adaptive_quality">Qualità adattiva</string>
+    <string name="live_effects_warm_banner">Telefono caldo · anteprima adattiva</string>
+    <string name="live_effects_quality_warm">Il telefono è caldo. La risoluzione dell\'anteprima è ridotta; la registrazione continua.</string>
+    <string name="live_effects_quality_warm_lite">Il telefono è caldo. Gli effetti dal vivo usano un\'elaborazione più leggera; la registrazione continua.</string>
+    <string name="live_effects_quality_lite">L\'anteprima dal vivo usa un\'elaborazione più leggera. Registrazione ed esportazione restano a piena risoluzione.</string>
+    <string name="live_effects_quality_reduced">La risoluzione dell\'anteprima è ridotta per mantenere fluida la registrazione. L\'esportazione resta a piena risoluzione.</string>
+    <string name="live_effects_tool_failed">Impossibile leggere l\'anteprima. Riprova quando l\'anteprima della fotocamera è visibile.</string>
+    <string name="live_effects_palette_failed">Impossibile campionare la tavolozza. Riprova quando l\'anteprima della fotocamera è visibile.</string>
+    <string name="live_effects_wait_preview">Attendi l\'anteprima della fotocamera, poi riprova a posizionare.</string>
+    <string name="live_effects_screen_invalid">Scegli una zona verde o blu dello schermo. Per uno sfondo qualsiasi usa Sfondo automatico.</string>
+    <string name="live_effects_screen_saved_invalid">Questo colore salvato non è uno schermo verde o blu. Scegli Verde, Blu o campiona il tuo schermo.</string>
+    <string name="live_effects_sample">Campiona</string>
+    <string name="live_effects_sample_screen">Campiona lo schermo verde o blu</string>
+    <string name="live_effects_pick_from_preview">Scegli dall\'anteprima</string>
+    <string name="live_effects_tap_color">Tocca il colore nell\'anteprima</string>
+    <string name="live_effects_position">Posiziona nell\'anteprima</string>
+    <string name="live_effects_position_hint">Trascina per spostare · pizzica per ridimensionare</string>
+    <string name="live_effects_position_locked">Pizzica per avere spazio da spostare</string>
+    <string name="live_effects_position_accessibility">Posiziona lo sfondo. Trascina per spostare e pizzica per ridimensionare, oppure usa le azioni di spostamento.</string>
+    <string name="live_effects_center">Centra</string>
+    <string name="live_effects_center_hint">Ripristina posizione e zoom</string>
+    <string name="live_effects_revert">Annulla modifiche</string>
+    <string name="live_effects_move_left">Sposta lo sfondo a sinistra</string>
+    <string name="live_effects_move_right">Sposta lo sfondo a destra</string>
+    <string name="live_effects_move_up">Sposta lo sfondo in alto</string>
+    <string name="live_effects_move_down">Sposta lo sfondo in basso</string>
+    <string name="live_effects_enlarge">Ingrandisci lo sfondo</string>
+    <string name="live_effects_shrink">Rimpicciolisci lo sfondo</string>
+    <string name="live_effects_try_strobe">Prova lo strobo</string>
+    <string name="live_effects_auto_background_note">Mantiene a fuoco le persone e sostituisce tutto ciò che sta dietro. Senza nessuno nell\'inquadratura, l\'intera immagine diventa lo sfondo.</string>
+    <string name="live_effects_chroma_note">Richiede uno schermo verde o blu. Per una stanza o una parete qualsiasi usa Sfondo automatico.</string>
+    <string name="live_effects_person_hint_note">«Usa la sagoma della persona» rimuove anche gli oggetti fuori dalla sagoma di una persona. Disattivalo per mantenere altri soggetti.</string>
+    <string name="live_effects_undercranking_note">La cadenza dei fotogrammi si vede dal vivo. Accelerazione e silenzio vengono applicati quando la ripresa si apre nell\'editor.</string>
+</resources>

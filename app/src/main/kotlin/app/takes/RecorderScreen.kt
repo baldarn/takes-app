@@ -114,6 +114,9 @@ import app.takes.CaptureController.Phase
 import app.takes.core.CaptureFormat
 import app.takes.core.LiveCrashState
 import app.takes.core.RecorderFramePoints
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.changedToDown
+import app.takes.core.Point
 import app.takes.core.VideoEffectID
 import app.takes.core.FrontLight
 import app.takes.core.PinchZoom
@@ -250,8 +253,23 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
     // left, at the other end, as in the original (RecorderView.swift:146-148, 211-234).
     val controlsOnLeft = capture.rotation == Surface.ROTATION_270
 
+    // A point of the preview in the recorded frame, as fractions from its top left; null outside it.
+    fun framePoint(at: Offset): Point? {
+        val front = capture.cameras.firstOrNull { it.id == capture.cameraID }?.front == true
+        val aspect = if (previewView.width < previewView.height) 9.0 / 16 else 16.0 / 9
+        return RecorderFramePoints.fromView(
+            at.x.toDouble(), at.y.toDouble(), previewView.width.toDouble(), previewView.height.toDouble(), aspect,
+            fill = !settings.fitFrame, unmirror = front && settings.mirrorPreview != settings.mirrorRecording,
+        )
+    }
     Box(
         Modifier.fillMaxSize().background(Color.Black).pictureGestures(capture, show = { pinch = it }) { at ->
+            // While placing a picture the fingers move it; while picking a colour a tap picks it. RecorderView.swift:86, CaptureController.swift:3222-3236.
+            if (capture.positioning != null) return@pictureGestures
+            if (capture.colorPick != null) {
+                framePoint(at)?.let(capture::pickColor)
+                return@pictureGestures
+            }
             // A tap outside the effects closes them, except while it chooses the subject of a move. RecorderView.swift:87-95.
             val closes = when (inspected) {
                 VideoEffectID.CrashZoom -> !capture.crashAvailable || capture.crashState != LiveCrashState.Ready
@@ -262,12 +280,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
             if (!capture.ready || capture.phase == Phase.Saving || cover != null) return@pictureGestures
             if (capture.choosesSubject) {
                 // A tap chooses the subject of a camera move, in the recorded frame. CaptureController.swift:3236, 3340-3346.
-                val front = capture.cameras.firstOrNull { it.id == capture.cameraID }?.front == true
-                val aspect = if (previewView.width < previewView.height) 9.0 / 16 else 16.0 / 9
-                RecorderFramePoints.fromView(
-                    at.x.toDouble(), at.y.toDouble(), previewView.width.toDouble(), previewView.height.toDouble(), aspect,
-                    fill = !settings.fitFrame, unmirror = front && settings.mirrorPreview != settings.mirrorRecording,
-                )?.let { capture.selectSubject(it); bracket = at }
+                framePoint(at)?.let { capture.selectSubject(it); bracket = at }
             } else {
                 // A tap on the picture focuses there, as in the original.
                 capture.focus.tap(previewView.meteringPointFactory.createPoint(at.x, at.y), at)
@@ -283,6 +296,7 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         }
         FocusBox(capture.focus)
         bracket?.let { SubjectBracket(it) }
+        if (capture.positioning != null) BackgroundPlacing(capture, previewView, Modifier.matchParentSize())
         // Over the picture and under the controls. It is part of the interface: the camera never sees it.
         if (frontLight) FrontLightRing(settings, screenCornerRadius()) { frontLight = false }
         CompositionLocalProvider(LocalControlPlate provides if (frontLight) LitPlate else ControlPlate) {
@@ -300,6 +314,12 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
                     Modifier.align(Alignment.TopStart).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Start))
                         .padding(top = 9.dp, start = 12.dp),
                 )
+                if (capture.lookWarm) {
+                    WarmBanner(
+                        capture,
+                        Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)).padding(top = 62.dp),
+                    )
+                }
                 LiveEffectsButton(
                     capture,
                     Modifier.align(Alignment.TopEnd).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End))
@@ -340,10 +360,14 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         }
         if (effectsOpen) {
             val panel = Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xFF0F0F0F)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                // A touch on the panel is the panel's: it neither closes it nor reaches the picture under it.
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { if (it.changedToDown()) it.consume() } } }
             val sides = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom + WindowInsetsSides.Top)
             LiveEffectsPanel(
                 capture,
-                if (landscape) Modifier.align(if (controlsOnLeft) Alignment.CenterStart else Alignment.CenterEnd).windowInsetsPadding(sides).padding(8.dp)
+                // A frame tool's bar stands at the bottom, over as little of the picture as it can. RecorderView.swift:258-266.
+                if (capture.frameToolActive) Modifier.align(Alignment.BottomCenter).windowInsetsPadding(sides).padding(8.dp).widthIn(max = 520.dp).fillMaxWidth().then(panel)
+                else if (landscape) Modifier.align(if (controlsOnLeft) Alignment.CenterStart else Alignment.CenterEnd).windowInsetsPadding(sides).padding(8.dp)
                     .width(360.dp).fillMaxHeight().then(panel)
                 else Modifier.align(Alignment.BottomCenter).windowInsetsPadding(sides).padding(8.dp).fillMaxWidth().height(340.dp).then(panel),
                 inspect = { inspected = it },

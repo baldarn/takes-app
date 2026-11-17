@@ -706,8 +706,30 @@ object EffectShader {
         """
     }
 
+    // Read between pixels in linear light, as the original reads its linear picture: four pixels, mixed after decoding.
+    private const val SOURCE = """vec3 src(vec2 uv) {
+            vec2 p = uv * uSize - 0.5;
+            vec2 i = floor(p);
+            vec2 f = p - i;
+            vec2 last = uSize - 1.0;
+            vec2 a = clamp(i, vec2(0.0), last);
+            vec2 b = clamp(i + 1.0, vec2(0.0), last);
+            return mix(mix(texel(a), texel(vec2(b.x, a.y)), f.x), mix(texel(vec2(a.x, b.y)), texel(b), f.x), f.y);
+        }"""
+
+    // The recorder's: between pixels by the texture's own filtering, in the picture's encoding, then decoded.
+    private const val FAST_SOURCE = """vec3 src(vec2 uv) { return lin(clamp(texture2D(uTex, vec2(uv.x, 1.0 - uv.y)).rgb, 0.0, 1.0)); }"""
+
     /** The export's. Texture rows run from the bottom. */
-    val FRAGMENT = """
+    val FRAGMENT = fragment(null)
+
+    /**
+     * The export's shader holding the branch of the effect of shader index [kind] alone ([kind] null: all of
+     * them, the export's), for the recorder's live effects, which draw each pass with its own: a phone's GPU runs
+     * it several times faster than the shader that holds every effect, the more so as it reads between pixels with
+     * the texture's filtering rather than mixing four of them in linear light (LiveEffectRendering.kt).
+     */
+    fun fragment(kind: Int?): String = """
         #ifdef GL_FRAGMENT_PRECISION_HIGH
         precision highp float;
         #else
@@ -720,20 +742,11 @@ object EffectShader {
         // A pixel, read a 1/1024 past its centre: a GPU that keeps the filter's weights in eight bits and truncates
         // them would otherwise mix in 1/256 of a neighbour where the division lands a hair before the centre.
         vec3 texel(vec2 i) { return lin(clamp(texture2D(uTex, vec2((i.x + 0.5009765625) / uSize.x, 1.0 - (i.y + 0.4990234375) / uSize.y)).rgb, 0.0, 1.0)); }
-        // Read between pixels in linear light, as the original reads its linear picture: four pixels, mixed after decoding.
-        vec3 src(vec2 uv) {
-            vec2 p = uv * uSize - 0.5;
-            vec2 i = floor(p);
-            vec2 f = p - i;
-            vec2 last = uSize - 1.0;
-            vec2 a = clamp(i, vec2(0.0), last);
-            vec2 b = clamp(i + 1.0, vec2(0.0), last);
-            return mix(mix(texel(a), texel(vec2(b.x, a.y)), f.x), mix(texel(vec2(a.x, b.y)), texel(b), f.x), f.y);
-        }
+        ${if (kind == null) SOURCE else FAST_SOURCE}
         $GRAIN
         $AUXILIARY
         $EFFECTS
-        ${effectPass(null)}
+        ${effectPass(kind)}
         void main() {
             vec2 q = vec2(floor(gl_FragCoord.x), uSize.y - 1.0 - floor(gl_FragCoord.y));
             gl_FragColor = vec4(effectPass((q + 0.5) / uSize, q), 1.0);
@@ -923,15 +936,62 @@ object EffectShader {
  * picture; without them a Quantization leaves the picture as it is and an
  * Image background is black.
  */
+// The grain lattice of `VideoEffectGrain.lattice`, hashed by the GPU in whole numbers: the recorder's (VideoEffectChain.specialised).
+private const val LATTICE_VERTEX = """#version 300 es
+in vec4 aPosition;
+void main() { gl_Position = aPosition; }
+"""
+
+private const val LATTICE_FRAGMENT = """#version 300 es
+precision highp float;
+precision highp int;
+uniform uint uFrame;
+uniform int uColour;
+out vec4 fragColor;
+uint hash32(uint value) {
+    uint n = value;
+    n ^= n >> 16u; n *= 0x7feb352du; n ^= n >> 15u; n *= 0x846ca68bu; n ^= n >> 16u;
+    return n;
+}
+float random01(uint x, uint y, uint z) { return float(hash32(x ^ hash32(y + 0x9e3779b9u) ^ hash32(z + 0x85ebca6bu)) >> 8u) / 16777216.0; }
+void main() {
+    uint x = uint(gl_FragCoord.x);
+    uint y = uint(gl_FragCoord.y);
+    float base = random01(x, y, uFrame + 13u) * 2.0 - 1.0;
+    vec4 n = vec4(base);
+    if (uColour == 1) n = vec4(
+        base * 0.7 + (random01(x, y, uFrame + 29u) * 2.0 - 1.0) * 0.3,
+        base * 0.7 + (random01(x, y, uFrame + 59u) * 2.0 - 1.0) * 0.3,
+        base * 0.7 + (random01(x, y, uFrame + 101u) * 2.0 - 1.0) * 0.3,
+        base);
+    fragColor = n * 0.5 + 0.5;
+}
+"""
+
 class VideoEffectChain(
-    private val clip: TimelineClip,
+    clip: TimelineClip,
     private val begins: Double,
     private val frameRate: Double,
     private val assets: EffectAssets = EffectAssets.NONE,
     /** The frames a second of the clip's footage, for the frame a cadence holds. */
     private val sourceFPS: Double = 30.0,
 ) : GlEffect {
-    private val clock = VideoEffectSequenceClock.of(clip)
+    /** The clip drawn. The recorder's live effects change it between frames (LiveEffectRendering.kt); an export never does. */
+    @Volatile var clip: TimelineClip = clip
+        set(value) {
+            if (value != field) clock = VideoEffectSequenceClock.of(value)
+            field = value
+        }
+    @Volatile private var clock = VideoEffectSequenceClock.of(clip)
+
+    /** Each pass drawn with a shader of its effect's alone ([EffectShader.fragment]): the recorder's live effects. */
+    @Volatile var specialised: Boolean = false
+
+    /**
+     * The recorder's lighter processing, its last step when the phone is warm or the preview cannot keep up: some
+     * pictures a pass reads are made smaller (MetalVideoEffects.swift:453-515). An export is always full.
+     */
+    @Volatile var lite: Boolean = false
 
     override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = clip.videoEffects.orEmpty().none { it.kind in EffectShader.drawn }
 
@@ -942,6 +1002,8 @@ class VideoEffectChain(
         var frame = -1
         var columns = 0
         var rows = 0
+        /** Its framebuffer, where the GPU draws it ([specialised]); 0 while it is uploaded. */
+        var framebuffer = 0
     }
 
     /** The pictures a pass reads besides its input, 0 for none, and the numbers worked out with them, which replace [EffectShader.extras]. */
@@ -952,7 +1014,7 @@ class VideoEffectChain(
         private var size = Size(0, 0)
         private val textures = IntArray(2)
         private val framebuffers = IntArray(2)
-        private val gpu = EffectGpu()
+        private val gpu = EffectGpu().also { it.fast = specialised }
         private val lattices = HashMap<Pair<Double, Boolean>, Lattice>()
 
         override fun configure(inputWidth: Int, inputHeight: Int): Size {
@@ -968,12 +1030,26 @@ class VideoEffectChain(
             made
         }
 
+        // The recorder's: one shader for each effect drawn.
+        private val kinds = HashMap<Int, GlProgram>()
+
+        private fun prepared(pass: EffectUniforms): GlProgram = if (!specialised) prepared() else kinds.getOrPut(pass.kind) {
+            GlProgram(EffectShader.VERTEX, EffectShader.fragment(pass.kind)).also {
+                it.setBufferAttribute("aFramePosition", GlUtil.getNormalizedCoordinateBounds(), GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE)
+            }
+        }
+
         private fun target(index: Int): Int {
             if (framebuffers[index] == 0) {
                 textures[index] = GlUtil.createTexture(size.width, size.height, /* useHighPrecisionColorComponents = */ false)
                 framebuffers[index] = GlUtil.createFboForTexture(textures[index])
             }
             return framebuffers[index]
+        }
+
+        /** A picture the shader reads; one shader for one effect ([specialised]) may not read them all. */
+        private fun GlProgram.samplerIfPresent(name: String, texture: Int, unit: Int) {
+            if (getUniformLocation(name) != -1) setSamplerTexIdUniform(name, texture, unit)
         }
 
         private fun draw(program: GlProgram, texture: Int, pass: EffectUniforms?, auxiliary: Auxiliary = Auxiliary(), lattice: Lattice? = null, grainSize: Double = 1.0, nearest: Boolean = false) {
@@ -987,12 +1063,12 @@ class VideoEffectChain(
             program.setFloatsUniformIfPresent("uX0", extras.copyOfRange(0, 4))
             program.setFloatsUniformIfPresent("uX1", extras.copyOfRange(4, 8))
             program.setFloatsUniformIfPresent("uGrainSize", floatArrayOf(grainSize.toFloat()))
-            program.setSamplerTexIdUniform("uLattice", lattice?.texture ?: texture, 1)
+            program.samplerIfPresent("uLattice", lattice?.texture ?: texture, 1)
             program.setFloatsUniformIfPresent("uLatticeSize", floatArrayOf(maxOf(1, lattice?.columns ?: 1).toFloat(), maxOf(1, lattice?.rows ?: 1).toFloat()))
-            program.setSamplerTexIdUniform("uAux", auxiliary.aux.takeIf { it != 0 } ?: texture, 2)
-            program.setSamplerTexIdUniform("uBack", auxiliary.back.takeIf { it != 0 } ?: texture, 3)
-            program.setSamplerTexIdUniform("uExtra", auxiliary.extra.takeIf { it != 0 } ?: texture, 4)
-            program.setSamplerTexIdUniform("uMore", auxiliary.more.takeIf { it != 0 } ?: texture, 5)
+            program.samplerIfPresent("uAux", auxiliary.aux.takeIf { it != 0 } ?: texture, 2)
+            program.samplerIfPresent("uBack", auxiliary.back.takeIf { it != 0 } ?: texture, 3)
+            program.samplerIfPresent("uExtra", auxiliary.extra.takeIf { it != 0 } ?: texture, 4)
+            program.samplerIfPresent("uMore", auxiliary.more.takeIf { it != 0 } ?: texture, 5)
             program.setFloatsUniformIfPresent("uCount", floatArrayOf(if (pass == null) 0f else EffectShader.count(pass)))
             program.bindAttributesAndUniforms()
             // Arrays after the program's own binding, which knows only their first element.
@@ -1039,7 +1115,7 @@ class VideoEffectChain(
                 val grain = EffectShader.grain(pass)
                 val lattice = grain?.let { lattice(it.first, it.second, pass.frame) }
                 GlUtil.focusFramebufferUsingCurrentContext(if (last) bound[0] else target(index % 2), size.width, size.height)
-                draw(program, reading, pass, auxiliary, lattice, grain?.first ?: 1.0)
+                draw(prepared(pass), reading, pass, auxiliary, lattice, grain?.first ?: 1.0)
                 reading = textures[index % 2]
             }
         }
@@ -1060,27 +1136,32 @@ class VideoEffectChain(
             return when (pass.effect) {
                 VideoEffectID.Halation -> {
                     val small = EffectSource(gpu.highlights(source, "small", quarterWidth, quarterHeight, .75, .1))
+                    val detail = if (lite) .5 else 1.0
                     Auxiliary(
-                        aux = gpu.blur(small, "aux", width * 0.01 / 4).texture,
-                        back = gpu.blur(small, "back", width * 0.006 / 4).texture,
-                        extra = gpu.blur(small, "extra", width * 0.04 / 4).texture,
+                        aux = gpu.blur(small, "aux", width * 0.01 / 4 * detail).texture,
+                        back = gpu.blur(small, "back", width * 0.006 / 4 * detail).texture,
+                        extra = gpu.blur(small, "extra", width * 0.04 / 4 * detail).texture,
                     )
                 }
                 VideoEffectID.Widescreen -> {
                     val flares = if (pass.number("flares") > 0) {
                         val small = EffectSource(gpu.highlights(source, "small", quarterWidth, quarterHeight, .9, .05))
-                        gpu.blur(small, "aux", width / 24.0 / 4, horizontalOnly = true).texture
+                        gpu.blur(small, "aux", width / 24.0 / 4 * (if (lite) .5 else 1.0), horizontalOnly = true).texture
                     } else {
                         0
                     }
                     val fill = if (pass.number("bars") > .5) gpu.blur(source, "back", 12 * scale, quarterWidth, quarterHeight).texture else 0
                     Auxiliary(aux = flares, back = fill)
                 }
-                VideoEffectID.SixteenMM -> if (pass.number("softness") > 0) Auxiliary(aux = gpu.blur(source, "aux", 1.5 * scale).texture) else Auxiliary()
-                VideoEffectID.SuperEight -> Auxiliary(aux = gpu.blur(source, "aux", 2 * scale).texture)
+                VideoEffectID.SixteenMM -> if (pass.number("softness") > 0) {
+                    Auxiliary(aux = (if (lite) gpu.blur(source, "aux", 1.5 * scale, maxOf(2, width / 2), maxOf(2, height / 2)) else gpu.blur(source, "aux", 1.5 * scale)).texture)
+                } else {
+                    Auxiliary()
+                }
+                VideoEffectID.SuperEight -> Auxiliary(aux = (if (lite) gpu.blur(source, "aux", 2 * scale, maxOf(2, width / 2), maxOf(2, height / 2)) else gpu.blur(source, "aux", 2 * scale)).texture)
                 VideoEffectID.Quantization -> {
                     val smoothed = pass.number("smoothing").takeIf { it > 0 }?.let { smoothing ->
-                        gpu.bilateral(source, "aux", VideoEffectQuantization.smoothingPlan(width, height, smoothing)).texture
+                        gpu.bilateral(source, "aux", VideoEffectQuantization.smoothingPlan(width, height, smoothing, lite)).texture
                     } ?: 0
                     // Face detail: the frame blurred by 8 pixels at 1080 at half its size, and the raw person mask (Renderer:459-461).
                     val person = if (pass.number("faceDetail") > .5 && pass.number("colors") <= 4) person(width, height) else null
@@ -1096,7 +1177,7 @@ class VideoEffectChain(
                 VideoEffectID.ColorIsolation -> {
                     val temporal = settings(pass)?.usesTemporalMatte == true
                     val matte = if (pass.number("mode") > .5) {
-                        person(width, height)?.let { person -> gpu.refined(EffectSource(person), source, "isolation", pass.number("softness"), person = true) }
+                        person(width, height)?.let { person -> gpu.refined(EffectSource(person), source, "isolation", pass.number("softness"), person = true, lite = lite) }
                     } else if (temporal) {
                         val color = EffectShader.slot(pass, 1)
                         gpu.isolationAlpha(source, "isolation", app.takes.core.EffectVector(color[0].toDouble(), color[1].toDouble(), color[2].toDouble()), pass.p[2].x, pass.p[3].x)
@@ -1156,8 +1237,9 @@ class VideoEffectChain(
             // The person hint, at a quarter of the size: the garbage matte outside the grown person and the holdout inside
             // the shrunk one (Renderer:513-519, Metal:474-479).
             if (pass.number("personHint") > .5) {
-                val w = maxOf(2, width / 4)
-                val h = maxOf(2, height / 4)
+                val reduction = if (lite) 8 else 4
+                val w = maxOf(2, width / reduction)
+                val h = maxOf(2, height / reduction)
                 person(width, height)?.let { person ->
                     val dilated = gpu.morph(EffectSource(person), "hint.dilated", h * .04, w, h)
                     val eroded = gpu.morph(EffectSource(person), "hint.eroded", -h * .03, w, h)
@@ -1229,7 +1311,7 @@ class VideoEffectChain(
             // The smoothed stream for a recipe of algorithm 1, the raw masks for an older one (VideoEffectModel.swift:191-202).
             val stream = clip.videoEffects.orEmpty().firstOrNull { it.id == pass.id }?.usesAutoMaskStream == true
             val person = person(width, height, stream) ?: return Auxiliary(extras = FloatArray(8))
-            val mask = gpu.refined(EffectSource(person), source, "auto", pass.number("softness"), pass.number("grow"), person = true)
+            val mask = gpu.refined(EffectSource(person), source, "auto", pass.number("softness"), pass.number("grow"), person = true, lite = lite)
             val estimate = gpu.backgroundEstimate(source, EffectSource(mask), "estimate")
             val gain = 2.0.pow(pass.number("backgroundBrightness"))
             val wrap = pass.number("wrap")
@@ -1335,6 +1417,7 @@ class VideoEffectChain(
             }
             val (columns, rows) = VideoEffectGrain.latticeSize(size.width, size.height, grainSize)
             if (lattice.frame == frame && lattice.columns == columns && lattice.rows == rows) return lattice
+            if (specialised && drawsLattice(lattice, columns, rows, colour, frame)) return lattice
             val bytes = ByteBuffer.allocateDirect(columns * rows * 4)
             fun level(noise: Double): Byte = ((noise * 0.5 + 0.5) * 255).roundToInt().toByte()
             val seed = frame.toUInt() + 13u
@@ -1360,6 +1443,46 @@ class VideoEffectChain(
             return lattice
         }
 
+        // The recorder's grain: the same lattice, hashed by the GPU, where a frame's worth of points on the processor
+        // would take longer than the frame (a 1080p picture's fine grain has about a million of them).
+        private var latticeProgram = 0
+        private var latticeWorks: Boolean? = null
+
+        /** Draws the lattice of [frame] into [lattice] with the GPU: false where it cannot, OpenGL ES 3 being needed. */
+        private fun drawsLattice(lattice: Lattice, columns: Int, rows: Int, colour: Boolean, frame: Int): Boolean {
+            if (latticeWorks == null) latticeWorks = EffectMatteWindow.supported()
+            if (latticeWorks != true) return false
+            try {
+                // A plain program: its numbers are whole ones, which GlProgram does not set.
+                if (latticeProgram == 0) latticeProgram = CameraFrames.link(LATTICE_VERTEX, LATTICE_FRAGMENT)
+                if (lattice.columns != columns || lattice.rows != rows || lattice.framebuffer == 0) {
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lattice.texture)
+                    for (filter in listOf(GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_TEXTURE_MAG_FILTER)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, filter, GLES20.GL_LINEAR)
+                    for (wrap in listOf(GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_TEXTURE_WRAP_T)) GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, wrap, GLES20.GL_CLAMP_TO_EDGE)
+                    GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, columns, rows, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+                    if (lattice.framebuffer != 0) GlUtil.deleteFbo(lattice.framebuffer)
+                    lattice.framebuffer = GlUtil.createFboForTexture(lattice.texture)
+                }
+                GlUtil.focusFramebufferUsingCurrentContext(lattice.framebuffer, columns, rows)
+                GLES20.glUseProgram(latticeProgram)
+                android.opengl.GLES30.glUniform1ui(GLES20.glGetUniformLocation(latticeProgram, "uFrame"), frame.toUInt().toInt())
+                GLES20.glUniform1i(GLES20.glGetUniformLocation(latticeProgram, "uColour"), if (colour) 1 else 0)
+                val position = GLES20.glGetAttribLocation(latticeProgram, "aPosition")
+                GLES20.glEnableVertexAttribArray(position)
+                GLES20.glVertexAttribPointer(position, 4, GLES20.GL_FLOAT, false, 0, GlUtil.createBuffer(GlUtil.getNormalizedCoordinateBounds()))
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                GlUtil.checkGlError()
+            } catch (failure: Exception) {
+                android.util.Log.w("EffectRendering", "Grain on the processor", failure)
+                latticeWorks = false
+                return false
+            }
+            lattice.frame = frame
+            lattice.columns = columns
+            lattice.rows = rows
+            return true
+        }
+
         private fun releaseTargets() {
             for (i in 0..1) {
                 if (framebuffers[i] != 0) GlUtil.deleteFbo(framebuffers[i])
@@ -1375,10 +1498,15 @@ class VideoEffectChain(
             windows.values.forEach { it.delete() }
             windows.clear()
             gpu.release()
-            for (lattice in lattices.values) GLES20.glDeleteTextures(1, intArrayOf(lattice.texture), 0)
+            for (lattice in lattices.values) {
+                GLES20.glDeleteTextures(1, intArrayOf(lattice.texture), 0)
+                if (lattice.framebuffer != 0) GlUtil.deleteFbo(lattice.framebuffer)
+            }
+            if (latticeProgram != 0) GLES20.glDeleteProgram(latticeProgram)
             if (pictureTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(pictureTexture), 0)
             if (personTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(personTexture), 0)
             program?.delete()
+            kinds.values.forEach { it.delete() }
         }
     }
 }

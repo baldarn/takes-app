@@ -35,6 +35,11 @@ import app.takes.core.HorizonEstimate
 import app.takes.core.HorizonFraming
 import app.takes.core.HorizonLine
 import app.takes.core.LiveCrashZooms
+import app.takes.core.EffectPalette
+import app.takes.core.EffectRGB
+import app.takes.core.LiveVideoEffects
+import app.takes.core.VideoEffectSettings
+import app.takes.core.VideoEffectTime
 import app.takes.core.Point
 import app.takes.core.RecorderFramePoints
 import app.takes.core.Rect
@@ -104,6 +109,48 @@ class CameraFrames(context: Context) : SurfaceProcessor {
     /** Called on the main thread when the face follow finds, holds or loses its face. */
     @Volatile var onFollowStatus: ((FollowStatus) -> Unit)? = null
     @Volatile var moves = Moves()
+
+    /**
+     * The live looks drawn over the preview (LiveEffectRendering.kt), on the clock of [moves]: [recording] while a
+     * segment is written, when a Negative Strobe shows without being tried. The recording stays clean.
+     */
+    data class Looks(val effects: List<VideoEffectSettings> = emptyList(), val recording: Boolean = false, val tool: Boolean = false)
+
+    @Volatile var looks = Looks()
+    /** Android's thermal status, for the lighter processing when the phone is warm. */
+    @Volatile var thermal = 0
+    /** Called on the main thread when the note on the looks' quality changes, and whether the phone is warm. */
+    @Volatile var onLookQuality: ((LiveVideoEffects.QualityNote?, Boolean) -> Unit)? = null
+    /** Called on the main thread with a palette taken from one frame for a Quantization, or null when none could be. */
+    @Volatile var onPalette: ((String, EffectPalette?) -> Unit)? = null
+
+    private val live = LiveEffectRendering(context).apply {
+        onQuality = { note, warm -> main.post { onLookQuality?.invoke(note, warm) } }
+        onPalette = { id, palette -> main.post { this@CameraFrames.onPalette?.invoke(id, palette) } }
+    }
+    private var audition: LiveVideoEffects.Audition? = null
+    private var looksShown = false
+
+    /** Tries the Negative Strobe [id] in the preview, for its burst. LiveVideoEffects.swift:138-140. */
+    fun tryStrobe(id: String) = handler.post { audition = LiveVideoEffects.Audition(id) }
+
+    /** Ends a try of a strobe. LiveVideoEffects.swift:141-146. */
+    fun endStrobe() = handler.post { audition = null }
+
+    /** The colour of the preview's looks about ([x], [y]) of the recorded frame, given on the main thread. LiveVideoEffects.swift:256-263. */
+    fun pickColor(x: Double, y: Double, picked: (EffectRGB?) -> Unit) = handler.post {
+        val color = if (looksShown) live.colorAt(x, y) else null
+        main.post { picked(color) }
+    }
+
+    /** Takes a palette from the next frame for the Quantization [id]. */
+    fun samplePalette(id: String) = live.samplePalette(id)
+
+    /** The looks start afresh: a new chain, camera or take. */
+    fun resetLooks() = handler.post { live.reset() }
+
+    /** Where the looks keep their picked pictures. */
+    val effectsFolder: java.io.File get() = live.folder
     /** Called on the main thread with each look for the subject, while [Assists.tracking]. */
     @Volatile var onSubject: ((Subject) -> Unit)? = null
 
@@ -194,16 +241,23 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         val version = IntArray(2)
         EGL14.eglInitialize(display, version, 0, version, 1)
-        val attributes = intArrayOf(
-            EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
-            EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL_RECORDABLE_ANDROID, 1,
-            EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT or EGL14.EGL_PBUFFER_BIT, EGL14.EGL_NONE,
-        )
-        val configs = arrayOfNulls<EGLConfig>(1)
-        val found = IntArray(1)
-        EGL14.eglChooseConfig(display, attributes, 0, configs, 0, 1, found, 0)
-        config = configs[0] ?: error("No EGL configuration")
-        eglContext = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0)
+        // OpenGL ES 3 where the phone has it, for the temporal mattes of the live looks (EffectMatteWindow); else 2.
+        for (version in intArrayOf(3, 2)) {
+            val attributes = intArrayOf(
+                EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+                EGL14.EGL_RENDERABLE_TYPE, if (version == 3) EGLExt.EGL_OPENGL_ES3_BIT_KHR else EGL14.EGL_OPENGL_ES2_BIT, EGL_RECORDABLE_ANDROID, 1,
+                EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT or EGL14.EGL_PBUFFER_BIT, EGL14.EGL_NONE,
+            )
+            val configs = arrayOfNulls<EGLConfig>(1)
+            val found = IntArray(1)
+            if (!EGL14.eglChooseConfig(display, attributes, 0, configs, 0, 1, found, 0) || found[0] == 0) continue
+            val made = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT, intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, version, EGL14.EGL_NONE), 0)
+            if (made == null || made == EGL14.EGL_NO_CONTEXT) continue
+            config = configs[0]
+            eglContext = made
+            break
+        }
+        if (config == null) error("No EGL configuration")
         idle = EGL14.eglCreatePbufferSurface(display, config, intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
         EGL14.eglMakeCurrent(display, idle, idle, eglContext)
         program = link(VERTEX, FRAGMENT)
@@ -215,21 +269,6 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-    }
-
-    private fun link(vertex: String, fragment: String): Int {
-        fun shader(type: Int, source: String) = GLES20.glCreateShader(type).also {
-            GLES20.glShaderSource(it, source)
-            GLES20.glCompileShader(it)
-            val ok = IntArray(1)
-            GLES20.glGetShaderiv(it, GLES20.GL_COMPILE_STATUS, ok, 0)
-            if (ok[0] == 0) error("Shader: " + GLES20.glGetShaderInfoLog(it))
-        }
-        return GLES20.glCreateProgram().also {
-            GLES20.glAttachShader(it, shader(GLES20.GL_VERTEX_SHADER, vertex))
-            GLES20.glAttachShader(it, shader(GLES20.GL_FRAGMENT_SHADER, fragment))
-            GLES20.glLinkProgram(it)
-        }
     }
 
     override fun onInputSurface(request: SurfaceRequest) {
@@ -314,14 +353,81 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         val moving = moves
         val look = moving.crash.look((nanos - moving.origin) / 1e9, tracked?.takeIf { now - it.second <= 0.5 }?.first)
         val crash = look?.let { CrashLook(it.zoom, it.blur, RecorderFramePoints.toCamera(it.target, wanted.upright, wanted.mirrored)) }
+        // The looks, drawn on the frame standing as it is recorded, for the preview alone. LiveVideoEffects.swift:409-689.
+        val looking = looks
+        val lookTime = VideoEffectTime.captureTime((nanos - moving.origin) / 1e9)
+        val (shown, tried) = LiveVideoEffects.displayed(looking.effects, lookTime, looking.recording, audition)
+        audition = tried
+        val sideways = (wanted.upright % 180 + 180) % 180 != 0
+        val uprightWidth = if (sideways) inputSize.height else inputSize.width
+        val uprightHeight = if (sideways) inputSize.width else inputSize.height
+        // A frame tool draws the picture it reads from, with no effect on it if need be.
+        looksShown = outputs.any { !it.video } && (looking.tool || shown.any { it.enabled }) && try {
+            live.draw(shown, lookTime, uprightWidth, uprightHeight, thermal, looking.tool) { width, height ->
+                GLES20.glViewport(0, 0, width, height)
+                render(uprightMatrix(wanted.upright, wanted.mirrored), effect, peaking = false, crash = crash)
+            }
+        } catch (problem: Exception) {
+            android.util.Log.w("LiveEffects", "Live effect preview", problem)
+            false
+        }
         for (output in outputs.toList()) {
             if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, eglContext)) continue
             output.output.updateTransformMatrix(outputMatrix, textureMatrix)
             GLES20.glViewport(0, 0, output.output.size.width, output.output.size.height)
-            render(outputMatrix, effect, peaking = wanted.peaking && !output.video, crash = if (output.video) null else crash)
+            if (looksShown && !output.video) present(outputMatrix, wanted.upright, wanted.mirrored)
+            else render(outputMatrix, effect, peaking = wanted.peaking && !output.video, crash = if (output.video) null else crash)
             if (output.video) EGLExt.eglPresentationTimeANDROID(display, output.surface, surfaceTexture.timestamp)
             EGL14.eglSwapBuffers(display, output.surface)
         }
+        if (looksShown) live.shown((SystemClock.elapsedRealtimeNanos() - nanos) / 1e9, maxOf(uprightWidth, uprightHeight).toDouble())
+    }
+
+    /**
+     * From the corners of the upright picture, rows from the bottom, to the frame's picture in the camera's own
+     * orientation, as [render] reads it.
+     */
+    private fun uprightMatrix(upright: Int, mirrored: Boolean): FloatArray {
+        fun at(s: Double, t: Double) = RecorderFramePoints.toCamera(Point(s, 1 - t), upright, mirrored)
+        val o = at(0.0, 0.0)
+        val x = at(1.0, 0.0)
+        val y = at(0.0, 1.0)
+        return floatArrayOf(
+            (x.x - o.x).toFloat(), (x.y - o.y).toFloat(), 0f, 0f,
+            (y.x - o.x).toFloat(), (y.y - o.y).toFloat(), 0f, 0f,
+            0f, 0f, 1f, 0f,
+            o.x.toFloat(), o.y.toFloat(), 0f, 1f,
+        )
+    }
+
+    private var presenter = 0
+
+    /** The looks drawn on the upright picture, onto an output that maps itself onto the frame's picture with [output]. */
+    private fun present(output: FloatArray, upright: Int, mirrored: Boolean) {
+        if (presenter == 0) presenter = link(VERTEX, PRESENT)
+        GLES20.glUseProgram(presenter)
+        val position = GLES20.glGetAttribLocation(presenter, "aPosition")
+        val coordinate = GLES20.glGetAttribLocation(presenter, "aCoordinate")
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 2, GLES20.GL_FLOAT, false, 0, QUAD)
+        GLES20.glEnableVertexAttribArray(coordinate)
+        GLES20.glVertexAttribPointer(coordinate, 2, GLES20.GL_FLOAT, false, 0, CORNERS)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(presenter, "uOutput"), 1, false, output, 0)
+        // The frame's picture to the upright one, rows from the bottom.
+        fun at(x: Double, y: Double) = RecorderFramePoints.fromCamera(Point(x, y), upright, mirrored).let { Point(it.x, 1 - it.y) }
+        val o = at(0.0, 0.0)
+        val x = at(1.0, 0.0)
+        val y = at(0.0, 1.0)
+        val columns = floatArrayOf(
+            (x.x - o.x).toFloat(), (x.y - o.y).toFloat(), 0f,
+            (y.x - o.x).toFloat(), (y.y - o.y).toFloat(), 0f,
+            o.x.toFloat(), o.y.toFloat(), 1f,
+        )
+        GLES20.glUniformMatrix3fv(GLES20.glGetUniformLocation(presenter, "uEffect"), 1, false, columns, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, live.resultTexture)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(presenter, "uTexture"), 0)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
     }
 
     /** From the frame's picture to the camera's, in top-left fractions of the camera's picture. */
@@ -547,19 +653,35 @@ class CameraFrames(context: Context) : SurfaceProcessor {
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
     }
 
-    private companion object {
-        const val EGL_RECORDABLE_ANDROID = 0x3142
-        const val MAX_FACES = 4
-        const val ZOOMS = 32
-        val IDENTITY = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
+    internal companion object {
+        /** A program of the two shaders. */
+        fun link(vertex: String, fragment: String): Int {
+            fun shader(type: Int, source: String) = GLES20.glCreateShader(type).also {
+                GLES20.glShaderSource(it, source)
+                GLES20.glCompileShader(it)
+                val ok = IntArray(1)
+                GLES20.glGetShaderiv(it, GLES20.GL_COMPILE_STATUS, ok, 0)
+                if (ok[0] == 0) error("Shader: " + GLES20.glGetShaderInfoLog(it))
+            }
+            return GLES20.glCreateProgram().also {
+                GLES20.glAttachShader(it, shader(GLES20.GL_VERTEX_SHADER, vertex))
+                GLES20.glAttachShader(it, shader(GLES20.GL_FRAGMENT_SHADER, fragment))
+                GLES20.glLinkProgram(it)
+            }
+        }
 
-        fun buffer(vararg values: Float): FloatBuffer =
+        private const val EGL_RECORDABLE_ANDROID = 0x3142
+        private const val MAX_FACES = 4
+        private const val ZOOMS = 32
+        private val IDENTITY = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
+
+        private fun buffer(vararg values: Float): FloatBuffer =
             ByteBuffer.allocateDirect(values.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(values); position(0) }
 
-        val QUAD = buffer(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
-        val CORNERS = buffer(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)
+        internal val QUAD = buffer(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
+        private val CORNERS = buffer(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)
 
-        const val VERTEX = """
+        private const val VERTEX = """
             attribute vec4 aPosition;
             attribute vec4 aCoordinate;
             uniform mat4 uOutput;
@@ -572,7 +694,16 @@ class CameraFrames(context: Context) : SurfaceProcessor {
 
         // Focus peaking as the original's `recorderFocusPeaking` (VideoEffects.metal): a sharp edge is a strong
         // gradient with high-frequency detail, extended by one pixel, mixed into the picture in red.
-        const val FRAGMENT = """
+        // The looks drawn on the upright picture, read where the frame's picture falls in it.
+        private const val PRESENT = """
+            precision mediump float;
+            uniform sampler2D uTexture;
+            uniform mat3 uEffect;
+            varying vec2 vCoordinate;
+            void main() { gl_FragColor = texture2D(uTexture, (uEffect * vec3(vCoordinate, 1.0)).xy); }
+        """
+
+        private const val FRAGMENT = """
             #extension GL_OES_EGL_image_external : require
             precision highp float;
             uniform samplerExternalOES uTexture;

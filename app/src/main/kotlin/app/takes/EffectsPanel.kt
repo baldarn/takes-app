@@ -492,7 +492,7 @@ internal fun EffectControl(effect: VideoEffectSettings, parameter: EffectParamet
 
 /** The Color Correction in two tabs with its advanced light, as the original lays it out. VideoEffectsEditor.swift:1343-1383. */
 @Composable
-private fun CorrectionControls(effect: VideoEffectSettings, at: Double, set: (String, EffectValue) -> Unit, reset: () -> Unit) {
+internal fun CorrectionControls(effect: VideoEffectSettings, at: Double, set: (String, EffectValue) -> Unit, reset: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }

@@ -172,6 +172,25 @@ object PersonMasks {
         return Analysis(directory, made, complete)
     }
 
+    /**
+     * The segmenter for the recorder's live effects, which look at the person in each picture as it is drawn, as the
+     * original's live person provider does (LiveVideoEffects.swift:698-721). Not thread safe: one picture at a time.
+     */
+    class Live(context: Context) : AutoCloseable {
+        private val segmenter = Segmenter(model(context).buffer)
+
+        /** The mask of an upright [SIDE] × [SIDE] picture, [rgb] three floats 0…1 a pixel from the top row: bytes from the top row. */
+        fun mask(rgb: FloatArray): ByteArray {
+            segmenter.input.rewind()
+            segmenter.input.asFloatBuffer().put(rgb)
+            segmenter.run()
+            val alpha = segmenter.alpha
+            return ByteArray(SIDE * SIDE) { (alpha[it].coerceIn(0f, 1f) * 255f + .5f).toInt().toByte() }
+        }
+
+        override fun close() = segmenter.close()
+    }
+
     /** The selfie segmenter: an upright 256 × 256 RGB frame in 0…1 to the person's probability at each pixel. */
     private class Segmenter(model: ByteBuffer) : AutoCloseable {
         private val interpreter = Interpreter(model, Interpreter.Options().setNumThreads(THREADS))

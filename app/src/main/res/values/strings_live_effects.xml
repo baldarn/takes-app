@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The recorder's live video effects: the looks drawn over the preview and their frame tools (YouRec/VideoEffects/LiveEffectsPanel.swift). -->
+    <string name="live_effects_adaptive_quality">Adaptive quality</string>
+    <string name="live_effects_warm_banner">Phone is warm · adaptive preview</string>
+    <string name="live_effects_quality_warm">The phone is warm. Preview resolution is reduced; recording continues.</string>
+    <string name="live_effects_quality_warm_lite">The phone is warm. Live effects use lighter processing; recording continues.</string>
+    <string name="live_effects_quality_lite">Live preview uses lighter processing. Recording and export stay at full resolution.</string>
+    <string name="live_effects_quality_reduced">Preview resolution is reduced to keep recording smooth. Export stays at full resolution.</string>
+    <string name="live_effects_tool_failed">The preview could not be read. Try again when the camera preview is visible.</string>
+    <string name="live_effects_palette_failed">The palette could not be sampled. Try again when the camera preview is visible.</string>
+    <string name="live_effects_wait_preview">Wait for the camera preview, then try positioning again.</string>
+    <string name="live_effects_screen_invalid">Choose a green or blue area of the screen. For an ordinary background, use Auto Background.</string>
+    <string name="live_effects_screen_saved_invalid">This saved color is not a green or blue screen. Choose Green, Blue, or sample your screen.</string>
+    <string name="live_effects_sample">Sample</string>
+    <string name="live_effects_sample_screen">Sample green or blue screen</string>
+    <string name="live_effects_pick_from_preview">Pick from preview</string>
+    <string name="live_effects_tap_color">Tap the color in the preview</string>
+    <string name="live_effects_position">Position in preview</string>
+    <string name="live_effects_position_hint">Drag to move · pinch to scale</string>
+    <string name="live_effects_position_locked">Pinch to make room to move</string>
+    <string name="live_effects_position_accessibility">Position the background. Drag to move and pinch to scale, or use the movement actions.</string>
+    <string name="live_effects_center">Center</string>
+    <string name="live_effects_center_hint">Resets position and zoom</string>
+    <string name="live_effects_revert">Revert</string>
+    <string name="live_effects_move_left">Move background left</string>
+    <string name="live_effects_move_right">Move background right</string>
+    <string name="live_effects_move_up">Move background up</string>
+    <string name="live_effects_move_down">Move background down</string>
+    <string name="live_effects_enlarge">Enlarge background</string>
+    <string name="live_effects_shrink">Shrink background</string>
+    <string name="live_effects_try_strobe">Try strobe</string>
+    <string name="live_effects_auto_background_note">Keeps people in focus and replaces everything behind them. With nobody in frame, the whole image becomes the background.</string>
+    <string name="live_effects_chroma_note">Requires a green or blue screen. For an ordinary room or wall, use Auto Background.</string>
+    <string name="live_effects_person_hint_note">Person hint also removes objects outside a person’s silhouette. Turn it off to keep other subjects.</string>
+    <string name="live_effects_undercranking_note">Frame cadence is previewed live. Speed-up and mute are applied when the take opens in the editor.</string>
+</resources>
