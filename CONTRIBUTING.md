@@ -57,11 +57,12 @@ work with `debug`; nothing in a pull request needs the key.
     ./gradlew :speech:testDebugUnitTest      # model download and recognizer
     ./gradlew :deepfilter:testDebugUnitTest  # DeepFilterNet3 noise reduction, the real network
     ./gradlew :stabilization:testDebugUnitTest  # the original's motion estimator, built for your computer
+    ./gradlew :restoration:testDebugUnitTest    # speech restoration models; the networks run only with -Prestoration.models=<folder>
     ./gradlew :app:lintDebug                 # Android lint
 
 Before a pull request, run what the maintainer and the CI run:
 
-    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :app:lintDebug :app:assembleDebug
+    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :restoration:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
 - `core` holds nearly all the tests. They pin numbers taken from the original: its own
   test cases and the arithmetic of its source. A test says where its numbers come from

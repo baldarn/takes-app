@@ -40,13 +40,25 @@ data class SpeechModel(
     /** False for the English-only models, which accept no other language. */
     val multilingual: Boolean = true,
 ) {
-    /** Which recognizer of sherpa-onnx reads the files, and so which files there must be. */
-    enum class Kind(internal val parts: List<String>) {
+    /**
+     * Which recognizer of sherpa-onnx reads the files, or which speech restoration network they are, and so
+     * which files there must be.
+     */
+    enum class Kind(internal val parts: List<String>, val recognizes: Boolean = true) {
         /** `<name>-encoder.int8.onnx`, `<name>-decoder.int8.onnx`, `<name>-tokens.txt`. */
         Whisper(listOf(ENCODER, DECODER, TOKENS)),
 
         /** `conv_frontend.onnx`, `encoder.int8.onnx`, `decoder.int8.onnx` and the tokenizer's three files in `tokenizer/`. */
         Qwen3Asr(listOf(FRONTEND, ENCODER, DECODER, "$TOKENIZER/vocab.json", "$TOKENIZER/merges.txt", "$TOKENIZER/tokenizer_config.json")),
+
+        /**
+         * LavaSR v2, for Enhance audio's speech detail restoration (the `restoration` module): its backbone and
+         * spectral head in ONNX, each with its weights in a `.data` file beside it.
+         */
+        LavaSR(listOf("enhancer_backbone.onnx", "enhancer_backbone.onnx.data", "enhancer_spec_head.onnx", "enhancer_spec_head.onnx.data"), recognizes = false),
+
+        /** VoiceFixer, for Enhance audio's studio restoration: its analysis network, its vocoder and its mel filterbank. */
+        VoiceFixer(listOf("analysis.onnx", "vocoder.onnx", "mel_filters.npy"), recognizes = false),
     }
 
     init {

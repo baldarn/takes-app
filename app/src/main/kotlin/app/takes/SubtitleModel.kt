@@ -28,7 +28,8 @@ import kotlin.coroutines.coroutineContext
  * module ([SpeechModels], [SpeechModel]); here is where they live on the phone.
  *
  * This file holds the app's only network code. Nothing else opens a connection,
- * and this does so only inside [download].
+ * and this does so only inside [downloadModel], for these models and for the
+ * speech restoration models of Enhance audio ([RestorationModelStore]).
  */
 object SubtitleModel {
     /** The size of [model] in megabytes, as shown before a download starts. */
@@ -98,22 +99,7 @@ object SubtitleModel {
      * arrived. Throws IOException when the network fails or a file does not
      * pass verification.
      */
-    suspend fun download(context: Context, model: SpeechModel, progress: (Long) -> Unit) {
-        val folder = folder(context, model)
-        withContext(Dispatchers.IO) {
-            val source = HttpsSource()
-            // A read can wait a minute for a silent server: closing the connection ends it at once.
-            val watcher = launch { try { awaitCancellation() } finally { source.close() } }
-            try {
-                SpeechModelFetcher.download(model, folder, source, { done, _ -> progress(done) }, { !isActive })
-            } catch (failure: IOException) {
-                coroutineContext.ensureActive() // cancelled, not failed
-                throw failure
-            } finally {
-                watcher.cancel()
-            }
-        }
-    }
+    suspend fun download(context: Context, model: SpeechModel, progress: (Long) -> Unit) = downloadModel(model, folder(context, model), progress)
 
     /** Deletes [model] and any unfinished download of it. Subtitles already made are not touched. */
     fun remove(context: Context, model: SpeechModel) = model.remove(folder(context, model))
@@ -127,6 +113,29 @@ object SubtitleModel {
     private const val CHOSEN = "model"
     private const val RUNNING = "running"
     const val RESERVE = 20_000_000L
+}
+
+/**
+ * Fetches what is missing of [model] into [folder]; a download interrupted earlier
+ * continues where it stopped. [progress] receives the bytes present so far.
+ * Cancelling the coroutine stops it within moments and keeps what has
+ * arrived. Throws IOException when the network fails or a file does not
+ * pass verification.
+ */
+internal suspend fun downloadModel(model: SpeechModel, folder: File, progress: (Long) -> Unit) {
+    withContext(Dispatchers.IO) {
+        val source = HttpsSource()
+        // A read can wait a minute for a silent server: closing the connection ends it at once.
+        val watcher = launch { try { awaitCancellation() } finally { source.close() } }
+        try {
+            SpeechModelFetcher.download(model, folder, source, { done, _ -> progress(done) }, { !isActive })
+        } catch (failure: IOException) {
+            coroutineContext.ensureActive() // cancelled, not failed
+            throw failure
+        } finally {
+            watcher.cancel()
+        }
+    }
 }
 
 /**
@@ -151,7 +160,7 @@ private class HttpsSource : SpeechModelSource {
         if (offset > 0) connection.setRequestProperty("Range", "bytes=$offset-")
         val status = connection.responseCode
         // The whole of what the app does on the network, for anyone reading the log. After redirects, the host is the one that answered.
-        Log.i("Subtitles", "${url.substringAfterLast('/')} from byte $offset: HTTP $status from ${connection.url.host}")
+        Log.i("Models", "${url.substringAfterLast('/')} from byte $offset: HTTP $status from ${connection.url.host}")
         return when (status) {
             HttpURLConnection.HTTP_PARTIAL -> SpeechModelSource.Opened(connection.inputStream, offset)
             HttpURLConnection.HTTP_OK -> SpeechModelSource.Opened(connection.inputStream, 0)

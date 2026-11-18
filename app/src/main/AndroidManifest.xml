@@ -4,7 +4,8 @@
     <uses-feature android:name="android.hardware.camera.any" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- Only to download the speech model for subtitles, when the person asks for it. See SubtitleModel.kt. -->
+    <!-- Only to download the speech model for subtitles and the speech restoration models of Enhance audio, when
+         the person asks for them. See SubtitleModel.kt. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application

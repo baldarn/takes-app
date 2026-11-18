@@ -142,7 +142,7 @@
     <string name="yourec_damaged_media">Damaged in the ZIP and left out: %1$s.</string>
     <string name="yourec_audio_not_converted">Compressed sound Android cannot play was left out: %1$s. Convert it to WAV and find it with Repair media.</string>
     <string name="yourec_unplayable">This phone cannot play %1$s.</string>
-    <string name="yourec_neural_unprocessed">Speech detail and studio restoration are not available in Takes yet. That sound plays unprocessed.</string>
+    <string name="yourec_neural_unprocessed">This project uses %1$s for speech restoration. Download it in Enhance audio to hear those stages; until then that sound plays unprocessed.</string>
     <string name="yourec_titles_shortened">Titles longer than 500 characters were shortened.</string>
     <string name="yourec_legacy_effects">A sound effect over the whole movie, from an older version of YouRec, was left out.</string>
     <string name="projects_restore_failed">The project could not be restored: %1$s</string>
@@ -1126,6 +1126,16 @@
     <string name="enhance_strip_studio">Studio</string>
     <string name="enhance_studio_voice">Speech detail restoration</string>
     <string name="enhance_studio_restoration">Studio restoration</string>
+    <string name="enhance_studio_voice_note">LavaSR restores high-frequency speech detail. It does not simulate a studio microphone or remove room echo. Start low: clean recordings may need none.</string>
+    <string name="enhance_studio_restoration_note">VoiceFixer restores the full speech signal, reducing recording defects such as noise, room echo and muffling. Amount blends the restored voice with the recording.</string>
+    <string name="enhance_voicefixer_credit">VoiceFixer · Haohe Liu et al. · CC BY 4.0</string>
+    <string name="enhance_model_download_title">Download %1$s?</string>
+    <string name="enhance_model_download_message">%1$s runs %2$s on this phone, without sending your sound anywhere. The model is downloaded once (%3$d MB), then works offline.</string>
+    <string name="enhance_model_download">Download · %1$d MB</string>
+    <string name="enhance_model_missing">%1$s is not on this phone yet, so this stage plays the recording unchanged.</string>
+    <string name="enhance_model_get">Download %1$s · %2$d MB</string>
+    <string name="enhance_model_remove">Remove %1$s from this phone (%2$d MB)</string>
+    <string name="enhance_model_no_room">Free at least %1$d MB to download %2$s.</string>
     <string name="enhance_unknown">Unknown</string>
     <plurals name="enhance_filters">
         <item quantity="one">%1$d FILTER</item>

@@ -145,7 +145,7 @@
     <string name="yourec_damaged_media">Danneggiati nello ZIP e lasciati fuori: %1$s.</string>
     <string name="yourec_audio_not_converted">Audio compresso che Android non riproduce, lasciato fuori: %1$s. Convertilo in WAV e trovalo con Ripara i media.</string>
     <string name="yourec_unplayable">Questo telefono non riproduce %1$s.</string>
-    <string name="yourec_neural_unprocessed">Dettaglio del parlato e restauro da studio non sono ancora disponibili in Takes. Quell\'audio si sente senza elaborazione.</string>
+    <string name="yourec_neural_unprocessed">Questo progetto usa %1$s per il restauro del parlato. Scaricalo in Migliora audio per sentire quei passaggi; fino ad allora quell\'audio si sente senza elaborazione.</string>
     <string name="yourec_titles_shortened">I titoli più lunghi di 500 caratteri sono stati accorciati.</string>
     <string name="yourec_legacy_effects">Un effetto audio su tutto il filmato, di una versione più vecchia di YouRec, è stato lasciato fuori.</string>
     <string name="projects_restore_failed">Non è stato possibile ripristinare il progetto: %1$s</string>
@@ -1140,6 +1140,16 @@
     <string name="enhance_strip_studio">Studio</string>
     <string name="enhance_studio_voice">Ripristino dei dettagli del parlato</string>
     <string name="enhance_studio_restoration">Restauro da studio</string>
+    <string name="enhance_studio_voice_note">LavaSR ripristina i dettagli ad alta frequenza del parlato. Non simula un microfono da studio e non toglie l\'eco della stanza. Parti da poco: le registrazioni pulite possono non averne bisogno.</string>
+    <string name="enhance_studio_restoration_note">VoiceFixer ricostruisce l\'intero segnale della voce, riducendo difetti di registrazione come rumore, eco della stanza e suono ovattato. La quantità mescola la voce ricostruita con la registrazione.</string>
+    <string name="enhance_voicefixer_credit">VoiceFixer · Haohe Liu et al. · CC BY 4.0</string>
+    <string name="enhance_model_download_title">Scaricare %1$s?</string>
+    <string name="enhance_model_download_message">%1$s usa %2$s su questo telefono, senza inviare l\'audio da nessuna parte. Il modello si scarica una volta (%3$d MB), poi funziona offline.</string>
+    <string name="enhance_model_download">Scarica · %1$d MB</string>
+    <string name="enhance_model_missing">%1$s non è ancora su questo telefono, quindi questo passaggio lascia la registrazione invariata.</string>
+    <string name="enhance_model_get">Scarica %1$s · %2$d MB</string>
+    <string name="enhance_model_remove">Rimuovi %1$s da questo telefono (%2$d MB)</string>
+    <string name="enhance_model_no_room">Libera almeno %1$d MB per scaricare %2$s.</string>
     <string name="enhance_unknown">Sconosciuto</string>
     <plurals name="enhance_filters">
         <item quantity="one">%1$d FILTRO</item>

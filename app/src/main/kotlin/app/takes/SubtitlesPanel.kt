@@ -672,7 +672,7 @@ private fun ModelChoice(choices: List<ModelRow>, selected: SpeechModel, recommen
 }
 
 /** Whether the network in use counts the data it carries, as mobile data and some Wi-Fi do. False when that cannot be told. */
-private fun metered(context: android.content.Context): Boolean =
+internal fun metered(context: android.content.Context): Boolean =
     runCatching { context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true }.getOrDefault(false)
 
 @Composable

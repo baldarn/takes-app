@@ -18,12 +18,14 @@ YouRec name and icon are reserved by its author, so this port has its own.
   The two are signed with different keys, so one cannot update the other.
 
 Android 8 or newer. Recordings, projects and what is said in them stay on the device.
-The app uses the network for one thing: downloading the speech model for subtitles (about
-987 MB or 375 MB depending on the model, from Hugging Face) when you ask for it.
+The app uses the network for one thing: downloading a model when you ask for it, the speech
+model for subtitles (about 987 MB or 375 MB depending on the model, from Hugging Face) or
+the model of a speech restoration stage of Enhance audio (LavaSR v2, about 56 MB from
+GitHub; VoiceFixer, about 415 MB from Hugging Face).
 
 Almost everything the original does is ported: of the 209 features inventoried in
-[docs/PARITY.md](docs/PARITY.md), 190 work as in the original, 11 work with a difference
-that Android imposes, and 8 are left out (listed under
+[docs/PARITY.md](docs/PARITY.md), 192 work as in the original, 11 work with a difference
+that Android imposes, and 6 are left out (listed under
 [Differences from the original](#differences-from-the-original)).
 
 ## What it does
@@ -80,7 +82,9 @@ that Android imposes, and 8 are left out (listed under
   Dolly Zoom and Night fix, with keyframes and each effect's film history.
 - Sound: levels in half decibels with a warning when the mix would clip, fades, two audio
   tracks for imported music or voice, voice recording in the editor, noise reduction with
-  RNNoise or DeepFilterNet3, a low cut, a voice EQ, an output gain, the censor beep, and
+  RNNoise or DeepFilterNet3, speech detail restoration with LavaSR v2 and studio
+  restoration with VoiceFixer (each model downloaded when you add its stage), a low cut,
+  a voice EQ, an output gain, the censor beep, and
   Remove pauses, which finds a clip's silences and cuts them out as one Undo step.
 - Subtitles: the speech is transcribed on the phone with Qwen3-ASR, the original's model,
   or with the lighter Whisper small (both through sherpa-onnx), in the language you choose
@@ -111,8 +115,8 @@ In English and Italian, following the phone's language.
 ## Differences from the original
 
 Left out: Apple Log capture and Cinematic-mode depth effects (Apple-only), the 16:9 front
-selfie with the phone upright (an iOS sensor mode), "Protect recording audio" (an iOS audio
-session setting), and the speech restoration models LavaSR and VoiceFixer.
+selfie with the phone upright (an iOS sensor mode), and "Protect recording audio" (an iOS
+audio session setting).
 
 Different because of Android: the preview in the editor is SDR (the exported movie keeps
 HDR), and an HDR export is ten bits drawn from an eight-bit pipeline; the recording codec
@@ -130,12 +134,13 @@ the native modules (`rnnoise`, `deepfilter`, `stabilization`).
     ./gradlew :speech:testDebugUnitTest         # speech models; see speech/README.md
     ./gradlew :deepfilter:testDebugUnitTest     # DeepFilterNet3 noise reduction
     ./gradlew :stabilization:testDebugUnitTest  # video stabilisation
+    ./gradlew :restoration:testDebugUnitTest    # LavaSR and VoiceFixer; see restoration/README.md
     ./gradlew :app:lintDebug                    # Android lint
     ./gradlew :app:assembleDebug                # app/build/outputs/apk/debug/app-debug.apk
 
 All of them in one command, which is what the CI runs on every pull request:
 
-    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :app:lintDebug :app:assembleDebug
+    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :restoration:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
 The first build downloads sherpa-onnx from its GitHub release and DeepFilterNet3's weights
 from Hugging Face, each checked against a SHA-256.
@@ -155,6 +160,8 @@ phone or an emulator (`scripts/pixel-tests.sh`), are in
 - `rnnoise/` — the RNNoise C library with a small Kotlin API.
 - `deepfilter/` — DeepFilterNet3 noise reduction on the ONNX Runtime that sherpa-onnx brings.
 - `stabilization/` — the original's motion estimator for the Stabilize tool, its own C++ source unchanged.
+- `restoration/` — LavaSR v2 and VoiceFixer for Enhance audio: their downloaded models and
+  their networks on the same ONNX Runtime; their signal processing is in `core/`.
 - `speech/` — speech recognition for subtitles: Qwen3-ASR and Whisper through sherpa-onnx,
   the description of each model and the verified download of its files.
 - `probes/` — standalone experiments that measured choices on real phones (export, layers,
