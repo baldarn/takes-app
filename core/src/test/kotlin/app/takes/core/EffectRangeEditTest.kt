@@ -207,6 +207,61 @@ class EffectRangeEditTest {
         assertEquals(3.0, range.endInclusive, 1e-5)
     }
 
+    // A split clip's badge, with only its own picture selected, scopes that picture; a selection of both still edits
+    // the shared effect together; opened from its badge, the touching halves with one recipe are one application, as
+    // the editor opens every tool from a badge (Tests/VideoToolsTests.swift:1047-1071, 967-976; YouRec/EditorView.swift:1369-1380).
+    // The original's request without a selection and not from a badge, which its editor never makes, is left out: here
+    // the halves of a split in a row of clips are told apart by their ids rather than by one occurrence.
+    @Test fun aSplitBadgeScopesItsOwnPictureAndOpensOnTheWholeApplication() {
+        val long = EditState(listOf(TimelineClip(sourceID = source.id, start = 0.0, end = 8.0)))
+        var state = video(long) {
+            it.copy(
+                videoEffects = listOf(VideoEffectSettings(VideoEffectID.Noir, 0.0, 8.0)),
+                texts = listOf(TextOverlay(text = "Across the cut", start = 0.0, end = 8.0)),
+                images = listOf(ImageOverlay(filename = "image-overlay.png", end = 8.0)),
+                crop = CropSettings(zoom = 1.2), color = ColorSettings(look = ColorLook.Warm), mirror = MirrorSettings(horizontal = true),
+            )
+        }
+        state = TimelineEditing.split(state, 4.0)!!
+        val left = state.clips[0].id
+        val right = state.clips[1].id
+        val tools = listOf(EditorTool.VideoEffects, EditorTool.Text, EditorTool.Image, EditorTool.Crop, EditorTool.Color, EditorTool.Mirror)
+        val regions = ToolRegions.of(state).filter { it.clipID == left && it.tool in tools }
+        assertEquals(tools.toSet(), regions.map { it.tool }.toSet())
+        for (region in regions) {
+            assertEquals(region.tool.toString(), setOf(left), EffectApplications.scope(state, region, TimelineSelection(video = setOf(left))).clipIDs)
+            assertEquals(region.tool.toString(), setOf(left, right), EffectApplications.scope(state, region, TimelineSelection(video = setOf(left, right))).clipIDs)
+            val opened = EffectApplications.scope(state, region, openingBadge = true)
+            assertEquals(region.tool.toString(), setOf(left, right), opened.clipIDs)
+            assertEquals(EffectScope.Title.Clips(2), opened.title)
+            assertEquals(0.0, opened.range.start, 1e-5)
+            assertEquals(8.0, opened.range.endInclusive, 1e-5)
+        }
+        // A piece restyled on its own is not part of the other's application.
+        val restyled = EffectApplications.editing(state) { t -> t.copy(video = t.video.map { if (it.id == right) it.copy(content = it.content.copy(crop = it.content.crop!!.copy(zoom = 2.0))) else it }) }
+        val crop = ToolRegions.of(restyled).first { it.clipID == left && it.tool == EditorTool.Crop }
+        assertEquals(setOf(left), EffectApplications.scope(restyled, crop, openingBadge = true).clipIDs)
+        assertEquals(EffectScope.Title.ThisClip, EffectApplications.scope(restyled, crop, openingBadge = true).title)
+    }
+
+    // The Crop tool frames and flips at once: a new crop and a new flip on two clips each remember both, and editing an
+    // existing one adds nothing (YouRec/VideoTools.swift:705-737; Tests/VideoToolsTests.swift:1150-1156).
+    @Test fun aNewCropAndFlipOverTwoClipsAreRememberedAndAnEditedOneIsNot() {
+        val before = TimelineEditing.split(original, 2.0)!!
+        val crop = CropSettings(zoom = 1.5)
+        val mirror = MirrorSettings(horizontal = true)
+        val made = EditState(before.clips.map { it.copy(crop = crop, mirror = mirror) })
+        val remembered = EffectApplications.remembering(EditorTool.Mirror, EffectApplications.remembering(EditorTool.Crop, made, before), before)
+        for (item in remembered.toTimeline().video) assertEquals(setOf(crop.id, mirror.id), item.spanningEffects)
+        assertEquals(made.clips.map { it.crop }, remembered.clips.map { it.crop })
+        // A legacy pair edited again keeps the membership it had: none.
+        val legacy = EditState(made.clips)
+        val zoomed = EditState(legacy.clips.map { it.copy(crop = it.crop!!.copy(zoom = 2.0)) })
+        assertTrue(EffectApplications.remembering(EditorTool.Crop, zoomed, legacy).toTimeline().video.all { it.spanningEffects == null })
+        // A tool without a range of its own leaves nothing.
+        assertEquals(made, EffectApplications.remembering(EditorTool.Speed, made, before))
+    }
+
     // MARK: scopedEffectTests
 
     private val image = ImageOverlay(id = "IMG", filename = "image-test.png", start = 0.0, end = 4.0)

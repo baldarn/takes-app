@@ -14,6 +14,11 @@
     <string name="effect_scope_selected_clips">Selected clips · %1$s–%2$s s</string>
     <string name="effect_scope_marked_range">Marked range · %1$s–%2$s s</string>
     <string name="effect_scope_entire">Entire effect · %1$s–%2$s s</string>
+    <string name="effect_opened_this_clip">This clip</string>
+    <plurals name="effect_opened_clips">
+        <item quantity="one">Effect range · %1$d clip</item>
+        <item quantity="other">Effect range · %1$d clips</item>
+    </plurals>
     <string name="effect_remove_this_clip">Remove from this clip</string>
     <string name="effect_remove_this_audio_clip">Remove from this audio clip</string>
     <string name="effect_remove_selected_clips">Remove from selected clips</string>
