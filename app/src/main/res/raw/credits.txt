@@ -145,6 +145,10 @@ IBM Plex Mono. Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
 
 Caveat. Copyright 2014 The Caveat Project Authors (https://github.com/googlefonts/caveat)
 
+Bodoni Moda. Copyright 2020 The Bodoni Moda Project Authors (https://github.com/indestructible-type/Bodoni)
+
+Unbounded. Copyright 2022 The Unbounded Project Authors (https://github.com/googlefonts/unbounded)
+
 SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
 
 PREAMBLE The goals of the Open Font License (OFL) are to stimulate worldwide development of collaborative font projects, to support the font creation efforts of academic and linguistic communities, and to provide a free and open framework in which fonts may be shared and improved in partnership with others.

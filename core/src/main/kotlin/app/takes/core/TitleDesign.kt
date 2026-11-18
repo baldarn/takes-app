@@ -224,6 +224,8 @@ data class TitleTypeface(
             TitleTypeface("sourceserif4", "Source Serif 4", "SourceSerif4Roman-Regular", "SourceSerif4Italic-Italic"),
             TitleTypeface("fraunces", "Fraunces", "Fraunces-9ptBlack", "Fraunces-9ptBlackItalic"),
             TitleTypeface("ibmplexmono", "IBM Plex Mono", "IBMPlexMono-Regular", "IBMPlexMono-Italic", listOf(400, 500, 700)),
+            TitleTypeface("bodonimoda", "Bodoni Moda", "BodoniModa-Regular", "BodoniModa-Italic"),
+            TitleTypeface("unbounded", "Unbounded", "Unbounded-Regular"),
             TitleTypeface("caveat", "Caveat", "Caveat-Regular", weights = listOf(400, 500, 600, 700)),
         )
 

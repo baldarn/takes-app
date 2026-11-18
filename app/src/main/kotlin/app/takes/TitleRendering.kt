@@ -35,7 +35,7 @@ import kotlin.math.floor
 fun TitleInk.toColor(): Int = Color.argb((rgba and 0xff).toInt(), ((rgba shr 24) and 0xff).toInt(), ((rgba shr 16) and 0xff).toInt(), ((rgba shr 8) and 0xff).toInt())
 
 /**
- * The fonts of title designs. The seven bundled families are the original's
+ * The fonts of title designs. The nine bundled families are the original's
  * own files, in `assets/TitleFonts` under the names [TitleTypeface.resourceName]
  * gives; "system" is the phone's own sans-serif; an "import:" face is a font
  * file of the library or of a project ([ImportedFonts]); any other face is a
@@ -43,7 +43,7 @@ fun TitleInk.toColor(): Int = Color.argb((rgba and 0xff).toInt(), ((rgba shr 24)
  */
 object TitleFonts {
     /** Families whose one file holds every weight, on a weight axis. */
-    private val variable = setOf("atkinsonhyperlegiblenext", "sourceserif4", "fraunces", "caveat")
+    private val variable = setOf("atkinsonhyperlegiblenext", "sourceserif4", "fraunces", "caveat", "bodonimoda", "unbounded")
 
     /** Font families every Android phone names, offered beside the bundled ones. */
     val deviceFamilies = listOf("serif", "monospace", "sans-serif-condensed", "sans-serif-light", "sans-serif-smallcaps", "serif-monospace", "casual", "cursive")

@@ -189,6 +189,12 @@ class TitleDesignTest {
         assertEquals("BarlowCondensed-Italic", TitleTypeface.resourceName(TitleDesign(face = "barlowcondensed", weight = 400, italic = true)))
         assertEquals("IBMPlexMono-Medium", TitleTypeface.resourceName(TitleDesign(face = "ibmplexmono", weight = 500)))
         assertEquals("IBMPlexMono-MediumItalic", TitleTypeface.resourceName(TitleDesign(face = "ibmplexmono", weight = 500, italic = true)))
+        // The two families added with the original's 24 looks (YouRec/TitleDesign.swift:313-314): one variable file each, upright and italic.
+        assertEquals("BodoniModa-Italic", TitleTypeface.resourceName(TitleDesign(face = "bodonimoda", weight = 800, italic = true)))
+        assertEquals("BodoniModa-Regular", TitleTypeface.resourceName(TitleDesign(face = "bodonimoda", weight = 600)))
+        assertEquals("Unbounded-Regular", TitleTypeface.resourceName(TitleDesign(face = "unbounded", weight = 500, italic = true)))
+        assertEquals(listOf("system", "atkinsonhyperlegiblenext", "barlowcondensed", "archivoblack", "sourceserif4", "fraunces", "ibmplexmono", "bodonimoda", "unbounded", "caveat"),
+            TitleTypeface.families.map { it.id })
         assertEquals("Georgia-Bold", TitleTypeface.resourceName(TitleDesign(face = "Georgia-Bold")))
         for ((_, look) in TitleDesign.looks) assertTrue(TitleTypeface.family(look.face)!!.weights.contains(look.weight) || look.face == "archivoblack")
     }
