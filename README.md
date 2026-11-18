@@ -21,137 +21,145 @@ Android 8 or newer. Recordings, projects and what is said in them stay on the de
 The app uses the network for one thing: downloading the speech model for subtitles (about
 987 MB or 375 MB depending on the model, from Hugging Face) when you ask for it.
 
-The port is still in progress. What works today is listed under
-[What it does](#what-it-does), what is missing under [Not ported yet](#not-ported-yet).
+Almost everything the original does is ported: of the 209 features inventoried in
+[docs/PARITY.md](docs/PARITY.md), 190 work as in the original, 11 work with a difference
+that Android imposes, and 8 are left out (listed under
+[Differences from the original](#differences-from-the-original)).
 
 ## What it does
 
-- Projects as the durable unit: record, pause, resume, stop, and continue the same
-  project later, including after the app restarts. Each pause or stop finalizes one
-  immutable segment file.
-- Camera switching while recording, kept inside the same segment with a `camera` event.
-- Per-camera zoom memory, zoom presets, timed zoom transitions and pinch to zoom, with
-  the 1× lens offered from the ultrawide.
-- Tap to focus, focus lock and manual focus where the camera has them; 4K, mirrored
-  selfies, a front light and recorder settings, each offered only where the phone's
-  camera supports it.
-- The large button stops a recording and the round one beside it pauses, as in the
-  original; leaving the app pauses the recording, and a recording cut short by a crash
-  comes back with its marks when the app is opened again.
-- Recordings stay outside editor undo/redo, as in the original model.
-- Unused takes: footage that is in the project but no longer in the edit can be put
-  back at the playhead, in a chosen order, as one Undo step.
-- Record here: from the editor, new takes go into the edit at the playhead instead of
-  at the end, and one Undo takes the whole run back out.
-- Microphone choice on Android 12 or newer: automatic, the phone, or a Bluetooth, wired
-  or USB headset, with a warning when the recording comes from a different input.
-- English and Italian, following the phone's language.
-- Basic editor: preview of the edit, scrolling thumbnail timeline under a fixed
-  playhead with audio waveforms, split at the playhead, trim handles on the current
-  clip, delete and reorder clips, persistent undo/redo.
-- The original's nine transitions between neighboring clips and at the start and
-  the end of the movie: dissolve, fade through a color, wipe, split screen,
-  Hitchcock, whip pan, flash cut, still and defocus, each with its settings, a
-  hold, and its own audio timing (J and L cuts). Picture and sound are identical in
-  preview and export; before Android 13 the preview shows the styles that need a
-  shader as dissolves.
-- Titles attached to their footage, identical in preview and export.
-- Title design and motion as in the original: its seven font families and the phone's
-  own, solid or gradient fill, outline, shadow, a box behind the words or each line,
-  alignment and spacing, entrance and exit (fade, drift, scale, wipe), placing by
-  dragging, and channel styles saved for every project.
-- Export of the edit to a new movie in the project's `Exports` folder, with a choice
-  of size (original, 720p, 1080p, 4K), H.264 or H.265, and a 30 or 60 fps ceiling, then
-  play, share or save to the gallery. Sources are never modified. A movie runs at one
-  frame rate, the fastest footage's under the ceiling, and slower footage repeats frames.
-  The movie is made in sections of twelve seconds that are kept as they are finished:
-  leaving the app pauses the export, as in the original, and it resumes from the saved
-  sections, also after the app was closed. The finished movie is checked (its length, its
-  first and last picture, the loudest peak of its sound) and keeps a receipt, so an
-  unchanged edit offers the movie it has in place of exporting again.
-- Import of videos from the device through the system picker, into a new or an
-  existing project. HDR footage is tone-mapped on export.
-- Credits and licenses screen with the bundled license texts.
-- Clip sound: volume from silence to a 12 dB boost, mute, and a fade in and out,
-  shown on the waveform and applied in preview and export.
-- Sound on two separate audio tracks: import a music or voice file, place it at the
-  playhead, cut it, move it, set its level and fades. It stays where it is when the
-  clips are edited, and is mixed with the clips' sound in preview and export.
-- Noise reduction on a clip's sound with RNNoise, off, light or full. The cleaned
-  sound is made once in the background and kept in the project's cache.
-- Remove pauses: the clip under the playhead is measured, its silences are found with
-  the original's detector, and they are cut out as one undoable edit.
-- Clip color: the original's fourteen looks or an imported `.cube` LUT at a chosen
-  strength, with exposure, warmth and tint. One lookup table drives both the preview
-  (Android 13 or newer) and the export.
-- Crop and reframing: zoom into a clip, move the window and rotate it, by slider or by
-  dragging on the picture, and animate between two framings with a choice of curves; a
-  cropped clip fills the movie's frame, the same in preview and export.
-- Clip speed from a quarter to four times, picture and sound, with the pitch kept, in
-  preview and export.
-- Sound levels in half decibels with a warning when the mix would clip, fades of any
-  length that survive a split, short fades at cuts so they do not click, and the level
-  set by dragging a waveform up or down.
-- Subtitles: the speech of the clips is transcribed on the phone with Qwen3-ASR, the
-  original's model, or with the lighter Whisper small on phones with less memory (both
-  through sherpa-onnx), in the language you choose or one it detects. The model is downloaded
-  once on request, verified, kept out of backups, and can be removed. Captions follow
-  their footage through splits, trims, moves and speed changes; their text can be
-  corrected or deleted, regrouped by words per caption, and styled (plain, bold, box or
-  highlight, six colors, five fonts, size and position). Preview and export draw them
-  with the same code, and everything done in the tool is one Undo step.
-- Duplicate a project with its recordings and editing history.
-- Bookmarks: one tap while recording marks the moment; the editor shows the marks on
-  the timeline, steps between them, and adds or removes them with undo.
-- Zip project: the recordings, sounds, imported LUTs, editing history and the current
-  edit as an OpenTimelineIO file, saved wherever the system file picker allows.
-  Opening such a ZIP brings the project back as a new one, after checking every file.
-- Recently Deleted with restore and permanent deletion; damaged manifests fall back to
-  the previous revision; finished takes missing from a manifest are indexed at launch.
+### Record
 
-## Not ported yet
+- Projects as the durable unit: record, pause, resume, stop, and continue the same project
+  later, even after the app restarts. Each pause or stop finalizes one immutable take, and
+  a take cut short by a crash comes back with its marks the next time the app opens.
+- The large button stops and the round one beside it pauses, as in the original; leaving
+  the app pauses the recording.
+- Switch camera while recording, inside the same take; a lens menu with the main,
+  ultrawide, tele and front cameras; zoom presets, timed zoom transitions up to 30 s,
+  pinch to zoom, and a zoom remembered per camera.
+- Dual camera, where the phone can run two cameras at once: both in one picture in four
+  layouts, with the inset's shape, each feed's framing, and a swap.
+- 1080p or 4K, HDR (HLG, ten bits) where the camera records it, capture stabilisation,
+  Level horizon, Follow face, mirrored selfies, a front light on the screen's edge, tap to
+  focus, focus lock, manual focus and focus peaking, each where the phone's camera has it.
+- Live video effects while recording, with Crash Zoom and Dolly Zoom buttons and a tap to
+  choose the subject; the take keeps what the recorder showed, so the editor opens it
+  without analysing it again.
+- Microphone choice and order of preference, its name and live level on screen, a warning
+  when the sound comes from another input, and a recording gain per microphone.
+- Bookmarks: one tap marks a moment while recording.
+- Record here: from the editor, new takes go into the edit at the playhead, and one Undo
+  takes the whole run back out.
 
-Dual camera (two cameras into one picture), a
-Chroma Key's clean plate and video background, and HDR in the editor's preview (the
-exported movie keeps it). Apple Log capture and the speech restoration models (LavaSR,
-VoiceFixer) are left out on purpose. What differs in detail is listed in
+### Edit
+
+- A thumbnail timeline with waveforms under a fixed playhead, timeline zoom, full-screen
+  preview, an inspection zoom on the picture, quick review, and review at up to 3× with the
+  pitch kept.
+- Split, trim, delete and reorder clips; select several; mark a range and delete, copy, cut
+  and paste it, or apply a tool to just that part; snap to cuts; close gaps; undo and redo
+  that survive closing the app.
+- Independent picture and sound, any number of layers, overlapping videos placed as cover,
+  side by side, top and bottom or picture in picture, and image overlays.
+- Add videos and photos from the device at the playhead, or takes not used yet in a chosen
+  order.
+- The original's nine transitions between clips and at the start and end of the movie:
+  dissolve, fade through a colour, wipe, split screen, Hitchcock, whip pan, flash cut, still
+  and defocus, each with its settings and its own sound timing (J and L cuts).
+- Titles that follow their footage, with the original's looks, seven font families plus the
+  phone's own and imported fonts, solid or gradient fill, outline, shadow, a box behind the
+  words, entrance and exit motion, and saved styles.
+- Picture: speed from 0.25× to 4× with the pitch kept, crop, rotation and animated
+  reframing, the project's shape (16:9, 9:16, 1:1, 4:5), mirror, stabilisation (Light,
+  Standard, Strong), and colour: fourteen looks, imported `.cube` LUTs, exposure, warmth,
+  tint, highlights, colour correction with keyframes, saved and animated grades, and Log
+  footage converted for display.
+- The original's video effects, from Noir and Bleach Bypass to Kaleidoscope, Quantization,
+  film textures, time effects, Chroma Key, Auto Background, Color Isolation, Crash Zoom,
+  Dolly Zoom and Night fix, with keyframes and each effect's film history.
+- Sound: levels in half decibels with a warning when the mix would clip, fades, two audio
+  tracks for imported music or voice, voice recording in the editor, noise reduction with
+  RNNoise or DeepFilterNet3, a low cut, a voice EQ, an output gain, the censor beep, and
+  Remove pauses, which finds a clip's silences and cuts them out as one Undo step.
+- Subtitles: the speech is transcribed on the phone with Qwen3-ASR, the original's model,
+  or with the lighter Whisper small (both through sherpa-onnx), in the language you choose
+  or one it detects. Captions follow their footage and can be corrected, regrouped and
+  styled with the full title inspector.
+- Preview and export draw the picture, titles, transitions and effects with the same code.
+
+### Export and share
+
+- Export to a new movie in the project's `Exports` folder: original size, 720p, 1080p or 4K,
+  H.264 or H.265, 24 to 60 fps, and HDR kept (HLG, H.265 ten bits). Sources are never
+  modified.
+- The movie is made in sections of twelve seconds: leaving the app pauses the export, and it
+  goes on from the saved sections, also after the app was closed. The finished movie is
+  checked (length, first and last picture, sound peaks), and an unchanged edit offers the
+  movie it has instead of exporting again.
+- Play, share or save to the gallery; share a frame as the cover.
+- Zip project: the recordings, sounds, LUTs, fonts, editing history and the edit as an
+  OpenTimelineIO file. Opening such a ZIP brings the project back as a new one.
+- Projects shared with the iPhone app: Takes opens the ZIPs of YouRec's "Zip project", and
+  "Zip for iPhone" writes one YouRec restores ([docs/IOS-INTEROP.md](docs/IOS-INTEROP.md)).
+  Not yet tried on an iPhone: reports are welcome.
+- Duplicate a project; Recently Deleted with restore; a damaged project falls back to its
+  previous revision.
+
+In English and Italian, following the phone's language.
+
+## Differences from the original
+
+Left out: Apple Log capture and Cinematic-mode depth effects (Apple-only), the 16:9 front
+selfie with the phone upright (an iOS sensor mode), "Protect recording audio" (an iOS audio
+session setting), and the speech restoration models LavaSR and VoiceFixer.
+
+Different because of Android: the preview in the editor is SDR (the exported movie keeps
+HDR), and an HDR export is ten bits drawn from an eight-bit pipeline; the recording codec
+is CameraX's choice; faces are found by Android's detector, which sees frontal faces only;
+before Android 13 the preview shows some transitions as dissolves. Every detail is in
 [docs/PARITY.md](docs/PARITY.md).
-
-The project file format is this port's own and is not interchangeable with the iPhone
-app.
 
 ## Build
 
-Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1
-for the `rnnoise` module.
+Needs JDK 17, the Android SDK (API 36), and the NDK (29.0.14206865) with CMake 3.22.1 for
+the native modules (`rnnoise`, `deepfilter`, `stabilization`).
 
-    ./gradlew :core:test                     # the editing model, on the JVM (below)
-    ./gradlew :rnnoise:testDebugUnitTest     # the noise-reduction C library
-    ./gradlew :speech:testDebugUnitTest      # speech models; see speech/README.md
-    ./gradlew :app:lintDebug                 # Android lint
-    ./gradlew :app:assembleDebug             # app/build/outputs/apk/debug/app-debug.apk
+    ./gradlew :core:test                        # the editing model, on the JVM (below)
+    ./gradlew :rnnoise:testDebugUnitTest        # the noise-reduction C library
+    ./gradlew :speech:testDebugUnitTest         # speech models; see speech/README.md
+    ./gradlew :deepfilter:testDebugUnitTest     # DeepFilterNet3 noise reduction
+    ./gradlew :stabilization:testDebugUnitTest  # video stabilisation
+    ./gradlew :app:lintDebug                    # Android lint
+    ./gradlew :app:assembleDebug                # app/build/outputs/apk/debug/app-debug.apk
 
 All of them in one command, which is what the CI runs on every pull request:
 
-    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :app:lintDebug :app:assembleDebug
+    ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :app:lintDebug :app:assembleDebug
+
+The first build downloads sherpa-onnx from its GitHub release and DeepFilterNet3's weights
+from Hugging Face, each checked against a SHA-256.
 
 `core` holds nearly all the tests: the editing model with the track timeline, the parity
-sample and the golden projects. What each command covers, and the pixel tests that run
-on a phone or an emulator, are in
+sample and the golden projects. What each command covers, and the pixel tests that run on a
+phone or an emulator (`scripts/pixel-tests.sh`), are in
 [CONTRIBUTING.md, "Tests and lint"](CONTRIBUTING.md#tests-and-lint).
 
 ## Layout
 
-- `core/` — pure Kotlin, no Android. `Project` (sources, capture ledger, undo/redo
-  snapshots), `ProjectDisk` (atomic manifest, content-addressed `History/`, revisions,
-  Recently Deleted), `ZoomTransition` (quintic ease on log magnification).
-  `TimelineEditing` (split, delete, move, trim, transitions, titles, bookmarks), `WaveformBuilder` (audio peaks).
-- `rnnoise/` — the RNNoise C library with a small Kotlin API, built with the NDK.
+- `core/` — pure Kotlin, no Android: the project model, the timeline and its editing, the
+  formulas of the colour, effects, transitions, titles and audio, the project ZIPs and the
+  YouRec codec (`yourec/`), with host tests.
+- `app/` — Compose UI, CameraX, OpenGL and Media3: the recorder, the projects list, the
+  editor, the preview and the export.
+- `rnnoise/` — the RNNoise C library with a small Kotlin API.
+- `deepfilter/` — DeepFilterNet3 noise reduction on the ONNX Runtime that sherpa-onnx brings.
+- `stabilization/` — the original's motion estimator for the Stabilize tool, its own C++ source unchanged.
 - `speech/` — speech recognition for subtitles: Qwen3-ASR and Whisper through sherpa-onnx,
-  the description of each model and the verified download of its files. The first build fetches sherpa-onnx from its GitHub release.
-- `app/` — Compose UI, CameraX and Media3. `CaptureController` owns the camera, zoom and
-  take lifecycle; `ProjectStore` owns the library; `Exporter` renders an edit with
-  Media3 Transformer; `RecorderScreen`, `ProjectsScreen` and `EditorScreen`.
+  the description of each model and the verified download of its files.
+- `probes/` — standalone experiments that measured choices on real phones (export, layers,
+  person segmentation).
+- `docs/` — the parity inventory, plans and findings.
 
 ## Contributing
 
