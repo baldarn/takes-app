@@ -959,7 +959,7 @@
     <string name="export_resume">Riprendi esportazione</string>
     <string name="export_discard">Elimina esportazione</string>
     <string name="export_audio_warning_title">L\'audio potrebbe distorcere</string>
-    <string name="export_audio_warning">I picchi superano il fondo scala di %1$s dB. Abbassa il Volume nell\'editor ed esporta di nuovo.</string>
+    <string name="export_audio_warning">L\'audio montato ha picchi %1$s dB sopra il fondo scala. Abbassa il volume delle clip interessate ed esporta di nuovo.</string>
     <string name="export_previous_stays">L\'esportazione precedente resta disponibile finché il nuovo filmato non è pronto.</string>
     <string name="export_previous_title">Esportazione precedente</string>
     <string name="export_previous_note">Questo filmato usa le modifiche e le impostazioni precedenti.</string>

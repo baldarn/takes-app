@@ -42,33 +42,33 @@ class ExportReceiptTest {
         return receipt(project, destination.name, now).also { ExportReceipts.publish(it, rendered, destination) }
     }
 
-    // ---- The audio peak warning (Project.swift:691-695) ----
+    // ---- The audio peak warning (Project.swift:726-741) ----
 
-    // Project.swift:692: no warning at or below 1.0001, nor without a finite measurement.
-    @Test fun aPeakAtFullScaleIsNotAWarning() {
-        for (peak in listOf(null, 0f, 0.5f, 1f, 1.0001f, Float.NaN, Float.POSITIVE_INFINITY)) {
+    // Project.swift:729-730: no warning below 0.5 dB over full scale, nor without a finite measurement.
+    @Test fun aPeakUnderHalfADecibelOverIsNotAWarning() {
+        for (peak in listOf(null, 0f, 0.5f, 1f, 1.0001f, 1.05f, Float.NaN, Float.POSITIVE_INFINITY)) {
             assertNull(peak.toString(), ExportReceipt.AudioWarning.of(peak))
         }
-        assertNotNull(ExportReceipt.AudioWarning.of(1.0002f))
+        assertNull(ExportReceipt.AudioWarning.of(Math.nextDown(ExportReceipt.AudioWarning.THRESHOLD)))
+        assertNotNull(ExportReceipt.AudioWarning.of(ExportReceipt.AudioWarning.THRESHOLD))
+        assertEquals(1.0592537f, ExportReceipt.AudioWarning.THRESHOLD, 1e-6f)
     }
 
-    // Project.swift:693: 20·log10(peak), rounded up to a tenth of a decibel, never below 0.1.
+    // Project.swift:731, 740: 20·log10(peak), written with one decimal.
     @Test fun theWarningSaysHowFarOverFullScale() {
-        assertEquals("0.1", ExportReceipt.AudioWarning.of(1.0002f)!!.decibels) // 0.0017 dB
-        assertEquals("0.1", ExportReceipt.AudioWarning.of(1.01f)!!.decibels)   // 0.086 dB
-        assertEquals("0.9", ExportReceipt.AudioWarning.of(1.1f)!!.decibels)    // 0.828 dB
-        assertEquals("3.6", ExportReceipt.AudioWarning.of(1.5f)!!.decibels)    // 3.522 dB
-        assertEquals("6.1", ExportReceipt.AudioWarning.of(2f)!!.decibels)      // 6.021 dB
-        assertEquals("12.1", ExportReceipt.AudioWarning.of(4f)!!.decibels)     // 12.041 dB
+        assertEquals("0.8", ExportReceipt.AudioWarning.of(1.1f)!!.decibels)    // 0.828 dB
+        assertEquals("3.5", ExportReceipt.AudioWarning.of(1.5f)!!.decibels)    // 3.522 dB
+        assertEquals("6.0", ExportReceipt.AudioWarning.of(2f)!!.decibels)      // 6.021 dB
+        assertEquals("12.0", ExportReceipt.AudioWarning.of(4f)!!.decibels)     // 12.041 dB
         assertEquals("20.0", ExportReceipt.AudioWarning.of(10f)!!.decibels)    // exactly 20 dB
-        assertEquals(6.1, ExportReceipt.AudioWarning.of(2f)!!.excessDB, 1e-12)
+        assertEquals(6.0206, ExportReceipt.AudioWarning.of(2f)!!.excessDB, 1e-4)
     }
 
-    // Project.swift:694 and TrackMediaTests.swift:531-540.
+    // Project.swift:740 and TrackMediaTests.swift:531-540.
     @Test fun theWarningBelongsToTheReceiptOfTheMeasuredMovie() {
         val project = project()
         val loud = receipt(project, "loud.mp4", 1, peak = 2f)
-        assertEquals("Peaks are 6.1 dB above full scale. Lower Volume in the editor and export again.", loud.audioWarning!!.text)
+        assertEquals("The edited audio peaks 6.0 dB above full scale. Lower the volume of the affected clips and export again.", loud.audioWarning!!.text)
         assertNull("Exported again more quietly", receipt(project, "quiet.mp4", 2, peak = 0.9f).audioWarning)
         assertNull("An unmeasured export cannot produce an unverified warning", loud.copy(audioPeak = null).audioWarning)
     }
@@ -78,7 +78,7 @@ class ExportReceiptTest {
     @Test fun aReceiptRecordsTheEditItsSourcesAndTheFormat() {
         val project = project().copy(exportSettings = ExportSettings(ExportSettings.Codec.H264, ExportSettings.Resolution.FullHD, 50))
         val receipt = ExportReceipts.receipt(project, "movie.mp4", mapOf(take.id to "a".repeat(64)), 1920, 1080, ExportSettings.Codec.HEVC, 0.8f, now = 5_000, id = "ID")
-        assertEquals(1, receipt.schemaVersion)
+        assertEquals(2, receipt.schemaVersion)
         assertEquals("ID", receipt.id)
         assertEquals(5_000, receipt.createdAt)
         assertEquals("movie.mp4", receipt.filename)
@@ -282,5 +282,19 @@ class ExportReceiptTest {
         assertEquals(ExportReceipts.Retired(emptySet(), null), retired)
         assertEquals(listOf(published, first), ExportReceipts.afterPublishing(published, previous, retired.ids))
         assertEquals(listOf(published, first), ExportReceipts.list(folder))
+    }
+
+    // Project.swift:732-738, TrackMediaTests.swift:530-532: a receipt of version 1 holds the whole movie's peak, laid
+    // to the edit only when the edit could raise the level of all of it.
+    @Test fun anOlderReceiptsPeakWarnsOnlyWhenTheWholeEditCouldRaiseIt() {
+        val clip = SourceMedia(filename = "clip.mp4", duration = 4.0, recordedAt = 1)
+        val straight = Project(title = "Straight", sources = listOf(clip), createdAt = 1).commit(EditState(listOf(TimelineClip(sourceID = clip.id, start = 0.0, end = 4.0))), now = 2)
+        val legacy = ExportReceipts.receipt(straight, "old.mp4", emptyMap(), 640, 360, ExportSettings.Codec.H264, 1.5f).copy(schemaVersion = 1)
+        assertNull("Untouched sound loses the misleading warning", legacy.audioWarning)
+        assertNotNull("A receipt of version 2 is measured where the edit can raise levels", legacy.copy(schemaVersion = 2).audioWarning)
+        val timeline = straight.edit.toTimeline()
+        val boosted = legacy.copy(edit = straight.edit.copy(clips = straight.edit.clips.map { it.copy(audio = (it.audio ?: ClipAudio()).copy(volumeDB = 6.0)) }))
+        assertEquals(listOf(EditInterval(EditTime.ZERO, timeline.duration)), ExportAudioLevel.checkRanges(boosted.edit.toTimeline(), boosted.sources))
+        assertNotNull("The whole edit turned up", boosted.audioWarning)
     }
 }

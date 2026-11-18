@@ -716,9 +716,12 @@ class Exporter(private val context: Context, private val store: ProjectStore) {
                     withContext(Dispatchers.IO) {
                         ExportSpace.require(ExportSpace.audio(duration) + ExportSpace.mix(duration), scratch)
                         val active = coroutineContext
-                        val result = sound.write(duration, mix, { active.ensureActive() }) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
+                        // Measured only where the edit can raise a level: a straight recording makes no claim about its
+                        // sound (YouRec/MediaRenderer.swift:768-781).
+                        val ranges = sound.checkRanges(project)
+                        val result = sound.write(duration, mix, ranges, { active.ensureActive() }) { report(ExportProgress.of(ExportProgress.Step.AudioPeak, it)) }
                         // A recording that could not be decoded leaves the mix without it: the movie then makes no claim about its sound.
-                        if (checkpoint.measuredPeak == null && result.complete) checkpoint.savePeak(result.peak)
+                        if (ranges.isNotEmpty() && checkpoint.measuredPeak == null && result.complete) checkpoint.savePeak(result.peak)
                     }
                     report(ExportProgress.of(ExportProgress.Step.Audio))
                     val file = partial()

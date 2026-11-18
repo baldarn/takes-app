@@ -9,8 +9,8 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.Locale
 import java.util.UUID
-import kotlin.math.ceil
 import kotlin.math.log10
+import kotlin.math.pow
 
 /**
  * What is written beside a finished movie, as `<movie name>.json`: the edit
@@ -19,7 +19,8 @@ import kotlin.math.log10
  */
 @Serializable
 data class ExportReceipt(
-    val schemaVersion: Int = 1,
+    /** 2 since the peak is measured only where the edit can raise a level (YouRec/Project.swift:711, 726-727). */
+    val schemaVersion: Int = SCHEMA_VERSION,
     val id: String = newID(),
     val createdAt: Long = System.currentTimeMillis(),
     /** The movie's file name inside `Exports`. */
@@ -40,37 +41,54 @@ data class ExportReceipt(
     /** The codec the movie really has, which HDR can force away from the chosen one. */
     val codec: ExportSettings.Codec? = null,
     /**
-     * The loudest sample of this movie's finished mix, 1 being full scale.
-     * Null when it was not measured: such a movie makes no claim about its sound.
+     * The loudest sample of this movie's finished mix, 1 being full scale,
+     * where the edit can raise a level ([ExportAudioLevel.checkRanges]); a
+     * receipt of version 1 holds the loudest of the whole movie. Null when it
+     * was not measured, as for a movie whose edit raises no level: such a
+     * movie makes no claim about its sound.
      */
     val audioPeak: Float? = null,
 ) {
     /** The movie's length in seconds: that of the edit it was made from. */
     val duration: Double get() = edit.duration
 
-    /** Set when the mix went over full scale and the movie may distort. */
-    val audioWarning: AudioWarning? get() = AudioWarning.of(audioPeak)
+    /**
+     * Set when the edited mix went 0.5 dB or more over full scale and the movie may distort (Project.swift:728-740).
+     * A receipt of version 1 measured the whole movie: its peak is laid to the edit only when the edit could have
+     * raised the level of all of it.
+     */
+    val audioWarning: AudioWarning?
+        get() {
+            val warning = AudioWarning.of(audioPeak) ?: return null
+            if (schemaVersion < 2) {
+                val timeline = edit.toTimeline()
+                val whole = EditInterval(EditTime.ZERO, timeline.duration)
+                if (ExportAudioLevel.checkRanges(timeline, sources) != listOf(whole)) return null
+            }
+            return warning
+        }
 
     /** By how much the loudest peak of a movie exceeds full scale. */
     data class AudioWarning(val excessDB: Double) {
         /** One decimal, with a point in every language, as the original prints it. */
         val decibels: String get() = String.format(Locale.ROOT, "%.1f", excessDB)
-        val text: String get() = "Peaks are $decibels dB above full scale. Lower Volume in the editor and export again."
+        val text: String get() = "The edited audio peaks $decibels dB above full scale. Lower the volume of the affected clips and export again."
 
         companion object {
-            /** A peak barely over full scale is rounding, not clipping. */
-            const val THRESHOLD = 1.0001f
+            /** A small overshoot of decoding or resampling is no warning: 0.5 dB over full scale (Project.swift:730). */
+            val THRESHOLD: Float = 10.0.pow(0.5 / 20).toFloat()
 
-            /**
-             * No warning without a measurement, nor at or below [THRESHOLD].
-             * Above it the excess is rounded up to a tenth of a decibel and is
-             * never shown as less than 0.1 dB.
-             */
+            /** No warning without a measurement, nor below [THRESHOLD]; the excess as it is (Project.swift:730-731). */
             fun of(peak: Float?): AudioWarning? {
-                if (peak == null || !peak.isFinite() || peak <= THRESHOLD) return null
-                return AudioWarning(maxOf(0.1, ceil(20 * log10(peak.toDouble()) * 10) / 10))
+                if (peak == null || !peak.isFinite() || peak < THRESHOLD) return null
+                return AudioWarning(20 * log10(peak.toDouble()))
             }
         }
+    }
+
+    companion object {
+        /** The version receipts are written at. */
+        const val SCHEMA_VERSION = 2
     }
 }
 
