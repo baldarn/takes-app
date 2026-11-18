@@ -153,7 +153,7 @@ class LabelHeadlineTest {
         val clip = base.edit.clips[0].copy(id = "C1", texts = listOf(title))
         val project = LegacyProject.commit(base, EditState(listOf(clip), base.edit.captureBase), now = 3)
         assertEquals(TimelineClip.LABEL_HEADLINE_SCHEMA, project.schemaVersion)
-        assertEquals(25, Project.LATEST_READABLE_SCHEMA)
+        assertEquals(TimelineClip.LABEL_HEADLINE_SCHEMA + 1, Project.LATEST_READABLE_SCHEMA) // effects on part of a clip or across pieces (26) came after
         project.validate()
         val files = mutableMapOf<String, ByteArray>()
         val manifest = project.manifest { name, data -> files[name] = data }

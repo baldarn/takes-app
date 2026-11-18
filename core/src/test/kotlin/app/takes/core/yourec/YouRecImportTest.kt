@@ -268,13 +268,11 @@ class YouRecImportTest {
         assertTrue(YouRecNote.Kind.TitlesShortened in kinds(cut))
     }
 
-    // Schema 13 (YouRec/Project.swift:332 at dadc258) holds colour regions, which Takes does not read yet: refused, not dropped.
-    @Test fun colourRegionsAreRefusedUntilTheyAreRead() {
-        val fixture = changed("titles", 14) { it.replace("\"texts\":[", "\"colorRegions\":[],\"texts\":[") }
-        val error = assertThrows(ProjectException::class.java) { YouRecCodec.import(fixture.manifest, { fixture.steps.getValue(it) }) }
-        assertEquals(ProjectException.Reason.InvalidDocument, error.reason)
-        val none = changed("titles", 13) { it }
-        assertEquals(1, YouRecCodec.import(none.manifest, { none.steps.getValue(it) }).project.snapshots.size)
+    // Schema 13 (YouRec/Project.swift:332 at 57e5d91) holds colour regions, which are read since they are modelled.
+    @Test fun colourRegionsAreRead() {
+        val fixture = changed("titles", 14) { it.replace("\"texts\":[", "\"colorRegions\":[{\"end\":1,\"grade\":{\"amount\":1,\"id\":\"5A1E0000-0000-4000-8000-00000000C0C1\",\"look\":\"warm\"},\"start\":0}],\"texts\":[") }
+        val imported = YouRecCodec.import(fixture.manifest, { fixture.steps.getValue(it) })
+        assertEquals(1, imported.project.snapshots.single().timeline!!.video.single().content.colorRegions!!.size)
     }
 
     @Test fun whatTheOriginalWouldNotReadIsRefused() {
@@ -284,7 +282,7 @@ class YouRecImportTest {
             val error = assertThrows(ProjectException::class.java) { YouRecCodec.import(text.toByteArray(), { steps.getValue(it) }) }
             assertEquals(ProjectException.Reason.InvalidDocument, error.reason)
         }
-        refused(manifest.replace("\"schemaVersion\":6", "\"schemaVersion\":15"))
+        refused(manifest.replace("\"schemaVersion\":6", "\"schemaVersion\":17"))
         refused(manifest.replace("\"recordingHistoryVersion\":1", "\"recordingHistoryVersion\":2"))
         refused(manifest.replace("\"historyCursor\":1", "\"historyCursor\":2"))
         refused(manifest.replace("784111111.25", "\"yesterday\""))
@@ -302,5 +300,30 @@ class YouRecImportTest {
             }
             assertEquals(ProjectException.Reason.InvalidDocument, error.reason)
         }
+    }
+
+    /**
+     * A current iPhone project (schema 16, 57e5d91): a grade over part of a clip,
+     * a flip's active range, a framing variant, windows, a title's clock and
+     * effects made across pieces all come across (YouRec/Project.swift:332-352).
+     */
+    @Test fun effectsOnPartOfAClipComeAcross() {
+        val imported = import("scoped")
+        val project = imported.project
+        project.validate()
+        assertEquals(app.takes.core.TimelineClip.SCOPED_EFFECTS_SCHEMA, project.schemaVersion)
+        val timeline = project.snapshots.single().timeline!!
+        val first = timeline.video[0]
+        val clip = first.content
+        val title = uid(0x7E01)
+        assertEquals(setOf(title), first.spanningEffects)
+        assertEquals(listOf(app.takes.core.SourceInterval(0.5, 1.5)), clip.effectWindows!![title])
+        assertEquals(app.takes.core.SourceInterval(0.5, 1.5), clip.mirror!!.activeRange)
+        assertEquals(1.0, clip.colorRegions!!.single().end, 0.0)
+        assertEquals(2.5, (clip.framingVariants!!.single() as app.takes.core.FramingVariant.Crop).value.zoom, 0.0)
+        assertEquals(4.0, clip.texts!!.single().playbackClock!!.duration, 0.0)
+        assertEquals(setOf(uid(0xA001)), timeline.audio[0].spanningEffects)
+        // The schema the original gives it.
+        assertEquals(16, YouRecSchema.of(emptyList(), emptyList(), listOf(YouRecJson.trackTimelineToYouRec(documentJson.encodeToJsonElement(TrackTimeline.serializer(), timeline) as JsonObject))))
     }
 }

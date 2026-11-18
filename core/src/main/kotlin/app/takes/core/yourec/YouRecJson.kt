@@ -92,11 +92,14 @@ internal object YouRecJson {
         return JsonPrimitive(words.substring(0, end))
     }
 
-    /** A `TimelineClip`: only its titles differ. */
+    /** A `TimelineClip`: its titles, and its effect windows, a dictionary keyed by UUID (T4; YouRec/Project.swift:61-63). */
     fun timelineClipToTakes(clip: JsonObject, shortened: () -> Unit): JsonObject {
-        val texts = clip["texts"] as? JsonArray ?: return clip
+        val texts = clip["texts"] as? JsonArray
+        val windows = clip["effectWindows"]?.takeIf { it !is kotlinx.serialization.json.JsonNull }
+        if (texts == null && windows == null) return clip
         return JsonObject(LinkedHashMap(clip).apply {
-            put("texts", JsonArray(texts.map { textOverlayToTakes(it as? JsonObject ?: throw YouRecFormatException("A title is not an object"), shortened) }))
+            if (texts != null) put("texts", JsonArray(texts.map { textOverlayToTakes(it as? JsonObject ?: throw YouRecFormatException("A title is not an object"), shortened) }))
+            if (windows != null) put("effectWindows", flatDictionaryToObject(windows))
         })
     }
 
@@ -161,9 +164,10 @@ internal object YouRecJson {
     /** The keys of a Takes clip that only its sequence form has (TrackConversion.kt:78-81); the original has none of them. */
     private val SEQUENCE_ONLY = listOf("audio", "bookmarks", "subtitleWords", "transitionFit", "openingTransitionFit")
 
-    /** A `TimelineClip` as the original reads it: without the sequence form's keys, its titles and transitions completed. */
+    /** A `TimelineClip` as the original reads it: without the sequence form's keys, its titles and transitions completed, its windows a flat dictionary. */
     fun timelineClipToYouRec(clip: JsonObject): JsonObject = JsonObject(LinkedHashMap(clip).apply {
         SEQUENCE_ONLY.forEach { remove(it) }
+        (clip["effectWindows"] as? JsonObject)?.let { put("effectWindows", objectToFlatDictionary(it)) }
         (clip["texts"] as? JsonArray)?.let { texts -> put("texts", JsonArray(texts.map { textOverlayToYouRec(it as JsonObject) })) }
         for (key in listOf("transition", "openingTransition")) (clip[key] as? JsonObject)?.let { put(key, clipTransitionToYouRec(it)) }
     })

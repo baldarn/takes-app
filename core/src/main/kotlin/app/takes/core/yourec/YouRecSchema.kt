@@ -7,8 +7,9 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * The schema number the original gives a project, by what it holds
- * (YouRec/Project.swift:316-330, 338-345, 378, and 333-335 at dadc258; docs/IOS-INTEROP.md, 2.1 and
- * 2.3). Takes' own numbers mean other things and are never compared with it.
+ * (YouRec/Project.swift:316-330, 338-345, 378, and :332-352 at 57e5d91;
+ * docs/IOS-INTEROP.md, 2.1 and 2.3). Takes' own numbers mean other things
+ * and are never compared with it.
  */
 object YouRecSchema {
     /** The floor of every commit and of a new project (YouRec/Project.swift:235, 319). */
@@ -35,12 +36,37 @@ object YouRecSchema {
                 clip.objects("images").any { present(it["motion"]) } || clip.objects("videoEffects").any { present(it["motion"]) }
         }
         if (moving || placements.any { present(it["motion"]) }) raise(12)
-        // 14: a title of a label and a headline on the timeline (YouRec/Project.swift:333-335, at dadc258).
-        val pictures = timelines.flatMap { it.objects("video") }.map { it["content"] as JsonObject }
-        if (pictures.any { clip -> clip.objects("texts").any { present(it["labelHeadline"]) } }) raise(14)
+        // 14: a title of a label and a headline on the timeline (YouRec/Project.swift:333-335).
+        if (timelines.flatMap { it.objects("video") }.map { it["content"] as JsonObject }.any { clip -> clip.objects("texts").any { present(it["labelHeadline"]) } }) raise(14)
+        // Since 57e5d91, over the steps' pictures and sounds only (YouRec/Project.swift:332-352).
+        val pictures = timelines.flatMap { it.objects("video") }
+        val contents = pictures.map { it["content"] as JsonObject }
+        if (contents.any { present(it["colorRegions"]) }) raise(13)
+        if (contents.any { clip -> listOf("crop", "mirror", "stabilization").any { present((clip[it] as? JsonObject)?.get("activeRange")) } }) raise(15)
+        val fragments = pictures.any { item ->
+            val clip = item["content"] as JsonObject
+            present(clip["effectWindows"]) || present(clip["framingVariants"]) || clip.objects("texts").any { present(it["playbackClock"]) } ||
+                scopedFragments(clip.objects("colorRegions").map { (it["grade"] as JsonObject).string("id") }, item.strings("spanningEffects"))
+        } || audio.any { item ->
+            present(item["spanningEffects"]) &&
+                scopedFragments(item.objects("enhancements").map { it.string("id") } + item.objects("censorRegions").map { it.string("id") }, item.strings("spanningEffects"))
+        }
+        if (fragments) raise(16)
         // 10 is a kept canvasReference, which Takes never writes.
         return schema
     }
 
     private fun JsonObject.objects(key: String): List<JsonObject> = (this[key] as? JsonArray).orEmpty().map { it as JsonObject }
+
+    private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+
+    /** The memberships of an item, null when it keeps none. */
+    private fun JsonObject.strings(key: String): Set<String>? = (this[key] as? JsonArray)?.mapNotNullTo(HashSet()) { (it as? JsonPrimitive)?.content }
+
+    /** Whether an effect the item spans is there in more than one piece (YouRec/Project.swift:339-343). */
+    private fun scopedFragments(ids: List<String?>, members: Set<String>?): Boolean {
+        if (members == null || ids.size <= 1) return false
+        val seen = HashSet<String>()
+        return ids.any { it != null && it in members && !seen.add(it) }
+    }
 }

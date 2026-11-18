@@ -291,8 +291,8 @@ class YouRecExportTest {
     private fun normalize(element: JsonElement): JsonElement = when (element) {
         is JsonObject -> JsonObject(element.filterValues { it !is JsonNull }.toSortedMap().mapValues { (key, value) ->
             when {
-                (key == "members" || key == "participants") && value is JsonArray -> JsonArray(value.map { it.toString() }.sorted().map { documentJson.parseToJsonElement(it) })
-                key == "videos" && value is JsonArray -> normalize(YouRecJson.flatDictionaryToObject(value))
+                (key == "members" || key == "participants" || key == "spanningEffects") && value is JsonArray -> JsonArray(value.map { it.toString() }.sorted().map { documentJson.parseToJsonElement(it) })
+                (key == "videos" || key == "effectWindows") && value is JsonArray -> normalize(YouRecJson.flatDictionaryToObject(value))
                 else -> normalize(value)
             }
         })
@@ -370,5 +370,25 @@ class YouRecExportTest {
         val manifest = plan.manifestTree(emptyMap())
         assertEquals(JsonPrimitive(id), ((manifest["sources"] as JsonArray)[0] as JsonObject)["id"])
         assertTrue(plan.stepTrees.all { it.toString().contains("\"sourceID\":\"$id\"") && !it.toString().contains("take-1") })
+    }
+
+    /** The schema the original gives each new thing (YouRec/Project.swift:332-352 at 57e5d91). */
+    @Test fun effectsOnPartOfAClipRaiseTheSchemaAsTheOriginalDoes() {
+        fun schema(change: (app.takes.core.TimelineClip) -> app.takes.core.TimelineClip, items: (TrackTimeline) -> TrackTimeline = { it }): Int {
+            val project = Project("Scoped").addRecording(take)
+            val edited = project.commit(project.edit.copy(clips = project.edit.clips.map(change)))
+            val timeline = items(edited.edit.toTimeline())
+            return YouRecSchema.of(emptyList(), emptyList(), listOf(YouRecJson.trackTimelineToYouRec(documentJson.encodeToJsonElement(TrackTimeline.serializer(), timeline) as JsonObject)))
+        }
+        val warm = app.takes.core.ColorSettings(look = app.takes.core.ColorLook.Warm)
+        assertEquals(6, schema({ it }))
+        assertEquals(13, schema({ it.copy(colorRegions = listOf(app.takes.core.ColorRegion(0.0, 1.0, warm))) }))
+        assertEquals(15, schema({ it.copy(mirror = app.takes.core.MirrorSettings(horizontal = true, activeRange = app.takes.core.SourceInterval(1.0, 2.0))) }))
+        assertEquals(16, schema({ it.copy(mirror = app.takes.core.MirrorSettings(id = "M", horizontal = true), effectWindows = mapOf("M" to listOf(app.takes.core.SourceInterval(1.0, 2.0)))) }))
+        // Memberships alone raise nothing; a grade in two pieces of one membership does.
+        assertEquals(13, schema({ it.copy(colorRegions = listOf(app.takes.core.ColorRegion(0.0, 1.0, warm))) }) { t -> t.copy(video = t.video.map { item -> item.copy(spanningEffects = setOf(warm.id)) }) })
+        assertEquals(16, schema({ it.copy(colorRegions = listOf(app.takes.core.ColorRegion(0.0, 1.0, warm), app.takes.core.ColorRegion(2.0, 3.0, warm))) }) { t ->
+            t.copy(video = t.video.map { item -> item.copy(spanningEffects = setOf(warm.id)) })
+        })
     }
 }

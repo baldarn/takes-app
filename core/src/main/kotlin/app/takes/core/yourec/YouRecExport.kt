@@ -347,9 +347,12 @@ object YouRecExport {
             JsonObject(element.mapValues { (key, value) ->
                 when {
                     key in ID_KEYS && value is JsonPrimitive && value.isString && !(key == "id" && named) -> JsonPrimitive(remap(value.content))
-                    (key == "members" || key == "participants") && value is JsonArray ->
+                    (key == "members" || key == "participants" || key == "spanningEffects") && value is JsonArray ->
                         JsonArray(value.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.let { p -> JsonPrimitive(remap(p.content)) } ?: it })
-                    key == "videos" && value is JsonArray -> JsonArray(value.mapIndexed { index, item ->
+                    // A stabilisation variant's id, the first value of its case (YouRec/ScopedEffect.swift:6).
+                    key == "stabilization" && value is JsonObject && "_1" in value && (value["_0"] as? JsonPrimitive)?.isString == true ->
+                        JsonObject(value.mapValues { (case, inner) -> if (case == "_0") JsonPrimitive(remap((inner as JsonPrimitive).content)) else remapIDs(inner, remap) })
+                    (key == "videos" || key == "effectWindows") && value is JsonArray -> JsonArray(value.mapIndexed { index, item ->
                         if (index % 2 == 0 && item is JsonPrimitive && item.isString) JsonPrimitive(remap(item.content)) else remapIDs(item, remap)
                     })
                     else -> remapIDs(value, remap)

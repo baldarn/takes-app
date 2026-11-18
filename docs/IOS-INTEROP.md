@@ -2,7 +2,7 @@
 
 Goal: Takes restores a ZIP made by YouRec's "Zip project", and writes a ZIP
 that the current YouRec restores, changing Takes only. YouRec is the
-reference: `latestReadableSchema = 12`.
+reference: `latestReadableSchema = 12` at `faf1815`, 16 at `57e5d91` (§2.1).
 
 Path prefixes used throughout:
 
@@ -31,7 +31,7 @@ by severity:
 1. **Manifest shape.**
    - Dates are a Double of seconds since 2001, not a Long of ms since 1970.
    - `captureLedger` is `[{clip, insertion}]`.
-   - `schemaVersion` must be 12 or lower.
+   - `schemaVersion` must be 16 or lower (12 before `57e5d91`).
 2. **Every history step is written in timeline form.** The Takes sequence
    form `{"state":{"clips":…}}` is read by iOS through a legacy path that
    silently drops sound items, subtitles, clip sound and bookmarks
@@ -156,7 +156,7 @@ Legend:
 | Swift key / JSON | R? | Kotlin key / JSON | iOS→T | T→iOS | Absent |
 |---|---|---|---|---|---|
 | `exportSettings` obj | o (`decodeIfPresent`, :607) | `exportSettings` (default) | = | = | defaults |
-| `schemaVersion` Int | R, 1…12 (:440); 1…16 at `dadc258`, of which Takes reads 1…14 | `schemaVersion` Int, 1…24 | Recompute; see §2.3. | Recompute; see §2.2. | — |
+| `schemaVersion` Int | R, 1…16 (:440; 1…12 before 57e5d91) | `schemaVersion` Int, 1…26 | Recompute; see §2.3. | Recompute; see §2.2. | — |
 | `id` UUID | R | `id` String | = (restore gives a new one anyway) | = | — |
 | `title` String | R | `title` | = | = | — |
 | `createdAt`, `updatedAt` Double (2001 s) | R | Long ms 1970 | convert (§1.1) | convert | — |
@@ -455,15 +455,24 @@ transform is **=**. "R" means required in Swift.
 | 10 | an edit keeps a `canvasReference` | :327, :597 |
 | 11 | an audio item has `fadeIn` or `fadeOut` | :328 |
 | 12 | a motion on a crop, colour, image, clip video effect or placement | :320-324 |
-| 13 | a clip has `colorRegions` (a grade over part of it) | :332 at `dadc258` |
-| 14 | a title has a `labelHeadline`, a card of a label and a headline | :333-335 at `dadc258` |
+| 13 | a picture has `colorRegions`, grades over parts of it (since 57e5d91) | :332 at 57e5d91 |
+| 14 | a title has a `labelHeadline` (since c045839) | :333-335 at 57e5d91 |
+| 15 | a crop, mirror or stabilization has an `activeRange` (since 57e5d91) | :336-338 at 57e5d91 |
+| 16 | a picture has `effectWindows` or `framingVariants`, a title a `playbackClock`, or an item that keeps `spanningEffects` holds one of them in more than one piece: a grade's id in two `colorRegions`, a chain's or censor's id in two regions of a sound (since 57e5d91) | :339-352 at 57e5d91 |
 
-At `faf1815` restore and open refuse anything above 12 (S/Project.swift:440;
-S/ProjectRecovery.swift:156, :280); at `dadc258` the original reads up to 16
-(:235), 15 and 16 being its effect ranges. Takes reads and writes up to 14
-(K/yourec/YouRecCodec.kt `LATEST_READABLE_SCHEMA`), and refuses a project
-whose clips have `colorRegions`, which it does not read yet, rather than
-opening it without them. Mirror, pauses, images, stabilisation,
+Rules 13 to 16 look at the steps' pictures and sounds only, not at the
+ledger. At `57e5d91` the original's `latestReadableSchema` is 16
+(S/Project.swift:235); before it was 12. Restore and open refuse anything
+above it (S/Project.swift:440; S/ProjectRecovery.swift:156, :280).
+
+Takes reads up to 16 (`YouRecCodec.LATEST_READABLE_SCHEMA`). It keeps every
+field of 13, 15 and 16 as the original writes them: `colorRegions` and
+`playbackClock` as they are; `effectWindows`, a `[UUID: [SourceInterval]]`,
+as an object keyed by id (T4); `framingVariants` in Swift's enum shape,
+`{"crop":{"_0":…}}`, `{"mirror":{"_0":…}}`,
+`{"stabilization":{"_0":"id","_1":…}}`; `spanningEffects` as an array of
+ids, sorted. 14 (`labelHeadline`) is read with the titles' cards
+(docs/PARITY.md, section 7). Mirror, pauses, images, stabilisation,
 frozen frames, time effects, layers, placements, transitions, title designs
 and caption designs raise nothing on iOS.
 
@@ -495,7 +504,8 @@ and caption designs raise nothing on iOS.
 | 22 | pauses |
 | 23 | images |
 | 24 | stabilisation |
-| 25 | a title made a card of a label and a headline (`LATEST_READABLE_SCHEMA`, K/Project.kt `TimelineClip.LABEL_HEADLINE_SCHEMA`) |
+| 25 | a title made a card of a label and a headline (K/Project.kt `TimelineClip.LABEL_HEADLINE_SCHEMA`) |
+| 26 | effects on part of a clip or across pieces: `colorRegions`, `effectWindows`, `framingVariants`, an active range, a title's `playbackClock`, `spanningEffects` (`LATEST_READABLE_SCHEMA`, K/Project.kt `TimelineClip.SCOPED_EFFECTS_SCHEMA`) |
 
 **The numbers overlap with iOS's but mean different things. Never compare
 them across sides.**
@@ -514,13 +524,17 @@ if any audio item censorRegions non-empty || any source.audioOnly == true -> max
 if any audio item fadeIn/fadeOut != null                                 -> max(v, 11)
 if any motion on clip.crop / clip.color / clip.images[] / clip.videoEffects[] (in timeline content AND ledger clips)
    or on placement.videos[*]                                             -> max(v, 12)
-if any title of timeline content has a labelHeadline                     -> max(v, 14)
+# Over the steps' timelines only (YouRec/Project.swift:332-352 at 57e5d91):
+if any video content colorRegions != null                                -> max(v, 13)
+if any title labelHeadline != null                                       -> max(v, 14)
+if any video content crop/mirror/stabilization activeRange != null       -> max(v, 15)
+if any video content effectWindows or framingVariants != null, or any title playbackClock != null,
+   or an item's spanningEffects holds an id that is in two of its colorRegions (pictures)
+   or in two of its enhancements and censorRegions together (sounds)     -> max(v, 16)
 ```
 
-10 is never written, because Takes never writes `canvasReference`, nor 13,
-because it has no colour regions. The result is 6 to 12, or 14 with a card
-of a label and a headline, which an iPhone with an older YouRec refuses
-rather than drawing its headline alone.
+10 is never written, because Takes never writes `canvasReference`. The
+result is always 6 to 16 (`YouRecSchema.of`).
 
 **On import:**
 
@@ -530,7 +544,7 @@ schemaVersion = max(TrackTimeline.SCHEMA, max over snapshots of EditSnapshot.sch
 
 This is ≥17, ≥18 for a layered step, and 21 for an `outputSize`.
 
-### 2.4 Takes features with no iOS representation at schema ≤ 12
+### 2.4 Takes features with no iOS representation at schema ≤ 16
 
 **There is no Takes editing feature that iOS 12 cannot represent.** Layers,
 placements, gaps, mirror, pauses, images, stabilisation, frozen frames,
@@ -594,7 +608,7 @@ YouRec's schema-12 model. What needs handling on export:
 
    Names are unique case-insensitively.
 2. **The manifest decodes and passes `validate()`.** See §1 and §2.
-   `schemaVersion` must be ≤12.
+   `schemaVersion` must be ≤16 (≤12 before 57e5d91).
 3. **Every step's bytes hash to its name** (S/Project.swift:625-629).
 4. **The entry set is closed** (:334-341):
    - integrity `version` is 1 with no Recovery keys, or 2;
@@ -1047,7 +1061,7 @@ texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
 - an exported timeline fails `TrackInvariants.violation`;
 - iOS `validate` name rules fail (§1.7, §3.2);
 - a size limit is exceeded (§3.1);
-- a schema result above 12 (impossible by construction; assert it).
+- a schema result above 16 (impossible by construction; assert it).
 
 **Losses** (confirm in a dialog):
 - Takes effect analysis will be recomputed on iPhone;
@@ -1094,7 +1108,11 @@ texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
   9. mirror, pauses, images, stabilisation;
   10. `canvasReference`;
   11. audio-only `.caf` and `isStillPhoto`;
-  12. integrity v2 with `Recovery/`.
+  12. integrity v2 with `Recovery/`;
+  13. `scoped`: a schema-16 project of 57e5d91, with a grade over part of a
+      clip, a flip's active range, a crop variant, windows on a crop, its
+      variant and a title, a title's clock, and memberships on a picture and
+      on a sound whose chain is in two pieces.
 - The step files are kept as `History/step-<n>.json`, named so in
   `project.json`; the helper (`YouRecFixtures.load`) names each by the
   SHA-256 of its bytes and rewrites the manifest, so a fixture can be
@@ -1121,7 +1139,12 @@ texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
    feature of §2.2), the output satisfies all of these:
    - every object carries `SwiftRequiredKeys`;
    - every id parses as a UUID;
-   - `schemaVersion` is ≤12 and equals the §2.3 rule;
+   - `schemaVersion` is ≤16 and equals the §2.3 rule; 13, 15 and 16 are
+     each raised by what raises them in the original, and a membership
+     alone raises nothing (`effectsOnPartOfAClipRaiseTheSchemaAsTheOriginalDoes`);
+   - the `scoped` fixture is read with every field of 13, 15 and 16 and goes
+     back as it came (`effectsOnPartOfAClipComeAcross`,
+     `theOriginalsProjectsGoBackAsTheyCame`);
    - no sequence-form step;
    - `automaticCanvasVersion` and `recordingHistoryVersion` are 1;
    - `placements[].videos` is an array of even length;

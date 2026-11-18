@@ -36,12 +36,13 @@ import kotlinx.serialization.json.put
  */
 object YouRecCodec {
     /**
-     * The newest of the original's schemas this reading knows: 14, a title of
-     * a label and a headline (YouRec/Project.swift:333-335, at dadc258). The
-     * original reads up to 16 there (:235); 13, 15 and 16 hold what this
-     * reading does not know yet, and a project above 14 is refused.
+     * The newest schema the original reads (YouRec/Project.swift:235 at
+     * 57e5d91); a project above it uses what this reading does not know.
+     * 13 is a grade over part of a clip, 14 a title's label and headline,
+     * 15 the active range of a crop, flip or stabilisation, 16 effect windows,
+     * framing variants, a title's clock and effects made across pieces.
      */
-    const val LATEST_READABLE_SCHEMA = 14
+    const val LATEST_READABLE_SCHEMA = 16
 
     /**
      * [project] as Takes saves it, and [notes] on what changed on the way.
@@ -123,13 +124,6 @@ object YouRecCodec {
                 // `history` is a list of states from before the capture ledger, which needs the original's migration.
                 else -> invalid("No history files")
             }
-            // Schema 13's colour regions are not read yet: such a project is refused rather than opened without them.
-            if (steps.any { step ->
-                    val timeline = (step["state"] as? JsonObject)?.get("timeline") as? JsonObject
-                    (timeline?.get("video") as? JsonArray).orEmpty().any { item ->
-                        (((item as? JsonObject)?.get("content") as? JsonObject)?.get("colorRegions") ?: JsonNull) !is JsonNull
-                    }
-                }) invalid("Colour regions")
             val snapshots = steps.map { step -> snapshot(step, sourceFiles) }
 
             // The capture ledger: the clips, and which of them were inserted at a chosen place.
