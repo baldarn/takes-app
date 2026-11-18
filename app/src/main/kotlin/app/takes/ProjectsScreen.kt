@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.PhoneIphone
 import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VideoLibrary
@@ -108,6 +109,12 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
         val project = store.projects.firstOrNull { it.id == zipping }
         if (destination != null && project != null) store.archive(project, destination)
     }
+    // The project being zipped for the iPhone, while the user chooses where to save it.
+    var zippingForIPhone by rememberSaveable { mutableStateOf("") }
+    val saveIPhoneZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { destination ->
+        val project = store.projects.firstOrNull { it.id == zippingForIPhone }
+        if (destination != null && project != null) store.archiveForIPhone(project, destination)
+    }
     val zipName = stringResource(R.string.projects_zip_fallback_name)
     val openZip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { archive ->
         if (archive != null) store.openArchive(archive)
@@ -138,7 +145,8 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
         }
         items(store.projects, key = { it.id }) { project ->
             ProjectCard(project, store, open, rename = { renaming = project }, addVideos = { pickVideos(project.id) }, export = { exportingID = project.id },
-                zip = { zipping = project.id; saveZip.launch(project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { zipName } + ".zip") })
+                zip = { zipping = project.id; saveZip.launch(project.title.replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { zipName } + ".zip") },
+                zipForIPhone = { store.checkForIPhone(project) })
         }
         items(store.unavailable.toList(), key = { "unavailable-" + it.first }) { (folder, reason) ->
             // As the original's card of a project that cannot be read, which opens its recordings (ContentView.swift:680-687).
@@ -213,16 +221,37 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
                 if (store.cancellable) TextButton(onClick = store::cancelOperation, enabled = !store.cancelling) { Text(stringResource(R.string.common_cancel)) }
             })
     }
+    store.iPhoneCheck?.let { check ->
+        val project = store.projects.firstOrNull { it.id == check.projectID }
+        val name = (project?.title ?: "").replace(Regex("[^\\p{L}\\p{N} _-]"), "").trim().ifEmpty { zipName } + ".zip"
+        val save = { zippingForIPhone = check.projectID; store.iPhoneCheck = null; saveIPhoneZip.launch(name) }
+        when {
+            project == null -> LaunchedEffect(check) { store.iPhoneCheck = null }
+            // What the iPhone cannot take stops the export, with what to change (docs/IOS-INTEROP.md, 7.4).
+            check.blockers.isNotEmpty() -> AlertDialog(
+                onDismissRequest = { store.iPhoneCheck = null },
+                title = { Text(stringResource(R.string.projects_iphone_blocked_title)) },
+                text = { IssueList(stringResource(R.string.projects_iphone_blocked_intro), check.blockers) },
+                confirmButton = { TextButton(onClick = { store.iPhoneCheck = null }) { Text(stringResource(R.string.common_ok)) } },
+            )
+            // What changes on the way is accepted before the file is chosen.
+            check.losses.isNotEmpty() -> AlertDialog(
+                onDismissRequest = { store.iPhoneCheck = null },
+                title = { Text(stringResource(R.string.projects_iphone_losses_title)) },
+                text = { IssueList(stringResource(R.string.projects_iphone_losses_intro), check.losses) },
+                confirmButton = { TextButton(onClick = save) { Text(stringResource(R.string.projects_iphone_continue)) } },
+                dismissButton = { TextButton(onClick = { store.iPhoneCheck = null }) { Text(stringResource(R.string.common_cancel)) } },
+            )
+            else -> LaunchedEffect(check) { save() }
+        }
+    }
     store.youRecNotes?.let { notes ->
         // A project from the iPhone that changed on the way: what changed, one line each (docs/IOS-INTEROP.md, 3.5).
         AlertDialog(
             onDismissRequest = { store.youRecNotes = null },
             title = { Text(stringResource(R.string.yourec_opened_title)) },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.yourec_opened_intro))
-                    for (note in notes) Text("• $note")
-                }
+                IssueList(stringResource(R.string.yourec_opened_intro), notes)
             },
             confirmButton = { TextButton(onClick = { store.youRecNotes = null }) { Text(stringResource(R.string.common_ok)) } },
         )
@@ -249,6 +278,15 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
     }
 }
 
+/** An introduction and one line for each thing, scrolling when they are many. */
+@Composable
+private fun IssueList(intro: String, lines: List<String>) {
+    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(intro)
+        for (line in lines) Text("• $line")
+    }
+}
+
 /** Why a project cannot be read: a text of the core module, in the person's language when it is one we know. */
 @Composable
 internal fun unavailableReason(reason: String): String =
@@ -268,7 +306,10 @@ private fun summary(project: Project): String {
 }
 
 @Composable
-private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit, export: () -> Unit, zip: () -> Unit) {
+private fun ProjectCard(
+    project: Project, store: ProjectStore, open: (Project, Int) -> Unit, rename: () -> Unit, addVideos: () -> Unit, export: () -> Unit, zip: () -> Unit,
+    zipForIPhone: () -> Unit,
+) {
     var originals by remember { mutableStateOf(false) }
     var unfinished by remember { mutableStateOf(false) }
     var repairing by remember { mutableStateOf(false) }
@@ -319,6 +360,7 @@ private fun ProjectCard(project: Project, store: ProjectStore, open: (Project, I
                         leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.projects_add_videos)) }, { choose(addVideos) }, leadingIcon = { Icon(Icons.Filled.Add, null) })
                     if (project.sources.isNotEmpty()) DropdownMenuItem({ Text(stringResource(R.string.projects_zip)) }, { choose(zip) }, leadingIcon = { Icon(Icons.Outlined.Inventory2, null) })
+                    if (project.sources.isNotEmpty()) DropdownMenuItem({ Text(stringResource(R.string.projects_zip_iphone)) }, { choose(zipForIPhone) }, leadingIcon = { Icon(Icons.Outlined.PhoneIphone, null) })
                     if (store.unfinishedRecordings(project).isNotEmpty()) DropdownMenuItem(
                         { Text(stringResource(R.string.recorder_unfinished_title)) }, { choose { unfinished = true } }, leadingIcon = { Icon(Icons.Outlined.VideocamOff, null) })
                     DropdownMenuItem({ Text(stringResource(R.string.common_delete), color = RecordRed) }, { choose { store.delete(project) } }, leadingIcon = { Icon(Icons.Outlined.Delete, null, tint = RecordRed) })

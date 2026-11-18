@@ -1,16 +1,21 @@
 package app.takes
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import app.takes.core.ProjectRestore
 import app.takes.core.Size
+import app.takes.core.yourec.YouRecExport
 import app.takes.core.yourec.YouRecNote
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 
-/** What the app looks at in the media of a ZIP made by YouRec, the iPhone original, and how it tells what changed (docs/IOS-INTEROP.md, 3.5). */
+/** What the app looks at in the media of a ZIP made by YouRec, the iPhone original, or made for it, and how it tells what changes (docs/IOS-INTEROP.md, 3.5, 3.6). */
 object YouRecMedia {
     val probe = ProjectRestore.MediaProbe(size = ::uprightSize, playable = ::playable)
 
@@ -53,6 +58,48 @@ object YouRecMedia {
             false
         } finally {
             runCatching { extractor.release() }
+        }
+    }
+
+    /** What "Zip for iPhone" asks of a file: the MIME types of its tracks, to block what the iPhone cannot play. */
+    val exportProbe = YouRecExport.Probe(mimes = ::mimes)
+
+    private fun mimes(file: File): List<String>? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(file.path)
+            (0 until extractor.trackCount).mapNotNull { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME) }
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { extractor.release() }
+        }
+    }
+
+    /** A picture of an effect re-encoded as PNG, which the iPhone requires of a WebP (docs/IOS-INTEROP.md, 5.3). */
+    fun png(file: File): ByteArray {
+        val bitmap = BitmapFactory.decodeFile(file.path) ?: throw IOException("A picture of a video effect cannot be read: ${file.name}")
+        return try {
+            ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    /** One line saying what [issue] of "Zip for iPhone" means, in the person's language. */
+    fun describe(context: Context, issue: YouRecExport.Issue): String {
+        val files = issue.files.joinToString(", ")
+        return when (issue.kind) {
+            YouRecExport.Issue.Kind.UnsupportedMedia -> context.getString(R.string.iphone_unsupported_media, files)
+            YouRecExport.Issue.Kind.MissingRecording -> context.getString(R.string.iphone_missing_recording, files)
+            YouRecExport.Issue.Kind.ColorMotion -> context.getString(R.string.iphone_color_motion)
+            YouRecExport.Issue.Kind.FrozenFrame -> context.getString(R.string.iphone_frozen_frame)
+            YouRecExport.Issue.Kind.InvalidTimeline -> context.getString(R.string.iphone_invalid_timeline)
+            YouRecExport.Issue.Kind.FileNames -> context.getString(R.string.iphone_file_names, files)
+            YouRecExport.Issue.Kind.TooLarge -> context.getString(R.string.iphone_too_large)
+            YouRecExport.Issue.Kind.AnalysisRecomputed -> context.getString(R.string.iphone_analysis)
+            YouRecExport.Issue.Kind.RecordingRunDropped -> context.getString(R.string.iphone_recording_run)
+            YouRecExport.Issue.Kind.CaptionRegrouping -> context.getString(R.string.iphone_caption_regrouping)
         }
     }
 
