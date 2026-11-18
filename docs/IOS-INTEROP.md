@@ -898,7 +898,9 @@ in {json, png, jpg, jpeg, heic, mov, mp4, bin, cube} (S/Project.swift:458-461).
 
 - `effect-picture-<hash>.webp`: re-encode to PNG as
   `effect-picture-<hash>.png`, or use the new content's hash.
-- `effect-<uuid>.m4v`: same container, so copy it as `effect-<uuid>.mp4`.
+- `effect-<uuid>.m4v`: read its `ftyp` box. Brand `qt  ` → copy it as
+  `effect-<uuid>.mov`; any other brand (the ISO family) → `.mp4`; no
+  `ftyp` → blocker `UnsupportedMedia`. A missing file is left out, as any.
 - Rewrite every `{"media":{"_0":name}}` value and keyframe value, in every
   step, the ledger clips and `sources[].videoEffects`.
 - Keep names unique case-insensitively (S/Project.swift:453).
@@ -952,6 +954,33 @@ The ids are identical, so copy them verbatim
 | `K/yourec/YouRecArchive.kt` | Writes the STORED ZIP (§3.6). |
 | `K/ProjectRestore.kt` | A YouRec branch (§3.5): Recovery entries, integrity v2, the `.otio` allowed, notes returned. |
 | `K/Project.kt` | `SourceMedia.isStillPhoto: Boolean? = null` (optional; keeps round trips). |
+
+**State after phase 2 (export).** `K/yourec/YouRecExport.kt` (`plan`:
+the step and manifest trees, the media list with renames and PNG
+re-encodes, and the issues; this is §3.6 steps 1-3 and §7.3's `check`, one
+function rather than `YouRecCodec.export`/`check`), `YouRecSchema.kt`,
+`SwiftRequiredKeys.kt` (`problems`, which every plan asserts empty),
+`YouRecArchive.kt` (`write`, `requiredSpace`, `integrity`), the export
+transforms in `YouRecJson.kt`, `YouRecMediaFiles.of(manifest, steps)` on
+the original's form; in the app, `ProjectStore.checkForIPhone` /
+`archiveForIPhone`, `YouRecMedia.exportProbe` (track MIME types) and
+`YouRecMedia.png`, "Zip for iPhone" with its two dialogs.
+
+Decided in phase 2:
+- **Analysis (T8).** An analysis file is the original's when `palettes` is
+  an array, `qualities` is absent or an array and there is no `maskGaps`;
+  otherwise, or when it is missing or unreadable, its three references are
+  removed and it is not archived (loss `AnalysisRecomputed`).
+- **Blocked media (D4, §4.2).** Sources and effect movies with the
+  extensions ogg, oga, opus, webm, mkv, mka, 3gp, 3gpp, 3g2, amr, awb, or a
+  track of MIME VP8, VP9, AV1, Vorbis, Opus, AMR-NB/WB, WebM or Matroska
+  (`MediaExtractor` in the app): blocker `UnsupportedMedia`. Nothing is
+  transcoded but WebP effect pictures.
+- **Size limits** count every reference to a step, as the original charges
+  them (S/ProjectArchive.swift:315-321).
+- **Ids (T6)** are remapped on the trees by key: the `ID_KEYS`, `members`,
+  `participants` and the keys of `videos`; an `EffectParameter`'s and an
+  `AudioModel`'s `id` are names and are left.
 
 **State after phase 1 (import).** Written: `YouRecDetect.kt`, `YouRecJson.kt`
 (import transforms, plus the date and flat-dictionary transforms both ways),
@@ -1071,7 +1100,12 @@ texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
    before and after, for every i, modulo the documented changes: ids
    remapped, fingerprint `""`, analysis stripped, the ledger folded (each
    step's materialised timeline equal).
-5. **Round trip iOS → Takes → iOS.** The JSON tree is equal modulo:
+5. **Round trip iOS → Takes → iOS.** The JSON tree is equal modulo
+   (implemented for every step whose cursor is the ledger's end, the
+   manifest's sources, ledger and export settings):
+   - a title without a design gets the design the original draws it with;
+   - the manifest's `id` (a restore gives a new one anyway);
+   - each source's `sha256`, which the restore takes from integrity;
    - order inside sets and flat dictionaries;
    - key order;
    - Double formatting;
@@ -1134,6 +1168,17 @@ There is also a manual gate before release:
   PCM → WAV on import (a rewrap, pure Kotlin). Compressed CAF is left out
   with a note; a codec the device cannot decode is imported with a note.
   webp→png for "Zip for iPhone" remains required in phase 2.
+
+**Phase 2 tests** (YouRecExportTest): the shape (#3) of a Takes project with
+a gain, marks, a dissolve, a title without a design, captions, a sound
+file, a take inserted at a place and a photo, of an effects project, of a
+project with ids that are not UUIDs, and of every phase-1 fixture; #4 on
+that Takes project through the phase-1 restore, equal step by step but for
+the caption fingerprint and the titles' designs; #5 on every fixture; #6
+stored entries with no data descriptor (local headers read raw), integrity
+exactly `{"sha256","version":1}` of the media, step names their hashes, no
+`.otio` or `Recovery/`; WebP → PNG, `.m4v` → `.mp4`/`.mov` and the
+analysis rule; the blockers. Not done: a real iPhone restore (manual gate).
 
 **Also deferred from phase 1:** HEIC → PNG below API 28; R12 for caption
 words (only titles are shortened); iOS's migrations of documents without
