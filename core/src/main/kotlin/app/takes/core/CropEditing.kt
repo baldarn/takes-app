@@ -237,6 +237,12 @@ data class CropDraft(
     /** "Done": keeps the motion and leaves the ends. */
     fun finishing(): CropDraft = copy(animation = captured, endpoint = null, previewEndpoint = null)
 
+    /** The range moved to [duration] seconds by the range editor: a motion runs over the new range (YouRec/CropEditor.swift:228-232 at 57e5d91). */
+    fun trimmed(duration: Double): CropDraft {
+        val motion = captured ?: return copy(previewEndpoint = null)
+        return copy(animation = motion.copy(duration = duration), animationChanged = true, previewEndpoint = null)
+    }
+
     /** "Remove animation": the framing on screen stays as a fixed crop. */
     fun removingAnimation(): CropDraft =
         copy(animation = null, endpoint = null, previewEndpoint = null, framingChanged = true, animationChanged = true)
@@ -285,7 +291,11 @@ data class CropDraft(
      * [previous] is what the clip has now; [spans] what it plays and [offset]
      * where it starts, in seconds from the start of the selection. A fixed
      * crop that shows the whole picture is no crop. [source] is the clip's
-     * oriented size, null when unknown.
+     * oriented size, null when unknown. [retimed] says the range editor
+     * moved the range: the crop is over the whole of the new range's clips,
+     * its motion placed anew; for a crop opened from its badge ([reopened])
+     * the framing goes on them as it is (YouRec/CropEditor.swift:250-263 at
+     * 57e5d91).
      */
     fun applied(
         previous: CropSettings?,
@@ -294,13 +304,16 @@ data class CropDraft(
         source: Size?,
         canvas: Size,
         removing: Boolean = false,
+        retimed: Boolean = false,
+        reopened: Boolean = false,
     ): CropSettings? {
         if (removing) return null
-        var proposed = if (framingChanged) crop else previous ?: CropSettings(id = crop.id)
+        var proposed = if (framingChanged || (retimed && reopened)) crop else previous ?: CropSettings(id = crop.id)
         val motion = captured
         if (motion != null && animationChanged) {
-            proposed = crop.applying(motion.a).copy(motion = motion.placed(spans, offset, previous?.motion))
+            proposed = crop.applying(motion.a).copy(motion = motion.placed(spans, offset, if (retimed) null else previous?.motion))
         }
+        if (retimed) proposed = proposed.copy(activeRange = null)
         if (source != null && proposed.motion == null && proposed.isFullFrame(source, canvas)) return null
         return proposed
     }

@@ -98,6 +98,7 @@ import app.takes.core.AudioFader
 import app.takes.core.AudioListeningLevels
 import app.takes.core.AudioModel
 import app.takes.core.EditInterval
+import app.takes.core.EditorRangeTiming
 import app.takes.core.EditTime
 import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMix
@@ -148,6 +149,7 @@ internal fun EnhanceInspector(
     apply: (List<AudioEffect>) -> Unit,
     remove: () -> Unit,
     dismiss: () -> Unit,
+    trim: ((EditorRangeTiming.Edge, Double, Boolean) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope0 = remember(work) { work.chain }
@@ -295,6 +297,8 @@ internal fun EnhanceInspector(
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (scope0.mixed) Text(stringResource(R.string.enhance_mixed), color = Secondary, fontSize = 12.sp)
+                    // The range the chain goes on (YouRec/TrackEditors.swift:326-332 at 57e5d91).
+                    work.timing?.let { timing -> if (trim != null) EditorRangeDuration(timing, stringResource(R.string.enhance_title), change = trim) }
                     // A speech restoration stage whose model is not on the phone yet offers its download first.
                     AddFilterButton { kind -> if (RestorationModelStore.missing(kind) != null) offering = kind else change(AudioChainEditing.add(effects, kind)) }
                     ChainControls(effects, selectedID, select = { selectedID = it }, change = ::change, modelsChanged = { change(effects) })

@@ -12,6 +12,8 @@ import app.takes.core.VideoEffectEditing
 import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectLibrarySection
 import app.takes.core.VideoEffectSettings
+import app.takes.core.EditorRangeTiming
+import app.takes.core.VideoEffectRangeTrim
 import app.takes.core.newID
 import app.takes.core.resolvingEffects
 import kotlin.math.abs
@@ -143,7 +145,37 @@ internal data class EffectsWork(
     val picking: String? = null,
     /** Why the last tap of a pick was not taken; null before one. */
     val pickRefusal: PickRefusal? = null,
+    /**
+     * The range editor of an effect (VideoEffectsEditor.swift:388-391 at 57e5d91): the effects it set aside, by effect
+     * and clip, to give back where the range comes over them again, and the ranges it moved them to. None for a part of
+     * an effect edited from its badge, [ranged] false.
+     */
+    val trimmedEffects: Map<String, Map<String, VideoEffectRangeTrim.Stored>> = emptyMap(),
+    val trimmedRanges: Map<String, ClosedFloatingPointRange<Double>> = emptyMap(),
+    val ranged: Boolean = true,
 ) {
+    private val trimPieces: List<VideoEffectRangeTrim.Piece> get() = on.pieces.map { VideoEffectRangeTrim.Piece(it.clip, it.start) }
+
+    /**
+     * The range editor of [effect], null when it has none: where the effect shows on the tool's clips, inside what the
+     * tool works on, or where it was last moved to (VideoEffectsEditor.swift:392-402; YouRec/VideoTools.swift:1171-1191).
+     */
+    fun rangeTiming(effect: VideoEffectSettings): EditorRangeTiming? {
+        if (!ranged) return null
+        val limits = on.start..on.end
+        val covered = VideoEffectRangeTrim.covered(trimPieces, effects, effect.id)
+        val lower = minOf(limits.endInclusive, maxOf(limits.start, covered?.start ?: limits.start))
+        val upper = minOf(limits.endInclusive, covered?.endInclusive ?: limits.endInclusive)
+        return VideoEffectRangeTrim.timing(trimPieces, effects, trimmedEffects[effect.id].orEmpty(), effect.id, effect.kind, lower..maxOf(lower, upper), trimmedRanges[effect.id])
+    }
+
+    /** [edge] of [effect]'s range moved to [time]: the effect trimmed to it on every clip of the tool (VideoEffectsEditor.swift:403-428). */
+    fun trimmed(effect: VideoEffectSettings, edge: EditorRangeTiming.Edge, time: Double): Pair<EffectsWork, EditorRangeTiming>? {
+        val timing = rangeTiming(effect)?.setting(edge, time) ?: return null
+        val (lists, kept) = VideoEffectRangeTrim.trimming(trimPieces, effects, trimmedEffects[effect.id].orEmpty(), effect.id, timing.range)
+        return copy(effects = lists, trimmedEffects = trimmedEffects + (effect.id to kept), trimmedRanges = trimmedRanges + (effect.id to timing.range)) to timing
+    }
+
     /** Why a tap of a colour pick was not taken. VideoEffectsEditor.swift:871-880. */
     enum class PickRefusal { Outside, NotScreen, NoHue }
 
