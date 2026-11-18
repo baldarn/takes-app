@@ -51,4 +51,19 @@ class FilmstripGridTest {
         val whole = FilmstripTiles.of(grid, start = 0.0, duration = 30.0, origin = 0.0, from = 10.0, to = 30.0)
         assertEquals(right.drop(1).map { it.from + 10.0 }, whole.drop(1).map { it.from })
     }
+
+    @Test fun aToolsEdgeCutsItsTileAndEachPartShowsItsMiddle() {
+        // YouRec/EditorTimeline.swift:1555-1567: a grade from 2 s cuts the tile of 0 to 128/30 s there.
+        val grid = FilmstripGrid(64.0, 16.0, FilmstripTiles.FPS)
+        val tiles = FilmstripTiles.of(grid, start = 0.0, duration = 10.0, origin = 0.0, from = 0.0, to = 4.0, edges = listOf(2.0), pointsPerSecond = 16.0)
+        assertEquals(listOf(0.0, 2.0), tiles.take(2).map { it.from })
+        assertEquals(2.0, tiles[0].to, 1e-9)
+        assertEquals(EditTime.of(30.0 / 30), tiles[0].time)
+        assertEquals(grid.sample(2.0, 128.0 / 30, center = true, duration = 10.0), tiles[1].time)
+        assertEquals(tiles[1].time.seconds, tiles[1].at, 1e-9)
+        // An edge nearer than 12 points to the tile's end is left out.
+        val near = FilmstripTiles.of(grid, start = 0.0, duration = 10.0, origin = 0.0, from = 0.0, to = 4.0, edges = listOf(128.0 / 30 - 0.5), pointsPerSecond = 16.0)
+        assertEquals(EditTime.ZERO, near[0].time)
+        assertEquals(128.0 / 30, near[0].to, 1e-9)
+    }
 }

@@ -49,24 +49,39 @@ class FilmstripGrid(tileWidth: Double, pointsPerSecond: Double, val fps: Double)
  * The thumbnails of a clip on the grid of its footage (YouRec/EditorTimeline.swift:1548-1572 at 57e5d91), for a
  * timeline that draws each clip's own frames: the tiles from [from] to [to] seconds into a clip that begins at timeline
  * second [start] and lasts [duration], on the grid that begins where its footage would ([origin]), each cut to the clip
- * and showing its first frame, in seconds into the clip.
+ * and showing its first frame, in seconds into the clip. A tile is cut again where a tool's region on the clip begins
+ * or ends ([edges], timeline seconds in order), no closer than 12 points at [pointsPerSecond] to another cut, and each
+ * of its parts then shows its middle frame, so that a grade or an effect shows on the thumbnails where it begins.
  */
 object FilmstripTiles {
     /** The frame rate of the grid when the footage's is not known, as the original's (YouRec/EditorTimeline.swift:1447). */
     const val FPS = 30.0
 
-    /** A tile from [from] to [to] seconds into the clip, showing the frame [at] seconds into it. */
-    data class Tile(val from: Double, val to: Double, val at: Double)
+    /** A tile from [from] to [to] seconds into the clip, showing the frame [at] seconds into it, at timeline time [time]. */
+    data class Tile(val from: Double, val to: Double, val at: Double, val time: EditTime = EditTime.ZERO)
 
-    fun of(grid: FilmstripGrid, start: Double, duration: Double, origin: Double, from: Double, to: Double): List<Tile> {
+    fun of(
+        grid: FilmstripGrid, start: Double, duration: Double, origin: Double, from: Double, to: Double,
+        edges: List<Double> = emptyList(), pointsPerSecond: Double = 1.0,
+    ): List<Tile> {
         val tiles = ArrayList<Tile>()
         val end = start + duration
         var slot = grid.slot(start + maxOf(0.0, from), origin)
+        var edge = edges.count { it <= maxOf(start, slot) }
         while (slot < start + minOf(duration, to) && tiles.size < 4096) {
             val lo = maxOf(start, slot)
             val hi = minOf(end, slot + grid.step)
-            if (hi > lo) tiles += Tile(lo - start, hi - start, (grid.sample(lo, hi, center = false, duration = end).seconds - start).coerceIn(0.0, duration))
             slot += grid.step
+            if (hi <= lo) continue
+            while (edge < edges.size && edges[edge] <= lo) edge++
+            val first = edge
+            while (edge < edges.size && edges[edge] < hi) edge++
+            val bounds = grid.boundaries(lo, hi, edges.subList(first, edge), pointsPerSecond)
+            for ((a, b) in bounds.zipWithNext()) {
+                if (a >= b) continue
+                val time = grid.sample(a, b, center = bounds.size > 2, duration = end)
+                tiles += Tile(a - start, b - start, (time.seconds - start).coerceIn(0.0, duration), time)
+            }
         }
         return tiles
     }
