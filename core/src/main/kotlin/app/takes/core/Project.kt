@@ -51,6 +51,11 @@ data class SourceMedia(
     val events: List<CaptureEvent>? = null,
     val sha256: String? = null,
     val audioOnly: Boolean? = null,
+    /**
+     * True for a photo the original made into a three-second movie (YouRec/Project.swift:38,
+     * YouRec/VideoBatchImport.swift:37). Kept so the project goes back to the iPhone as it came; nothing here reads it.
+     */
+    val isStillPhoto: Boolean? = null,
     val originalName: String? = null,
 )
 

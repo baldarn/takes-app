@@ -1,6 +1,13 @@
 package app.takes.core
 
+import app.takes.core.yourec.LinearPcm
+import app.takes.core.yourec.YouRecCodec
+import app.takes.core.yourec.YouRecDetect
+import app.takes.core.yourec.YouRecNote
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import java.io.EOFException
 import java.io.File
 import java.io.FileOutputStream
@@ -31,8 +38,8 @@ class ProjectRestoreException(val reason: Reason, cause: Throwable? = null) : Ex
 }
 
 /**
- * Reads what [ProjectArchive] writes, and the same archive made by the iPhone
- * app, back into a project folder.
+ * Reads what [ProjectArchive] writes, and the archive YouRec, the iPhone
+ * original, makes with "Zip project", back into a project folder.
  *
  * A restored project is always a new one: it gets its own id, so restoring
  * never replaces a project of the library or of Recently Deleted, and the same
@@ -65,6 +72,19 @@ object ProjectRestore {
     private data class Integrity(val version: Int, val sha256: Map<String, String>)
 
     /**
+     * What the app asks of a media file of a ZIP made by YouRec, which may hold
+     * what Android cannot show: [size] is a video's upright size, or null when
+     * it cannot be read, and [playable] whether this device decodes it.
+     */
+    class MediaProbe(val size: (File) -> Size? = { null }, val playable: (File) -> Boolean = { true })
+
+    /**
+     * A restored [project]. [fromYouRec] when the ZIP was made by the iPhone
+     * original, with [notes] on what changed on the way (docs/IOS-INTEROP.md, 3.5).
+     */
+    class Restored(val project: Project, val fromYouRec: Boolean, val notes: List<YouRecNote>)
+
+    /**
      * Restores the archive in [input], which is left open, as a new project
      * under [projectsRoot] and returns it as it was saved.
      *
@@ -84,7 +104,22 @@ object ProjectRestore {
         limits: Limits = Limits(),
         now: Long = System.currentTimeMillis(),
         progress: (read: Long) -> Unit = {},
-    ): Project {
+    ): Project = restoreArchive(input, projectsRoot, maximumBytes, limits, now, MediaProbe(), progress).project
+
+    /**
+     * [restore], telling a ZIP made by YouRec, the iPhone original, from one
+     * made by Takes ([YouRecDetect]) and reading either. [probe] looks at the
+     * media of a ZIP of YouRec.
+     */
+    fun restoreArchive(
+        input: InputStream,
+        projectsRoot: File,
+        maximumBytes: Long,
+        limits: Limits = Limits(),
+        now: Long = System.currentTimeMillis(),
+        probe: MediaProbe = MediaProbe(),
+        progress: (read: Long) -> Unit = {},
+    ): Restored {
         if (!projectsRoot.isDirectory && !projectsRoot.mkdirs()) throw IOException("Cannot create ${projectsRoot.path}")
         discardInterrupted(projectsRoot)
         val disk = ProjectDisk(projectsRoot)
@@ -98,10 +133,12 @@ object ProjectRestore {
         try {
             if (!File(folder, HISTORY).mkdirs()) throw IOException("Cannot create ${folder.path}")
             val hashes = unpack(input, folder, maximumBytes, limits, progress)
-            val project = verified(folder, hashes).copy(id = id, updatedAt = now)
-            publish(project, folder, ProjectDisk(staging))
+            val restored = if (fromYouRec(folder, hashes)) verifiedYouRec(folder, hashes, probe)
+            else verified(folder, hashes).let { Restored(it, false, emptyList()) to OpenTimeline.filename(it) }
+            val project = restored.first.project.copy(id = id, updatedAt = now)
+            publish(project, folder, ProjectDisk(staging), restored.second)
             Files.move(folder.toPath(), disk.folder(id).toPath(), StandardCopyOption.ATOMIC_MOVE)
-            return project
+            return Restored(project, restored.first.fromYouRec, restored.first.notes)
         } finally {
             delete(staging)
         }
@@ -117,7 +154,11 @@ object ProjectRestore {
         }
     }
 
-    /** Unpacks every entry into [folder] and returns the SHA-256 of each top-level file by its name in the archive. */
+    /**
+     * Unpacks every entry into [folder] and returns the SHA-256 of each file by its name in the archive, but for
+     * the history. The original's recovery entries, `Recovery/<group>/<name>` (YouRec/ProjectArchive.swift:95-104),
+     * go where a project keeps them ([ProjectDisk.RECOVERY]); only a ZIP of YouRec may hold them.
+     */
     private fun unpack(input: InputStream, folder: File, maximumBytes: Long, limits: Limits, progress: (Long) -> Unit): Map<String, String> {
         val counted = Counted(input)
         val zip = ZipInputStream(counted)
@@ -132,7 +173,8 @@ object ProjectRestore {
                 val entry = try { zip.nextEntry } catch (error: IllegalArgumentException) { throw refused(error) } ?: break
                 val name = entry.name
                 val snapshot = name.startsWith("$HISTORY/") && Project.isSnapshotName(name.substring(HISTORY.length + 1))
-                if (entry.isDirectory || !(snapshot || plain(name))) throw refused()
+                val recovery = YouRecDetect.isRecoveryEntry(name)
+                if (entry.isDirectory || !(snapshot || recovery || plain(name))) throw refused()
                 // Two names that differ only in case are one file on many disks.
                 if (!seen.add(name.lowercase())) throw refused()
                 if (seen.size > limits.entries) throw ProjectRestoreException(ProjectRestoreException.Reason.TooLarge)
@@ -144,8 +186,13 @@ object ProjectRestore {
                 }
                 val file = File(folder, name).toPath()
                 // The names are already safe; this holds even if that check is ever loosened.
-                val parent = if (snapshot) File(folder, HISTORY).toPath() else folder.toPath()
+                val parent = when {
+                    snapshot -> File(folder, HISTORY).toPath()
+                    recovery -> File(File(folder, ProjectDisk.RECOVERY), name.split("/")[1]).toPath()
+                    else -> folder.toPath()
+                }
                 if (file.parent != parent || file.normalize() != file) throw refused()
+                if (recovery) Files.createDirectories(parent)
 
                 val digest = MessageDigest.getInstance("SHA-256")
                 var size = 0L
@@ -195,8 +242,8 @@ object ProjectRestore {
         } catch (error: Exception) {
             throw ProjectRestoreException(ProjectRestoreException.Reason.Damaged, error)
         }
-        // Version 2 carries the iPhone app's recovery files, which have no place here.
-        if (integrity.version != 1) throw refused()
+        // Version 2 carries the iPhone app's recovery files, which a project of Takes never has.
+        if (integrity.version != 1 || hashes.keys.any { it.startsWith(YouRecDetect.RECOVERY) }) throw refused()
 
         val media = project.mediaFiles.toSet()
         val timeline = OpenTimeline.filename(project)
@@ -223,10 +270,102 @@ object ProjectRestore {
         return project.copy(sources = project.sources.map { it.copy(sha256 = integrity.sha256[it.filename]) }).also { it.validate() }
     }
 
+    /** Whether the unpacked [folder] holds a project of YouRec (docs/IOS-INTEROP.md, 3.4). */
+    private fun fromYouRec(folder: File, hashes: Map<String, String>): Boolean {
+        if (MANIFEST !in hashes) return false
+        fun json(name: String) = runCatching { documentJson.parseToJsonElement(File(folder, name).readText()) as? JsonObject }.getOrNull()
+        val manifest = json(MANIFEST) ?: return false
+        return YouRecDetect.isYouRec(manifest, hashes.keys, if (ProjectArchive.INTEGRITY in hashes) json(ProjectArchive.INTEGRITY) else null)
+    }
+
+    /**
+     * The project of YouRec the unpacked [folder] holds, as Takes saves it, with the name of the OpenTimelineIO
+     * file it may hold beside it. The archive is checked as the original checks it (YouRec/ProjectArchive.swift:
+     * 298-403): it holds exactly what the project names, and the hashes vouch for every recording. As there, a
+     * media file that is missing or does not match its hash is left out and its source stays, to be found again
+     * (Repair media); a recovery file that does not match aborts. Then sound Android cannot play is rewritten as
+     * WAV ([LinearPcm]), and the effects each take was recorded with go beside its movie ([CaptureEffectsFile]).
+     */
+    private fun verifiedYouRec(folder: File, hashes: Map<String, String>, probe: MediaProbe): Pair<Restored, String> {
+        if (MANIFEST !in hashes || ProjectArchive.INTEGRITY !in hashes) throw ProjectRestoreException(ProjectRestoreException.Reason.Damaged)
+        val integrity = try {
+            val tree = documentJson.parseToJsonElement(File(folder, ProjectArchive.INTEGRITY).readText()) as JsonObject
+            val version = (tree["version"] as JsonPrimitive).intOrNull!!
+            version to (tree["sha256"] as JsonObject).mapValues { (_, hash) -> (hash as JsonPrimitive).also { require(it.isString) }.content }
+        } catch (error: Exception) {
+            throw ProjectRestoreException(ProjectRestoreException.Reason.Damaged, error)
+        }
+        val (version, vouched) = integrity
+        fun intact(name: String) = hashes[name] != null && hashes[name] == vouched[name]
+
+        val history = File(folder, HISTORY)
+        val listed = HashSet<String>()
+        val imported = YouRecCodec.import(File(folder, MANIFEST).readBytes(), load = { listed += it; File(history, it).readBytes() }) { name ->
+            if (intact(name)) probe.size(File(folder, name)) else null
+        }
+        var project = imported.project
+        val media = imported.mediaFiles
+        val preserved = vouched.keys.filter { YouRecDetect.isRecoveryEntry(it) }.toSet()
+        val allowed = media.toSet() + preserved + setOf(MANIFEST, ProjectArchive.INTEGRITY, imported.timelineName)
+        // Nothing comes along that the project does not name, and the hashes vouch for every recording and nothing else.
+        if (!(version == 1 && preserved.isEmpty() || version == 2) || !preserved.all { it in hashes }) throw refused()
+        if (!hashes.keys.all { it in allowed } || !history.list().orEmpty().all { it in listed }) throw refused()
+        if (!project.sources.all { it.filename in vouched } || !vouched.keys.all { it in media || it in preserved }) throw refused()
+        if (!preserved.all(::intact)) throw ProjectRestoreException(ProjectRestoreException.Reason.DamagedMedia)
+
+        val notes = imported.notes.toMutableList()
+        val sources = project.sources.map { it.filename }.toSet()
+        val missing = ArrayList<String>()
+        val damaged = ArrayList<String>()
+        for (name in media) {
+            if (name !in hashes) { if (name in sources) missing += name; continue }
+            if (intact(name)) continue
+            File(folder, name).delete()
+            damaged += name
+        }
+        project = project.copy(sources = project.sources.map { it.copy(sha256 = vouched[it.filename]) })
+
+        // Sound Android does not play, rewritten with the same samples, or left out to be found again.
+        val taken = (media + preserved).map { it.lowercase() }.toMutableSet()
+        val unconverted = ArrayList<String>()
+        project = project.copy(sources = project.sources.map { source ->
+            val file = File(folder, source.filename)
+            if (source.filename.substringAfterLast('.', "").lowercase() !in LinearPcm.EXTENSIONS || !file.isFile) return@map source
+            val stem = source.filename.substringBeforeLast('.')
+            var name = "$stem.wav"
+            var index = 1
+            while (name.lowercase() in taken) { index += 1; name = "$stem-$index.wav" }
+            taken += name.lowercase()
+            val converted = File(folder, name)
+            val done = LinearPcm.toWav(file, converted)
+            file.delete()
+            if (!done) unconverted += source.filename
+            source.copy(filename = name, sha256 = if (done) sha256(converted) else null)
+        })
+        val unplayable = project.sources.map { it.filename }.filter { File(folder, it).isFile && !probe.playable(File(folder, it)) }
+        if (missing.isNotEmpty()) notes += YouRecNote(YouRecNote.Kind.MissingMedia, missing)
+        if (damaged.isNotEmpty()) notes += YouRecNote(YouRecNote.Kind.DamagedMedia, damaged)
+        if (unconverted.isNotEmpty()) notes += YouRecNote(YouRecNote.Kind.AudioNotConverted, unconverted)
+        if (unplayable.isNotEmpty()) notes += YouRecNote(YouRecNote.Kind.UnplayableVideo, unplayable)
+
+        for ((filename, effects) in imported.sourceEffects) CaptureEffectsFile.write(effects, File(folder, filename))
+        project.validate()
+        return Restored(project, true, notes) to imported.timelineName
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) { val read = input.read(buffer); if (read < 0) break; digest.update(buffer, 0, read) }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     /** Leaves in [folder] exactly what [ProjectDisk.save] writes for [project], beside its media. */
-    private fun publish(project: Project, folder: File, staged: ProjectDisk) {
+    private fun publish(project: Project, folder: File, staged: ProjectDisk, timeline: String) {
         // The timeline is written again by every export and the hashes are only for the journey.
-        File(folder, OpenTimeline.filename(project)).delete()
+        File(folder, timeline).delete()
         File(folder, ProjectArchive.INTEGRITY).delete()
         // Saved as new: the archived manifest names another project and must not become a revision of this one.
         if (!File(folder, MANIFEST).delete()) throw IOException("Cannot replace ${folder.path}/$MANIFEST")
