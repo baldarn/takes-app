@@ -56,4 +56,30 @@ class RecordingGainTest {
     }
 
     private fun Double.pow(x: Double) = Math.pow(this, x)
+
+    // YouRec/RecorderView.swift:1581-1589: while dragging, within 1 dB of zero is zero.
+    @Test fun aDragNearZeroSnapsToIt() {
+        assertEquals(0.0, RecordingGain.dragged(0.5), 0.0)
+        assertEquals(0.0, RecordingGain.dragged(-1.0), 0.0)
+        assertEquals(0.0, RecordingGain.dragged(1.2), 0.0) // on the grid 1.0
+        assertEquals(1.5, RecordingGain.dragged(1.5), 0.0)
+        assertEquals(-1.5, RecordingGain.dragged(-1.4), 0.0)
+        assertEquals(12.0, RecordingGain.dragged(20.0), 0.0)
+        assertEquals(0.0, RecordingGain.dragged(Double.NaN), 0.0)
+    }
+
+    // RecorderView.swift:1568-1571: the accessibility step is half a decibel, without the snap.
+    @Test fun anAccessibilityStepIsHalfADecibel() {
+        assertEquals(0.5, RecordingGain.stepped(0.0, up = true), 0.0)
+        assertEquals(-0.5, RecordingGain.stepped(0.0, up = false), 0.0)
+        assertEquals(12.0, RecordingGain.stepped(12.0, up = true), 0.0)
+        assertEquals(-40.0, RecordingGain.stepped(-40.0, up = false), 0.0)
+    }
+
+    // RecorderView.swift:1563: Original, Reduced or Boosted level.
+    @Test fun theCaptionNamesTheLevel() {
+        assertEquals(RecordingGain.Companion.Level.Original, RecordingGain.level(0.0))
+        assertEquals(RecordingGain.Companion.Level.Reduced, RecordingGain.level(-0.5))
+        assertEquals(RecordingGain.Companion.Level.Boosted, RecordingGain.level(3.0))
+    }
 }
