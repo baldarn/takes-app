@@ -209,6 +209,13 @@ import app.takes.core.TransitionTiming
 import app.takes.core.grade
 import app.takes.core.gradeTime
 import app.takes.core.resolvingEffects
+import app.takes.core.EffectRangeEdit
+import app.takes.core.ScopedEffectOperation
+import app.takes.core.isAudioRange
+import androidx.compose.material.icons.outlined.RemoveCircleOutline
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import kotlinx.coroutines.Dispatchers
@@ -478,6 +485,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val located by remember(edit) { derivedStateOf { TrackEditState.locate(edit, playhead)?.index } }
     // The marked range and the selection: the editor's own, never saved. They follow the edit as it changes.
     var marks by remember { mutableStateOf(RangeMarks()) }
+    // An effect's range being adjusted by its two handles on the timeline (YouRec/EditorView.swift:1152-1191 at 57e5d91).
+    var effectRange by remember { mutableStateOf<EffectRangeEdit?>(null) }
     // Link of picture and sound that cover different times, waiting for the question to be answered.
     var pendingLink by remember { mutableStateOf<PendingLink?>(null) }
     LaunchedEffect(saved) { marks = marks.retained(saved) }
@@ -1451,6 +1460,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                 }
             } else null,
+            // The handles of an effect's range: each frame they move to is shown paused (YouRec/EditorView.swift:1156-1164).
+            effectRange = effectRange?.let { draft ->
+                EffectRangeHandles(draft.timing.range.start, draft.timing.range.endInclusive, toolTint(draft.region.tool)) { edge, time ->
+                    effectRange?.let { now ->
+                        val next = now.setting(edge, time)
+                        if (next.timing.range != now.timing.range || now.lastEdge != edge) {
+                            effectRange = next
+                            val frame = next.timing.previewTime(edge)
+                            editor.pause(); playhead = frame; editor.seek(frame)
+                        }
+                    }
+                }
+            },
             pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
             moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(
@@ -1963,9 +1985,60 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val removeRegion: (ToolRegion, String) -> Unit = { region, label ->
                 ToolRegions.removing(edit, region)?.let { next -> commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(label) }
             }
+            // An effect's options (YouRec/EditorView.swift:1116-1155 at 57e5d91): its part on this clip, the selected
+            // clips or the marked range taken away; the whole effect opened or taken away; its range adjusted on the timeline.
+            val optionWords = EffectOptionWords(
+                removeThisClip = stringResource(R.string.effect_remove_this_clip), removeThisAudioClip = stringResource(R.string.effect_remove_this_audio_clip),
+                removeSelected = stringResource(R.string.effect_remove_selected_clips), removeMarked = stringResource(R.string.effect_remove_marked_range),
+                editWhole = stringResource(R.string.effect_edit_whole), adjust = stringResource(R.string.effect_adjust_range), removeWhole = stringResource(R.string.effect_remove_whole),
+            )
+            val regionOptions: (ToolRegion, String) -> List<ChipOption> = { region, label ->
+                val timeline = edit.toTimeline()
+                val marking = marks.range != null || marks.start != null || !marks.selected.isEmpty
+                val scope = if (!marking) null else {
+                    val chosen = marks.rangeTargets ?: marks.selected.takeIf { !it.isEmpty }
+                    TimelineSelection(
+                        chosen?.clips ?: timeline.video.mapTo(HashSet()) { it.id },
+                        chosen?.audio?.mapTo(HashSet()) { TrackSequenceView.soundID(edit, it) } ?: timeline.audio.mapTo(HashSet()) { it.id },
+                        marks.range?.let { EditInterval.of(it.start, it.end) },
+                    )
+                }
+                val audio = region.tool.isAudioRange
+                val selection = scope ?: TimelineSelection(video = if (audio) emptySet() else setOf(region.clipID), audio = if (audio) setOf(region.clipID) else emptySet())
+                val local = if (marks.start == null) ScopedEffectOperation.of(region, edit, selection, regions) else null
+                val trim = EffectRangeEdit.of(region, edit, playhead, regions)
+                fun removed(next: EditState) { if (next != edit) { commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(label) } }
+                buildList {
+                    local?.let { operation ->
+                        val words = when (operation.scopeName) {
+                            ScopedEffectOperation.ScopeName.MarkedRange -> optionWords.removeMarked
+                            ScopedEffectOperation.ScopeName.ThisClip -> optionWords.removeThisClip
+                            ScopedEffectOperation.ScopeName.ThisAudioClip -> optionWords.removeThisAudioClip
+                            ScopedEffectOperation.ScopeName.SelectedClips -> optionWords.removeSelected
+                        }
+                        add(ChipOption(words, Icons.Outlined.RemoveCircleOutline, destructive = true) { removed(operation.removing(edit)) })
+                    }
+                    add(ChipOption(optionWords.editWhole, Icons.Outlined.Tune) { openRegion(region) })
+                    trim?.let { draft -> add(ChipOption(optionWords.adjust, Icons.Outlined.SwapHoriz) { cancelPendingPlay(); editor.pause(); effectRange = draft }) }
+                    add(ChipOption(optionWords.removeWhole, Icons.Outlined.Delete, destructive = true) {
+                        val whole = ScopedEffectOperation.of(region, edit, null, regions)
+                        if (whole != null) removed(whole.removing(edit)) else removeRegion(region, label)
+                    })
+                }
+            }
             // In landscape the tools scroll beside the picture.
             Column(Modifier.layoutId(EditorSlot.Tools).then(if (landscape) Modifier.verticalScroll(toolRows) else Modifier)) {
-            SelectionBar(
+            effectRange?.let { draft ->
+                EffectRangeActions(
+                    cancel = { effectRange = null; jump(draft.originalPlayhead) },
+                    done = {
+                        effectRange = null
+                        val next = draft.applying(edit)
+                        if (next != edit) commit(next, draft.originalPlayhead.coerceAtMost(next.duration)) else jump(draft.originalPlayhead)
+                    },
+                )
+            }
+            if (effectRange == null) SelectionBar(
                 step = marks.step,
                 // On the frame grid, on a cut when one is near, and never inside a transition.
                 mark = if (duration <= 0) null else ({
@@ -2050,7 +2123,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val name = regionLabel(region)
                     TransitionChip(
                         name, stringResource(R.string.effect_chip_edit, name), adds = false, color = toolTint(region.tool),
-                        id = region.id, remove = { removeRegion(region, name) },
+                        id = region.id, remove = { removeRegion(region, name) }, options = { regionOptions(region, name) },
                     ) { openRegion(region) }
                 },
             )
@@ -2543,4 +2616,20 @@ private fun linkErrorTexts(): Map<TimelineLinkError, String> = TimelineLinkError
             TimelineLinkError.TransitionBoundary -> R.string.link_transition_boundary
         },
     )
+}
+
+/** The words of an effect's options, read once where they are composed. */
+private class EffectOptionWords(
+    val removeThisClip: String, val removeThisAudioClip: String, val removeSelected: String, val removeMarked: String,
+    val editWhole: String, val adjust: String, val removeWhole: String,
+)
+
+/** "Drag either handle." with Cancel and Done, while an effect's range is adjusted (YouRec/EditorView.swift:1166-1191 at 57e5d91). */
+@Composable
+private fun EffectRangeActions(cancel: () -> Unit, done: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.effect_range_hint), Modifier.weight(1f), color = Color(0xFFA0A4AB), fontSize = 13.sp)
+        TextButton(onClick = cancel) { Text(stringResource(R.string.effect_range_cancel)) }
+        Button(onClick = done) { Text(stringResource(R.string.effect_range_done)) }
+    }
 }

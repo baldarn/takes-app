@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An effect's options from its badge, its range on the timeline, and the range editor (YouRec at 57e5d91:
+     EditorView.swift:1116-1191, 2299-2374; EditorDurationPicker.swift:6-180, 304-346). -->
+<resources>
+    <string name="effect_options">Options for %1$s</string>
+    <string name="effect_options_action">Effect options</string>
+    <string name="effect_options_close">Close effect options</string>
+    <string name="effect_edit_this_clip">Edit on this clip</string>
+    <string name="effect_edit_this_audio_clip">Edit on this audio clip</string>
+    <string name="effect_edit_selected_clips">Edit on selected clips</string>
+    <string name="effect_edit_marked_range">Edit in marked range</string>
+    <string name="effect_remove_this_clip">Remove from this clip</string>
+    <string name="effect_remove_this_audio_clip">Remove from this audio clip</string>
+    <string name="effect_remove_selected_clips">Remove from selected clips</string>
+    <string name="effect_remove_marked_range">Remove from marked range</string>
+    <string name="effect_edit_whole">Edit entire effect</string>
+    <string name="effect_adjust_range">Adjust effect range</string>
+    <string name="effect_remove_whole">Remove entire effect</string>
+    <string name="effect_range_hint">Drag either handle.</string>
+    <string name="effect_range_cancel">Cancel</string>
+    <string name="effect_range_done">Done</string>
+    <string name="effect_range_start">Effect start</string>
+    <string name="effect_range_end">Effect end</string>
+    <string name="range_duration">Duration</string>
+    <string name="range_custom">Custom</string>
+    <string name="range_custom_length">Custom · %1$s</string>
+    <string name="range_custom_hint">Adjust the timing manually</string>
+    <string name="range_show_choices">Show duration choices</string>
+    <string name="range_hide_choices">Hide duration choices</string>
+    <string name="range_seconds">%1$s s</string>
+    <string name="range_start">Start</string>
+    <string name="range_end">End</string>
+    <string name="range_earlier">%1$s earlier</string>
+    <string name="range_later">%1$s later</string>
+    <string name="range_extend_to_end">Extend to end</string>
+    <string name="range_edit_duration">Edit duration</string>
+    <string name="range_selected">Selected range</string>
+    <string name="range_duration_of">Duration · %1$s</string>
+</resources>

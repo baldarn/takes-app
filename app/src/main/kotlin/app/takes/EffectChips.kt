@@ -5,7 +5,10 @@ package app.takes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -15,11 +18,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -121,6 +134,68 @@ private fun decimals(value: Double, least: Int, most: Int): String {
  * a bin and a cross beside the name, and the bin takes it away. For a screen reader the chip is "Edit …", with
  * Remove as an action. [adds] draws a plus in place of the tool's sign, for a transition not made yet.
  */
+/** One entry of an effect's options (YouRec/EditorView.swift:2347-2373): its words, its sign, whether it takes something away. */
+internal class ChipOption(val label: String, val icon: ImageVector, val destructive: Boolean = false, val action: () -> Unit)
+
+/**
+ * An effect's chip with its options, as the original's `EffectRemovalBubble` since 57e5d91
+ * (YouRec/EditorView.swift:2299-2374): a tap edits it, a touch and hold or the "…" beside its name opens the options,
+ * worked out by [options] when they open.
+ */
+@Composable
+internal fun EffectOptionsChip(label: String, tint: Color, description: String, edit: () -> Unit, options: () -> List<ChipOption>) {
+    val haptics = LocalHapticFeedback.current
+    var open by remember { mutableStateOf(false) }
+    val optionsLabel = stringResource(R.string.effect_options, label)
+    val optionsAction = stringResource(R.string.effect_options_action)
+    Box {
+        Row(Modifier.clip(CircleShape).background(tint.copy(alpha = if (open) 0.22f else 0.12f)).heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.heightIn(min = 44.dp)
+                    .combinedClickable(
+                        onClick = edit,
+                        onLongClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); open = true },
+                        onLongClickLabel = optionsAction,
+                    )
+                    .clearAndSetSemantics {
+                        contentDescription = description
+                        role = Role.Button
+                        onClick { edit(); true }
+                        customActions = listOf(CustomAccessibilityAction(optionsAction) { open = true; true })
+                    }
+                    .padding(start = 12.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Tune, null, Modifier.size(18.dp), tint = tint)
+                Text(label, Modifier.padding(start = 4.dp).widthIn(max = 180.dp), color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Box(Modifier.width(1.dp).height(16.dp).background(tint.copy(alpha = 0.32f)))
+            IconButton(onClick = { open = true }, Modifier.size(44.dp).semantics { contentDescription = optionsLabel }) {
+                Icon(Icons.Filled.MoreHoriz, null, tint = tint)
+            }
+        }
+        if (open) {
+            val shown = remember { options() }
+            DropdownMenu(expanded = true, onDismissRequest = { open = false }) {
+                Row(Modifier.widthIn(min = 260.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val closeLabel = stringResource(R.string.effect_options_close)
+                    IconButton(onClick = { open = false }, Modifier.size(44.dp).semantics { contentDescription = closeLabel }) { Icon(Icons.Filled.Close, null) }
+                }
+                for (option in shown) {
+                    val color = if (option.destructive) RecordRed else MaterialTheme.colorScheme.onSurface
+                    DropdownMenuItem(
+                        text = { Text(option.label, color = color) },
+                        leadingIcon = { Icon(option.icon, null, tint = color) },
+                        onClick = { open = false; option.action() },
+                        modifier = Modifier.heightIn(min = 44.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 internal fun EffectChipButton(
     label: String, tint: Color, armed: Boolean, edit: () -> Unit, arm: (() -> Unit)?, cancel: () -> Unit, remove: () -> Unit,

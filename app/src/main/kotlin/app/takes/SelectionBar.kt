@@ -182,6 +182,8 @@ internal class TransitionChip(
     val label: String, val description: String, val adds: Boolean, val color: Color = TransitionColor,
     /** What a touch and hold offers to take away (YouRec/EditorView.swift:1676-1710), by the region's [id]; null when it cannot be. */
     val id: String? = null, val remove: (() -> Unit)? = null,
+    /** An effect's options, from its "…" or a touch and hold, in place of the removal controls (YouRec/EditorView.swift:2299-2374). */
+    val options: (() -> List<ChipOption>)? = null,
     val open: () -> Unit,
 )
 
@@ -289,7 +291,9 @@ internal fun SelectionBar(
             else Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 4.dp), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) {
                 for (chip in shown) {
                     val held = chip.id != null && chip.id == armed
-                    EffectChipButton(
+                    val options = chip.options
+                    if (options != null) EffectOptionsChip(chip.label, chip.color, chip.description, edit = { armed = null; chip.open() }, options = options)
+                    else EffectChipButton(
                         chip.label, chip.color, held, edit = { armed = null; chip.open() },
                         arm = chip.remove?.let { { armed = chip.id } }, cancel = { armed = null },
                         remove = { armed = null; chip.remove?.invoke() }, description = chip.description, adds = chip.adds,

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="effect_options">Opzioni per %1$s</string>
+    <string name="effect_options_action">Opzioni dell\'effetto</string>
+    <string name="effect_options_close">Chiudi le opzioni dell\'effetto</string>
+    <string name="effect_edit_this_clip">Modifica su questa clip</string>
+    <string name="effect_edit_this_audio_clip">Modifica su questa clip audio</string>
+    <string name="effect_edit_selected_clips">Modifica sulle clip selezionate</string>
+    <string name="effect_edit_marked_range">Modifica nell\'intervallo segnato</string>
+    <string name="effect_remove_this_clip">Rimuovi da questa clip</string>
+    <string name="effect_remove_this_audio_clip">Rimuovi da questa clip audio</string>
+    <string name="effect_remove_selected_clips">Rimuovi dalle clip selezionate</string>
+    <string name="effect_remove_marked_range">Rimuovi dall\'intervallo segnato</string>
+    <string name="effect_edit_whole">Modifica tutto l\'effetto</string>
+    <string name="effect_adjust_range">Regola l\'intervallo dell\'effetto</string>
+    <string name="effect_remove_whole">Rimuovi tutto l\'effetto</string>
+    <string name="effect_range_hint">Trascina una delle due maniglie.</string>
+    <string name="effect_range_cancel">Annulla</string>
+    <string name="effect_range_done">Fine</string>
+    <string name="effect_range_start">Inizio dell\'effetto</string>
+    <string name="effect_range_end">Fine dell\'effetto</string>
+    <string name="range_duration">Durata</string>
+    <string name="range_custom">Personalizzata</string>
+    <string name="range_custom_length">Personalizzata · %1$s</string>
+    <string name="range_custom_hint">Regola i tempi a mano</string>
+    <string name="range_show_choices">Mostra le durate</string>
+    <string name="range_hide_choices">Nascondi le durate</string>
+    <string name="range_seconds">%1$s s</string>
+    <string name="range_start">Inizio</string>
+    <string name="range_end">Fine</string>
+    <string name="range_earlier">%1$s prima</string>
+    <string name="range_later">%1$s dopo</string>
+    <string name="range_extend_to_end">Estendi fino alla fine</string>
+    <string name="range_edit_duration">Modifica la durata</string>
+    <string name="range_selected">Intervallo selezionato</string>
+    <string name="range_duration_of">Durata · %1$s</string>
+</resources>

@@ -9,6 +9,11 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
+import app.takes.core.RangeEditing
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Offset
@@ -191,6 +196,8 @@ internal fun Timeline(
     bookmarks: List<Double> = emptyList(), openBookmarks: () -> Unit = {},
     /** A sound selected by itself trimmed by a handle: its [leading] or trailing edge moved by [seconds] of the timeline; null when sounds have no handles. */
     trimSound: ((id: String, leading: Boolean, seconds: Double) -> Unit)? = null,
+    /** The two handles of an effect's range being adjusted (YouRec/EditorTimeline.swift:675-760 at 57e5d91); null otherwise. */
+    effectRange: EffectRangeHandles? = null,
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -589,6 +596,7 @@ internal fun Timeline(
             }
         }
         Box(Modifier.align(Alignment.Center).width(2.dp).fillMaxHeight().background(Color.White))
+        effectRange?.let { EffectRangeOverlay(it, pixelsPerSecond, scroll) }
         boundaries?.let { BoundaryMarkers(it, pixelsPerSecond, scroll, onPickBoundary) }
         if (addSites != null) {
             val middle = StripTop + (rowTile(rows) + rowWave(rows)) / 2
@@ -1052,4 +1060,67 @@ private fun SoundHandles(item: AudioItem, pixelsPerSecond: Float, trim: SoundTri
         label, color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
         modifier = Modifier.offset { IntOffset((x + 4.dp.toPx()).roundToInt(), 2.dp.roundToPx()) }.background(GripColor, RoundedCornerShape(5.dp)).padding(horizontal = 6.dp),
     )
+}
+
+/**
+ * An effect's range being adjusted on the timeline: [start] to [end] in timeline seconds, in the tint of its tool, with a
+ * handle at each edge that [move] follows, frame by frame (YouRec/EditorTimeline.swift:675-760 at 57e5d91).
+ */
+internal class EffectRangeHandles(
+    val start: Double, val end: Double, val tint: Color,
+    val move: (edge: app.takes.core.EditorRangeTiming.Edge, time: Double) -> Unit,
+)
+
+/** The band of [range] under the ruler and its two handles, each grabbed by a 44 dp target and dragged sideways. */
+@Composable
+private fun BoxWithConstraintsScope.EffectRangeOverlay(range: EffectRangeHandles, pixelsPerSecond: Float, scroll: ScrollState) {
+    val density = LocalDensity.current
+    val width = constraints.maxWidth.toFloat()
+    val latest by rememberUpdatedState(range)
+    val scale by rememberUpdatedState(pixelsPerSecond)
+    fun x(time: Double) = width / 2 + (time * pixelsPerSecond).toFloat() - scroll.value
+    Canvas(Modifier.matchParentSize().padding(top = StripTop)) {
+        val left = maxOf(0f, x(range.start))
+        val right = minOf(size.width, x(range.end))
+        if (right > left) {
+            drawRect(range.tint.copy(alpha = 0.12f), Offset(left, 2.dp.toPx()), Size(right - left, size.height - 4.dp.toPx()))
+            drawRect(range.tint, Offset(left, 2.dp.toPx()), Size(right - left, size.height - 4.dp.toPx()), style = Stroke(2.dp.toPx()))
+        }
+    }
+    for (edge in app.takes.core.EditorRangeTiming.Edge.entries) key(edge) {
+        val starts = edge == app.takes.core.EditorRangeTiming.Edge.Start
+        val label = stringResource(if (starts) R.string.effect_range_start else R.string.effect_range_end)
+        val earlier = stringResource(R.string.range_earlier, label)
+        val later = stringResource(R.string.range_later, label)
+        val time = if (starts) range.start else range.end
+        val value = preciseLabel(time)
+        var origin by remember { mutableStateOf(0.0) }
+        var dragged by remember { mutableFloatStateOf(0f) }
+        Box(
+            Modifier.offset { IntOffset((x(time) - 22.dp.toPx()).roundToInt(), (StripTop + 4.dp).roundToPx()) }
+                .size(44.dp, 52.dp)
+                .pointerInput(edge) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { origin = if (starts) latest.start else latest.end; dragged = 0f },
+                        onHorizontalDrag = { change, amount ->
+                            change.consume()
+                            dragged += amount
+                            latest.move(edge, RangeEditing.quantize(origin + dragged / scale))
+                        },
+                    )
+                }
+                .semantics {
+                    contentDescription = label
+                    stateDescription = value
+                    customActions = listOf(
+                        CustomAccessibilityAction(earlier) { latest.move(edge, (if (starts) latest.start else latest.end) - RangeEditing.FRAME); true },
+                        CustomAccessibilityAction(later) { latest.move(edge, (if (starts) latest.start else latest.end) + RangeEditing.FRAME); true },
+                    )
+                },
+            Alignment.Center,
+        ) {
+            Box(Modifier.width(6.dp).fillMaxHeight().background(range.tint, RoundedCornerShape(3.dp)))
+        }
+    }
+
 }
