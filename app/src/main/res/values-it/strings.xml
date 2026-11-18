@@ -1177,6 +1177,11 @@
     <string name="cover_preparing">Preparazione del JPEG a piena risoluzione</string>
     <string name="cover_failed">Impossibile caricare questo fotogramma</string>
     <string name="cover_try_again">Riprova</string>
+    <string name="frame_copy_copying">Copia del fotogramma…</string>
+    <string name="frame_copy_done">Fotogramma copiato</string>
+    <string name="frame_copy_failed">Impossibile copiare questo fotogramma</string>
+    <string name="frame_copy_action">Copia fotogramma</string>
+    <string name="frame_copy_label">Fotogramma</string>
     <string name="cover_detail_swipe_hint">Scorri a sinistra per i fotogrammi successivi o a destra per quelli precedenti.</string>
     <string name="cover_detail_update_hint">Mostra un altro fotogramma a caso dallo stesso intervallo.</string>
     <string name="cover_detail_later">Fotogramma successivo</string>

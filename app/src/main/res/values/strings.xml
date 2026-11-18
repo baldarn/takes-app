@@ -1162,6 +1162,11 @@
     <string name="cover_preparing">Preparing full-resolution JPEG</string>
     <string name="cover_failed">Couldn’t load this frame</string>
     <string name="cover_try_again">Try again</string>
+    <string name="frame_copy_copying">Copying frame…</string>
+    <string name="frame_copy_done">Frame copied</string>
+    <string name="frame_copy_failed">Couldn’t copy this frame</string>
+    <string name="frame_copy_action">Copy frame</string>
+    <string name="frame_copy_label">Frame</string>
     <string name="cover_detail_swipe_hint">Swipe left for later frames or right for earlier frames.</string>
     <string name="cover_detail_update_hint">Show another random frame from the same range.</string>
     <string name="cover_detail_later">Later frame</string>

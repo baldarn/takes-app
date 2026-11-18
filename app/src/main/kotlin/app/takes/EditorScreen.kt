@@ -860,6 +860,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The movie full screen, with a transport of its own (A/FullPreview.kt).
     var fullPreview by remember { mutableStateOf(false) }
+    val frameCopy = rememberPreviewFrameCopy()
     // The decks are drawn on new surfaces each way; paused, they show nothing there until they are put on their frame again.
     LaunchedEffect(fullPreview) {
         repeat(2) { withFrameNanos { } }
@@ -1148,8 +1149,12 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val toggle by rememberUpdatedState(togglePlay)
                 val cancelPending by rememberUpdatedState(cancelPendingPlay)
                 val tapLabel = stringResource(if (editor.playing) R.string.editor_pause else R.string.common_play)
+                // A long press copies the edited frame (A/FrameCopy.kt, EditorView.swift:1946-1952, 2044-2048).
+                val copyLabel = stringResource(R.string.frame_copy_action)
+                val copyFrame by rememberUpdatedState({ if (app.takes.core.FrameCopy.enabled(fullPreview, effecting != null, false, duration)) frameCopy.copy(project, store, playhead, duration) })
                 val tapping = if (titling != null || imaging != null || transitioning?.settings?.style == TransitionStyle.Split || cropping != null || effecting != null || placementWork != null || clips.isEmpty()) Modifier
-                else Modifier.pointerInput(Unit) { detectTapGestures(onTap = { cancelPending(); toggle() }) }.semantics { onClick(tapLabel) { cancelPending(); toggle(); true } }
+                else Modifier.pointerInput(Unit) { detectTapGestures(onTap = { cancelPending(); toggle() }, onLongPress = { copyFrame() }) }
+                    .semantics { onClick(tapLabel) { cancelPending(); toggle(); true }; customActions = listOf(CustomAccessibilityAction(copyLabel) { copyFrame(); true }) }
                 // In a layer of its own: the titles are drawn again at every frame of a scrub, and nothing around them is.
                 Canvas(Modifier.fillMaxSize().then(titleMoving).then(framing).then(reframing).then(placeCaptions).then(tapping).graphicsLayer()) {
                     if (sampling) return@Canvas
@@ -1185,6 +1190,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             // A tool's preview says how much it is magnified, as the original's (EditorView.swift:1526, 1541).
             InspectionReset(inspection, named = coloring != null || pacing != null || pausing != null || transitioning != null || stabilizing != null, Modifier.align(Alignment.BottomEnd))
             cleaningProgress?.let { CleaningProgress(it, Modifier.align(Alignment.Center)) }
+            FrameCopyFeedback(frameCopy, Modifier.align(Alignment.Center))
             if (clips.isEmpty()) Text(stringResource(R.string.editor_timeline_empty), color = Muted)
             // The Crop tool's workspace has its own controls under the picture, as the original's (CropEditor.swift:382-409).
             else if (cropping == null) {

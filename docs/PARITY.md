@@ -33,12 +33,12 @@ In sections 1 and 2, the rows on the tabs during an import, the selected project
 
 | Status | Count |
 |---|---|
-| DONE | 192 |
+| DONE | 193 |
 | PARTIAL | 11 |
 | CORE ONLY | 0 |
 | MISSING | 0 |
 | N/A | 6 |
-| Total | 209 |
+| Total | 210 |
 
 Per area:
 
@@ -47,7 +47,7 @@ Per area:
 | 1. App shell and project list | 23 | 0 | 0 | 0 | 0 |
 | 2. Recovery and storage | 7 | 0 | 0 | 0 | 0 |
 | 3. Recorder and camera | 34 | 5 | 0 | 0 | 3 |
-| 4. Editor: timeline, playback, structure | 33 | 1 | 0 | 0 | 0 |
+| 4. Editor: timeline, playback, structure | 34 | 1 | 0 | 0 | 0 |
 | 5. Editor: picture tools | 15 | 3 | 0 | 0 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
 | 7. Titles and fonts | 10 | 0 | 0 | 0 | 0 |
@@ -158,6 +158,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Review speed 1–3× with pitch kept | O/EditorView.swift:454-465 | DONE | A/Transport.kt (`ReviewSpeed`), A/EditorPlayer.kt (`play(time, speed)`); reviews of a cut, a transition or the playhead play at 1× | — | | |
 | Double-tap play "quick review" with pre/post-roll and return; preview a cut | O/EditorView.swift:526-547, O/EditorController.swift:408-467 | DONE | A/EditorScreen.kt (`playTapped`, `quickReview`), C/ReviewWindows.kt; with a screen reader Play plays at once and the review is an action of the button | — | | |
 | Full-screen preview | O/TrackEditors.swift:22-86 | DONE | A/FullPreview.kt: the editor's players in a full-screen window that turns with the phone, with speed, position, changes, Play and bookmarks; the controls hide while playing; pinch to inspect (A/PreviewZoom.kt) | — | | |
+| Copy frame: hold the preview to copy the edited frame as a PNG | O/EditorView.swift:1795-1847, 1905-1961, 2044-2048, O/EditorController.swift:14-20 | DONE | A long press on the editor's preview, or the screen reader's Copy frame, copies the frame of the edit at the playhead to the clipboard: "Copying frame…", then "Frame copied" with a light tap of the phone or "Couldn’t copy this frame", over the picture for two seconds and read by the screen reader (A/FrameCopy.kt, C/FrameCopy.kt with the original's picture time on the 30-frame clock, the last frame at the end, and its conditions: not in the full-screen preview, not in an effect's range, not without length) | Departures: the frame is drawn by the export's chain, as Select cover's (A/CoverFrames.kt), so it takes seconds where the original's image generator is quick; Android's clipboard holds a content URI of the app's FileProvider, the PNG kept in the project's `Cache/frames`, not the image's bytes; the press is not offered while a tool keeps the picture's touches to itself (titles, pictures, split screen, crop, effects, placement), where the original's surface still takes it | | Yes |
 | Preview inspection zoom (pinch 1–8×) | O/EditorView.swift:1380-1601, 1621-1628 | DONE | A/PreviewZoom.kt on the editor's preview and the full-screen preview (A/FullPreview.kt), from C/PreviewInspection.kt: a pinch magnifies from 1 to 8 times about the fingers, a drag moves the picture once magnified and never past the view's edges, Reset preview zoom in the corner while magnified (with "2.0× · Preview" while a tool is open, as the original's tool previews), the screen reader's Zoom in, Zoom out (steps of 1.5) and Reset; back to 1× when the view changes size, the movie its shape or the edit changes. The export is unchanged | Off, and back to 1×, while a tool works on the picture with gestures of its own (Title, a split screen's Transition, Crop, Video effects, Placement, Subtitles, Move), where the original's tools are screens of their own; the original lets Subtitles inspect beside placing the captions | | |
 | Previous/next change (cuts and effects) | O/TimelineNavigation.swift:56-165 | DONE | A/Transport.kt (`ChangeButton`), C/TimelineNavigation.kt: tap for cuts and changes, hold for changes only | — | | |
 | Split at the playhead | O/TimelineEditing.swift:45-62 | DONE | A/EditorScreen.kt (Split), C/TimelineEditing.kt `split`: everything under the playhead, the sounds on the audio tracks too, each in two pieces on its track that play on without a break (`split-cuts-sound-items`, docs/TRACKS-PARITY-DECISIONS.md, "At S5") | Not frame-quantised (original snaps to 1/30 s); the selection is not looked at, where the original cuts only a selected item under the playhead (`TrackEditing.splitAtPlayhead` takes it, the editor does not pass it) | | |
