@@ -29,13 +29,15 @@ import kotlin.math.roundToInt
 /**
  * The picture of a clip of an HDR movie carried between HLG and what an effect takes ([HdrMovie]): footage in PQ
  * into HLG, as Media3 itself maps PQ to HLG (its light divided by 1000 nits); an SDR picture into HLG, its white at
- * HLG's reference white; an HLG picture into SDR, for the effects that work on SDR only, held to SDR white.
+ * HLG's reference white; an HLG picture into SDR, for the effects that work on SDR only, its highlights tone-mapped
+ * from 1000/203 times reference white down to it (`hlgToDisplaySdr`, core's HdrToneMap), as the original does before
+ * its creative effects (YouRec/VideoEffects/MetalVideoEffects.swift:206-221, 605-613).
  */
 class HdrSignalEffect(private val conversion: Conversion) : GlEffect {
     enum class Conversion(val expression: String) {
         PqToHlg("hlgEnc(pqLight(c) * 10.0 / HLG_WHITE)"),
         SdrToHlg("sdrToHlg(c)"),
-        HlgToSdr("hlgToSdr(c)"),
+        HlgToSdr("hlgToDisplaySdr(c)"),
     }
 
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = HdrPass(
@@ -150,10 +152,18 @@ class ClipColor(private val effects: MutableList<Effect>, private val hdr: Boole
         if (hdr && transfer == C.COLOR_TRANSFER_ST2084) effects += HdrSignalEffect(HdrSignalEffect.Conversion.PqToHlg)
     }
 
-    /** Before an effect that works on SDR only. */
+    /** Before an effect that works on SDR only: the picture tone-mapped from its HDR headroom ([HdrSignalEffect]). */
     fun asSdr() {
         if (!sdr) effects += HdrSignalEffect(HdrSignalEffect.Conversion.HlgToSdr)
         sdr = true
+    }
+
+    /**
+     * Before the video effects of [clip]: SDR ([asSdr]) unless every one enabled is a Kaleidoscope, which only moves
+     * pixels and keeps the picture's HDR, as the original keeps it (YouRec/VideoEffects/MetalVideoEffects.swift:596-606).
+     */
+    fun beforeEffects(clip: TimelineClip) {
+        if (!geometryOnly(clip)) asSdr()
     }
 
     /** Where the picture is to be the movie's: in HLG in an HDR movie. */
@@ -185,6 +195,10 @@ class ClipColor(private val effects: MutableList<Effect>, private val hdr: Boole
         effects += if (sdr) SingleColorLut.createFromCube(ColorLuts.cube(settings, folder, log)) else HlgColorLut(ColorLuts.table(settings, folder, log))
     }
 }
+
+/** Whether the enabled video effects of [clip] only move pixels: all of them Kaleidoscopes (MetalVideoEffects.swift:596). */
+internal fun geometryOnly(clip: TimelineClip): Boolean =
+    clip.videoEffects.orEmpty().filter { it.enabled }.all { it.kind == app.takes.core.VideoEffectID.Kaleidoscope }
 
 /**
  * One pass over the picture by `converted(c)`, with [tables] in the samplers `uLut` and `uLutB` ([HlgColorLut]) and

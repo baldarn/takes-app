@@ -71,7 +71,7 @@ class TransitionPixelRunner : Instrumentation() {
             val suite = TransitionPixelCases(bench)
             val effects = EffectPixelCases(bench)
             val layers = LayerPixelCases(bench)
-            val cases = (suite.all() + effects.all() + EffectPixelCases(bench, 480, 270).batchB() + EffectPixelCases(bench, 320, 180).batchC() + TimePixelCases(bench).all() + layers.all() + TitlePixelCases(bench).all() + ImagePixelCases(bench).all() + PictureToolPixelCases(bench).all() + PersonPixelCases(bench).all() + TemporalMattePixelCases(bench).all() + NightFusionPixelCases(bench).all() + HdrPixelCases(bench).all() + BackgroundMoviePixelCases(bench).all())
+            val cases = (suite.all() + effects.all() + EffectPixelCases(bench, 480, 270).batchB() + EffectPixelCases(bench, 320, 180).batchC() + TimePixelCases(bench).all() + layers.all() + TitlePixelCases(bench).all() + ImagePixelCases(bench).all() + PictureToolPixelCases(bench).all() + PersonPixelCases(bench).all() + TemporalMattePixelCases(bench).all() + NightFusionPixelCases(bench).all() + HdrPixelCases(bench).all() + HdrToneMapPixelCases(bench).all() + BackgroundMoviePixelCases(bench).all())
                 .filter { case -> only?.split('|')?.any { case.name.contains(it) } ?: true }
                 .filterIndexed { index, _ -> index % shards == shard }
             cases.forEachIndexed { index, case ->
