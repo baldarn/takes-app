@@ -381,6 +381,11 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
             SettingsRow { Text(project?.title ?: stringResource(R.string.recorder_new_project), color = Color.White) }
             SettingsRow { SettingsNote(stringResource(R.string.recorder_settings_captured, clock(project?.capturedDuration ?: 0.0))) }
         }
+        // RecorderView.swift:1340-1349: other apps' audio while the camera is in use, between takes.
+        SettingsSection(stringResource(R.string.recorder_settings_audio)) {
+            SettingsSwitch(stringResource(R.string.recorder_allow_audio_playback), settings.allowAudioPlayback, !capture.hasActiveTake) { capture.chooseAllowAudioPlayback(it) }
+            SettingsRow { SettingsNote(stringResource(R.string.recorder_allow_audio_playback_note)) }
+        }
         if (capture.offersLevel) LevelSettings(capture)
         // RecorderView.swift:1242-1247
         if (capture.dualActive) {

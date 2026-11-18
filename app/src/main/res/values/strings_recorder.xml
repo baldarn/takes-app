@@ -228,4 +228,7 @@
     <string name="recorder_dual_inset_round_hint">Drag to move. Pinch to resize the circle.</string>
     <string name="recorder_dual_inset_hint">Drag to move. Horizontal pinches change width, vertical pinches change height, diagonal pinches resize proportionally.</string>
     <string name="recorder_follow_help_dual">Gently centers a face in each picture using the room available in its layout. If the face leaves, framing holds. Panning manually turns following off.</string>
+    <string name="recorder_settings_audio">Audio</string>
+    <string name="recorder_allow_audio_playback">Allow audio playback</string>
+    <string name="recorder_allow_audio_playback_note">Keep music and other audio apps playing while you use the camera. Your video records the selected microphone.</string>
 </resources>

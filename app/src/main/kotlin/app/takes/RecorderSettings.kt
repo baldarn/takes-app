@@ -28,6 +28,12 @@ class RecorderSettings(private val prefs: SharedPreferences) {
         putFloat("zoomDuration", it.toFloat())
     }
 
+    /**
+     * Let music and other apps go on playing while the recorder is open, off until chosen: the original's
+     * `allowAudioPlayback` (YouRec/CaptureController.swift:153, 1128-1135).
+     */
+    var allowAudioPlayback: Boolean by flag("allowAudioPlayback", false)
+
     /** Show the whole recorded frame, or fill the screen with it (the original's `fitRecordedFrame`). */
     var fitFrame: Boolean by flag("fitRecordedFrame", true)
 

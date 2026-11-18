@@ -33,12 +33,12 @@ In sections 1 and 2, the rows on the tabs during an import, the selected project
 
 | Status | Count |
 |---|---|
-| DONE | 193 |
+| DONE | 194 |
 | PARTIAL | 11 |
 | CORE ONLY | 0 |
 | MISSING | 0 |
 | N/A | 6 |
-| Total | 210 |
+| Total | 211 |
 
 Per area:
 
@@ -46,7 +46,7 @@ Per area:
 |---|---|---|---|---|---|
 | 1. App shell and project list | 23 | 0 | 0 | 0 | 0 |
 | 2. Recovery and storage | 7 | 0 | 0 | 0 | 0 |
-| 3. Recorder and camera | 34 | 5 | 0 | 0 | 3 |
+| 3. Recorder and camera | 35 | 5 | 0 | 0 | 3 |
 | 4. Editor: timeline, playback, structure | 34 | 1 | 0 | 0 | 0 |
 | 5. Editor: picture tools | 15 | 3 | 0 | 0 | 0 |
 | 6. Transitions | 6 | 1 | 0 | 0 | 0 |
@@ -135,6 +135,7 @@ The port goes beyond the original in three places, not counted above: Italian lo
 | Active microphone name and mismatch warning | O/RecorderView.swift:445-470 | DONE | A/RecorderMicrophone.kt `MicrophonePill`, A/CaptureController.kt `showActiveMicrophone` | — | | |
 | Microphone level meter | O/RecorderView.swift:913-934 | DONE | A/RecorderMicrophone.kt `MeterBars`, `MicrophonePanel` (before and during a take, "Clipping", "No signal"), A/CaptureController.kt `listen` | — | | |
 | Recording gain −40…+12 dB per microphone | O/RecorderView.swift:1458-1597, O/CaptureAudio.swift:144-185 | DONE | The microphone panel (A/RecorderMicrophone.kt `RecordingGainControls`: under the "Recording volume" heading the value with Original, Reduced or Boosted level under it, and the slider, which while dragged snaps to 0 dB within a decibel of it with a tick of the phone and its thumb following the finger, the screen reader stepping it by half a decibel without the snap, with the original's hint; no Reset button, as the original since 09c860b (C/RecordingGain.kt `dragged`, `stepped`, `level`); the note; the microphones under "Input" with the original's footer on the choice lasting until Stop), remembered for each microphone (A/RecorderSettings.kt `recordingGain`); the meter shows the level with the gain (A/MicrophoneMeter.kt `gain`) | Departure, decided for issue 53: CameraX keeps writing the take, and the gain becomes the level of the take's clip (C/Project.kt `addRecording`, the clip level the editor already writes, schema 4): the file is never changed and the level stays editable, so a take is never worse than without gain. A change during a segment applies to the whole segment, at its end. Checked on a Galaxy A54: a take at −6 dB came in with its clip at −6 dB. The panel stays the port's menu under the microphone control, its parts headed as the original's sheet: the original's "Choose microphone" page, with its "Available inputs" footer on disconnected microphones, has no counterpart, the menu listing only the microphones connected; the note keeps the port's sentence on the clip's level | | |
+| Allow audio playback while the camera is in use | O/RecorderView.swift:1340-1349, O/CaptureController.swift:153, 1128-1143 | DONE | The Audio section of the recorder's More settings: "Allow audio playback" with the original's footer, off until chosen and not changed during a take (A/RecorderSettingsSheet.kt, A/RecorderSettings.kt `allowAudioPlayback`); off, the recorder holds the audio focus while it is in front, so music and other apps pause as the original's recording session stops them, and lets it go on leaving; on, it holds none and they play on (A/CaptureController.kt `chooseAllowAudioPlayback`, `applyAudioPlayback`) | Before this the port never asked for the audio focus, so other apps always played on, as with the switch on. The focus is Android's AUDIOFOCUS_GAIN for media where the original sets a record-and-play session without mixing: an app that ignores the focus keeps playing | | Phone |
 | Audio keeps running across camera switches (independent engine, gap fill, clock correction) | O/CaptureAudio.swift:190-321, O/LiveMicrophone.swift:22-58 | DONE | CameraX persistent recording: on a Galaxy A54 the sound runs unbroken across a camera change (issue 53) | — | | |
 | "Protect recording audio" | O/RecorderView.swift:1265-1270 | N/A | — | The setting keeps the original's audio session through call banners. Android does not take the microphone for a ringing call; an answered call silences it, and the take is then paused as in the original (A/CaptureController.kt `handle`) | | |
 | Mark (bookmark) while recording | O/RecorderView.swift:68-84 | DONE | A/RecorderScreen.kt `MarkButton`, A/CaptureController.kt `bookmark`; the marks of an interrupted take are kept, indexed at launch with it (A/ProjectStore.kt `indexFinishedTakes`) | — | | |

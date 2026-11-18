@@ -228,4 +228,7 @@
     <string name="recorder_dual_inset_round_hint">Trascina per spostare. Pizzica per ridimensionare il cerchio.</string>
     <string name="recorder_dual_inset_hint">Trascina per spostare. Pizzicando in orizzontale cambia la larghezza, in verticale l\'altezza, in diagonale le proporzioni restano.</string>
     <string name="recorder_follow_help_dual">Centra con delicatezza un volto in ogni immagine, con lo spazio che la sua disposizione lascia. Se il volto esce, l\'inquadratura resta ferma. Spostare a mano disattiva l\'inseguimento.</string>
+    <string name="recorder_settings_audio">Audio</string>
+    <string name="recorder_allow_audio_playback">Consenti la riproduzione audio</string>
+    <string name="recorder_allow_audio_playback_note">Lascia suonare la musica e le altre app audio mentre usi la fotocamera. Il video registra il microfono selezionato.</string>
 </resources>
