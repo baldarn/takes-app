@@ -54,17 +54,17 @@ class OverlayOpeningTest {
 
     // Tests/TitleDesignTests.swift:404-415
     @Test fun anOverlayOpensOnItsReadableFootage() {
-        val timing = OverlayTiming(3.125..6.125, 1.25..70.38)
+        val timing = EditorRangeTiming(3.125..6.125, 1.25..70.38)
         val fade = TitleMotion(entrance = TitleMove.Fade, inSeconds = 5.0)
         val readable = fade.readableRange(timing.range)
         val opening = timing.openingPosition(listOf(1.25..70.38), readable)
         assertTrue("Long entrance must open fully readable", timing.range.start + opening in readable)
         assertEquals(1.0, fade.pose(opening, timing.duration).opacity, 0.0)
         assertEquals("Static overlay opens halfway through its range", 1.5, timing.openingPosition(listOf(1.25..70.38), null), 0.0)
-        val split = OverlayTiming(3.125..4.125, timing.range)
+        val split = EditorRangeTiming(3.125..4.125, timing.range)
         assertTrue("Previewing only the entrance stays on its most visible in-range frame",
             abs(split.openingPosition(listOf(split.range), readable) - (1 - frame)) < 0.000001)
-        val sparse = OverlayTiming(0.0..10.0, 0.0..10.0)
+        val sparse = EditorRangeTiming(0.0..10.0, 0.0..10.0)
         assertEquals("The poster should not land in a gap", 7.0, sparse.openingPosition(listOf(0.0..1.0, 7.0..10.0), null), 0.0)
     }
 

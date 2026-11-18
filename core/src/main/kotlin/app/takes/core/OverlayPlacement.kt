@@ -33,7 +33,7 @@ object OverlayOpening {
         clips: List<TimelineClip>, title: TextOverlay, range: ClosedFloatingPointRange<Double>,
         footage: List<ClosedFloatingPointRange<Double>>,
     ): Double {
-        val timing = OverlayTiming(range, range)
+        val timing = EditorRangeTiming(range, range)
         val clock = TitleMotionRanges(clips).range(title, range.start) ?: range
         val readable = title.motion?.readableRange(clock)
         return timing.range.start + timing.openingPosition(footage, readable)
@@ -49,7 +49,7 @@ object OverlayOpening {
         var best: Double? = null
         for (cue in cues) {
             val clock = cue.start..cue.end
-            val timing = OverlayTiming(clock, range)
+            val timing = EditorRangeTiming(clock, range)
             val time = timing.range.start + timing.openingPosition(listOf(clock), motion?.readableRange(clock))
             if (best == null || abs(time - middle) < abs(best - middle)) best = time
         }

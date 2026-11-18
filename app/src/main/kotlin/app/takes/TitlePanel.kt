@@ -92,7 +92,7 @@ import app.takes.core.LabelHeadline
 import app.takes.core.LabelHeadlineLook
 import app.takes.core.TitleCard
 import app.takes.core.OverlayOpening
-import app.takes.core.OverlayTiming
+import app.takes.core.EditorRangeTiming
 import app.takes.core.Size
 import app.takes.core.TextColor
 import app.takes.core.TextOverlay
@@ -511,10 +511,10 @@ private fun Amount(
 internal fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, change: (ClosedFloatingPointRange<Double>) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     // All in seconds of the movie, as the original: a title may run across cuts and clips of any speed.
-    val timing = OverlayTiming(range, bounds)
+    val timing = EditorRangeTiming(range, bounds)
     val shown = timing.duration
     val name = stringResource(R.string.title_duration)
-    val set = { next: OverlayTiming -> change(next.range) }
+    val set = { next: EditorRangeTiming -> change(next.range) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(Rounded).background(Plain).clickable { expanded = !expanded }
@@ -530,26 +530,26 @@ internal fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: Clo
             FitGrid(5) {
                 for (value in EditorDurationPresets.wholeSeconds) {
                     Cell(
-                        abs(shown - value) < 1e-4, { set(timing.setting(OverlayTiming.Edge.End, timing.range.start + value)) },
+                        abs(shown - value) < 1e-4, { set(timing.setting(EditorRangeTiming.Edge.End, timing.range.start + value)) },
                         enabled = EditorDurationPresets.fits(value, timing.available),
                     ) { Text(stringResource(R.string.title_seconds, seconds(value)), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.title_available, seconds(timing.available)), color = Soft, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { set(timing.setting(OverlayTiming.Edge.End, bounds.endInclusive)) }) { Text(stringResource(R.string.title_to_end)) }
+                TextButton(onClick = { set(timing.setting(EditorRangeTiming.Edge.End, bounds.endInclusive)) }) { Text(stringResource(R.string.title_to_end)) }
             }
-            for (edge in OverlayTiming.Edge.entries) {
-                val label = stringResource(if (edge == OverlayTiming.Edge.Start) R.string.title_start else R.string.title_end)
+            for (edge in EditorRangeTiming.Edge.entries) {
+                val label = stringResource(if (edge == EditorRangeTiming.Edge.Start) R.string.title_start else R.string.title_end)
                 val limits = timing.limits(edge)
-                val time = if (edge == OverlayTiming.Edge.Start) timing.range.start else timing.range.endInclusive
+                val time = if (edge == EditorRangeTiming.Edge.Start) timing.range.start else timing.range.endInclusive
                 val span = limits.endInclusive - limits.start
                 Row(Modifier.fillMaxWidth()) {
                     Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
                     Text(seconds(time) + " s", color = Soft, fontSize = 13.sp)
                 }
                 Slider(
-                    value = if (span > 0) ((time - limits.start) / span).toFloat().coerceIn(0f, 1f) else 0f,
+                    value = timing.fraction(edge).toFloat().coerceIn(0f, 1f),
                     onValueChange = { set(timing.setting(edge, timing.time(it.toDouble(), edge))) },
                     enabled = span > 0, modifier = Modifier.height(36.dp).semantics { contentDescription = label },
                 )

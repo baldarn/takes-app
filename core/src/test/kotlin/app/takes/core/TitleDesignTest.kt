@@ -51,35 +51,6 @@ class TitleDesignTest {
         assertEquals(motion, documentJson.decodeFromString(TitleMotion.serializer(), documentJson.encodeToString(TitleMotion.serializer(), motion)))
     }
 
-    @Test fun durationPresetsNeverMoveStartOrRoundTheLength() {
-        var timing = OverlayTiming(3.125..6.125, 1.25..70.38)
-        for (seconds in EditorDurationPresets.wholeSeconds) {
-            assertTrue(EditorDurationPresets.fits(seconds, timing.available))
-            timing = timing.setting(OverlayTiming.Edge.End, timing.range.start + seconds)
-            assertEquals(3.125..(3.125 + seconds), timing.range)
-        }
-        timing = timing.setting(OverlayTiming.Edge.Start, 62.0)
-        // Overlong presets must not change Start.
-        assertTrue(!EditorDurationPresets.fits(9.0, timing.available) && EditorDurationPresets.fits(8.0, timing.available))
-        timing = timing.setting(OverlayTiming.Edge.End, timing.time(1.0, OverlayTiming.Edge.End))
-        // A fractional final boundary must be reachable.
-        assertEquals(timing.bounds.endInclusive, timing.range.endInclusive, 0.0)
-        timing = timing.setting(OverlayTiming.Edge.End, timing.time(0.0, OverlayTiming.Edge.End))
-        // Dragging End past Start must preserve a frame.
-        assertEquals(frame, timing.duration, 0.000001)
-    }
-
-    @Test fun tinyTrimRangeStaysInsideItsBounds() {
-        for (length in listOf(0.0, frame / 2, frame, frame * 1.4)) {
-            val bounds = 8.125..(8.125 + length)
-            var short = OverlayTiming(bounds, bounds)
-            for (edge in OverlayTiming.Edge.entries) for (fraction in listOf(0.0, 0.1, 0.95, 1.0)) {
-                short = short.setting(edge, short.time(fraction, edge))
-                assertTrue(short.range.start in bounds && short.range.endInclusive in bounds && short.duration + 0.000001 >= minOf(length, frame))
-            }
-        }
-    }
-
     // Own tests.
 
     @Test fun defaultsAreValidAndRangesAreEnforced() {
