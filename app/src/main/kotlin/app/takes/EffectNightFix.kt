@@ -20,6 +20,7 @@ import app.takes.core.TimelineClip
 import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectNightFusion
 import app.takes.core.VideoEffectSettings
+import app.takes.core.resolvingEffects
 import java.util.concurrent.Executor
 import kotlin.math.pow
 
@@ -46,6 +47,9 @@ class NightFixEffect(private val clip: TimelineClip, private val begins: Double)
 
     private fun sourceTime(presentationTimeUs: Long): Double = clip.sourceTime((presentationTimeUs / 1e6 - begins).coerceIn(0.0, clip.duration))
 
+    /** The effects in force at [sourceTime]: a Night fix only inside its windows, as the original resolves each frame (YouRec/VideoToolCompositor.swift:204-205). */
+    private fun effectsAt(sourceTime: Double): List<VideoEffectSettings>? = clip.resolvingEffects(sourceTime).videoEffects
+
     private inner class Program : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
         private var size = Size(0, 0)
         private val gpu = EffectGpu()
@@ -59,7 +63,8 @@ class NightFixEffect(private val clip: TimelineClip, private val begins: Double)
             val bound = IntArray(1)
             GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, bound, 0)
             val raw = EffectSource(inputTexId, size.width, size.height, encoded = false)
-            NightFixPasses.draw(gpu, raw, null, bound[0], clip.videoEffects, sourceTime(presentationTimeUs))
+            val time = sourceTime(presentationTimeUs)
+            NightFixPasses.draw(gpu, raw, null, bound[0], effectsAt(time), time)
         }
 
         override fun release() {
@@ -193,14 +198,15 @@ class NightFixEffect(private val clip: TimelineClip, private val begins: Double)
         private fun draw(p: Pending, output: Output) {
             val bound = IntArray(1)
             GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, bound, 0)
-            val effect = NightFixPasses.active(clip.videoEffects, p.sourceTime)
+            val effects = effectsAt(p.sourceTime)
+            val effect = NightFixPasses.active(effects, p.sourceTime)
             val fused = if (effect != null && effect.nightFixMode == mode && NightFixPasses.works(effect, p.sourceTime) && fusion.available) {
                 val n = p.frame
                 fusion.fuse(n, frames.filter { it !== n && it.segment == n.segment && kotlin.math.abs(it.order - n.order) <= radius }.sortedBy { it.order })
             } else {
                 null
             }
-            NightFixPasses.draw(gpu, p.frame.source, fused, output.framebuffer, clip.videoEffects, p.sourceTime)
+            NightFixPasses.draw(gpu, p.frame.source, fused, output.framebuffer, effects, p.sourceTime)
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, bound[0])
         }
 
