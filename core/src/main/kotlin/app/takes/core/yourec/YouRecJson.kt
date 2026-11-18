@@ -122,6 +122,85 @@ internal object YouRecJson {
         return JsonObject(result)
     }
 
+    /**
+     * T7 the other way: the original requires `style` and `color`
+     * (YouRec/VideoTools.swift:226-227) and draws a title without a design in
+     * their look, bold white with a shadow; Takes draws one without a design
+     * as [TitleDesign.plain], which is written in full.
+     */
+    fun textOverlayToYouRec(text: JsonObject): JsonObject = JsonObject(LinkedHashMap(text).apply {
+        put("style", JsonPrimitive("bold"))
+        put("color", JsonPrimitive("white"))
+        if (text["appearance"] == null || text["appearance"] is kotlinx.serialization.json.JsonNull) {
+            put("appearance", documentJson.encodeToJsonElement(TitleDesign.serializer(), TitleDesign.plain))
+        }
+    })
+
+    /**
+     * T5: a `ClipTransition`. Takes leaves out six keys at their defaults
+     * (TransitionSettings.kt:101-107); Swift's synthesized decoding requires
+     * them (YouRec/Transitions.swift:39-64).
+     */
+    fun clipTransitionToYouRec(settings: JsonObject): JsonObject = JsonObject(LinkedHashMap(settings).apply {
+        val center = JsonObject(mapOf("x" to JsonPrimitive(0.5), "y" to JsonPrimitive(0.5), "zoom" to JsonPrimitive(1.0)))
+        putIfAbsent("axis", JsonPrimitive("horizontal"))
+        putIfAbsent("divider", JsonPrimitive(0.5))
+        putIfAbsent("reverse", JsonPrimitive(false))
+        putIfAbsent("audio", JsonPrimitive("crossfade"))
+        putIfAbsent("first", center)
+        putIfAbsent("second", center)
+    })
+
+    /** The keys of a Takes clip that only its sequence form has (TrackConversion.kt:78-81); the original has none of them. */
+    private val SEQUENCE_ONLY = listOf("audio", "bookmarks", "subtitleWords", "transitionFit", "openingTransitionFit")
+
+    /** A `TimelineClip` as the original reads it: without the sequence form's keys, its titles and transitions completed. */
+    fun timelineClipToYouRec(clip: JsonObject): JsonObject = JsonObject(LinkedHashMap(clip).apply {
+        SEQUENCE_ONLY.forEach { remove(it) }
+        (clip["texts"] as? JsonArray)?.let { texts -> put("texts", JsonArray(texts.map { textOverlayToYouRec(it as JsonObject) })) }
+        for (key in listOf("transition", "openingTransition")) (clip[key] as? JsonObject)?.let { put(key, clipTransitionToYouRec(it)) }
+    })
+
+    /** A `TrackTimeline` as the original reads it ([trackTimelineToTakes] the other way); the captions' fingerprint is left empty (T9). */
+    fun trackTimelineToYouRec(timeline: JsonObject): JsonObject {
+        val result = LinkedHashMap(timeline)
+        (timeline["video"] as? JsonArray)?.let { video ->
+            result["video"] = JsonArray(video.map { item ->
+                val fields = item as JsonObject
+                JsonObject(LinkedHashMap(fields).apply { put("content", timelineClipToYouRec(fields["content"] as JsonObject)) })
+            })
+        }
+        (timeline["placements"] as? JsonArray)?.let { placements ->
+            result["placements"] = JsonArray(placements.map { region ->
+                val fields = region as JsonObject
+                JsonObject(LinkedHashMap(fields).apply { put("videos", objectToFlatDictionary(fields["videos"] as JsonObject)) })
+            })
+        }
+        (timeline["transitions"] as? JsonArray)?.let { transitions ->
+            result["transitions"] = JsonArray(transitions.map { relation ->
+                val fields = relation as JsonObject
+                JsonObject(LinkedHashMap(fields).apply { put("settings", clipTransitionToYouRec(fields["settings"] as JsonObject)) })
+            })
+        }
+        (timeline["subtitles"] as? JsonObject)?.let { subtitles ->
+            result["subtitles"] = JsonObject(LinkedHashMap(subtitles).apply { put("timingFingerprint", JsonPrimitive("")) })
+        }
+        return JsonObject(result)
+    }
+
+    /**
+     * The bytes Swift's `JSONEncoder` with `.sortedKeys` gives a tree
+     * (YouRec/Project.swift:211, 554-557): compact, every object's keys in
+     * order. Numbers are written as Takes writes them, which Swift reads.
+     */
+    fun sortedBytes(element: JsonElement): ByteArray = sorted(element).toString().toByteArray()
+
+    fun sorted(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> JsonObject(element.toSortedMap().mapValues { sorted(it.value) })
+        is JsonArray -> JsonArray(element.map(::sorted))
+        else -> element
+    }
+
     /** The source of the picture the original gives the movie's frame by default: the earliest, the first listed of those (YouRec/Project.swift:147). */
     fun firstVideoSourceID(timeline: JsonObject): String? {
         var first: Pair<Long, String>? = null
