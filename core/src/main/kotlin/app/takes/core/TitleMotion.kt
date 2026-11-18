@@ -2,6 +2,7 @@ package app.takes.core
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -88,6 +89,16 @@ data class TitleMotion(
         return Ends(a * fit, b * fit)
     }
 
+    /**
+     * The part of [clock], a run of the title on the movie's clock, in which
+     * it is neither arriving nor leaving (YouRec/TitleDesign.swift:410-414).
+     */
+    fun readableRange(clock: ClosedFloatingPointRange<Double>): ClosedFloatingPointRange<Double> {
+        val ends = fittedEnds(clock.endInclusive - clock.start)
+        val first = clock.start + ends.entrance
+        return first..maxOf(first, clock.endInclusive - ends.exit)
+    }
+
     /** The stretch of the title worth playing to preview one of its ends. */
     fun previewWindow(exit: Boolean, duration: Double): ClosedFloatingPointRange<Double> {
         val ends = fittedEnds(duration)
@@ -155,6 +166,31 @@ class OverlayTiming private constructor(
     fun limits(edge: Edge): ClosedFloatingPointRange<Double> = when (edge) {
         Edge.Start -> bounds.start..maxOf(bounds.start, range.endInclusive - PauseDetector.FRAME)
         Edge.End -> minOf(bounds.endInclusive, range.start + PauseDetector.FRAME)..bounds.endInclusive
+    }
+
+    /**
+     * Where the tool opens, as seconds from the start of [range]: a paused
+     * frame of the footage the overlay covers, [footage] being the stretches
+     * of the movie that show it, as near as they allow to the middle of the
+     * range, or of [readable], the part of a moving title that is neither
+     * arriving nor leaving, when the middle is not in it. A title spanning a
+     * cut can have its readable hold on the other clip
+     * (YouRec/VideoTools.swift:290-306).
+     */
+    fun openingPosition(footage: List<ClosedFloatingPointRange<Double>>, readable: ClosedFloatingPointRange<Double>?): Double {
+        val middle = range.start + duration / 2
+        val preferred = readable ?: range
+        val target = if (middle in preferred) middle else (preferred.start + preferred.endInclusive) / 2
+        var best: Double? = null
+        for (clip in footage) {
+            val first = maxOf(range.start, clip.start)
+            val end = minOf(range.endInclusive, clip.endInclusive)
+            if (!(first < end)) continue
+            val last = maxOf(first, end - PauseDetector.FRAME)
+            val candidate = minOf(last, maxOf(first, target))
+            if (best == null || abs(candidate - target) < abs(best - target)) best = candidate
+        }
+        return (best ?: range.start) - range.start
     }
 
     /** The time for a slider position: whole frames from the lower limit, with both limits exactly reachable. */

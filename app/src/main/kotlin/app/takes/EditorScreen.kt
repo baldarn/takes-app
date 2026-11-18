@@ -1387,7 +1387,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 if (clip != null && subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null) {
                     editor.pause()
                     TimelineEditing.titleRange(clips, index, title)?.let { range ->
-                        if (playhead < range.start || playhead >= range.endInclusive) jump(range.start.coerceIn(0.0, duration))
+                        jump(titleOpening(edit, title, range, clip.id).coerceIn(0.0, duration))
                         titling = Titling(title, range, clip.id, title, range)
                     }
                 }
@@ -1602,7 +1602,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val index = work.clipID?.let { id -> clips.indexOfFirst { it.id == id } }
             val bounds = if (index == null) 0.0..duration else TimelineEditing.clipRange(clips, index)
             if (bounds == null) titling = null else TitlePanel(
-                draft = work.title, existing = work.existing, change = { titling = work.copy(title = it) },
+                draft = work.title, existing = work.existing,
+                change = { next ->
+                    // Still on the frame the tool opened on, a new motion moves it to where the title is readable (YouRec/EditorTools.swift:296-305).
+                    if (next.motion != work.title.motion && !editor.playing && abs(playhead - titleOpening(edit, work.title, work.range, work.clipID).coerceIn(0.0, duration)) < 1e-5) {
+                        jump(titleOpening(edit, next, work.range, work.clipID).coerceIn(0.0, duration))
+                    }
+                    titling = work.copy(title = next)
+                },
                 range = work.range, bounds = bounds, setRange = { titling = work.copy(range = it) },
                 replay = { exit, title ->
                     // On the clips as they would be with the title as it is at this moment.
@@ -1909,7 +1916,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val clip = clips.getOrNull(index)
                 when (region.tool) {
                     EditorTool.Text -> clip?.texts?.firstOrNull { it.id == region.effectID }?.let { title ->
-                        TimelineEditing.titleRange(clips, index, title)?.let { range -> titling = Titling(title, range, clip.id, title, range) }
+                        TimelineEditing.titleRange(clips, index, title)?.let { range -> jump(titleOpening(edit, title, range, clip.id).coerceIn(0.0, duration)); titling = Titling(title, range, clip.id, title, range) }
                     }
                     EditorTool.Image -> clip?.images?.firstOrNull { it.id == region.effectID }?.let { image -> Imaging.opening(clips, index, image)?.let { imaging = it } }
                     EditorTool.Color -> clip?.let { coloring = Coloring(saved, edit, listOf(it.id), null, null, it.color ?: ColorSettings()) }
@@ -2060,13 +2067,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val range = marks.range?.let { EditInterval.of(it.start, it.end) }
                 val sounds = remember(edit, toolScope, toolSounds, range) { soundSelection(edit, toolScope.clips, toolSounds, range) }
                 val canAdjust = duration > 0
+                val starterText = stringResource(R.string.title_starter)
                 val entries = mapOf(
                     SheetTool.AddVideo to SheetEntry(true) { editor.pause(); addSite = null; adding = true },
                     SheetTool.AddAudio to SheetEntry(clips.isNotEmpty()) { editor.pause(); addingAudio = playhead },
                     // Always a new title, also over another one: one that is there is opened from its bar or its chip. It starts at the
                     // playhead and stays three seconds of the movie, on every clip those seconds cover; over the marked range when there is one.
                     SheetTool.Title to SheetEntry(canAdjust && located != null) {
-                        if (clips.isNotEmpty()) titling = Titling(TextOverlay.fresh(), marks.range?.let { it.start..it.end } ?: TimelineEditing.newTitleRange(clips, playhead), null, null, null)
+                        if (clips.isNotEmpty()) {
+                            val fresh = TextOverlay.fresh(starterText)
+                            val range = marks.range?.let { it.start..it.end } ?: TimelineEditing.newTitleRange(clips, playhead)
+                            editor.pause()
+                            jump(titleOpening(edit, fresh, range, null).coerceIn(0.0, duration))
+                            titling = Titling(fresh, range, null, null, null)
+                        }
                     },
                     // A picture over the footage (EditorTools.swift:54): over the marked range, over the clips selected and on them alone,
                     // else three seconds from the playhead (EditorView.swift:1012-1016).

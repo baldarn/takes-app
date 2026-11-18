@@ -82,8 +82,10 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.takes.core.EditState
 import app.takes.core.EditorDurationPresets
 import app.takes.core.ImportedFontFile
+import app.takes.core.OverlayOpening
 import app.takes.core.OverlayTiming
 import app.takes.core.Size
 import app.takes.core.TextColor
@@ -97,6 +99,7 @@ import app.takes.core.TitleLibrary
 import app.takes.core.TitleMotion
 import app.takes.core.TitleMove
 import app.takes.core.TitlePlate
+import app.takes.core.TimelineEditing
 import app.takes.core.TitleTypeface
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -197,6 +200,8 @@ fun TitlePanel(
     done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
     var showPosition by remember { mutableStateOf(false) }
+    // A new title holds the starter words, shown as the field's prompt so typing replaces them in one step (YouRec/EditorTools.swift:1541-1548).
+    var example by remember { mutableStateOf(if (existing == null) draft.text else null) }
 
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -208,9 +213,10 @@ fun TitlePanel(
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             val write = stringResource(R.string.title_write)
+            val starter = example != null && example == draft.text
             OutlinedTextField(
-                draft.text, { change(draft.copy(text = it.take(500))) }, Modifier.fillMaxWidth().semantics { contentDescription = write },
-                placeholder = { Text(write) }, maxLines = 4,
+                if (starter) "" else draft.text, { example = null; change(draft.copy(text = it.take(500))) }, Modifier.fillMaxWidth().semantics { contentDescription = write },
+                placeholder = { if (starter) Text(draft.text, color = Color.White) else Text(write) }, maxLines = 4,
             )
             DurationPicker(range, bounds, setRange)
             TitleInspector(
@@ -229,6 +235,20 @@ fun TitlePanel(
             Spacer(Modifier.height(8.dp))
         }
     }
+}
+
+/**
+ * The movie second the Title tool opens [title] on, a paused frame over the
+ * footage it covers, where it is readable (YouRec/EditorTools.swift:308-320):
+ * every clip for a new title, the clip [clipID] for one opened from its bar.
+ * [edit] is the edit before the title is placed over [range].
+ */
+internal fun titleOpening(edit: EditState, title: TextOverlay, range: ClosedFloatingPointRange<Double>, clipID: String?): Double {
+    val clips = edit.clips
+    val placements = TimelineEditing.layout(clips).placements
+    val footage = clips.indices.filter { clipID == null || clips[it].id == clipID }.mapNotNull { index -> placements.getOrNull(index)?.let { it.start..it.end } }
+    val placed = TimelineEditing.placeTitle(edit, title, range, clipID?.let { setOf(it) })?.clips ?: clips
+    return OverlayOpening.title(placed, title, range, footage)
 }
 
 /**

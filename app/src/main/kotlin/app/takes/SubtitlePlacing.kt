@@ -57,6 +57,7 @@ internal fun Modifier.subtitlePlacing(
                 var focus = Offset.Zero
                 var spread = 0.0
                 var placed: SubtitleSettings? = null // what this gesture last gave, before the picture has caught up with it
+                var aim: Pair<Double, Double>? = null // where the drag would put the centre, before it snaps to the middle
                 do {
                     val event = awaitPointerEvent()
                     val down = event.changes.filter { it.pressed }
@@ -69,9 +70,14 @@ internal fun Modifier.subtitlePlacing(
                             val height = size.height.toDouble().coerceAtLeast(1.0)
                             val from = placed ?: current.settings
                             val next = if (down.size >= 2 && spread > 0 && apart > 0) {
+                                aim = null
                                 current.placement.pinched(from, apart / spread, focus.x / width, focus.y / height, now.x / width, now.y / height)
                             } else {
-                                current.placement.moved(from, (now.x - focus.x) / width, (now.y - focus.y) / height)
+                                // The centre follows the finger and snaps to the middle of each axis within 1.5 % (YouRec/SubtitleEditor.swift:214-216).
+                                val start = aim ?: current.placement.constrained(from).let { it.centerX to it.y }
+                                val to = start.first + (now.x - focus.x) / width to start.second + (now.y - focus.y) / height
+                                aim = to
+                                current.placement.dragged(from, to.first, to.second)
                             }
                             if (next != from) { placed = next; change(next) }
                         }

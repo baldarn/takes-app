@@ -48,6 +48,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +80,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.takes.core.EditState
 import app.takes.core.EditInterval
 import app.takes.core.EditTime
+import app.takes.core.OverlayOpening
 import app.takes.core.SubtitleCheckpoint
 import app.takes.core.toTimeline
 import app.takes.core.SubtitleCue
@@ -337,6 +339,15 @@ fun SubtitlesPanel(
     }
     val idle = !busy && editing == null
 
+    // The tool opens paused on the readable frame of the caption nearest the middle of what it works on, and goes there again
+    // when captions arrive while that frame, or the one it opened on, is still showing (YouRec/SubtitleEditor.swift:68-79, 160, 377).
+    var openingFrame by remember { mutableDoubleStateOf(playhead()) }
+    LaunchedEffect(cues.isNotEmpty()) {
+        if (cues.isEmpty() || playing || kotlin.math.abs(playhead() - openingFrame) > 1e-6) return@LaunchedEffect
+        val time = OverlayOpening.captions(cues, listened.start.seconds..listened.end.seconds, settings?.motion)
+        openingFrame = time
+        seek(time)
+    }
     val current by remember(cues, playhead) { derivedStateOf { playhead().let { at -> cues.indexOfLast { it.start <= at && at < it.end } } } }
     // Once the playhead leaves the chosen caption it is no longer chosen: a tap on its row goes to it again rather than editing.
     val shownCues by rememberUpdatedState(cues)

@@ -353,6 +353,7 @@
     <string name="title_position">Position</string>
     <string name="title_size">Size</string>
     <string name="title_write">Write something</string>
+    <string name="title_starter">Text</string>
     <string name="title_duration">Duration</string>
     <string name="title_seconds">%1$s s</string>
     <string name="title_available">%1$s s available</string>

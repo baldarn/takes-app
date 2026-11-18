@@ -94,12 +94,28 @@ data class TextOverlay(
 
     companion object {
         /**
-         * A title as the tools make one: nothing written yet, in the original's
-         * default design. The design is saved with it, which is what tells it
-         * from a title of an older project: that one has none, keeps its
-         * outlined look and is written back exactly as it was read.
+         * A title as the tools make one: the starter words, at the size of a
+         * new title, in the original's default design. The design is saved
+         * with it, which is what tells it from a title of an older project:
+         * that one has none, keeps its outlined look and is written back
+         * exactly as it was read.
          */
-        fun fresh(): TextOverlay = TextOverlay(text = "", appearance = TitleDesign())
+        fun fresh(text: String = STARTER_TEXT): TextOverlay = TextOverlay(text = text, size = NEW_SIZE, appearance = TitleDesign())
+
+        /**
+         * The words a new title starts with, shown as the field's prompt so
+         * that typing replaces them in one step (YouRec/VideoTools.swift:364,
+         * YouRec/EditorTools.swift:1541-1548). The screens give their own
+         * language's word.
+         */
+        const val STARTER_TEXT = "Text"
+
+        /**
+         * The size of a new title, a share of the frame's short side
+         * (YouRec/VideoTools.swift:371). The constructor's 0.065 is the
+         * original's earlier default, kept for what older projects omit.
+         */
+        const val NEW_SIZE = 0.10
     }
 }
 

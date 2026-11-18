@@ -58,11 +58,11 @@ data class ImageOverlay(
         /** The longest side of an imported picture, in pixels: a larger one is brought down to it (YouRec/EditorTools.swift:530-531). */
         const val MAXIMUM_PIXELS = 4096
 
-        /** A position this near the middle snaps to it while dragged (YouRec/EditorTools.swift:1225-1226). */
-        const val SNAP = 0.015
+        /** A position this near the middle snaps to it while dragged ([OverlayPlacement.SNAP]). */
+        const val SNAP = OverlayPlacement.SNAP
 
-        /** [value], a position, snapped to the middle when it is near it. */
-        fun snapped(value: Double): Double = if (kotlin.math.abs(value - 0.5) < SNAP) 0.5 else value
+        /** [value], a position, snapped to the middle when it is near it ([OverlayPlacement.snapped]). */
+        fun snapped(value: Double): Double = OverlayPlacement.snapped(value)
 
         /** The name of an imported picture in the project's folder (YouRec/EditorTools.swift:534). */
         fun importedName(id: String = newID()): String = "image-$id.png"
