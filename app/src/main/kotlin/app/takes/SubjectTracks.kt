@@ -1,9 +1,8 @@
 package app.takes
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.PointF
-import android.media.FaceDetector
+import android.media.Image
+import app.takes.core.FaceDetection
 import app.takes.core.EffectSubjectAnalysis
 import app.takes.core.EffectSubjectCandidate
 import app.takes.core.EffectSubjectTrack
@@ -30,9 +29,9 @@ import kotlin.math.min
  * project's `Cache/subjects/`, named by the recording, the span and the point, and in memory, for the preview and
  * the export. A take's own effects follow the subject the recorder's preview followed, saved with it.
  *
- * Android has neither Vision's face rectangles nor its human rectangles: the faces are the platform's
- * [FaceDetector]'s, as the recorder's face follow finds them (CameraFrames.kt), and the person is the box around the
- * person mask the effects already read (A/PersonMasks.kt), where LiteRT runs.
+ * Android has neither Vision's face rectangles nor its human rectangles: the faces are MediaPipe's full-range face
+ * detector's ([FaceFinder]), as the recorder's face follow finds them (CameraFrames.kt), and the person is the box
+ * around the person mask the effects already read (A/PersonMasks.kt), both where LiteRT runs.
  */
 object SubjectTracks {
     private val tracks = ConcurrentHashMap<String, EffectSubjectTrack>()
@@ -40,12 +39,9 @@ object SubjectTracks {
     private val background = Executors.newSingleThreadExecutor { Thread(it, "Subject tracks").apply { isDaemon = true } }
     private val claims = ConcurrentHashMap<String, Any>()
 
-    /** The longer side of the frames looked at, as the original's (:63). */
-    private const val SIDE = 512
-    private const val MAX_FACES = 5
-
     private fun name(media: SourceMedia, clip: TimelineClip, effect: VideoEffectSettings): String {
-        val key = EffectSubjectAnalysis.key("${media.filename}:${media.duration}", effect, clip)
+        // The face finder is part of the key: a track made with another one is made again.
+        val key = EffectSubjectAnalysis.key("${media.filename}:${media.duration}", effect, clip) + "|faces:" + FaceFinder.MODEL
         return MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
@@ -138,33 +134,23 @@ object SubjectTracks {
         val masked = android.os.SystemClock.elapsedRealtime()
         val tracker = EffectSubjectTracker(EffectSubjectAnalysis.seed(effect, clip))
         val samples = mutableListOf<app.takes.core.EffectSubjectSample>()
-        var detector: FaceDetector? = null
-        var detectorSize = 0 to 0
+        val finder = if (FaceFinder.available()) runCatching { FaceFinder(context) }
+            .onFailure { android.util.Log.w("SubjectTracks", "face finder", it) }.getOrNull() else null
         // The frames in order, a fifteenth of a second apart from the span's start, as the original reads them (:140-146).
         var next = span.start
-        decodeLuma(file, span.start, span.endInclusive, rotation, wants = { at -> at + 0.00001 >= next }) { at, input ->
-            next = at + EffectSubjectTrack.STEP
-            val faces = {
-                if (detector == null || detectorSize != input.width to input.height) {
-                    detector = FaceDetector(input.width, input.height, MAX_FACES)
-                    detectorSize = input.width to input.height
+        try {
+            decode(file, span.start, span.endInclusive, wants = { at -> at + 0.00001 >= next }) { at, image ->
+                next = at + EffectSubjectTrack.STEP
+                // The faces on the frame stood upright, with the model's score for Vision's confidence (:67).
+                val faces = {
+                    finder?.faces(image.cropRect.width(), image.cropRect.height(), rotation, pixels(image))
+                        ?.map { EffectSubjectCandidate(it.box, it.score) }.orEmpty()
                 }
-                val found = arrayOfNulls<FaceDetector.Face>(MAX_FACES)
-                val count = runCatching { detector!!.findFaces(input, found) }.getOrDefault(0)
-                val middle = PointF()
-                val w = input.width.toDouble()
-                val h = input.height.toDouble()
-                (0 until count).mapNotNull { index ->
-                    val face = found[index]?.takeIf { it.confidence() >= FaceDetector.Face.CONFIDENCE_THRESHOLD } ?: return@mapNotNull null
-                    face.getMidPoint(middle)
-                    val eyes = face.eyesDistance().toDouble()
-                    // From the eyes to a box around the face, as the recorder's face follow makes it. The platform's
-                    // own threshold stands for Vision's 0.5.
-                    EffectSubjectCandidate(Rect((middle.x - eyes * 1.1) / w, (middle.y - eyes * 0.9) / h, eyes * 2.2 / w, eyes * 2.6 / h), 1.0)
-                }
+                val people = { masks?.let { reader -> person(reader, at, rotation) }?.let(::listOf).orEmpty() }
+                tracker.update(at, faces, people)?.let { samples += it }
             }
-            val people = { masks?.let { reader -> person(reader, at, rotation) }?.let(::listOf).orEmpty() }
-            tracker.update(at, faces, people)?.let { samples += it }
+        } finally {
+            finder?.close()
         }
         val now = android.os.SystemClock.elapsedRealtime()
         android.util.Log.i("SubjectTracks", "${media.filename} ${span.start}…${span.endInclusive} s: masks ${masked - started} ms, faces ${now - masked} ms, ${samples.size} samples")
@@ -172,11 +158,10 @@ object SubjectTracks {
     }
 
     /**
-     * Decodes the frames of [file] from [from] to [to] seconds in order and gives each, with its time, as a grey
-     * picture stood upright ([rotation] clockwise), at most [SIDE] pixels on its longer side and of an even width,
-     * as the face finder takes it, where [wants] asks for the time. One picture is reused: [frame] must not keep it.
+     * Decodes the frames of [file] from [from] to [to] seconds in order and gives each, with its time, as the decoder
+     * gives it, where [wants] asks for the time. The frame is the decoder's: [frame] must not keep it.
      */
-    private fun decodeLuma(file: File, from: Double, to: Double, rotation: Int, wants: (Double) -> Boolean, frame: (Double, Bitmap) -> Unit) {
+    private fun decode(file: File, from: Double, to: Double, wants: (Double) -> Boolean, frame: (Double, Image) -> Unit) {
         val extractor = android.media.MediaExtractor().apply { setDataSource(file.path) }
         var codec: android.media.MediaCodec? = null
         try {
@@ -191,10 +176,6 @@ object SubjectTracks {
             val info = android.media.MediaCodec.BufferInfo()
             val lastSample = ((to + 1.0) * 1e6).toLong()
             var fed = false
-            var picture: Bitmap? = null
-            var pixels = IntArray(0)
-            var places = IntArray(0)
-            var geometry = ""
             while (true) {
                 while (!fed) {
                     val slot = decoder.dequeueInputBuffer(0)
@@ -214,59 +195,47 @@ object SubjectTracks {
                 val time = info.presentationTimeUs / 1e6
                 val end = info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0 || time >= to
                 if (info.size > 0 && !end && time + 0.000001 >= from && wants(time)) {
-                    decoder.getOutputImage(out)?.use { image ->
-                        val crop = image.cropRect
-                        val plane = image.planes[0]
-                        val buffer = plane.buffer
-                        val sw = crop.width()
-                        val sh = crop.height()
-                        val turned = rotation % 180 != 0
-                        val uw = if (turned) sh else sw
-                        val uh = if (turned) sw else sh
-                        val scale = min(1.0, SIDE.toDouble() / max(uw, uh))
-                        val w = max(2, (uw * scale).toInt()) and 1.inv()
-                        val h = max(1, (uh * scale).toInt())
-                        if (picture?.width != w || picture?.height != h) {
-                            picture?.recycle()
-                            picture = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
-                            pixels = IntArray(w * h)
-                        }
-                        // Where each upright pixel is read on the stored frame, worked out once for a shape.
-                        val shape = "$crop:${plane.rowStride}:${plane.pixelStride}:$w:$h"
-                        if (shape != geometry) {
-                            geometry = shape
-                            places = IntArray(w * h)
-                            for (y in 0 until h) for (x in 0 until w) {
-                                val ux = (x + 0.5) / w
-                                val uy = (y + 0.5) / h
-                                val fx: Double
-                                val fy: Double
-                                when ((rotation % 360 + 360) % 360) {
-                                    90 -> { fx = uy; fy = 1 - ux }
-                                    180 -> { fx = 1 - ux; fy = 1 - uy }
-                                    270 -> { fx = 1 - uy; fy = ux }
-                                    else -> { fx = ux; fy = uy }
-                                }
-                                val sx = crop.left + min(sw - 1, (fx * sw).toInt())
-                                val sy = crop.top + min(sh - 1, (fy * sh).toInt())
-                                places[y * w + x] = sy * plane.rowStride + sx * plane.pixelStride
-                            }
-                        }
-                        for (i in places.indices) {
-                            val v = buffer.get(places[i]).toInt() and 0xff
-                            pixels[i] = (0xff shl 24) or (v shl 16) or (v shl 8) or v
-                        }
-                        picture!!.setPixels(pixels, 0, w, 0, 0, w, h)
-                        frame(time, picture!!)
-                    }
+                    decoder.getOutputImage(out)?.use { image -> frame(time, image) }
                 }
                 decoder.releaseOutputBuffer(out, false)
                 if (end) break
             }
-            picture?.recycle()
         } finally {
             codec?.let { runCatching { it.stop() }; it.release() }
             extractor.release()
+        }
+    }
+
+    /**
+     * The pixels of a decoded frame, within its crop, read from its Y′CbCr planes as BT.709 limited range: close
+     * enough to the colours for finding faces. Ten-bit frames come as 16-bit samples, their high byte last: that
+     * byte is read.
+     */
+    private fun pixels(image: Image): FaceDetection.Pixels {
+        val crop = image.cropRect
+        val (y, u, v) = image.planes.let { Triple(it[0], it[1], it[2]) }
+        val luma = y.buffer
+        val cb = u.buffer
+        val cr = v.buffer
+        val high = if (y.pixelStride == 2) 1 else 0
+        val left = crop.left
+        val top = crop.top
+        val yRow = y.rowStride
+        val yStep = y.pixelStride
+        val uRow = u.rowStride
+        val uStep = u.pixelStride
+        val vRow = v.rowStride
+        val vStep = v.pixelStride
+        return FaceDetection.Pixels { px, py ->
+            val x = left + px
+            val row = top + py
+            val l = ((luma.get(row * yRow + x * yStep + high).toInt() and 0xFF) - 16) * 1.164f
+            val pb = (cb.get(row / 2 * uRow + x / 2 * uStep + high).toInt() and 0xFF) - 128
+            val pr = (cr.get(row / 2 * vRow + x / 2 * vStep + high).toInt() and 0xFF) - 128
+            val r = (l + 1.793f * pr).toInt().coerceIn(0, 255)
+            val g = (l - 0.213f * pb - 0.533f * pr).toInt().coerceIn(0, 255)
+            val b = (l + 2.112f * pb).toInt().coerceIn(0, 255)
+            (r shl 16) or (g shl 8) or b
         }
     }
 

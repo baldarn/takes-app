@@ -26,9 +26,11 @@ sherpa-onnx, which runs the speech recognition for subtitles. Copyright Xiaomi C
 
 Qwen3-ASR, a speech model for subtitles. Copyright Alibaba Cloud. The model is not part of the app. It is downloaded when you ask for subtitles, as converted for sherpa-onnx (export by Wasser1462, published by the sherpa-onnx project), and can be removed again.
 
-LiteRT (formerly TensorFlow Lite) 1.4.2, which runs the person mask of the video effects. Copyright The TensorFlow Authors and Google LLC. Some of its code is derived from Caffe, whose notice follows below.
+LiteRT (formerly TensorFlow Lite) 1.4.2, which runs the person mask of the video effects and finds the faces Follow face and the camera moves follow. Copyright The TensorFlow Authors and Google LLC. Some of its code is derived from Caffe, whose notice follows below.
 
 MediaPipe selfie segmenter, the model of the person mask of the video effects, bundled in the app. Copyright Google LLC. The file is selfie_segmenter.tflite (float16, version 1) from https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite, SHA-256 191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b. It is modified: its last layer, MediaPipe's custom transposed convolution, is rewritten as LiteRT's builtin one with the same weights and bias (probes/segmentation/tools/standard-selfie.py in the Takes repository). The bundled file is selfie_standard.tflite, SHA-256 23b8125ac976473d277f053787bb139c6c8de834d8e64cafa9634fb8580b8f1b.
+
+MediaPipe face detector, full range (BlazeFace), the model that finds the faces Follow face and the camera moves follow, bundled in the app. Copyright Google LLC. The file is face_detection_full_range.tflite from https://storage.googleapis.com/mediapipe-assets/face_detection_full_range.tflite?generation=1674261620964007, SHA-256 3698b18f063835bc609069ef052228fbe86d9c9a6dc8dcb7c7c2d69aed2b181b, unmodified.
 
 JSpecify annotations. Copyright The JSpecify Authors. JetBrains annotations. Copyright JetBrains s.r.o. javax.inject and jakarta.inject. Copyright The JSR-330 Expert Group and Eclipse Foundation contributors.
 
