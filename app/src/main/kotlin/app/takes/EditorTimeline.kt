@@ -726,7 +726,7 @@ internal fun ClipStrip(
         val editImage = stringResource(R.string.image_edit)
         val imageLabel = stringResource(R.string.image_tool)
         class Bar(val start: Double, val end: Double, val label: String, val color: Color, val action: String, val open: () -> Unit)
-        val bars = clip.texts.orEmpty().map { title -> Bar(title.start, title.end, title.text, TitleColor, editTitle) { openTitle(title) } } +
+        val bars = clip.texts.orEmpty().map { title -> Bar(title.start, title.end, title.displayText, TitleColor, editTitle) { openTitle(title) } } +
             clip.images.orEmpty().map { image -> Bar(image.start, image.end, imageLabel, ImageColor, editImage) { openImage(image) } }
         val rows = mutableListOf<Double>() // where the last bar of each row ends
         for (bar in bars.sortedBy { it.start }) {

@@ -137,7 +137,7 @@ object ToolRegions {
                 visible(stabilization.activeRange)?.let { add(EditorTool.Stabilize, stabilization.id ?: clip.id, it, ToolRegionLabel.Tool) }
             }
             clip.pauses?.let { add(EditorTool.Pauses, it.id, whole, ToolRegionLabel.Tool) }
-            for (text in clip.texts.orEmpty()) part(text.start, text.end)?.let { add(EditorTool.Text, text.id, it, ToolRegionLabel.Text(text.text)) }
+            for (text in clip.texts.orEmpty()) part(text.start, text.end)?.let { add(EditorTool.Text, text.id, it, ToolRegionLabel.Text(text.displayText)) }
             // The clip's other framings, each where it applies (YouRec/VideoTools.swift:883-889).
             for (variant in clip.framingVariants.orEmpty()) {
                 val span = variant.activeRange?.let(::visible) ?: (if (variant.activeRange == null) whole else null) ?: continue
