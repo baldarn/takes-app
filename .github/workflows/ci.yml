@@ -49,13 +49,11 @@ jobs:
           key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('speech/build.gradle.kts') }}
 
       # DeepFilterNet3's weights (8.6 MB), which the deepfilter module downloads from Hugging
-      # Face, checks against a SHA-256 and packs into the app, and the C headers of ONNX Runtime
-      # its native code is compiled against.
+      # Face, checks against a SHA-256 and packs into the app.
       - uses: actions/cache@v6
         with:
           path: |
             deepfilter/models
-            deepfilter/.onnxruntime
           key: deepfilter-model-${{ hashFiles('deepfilter/build.gradle.kts') }}
 
       # No keystore here: only the debug build is assembled, which needs none.
@@ -116,13 +114,11 @@ jobs:
           key: sherpa-onnx-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('speech/build.gradle.kts') }}
 
       # DeepFilterNet3's weights (8.6 MB), which the deepfilter module downloads from Hugging
-      # Face, checks against a SHA-256 and packs into the app, and the C headers of ONNX Runtime
-      # its native code is compiled against.
+      # Face, checks against a SHA-256 and packs into the app.
       - uses: actions/cache@v6
         with:
           path: |
             deepfilter/models
-            deepfilter/.onnxruntime
           key: deepfilter-model-${{ hashFiles('deepfilter/build.gradle.kts') }}
 
       # Built before the emulator starts, so that the emulator only installs and runs them.

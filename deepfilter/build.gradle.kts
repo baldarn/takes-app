@@ -13,16 +13,7 @@ plugins {
 // (speech/), version 1.28.2, so that the app carries the runtime once. The unit tests use
 // sherpa-onnx's copy for this computer, which the speech module unpacks.
 evaluationDependsOn(":speech")
-val onnxRuntimeVersion = "1.28.2"
-// The commit tagged v1.28.2 in github.com/microsoft/onnxruntime, and the C headers there.
-val onnxRuntimeCommit = "33ca9628233dc8f002435e868d4c2e9f82766ca1"
-val onnxRuntimeHeaders = mapOf(
-    "onnxruntime_c_api.h" to "b69a133143c0da61782b2b02cc8a620d21ac139231fd211719776d10385135c1",
-    "onnxruntime_ep_c_api.h" to "db86df0f846b8d3bdbf429a5c76c5805293196575ca3c475878612591cd18e51",
-    "onnxruntime_error_code.h" to "5ce3b054e798eced8d14f5b86e98692fd33470463f96194ce0700a2d53dd8721",
-)
-// Outside build/, so that "clean" does not download them again.
-val onnxRuntimeInclude = layout.projectDirectory.dir(".onnxruntime/$onnxRuntimeVersion/include")
+// Its C headers are kept in src/main/cpp/onnxruntime (see the README there).
 val abis = listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
 android {
@@ -37,7 +28,6 @@ android {
         ndk { abiFilters += abis }
         consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild {
-            cmake { arguments += "-DONNX_RUNTIME_INCLUDE=${onnxRuntimeInclude.asFile.absolutePath}" }
         }
     }
     externalNativeBuild {
@@ -101,17 +91,6 @@ abstract class VerifiedDownload : DefaultTask() {
     }
 }
 
-val headerDownloads = onnxRuntimeHeaders.map { (header, hash) ->
-    tasks.register<VerifiedDownload>("fetch_" + header.removeSuffix(".h")) {
-        url.set("https://raw.githubusercontent.com/microsoft/onnxruntime/$onnxRuntimeCommit/include/onnxruntime/core/session/$header")
-        sha256.set(hash)
-        target.set(onnxRuntimeInclude.file(header))
-    }
-}
-val fetchOnnxRuntimeHeaders by tasks.registering { dependsOn(headerDownloads) }
-tasks.matching { it.name.startsWith("configureCMake") || it.name.startsWith("buildCMake") }
-    .configureEach { dependsOn(fetchOnnxRuntimeHeaders) }
-
 // The tests run on this computer, not on a phone, so they need the native library built for
 // this computer: the same CMake project, compiled with the system C++ compiler and the CMake
 // and Ninja that come with the Android SDK.
@@ -121,7 +100,6 @@ val testJdk = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersi
     .map { it.metadata.installationPath.asFile.absolutePath }
 
 val configureHostNative by tasks.registering(Exec::class) {
-    dependsOn(fetchOnnxRuntimeHeaders)
     inputs.file("src/main/cpp/CMakeLists.txt")
     outputs.file(hostNativeDir.map { it.file("build.ninja") })
     val source = file("src/main/cpp").absolutePath
@@ -130,7 +108,6 @@ val configureHostNative by tasks.registering(Exec::class) {
         commandLine(
             "$bin/cmake", "-S", source, "-B", hostNativeDir.get().asFile.absolutePath, "-G", "Ninja",
             "-DCMAKE_MAKE_PROGRAM=$bin/ninja", "-DCMAKE_BUILD_TYPE=Release", "-DHOST_JAVA_HOME=${testJdk.get()}",
-            "-DONNX_RUNTIME_INCLUDE=${onnxRuntimeInclude.asFile.absolutePath}",
         )
     }
 }
