@@ -35,8 +35,14 @@ import kotlinx.serialization.json.put
  * again in Takes' form, under the name of its new bytes.
  */
 object YouRecCodec {
-    /** The newest schema the original reads (YouRec/Project.swift:229); a project above it uses what this reading does not know. */
-    const val LATEST_READABLE_SCHEMA = 12
+    /**
+     * The newest schema the original reads (YouRec/Project.swift:235 at
+     * 57e5d91); a project above it uses what this reading does not know.
+     * 13 is a grade over part of a clip, 14 a title's label and headline,
+     * 15 the active range of a crop, flip or stabilisation, 16 effect windows,
+     * framing variants, a title's clock and effects made across pieces.
+     */
+    const val LATEST_READABLE_SCHEMA = 16
 
     /**
      * [project] as Takes saves it, and [notes] on what changed on the way.

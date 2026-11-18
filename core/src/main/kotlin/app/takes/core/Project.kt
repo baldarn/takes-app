@@ -78,28 +78,64 @@ data class TextOverlay(
      * Only titles of older projects have none; a new one is made by [fresh] with the default design.
      */
     val appearance: TitleDesign? = null,
+    /**
+     * Set, the title is a card of two texts ([LabelHeadline]): [text] is its
+     * headline, and [appearance] is kept for when it is a single text again
+     * (YouRec/VideoTools.swift:374). Readers before [TimelineClip.LABEL_HEADLINE_SCHEMA] would draw the headline alone.
+     */
+    val labelHeadline: LabelHeadline? = null,
     /** How it arrives and leaves. Null stays still. */
     val motion: TitleMotion? = null,
+    /**
+     * The clock of its motion when the title is a piece of one edited on part
+     * of its range, so the piece keeps the fade under way (YouRec/VideoTools.swift:351-359, 376).
+     */
+    val playbackClock: TitlePlaybackClock? = null,
 ) {
     val valid: Boolean
         get() = start.isFinite() && end.isFinite() && start >= 0 && end > start && text.length <= 500 &&
             x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 && size.isFinite() && size in 0.02..0.3 &&
-            appearance?.valid != false && motion?.valid != false
+            appearance?.valid != false && labelHeadline?.valid != false && motion?.valid != false && playbackClock?.valid != false
 
     /** True when the title uses a design or a motion, which readers before schema 12 would draw wrongly. */
-    val styled: Boolean get() = appearance != null || motion != null
+    val styled: Boolean get() = appearance != null || motion != null || labelHeadline != null
+
+    /** What the title says: its words, or a card's label when the headline is empty (YouRec/VideoTools.swift:377-379). */
+    val displayText: String get() = if (text.isBlank()) labelHeadline?.label ?: "" else text
+
+    /** True when there is something to draw: a card with only a label still is a title (YouRec/VideoTools.swift:380). */
+    val hasText: Boolean get() = displayText.isNotBlank()
+
+    /** The faces the title's texts use: its design's, or a card's two (YouRec/VideoTools.swift:381-383). */
+    val fontFaces: List<String> get() = listOfNotNull(appearance?.face, labelHeadline?.labelStyle?.face, labelHeadline?.headlineStyle?.face)
 
     /** What the design tools start from: the title's own design, or the look of a title without one. */
     val design: TitleDesign get() = appearance ?: TitleDesign.plain
 
     companion object {
         /**
-         * A title as the tools make one: nothing written yet, in the original's
-         * default design. The design is saved with it, which is what tells it
-         * from a title of an older project: that one has none, keeps its
-         * outlined look and is written back exactly as it was read.
+         * A title as the tools make one: the starter words, at the size of a
+         * new title, in the original's default design. The design is saved
+         * with it, which is what tells it from a title of an older project:
+         * that one has none, keeps its outlined look and is written back
+         * exactly as it was read.
          */
-        fun fresh(): TextOverlay = TextOverlay(text = "", appearance = TitleDesign())
+        fun fresh(text: String = STARTER_TEXT): TextOverlay = TextOverlay(text = text, size = NEW_SIZE, appearance = TitleDesign())
+
+        /**
+         * The words a new title starts with, shown as the field's prompt so
+         * that typing replaces them in one step (YouRec/VideoTools.swift:364,
+         * YouRec/EditorTools.swift:1541-1548). The screens give their own
+         * language's word.
+         */
+        const val STARTER_TEXT = "Text"
+
+        /**
+         * The size of a new title, a share of the frame's short side
+         * (YouRec/VideoTools.swift:371). The constructor's 0.065 is the
+         * original's earlier default, kept for what older projects omit.
+         */
+        const val NEW_SIZE = 0.10
     }
 }
 
@@ -278,6 +314,28 @@ data class TimelineClip(
      * removes the setting rather than keep Off (YouRec/EditorTools.swift:711).
      */
     val stabilization: StabilizationSettings? = null,
+    /**
+     * Grades over parts of the clip, in source seconds (or the motion clock of
+     * a held frame), half-open and in order; only when [color] is null
+     * (YouRec/Project.swift:51, YouRec/VideoTools.swift:163-173).
+     */
+    val colorRegions: List<ColorRegion>? = null,
+    /**
+     * The source stretches in which each recipe of the clip applies, by its
+     * id, when it applies to part of its range only (YouRec/Project.swift:61-63).
+     * Saved as an object keyed by id, in order.
+     */
+    @Serializable(with = EffectWindowsSerializer::class)
+    val effectWindows: Map<String, List<SourceInterval>>? = null,
+    /** Other crops, flips and stabilisations of the clip, each in its own [effectWindows] (YouRec/ScopedEffect.swift:3-29). */
+    val framingVariants: List<FramingVariant>? = null,
+    /**
+     * The effects made across several pieces at once, by id: the timeline
+     * saves them on the picture ([VideoTimelineItem.spanningEffects]); here
+     * they travel with the clip of the sequence form and are never saved with it.
+     */
+    @kotlinx.serialization.Transient
+    val spanningEffects: Set<String>? = null,
 ) {
     /** How fast the clip plays by its own speed setting: 2 is twice as fast and takes half the time. */
     val rate: Double get() = SpeedMapping.rate(speed)
@@ -321,6 +379,10 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        // Readers before it would show a grade, a framing or an effect over all of the clip, or lose a piece's clock.
+        scoped -> SCOPED_EFFECTS_SCHEMA
+        // Readers before 25 would draw a card's headline alone.
+        texts.orEmpty().any { it.labelHeadline != null } -> LABEL_HEADLINE_SCHEMA
         // Readers before 24 would show the footage unstabilised.
         stabilization != null -> STABILIZATION_SCHEMA
         // Readers before 23 would leave the pictures out.
@@ -357,6 +419,16 @@ data class TimelineClip(
         const val IMAGES_SCHEMA = 23
         /** Readers before it would show a stabilised clip as it was shot. */
         const val STABILIZATION_SCHEMA = 24
+
+        /** The schema of a title made a card of a label and a headline ([TextOverlay.labelHeadline]). */
+        const val LABEL_HEADLINE_SCHEMA = 25
+        /**
+         * Readers before it would apply an effect made on part of a clip, or
+         * across several, to all of it ([colorRegions], [effectWindows],
+         * [framingVariants], an active range, a title's clock, the spanning
+         * effects of an item). The original's 13, 15 and 16.
+         */
+        const val SCOPED_EFFECTS_SCHEMA = 26
     }
 }
 
@@ -486,6 +558,7 @@ data class EditSnapshot(val state: EditState, val captureCursor: Int, val timeli
         // A held frame or a time effect ([TimelineClip.TIME_EFFECTS_SCHEMA]), a mirror ([TimelineClip.MIRROR_SCHEMA]), pauses ([TimelineClip.PAUSES_SCHEMA]) or stabilisation ([TimelineClip.STABILIZATION_SCHEMA]) on a clip.
         (timeline?.video?.map { it.content } ?: state.clips).maxOfOrNull { it.schema } ?: 0,
         if (state.outputSize != null) EditState.OUTPUT_SIZE_SCHEMA else 0,
+        if (timeline?.let(ScopedEffects::spans) == true) TimelineClip.SCOPED_EFFECTS_SCHEMA else 0,
     )
 
     companion object {
@@ -862,6 +935,7 @@ data class Project(
                 if (images.map { it.id }.toSet().size != images.size) invalid()
                 if (images.any { !it.valid || it.end > source.duration + 0.001 }) invalid()
                 clip.stabilization?.let { if (!it.valid(source.duration)) invalid() }
+                if (!ScopedEffects.valid(clip, source.duration)) invalid()
             }
             snapshot.checked = sources to captureLedger
         }
@@ -876,7 +950,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = TimelineClip.STABILIZATION_SCHEMA
+        const val LATEST_READABLE_SCHEMA = TimelineClip.SCOPED_EFFECTS_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"

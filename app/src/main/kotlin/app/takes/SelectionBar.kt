@@ -66,6 +66,7 @@ import app.takes.core.EditState
 import app.takes.core.EditTargets
 import app.takes.core.RangeMarks
 import app.takes.core.TimeRange
+import androidx.compose.material.icons.outlined.Schedule
 import app.takes.core.TimelinePasteTarget
 import app.takes.core.TrackComponents
 import kotlin.math.roundToInt
@@ -182,6 +183,8 @@ internal class TransitionChip(
     val label: String, val description: String, val adds: Boolean, val color: Color = TransitionColor,
     /** What a touch and hold offers to take away (YouRec/EditorView.swift:1676-1710), by the region's [id]; null when it cannot be. */
     val id: String? = null, val remove: (() -> Unit)? = null,
+    /** An effect's options, from its "…" or a touch and hold, in place of the removal controls (YouRec/EditorView.swift:2299-2374). */
+    val options: (() -> List<ChipOption>)? = null,
     val open: () -> Unit,
 )
 
@@ -211,6 +214,8 @@ internal fun SelectionBar(
     effects: List<TransitionChip> = emptyList(),
     unavailable: String? = null, explain: (String) -> Unit = {},
     deleteLabel: Int = R.string.selection_delete, restoreSync: SyncAction? = null,
+    /** Edit duration, for a marked range (YouRec/EditorDurationPicker.swift:304-346 at 57e5d91); null when none is marked. */
+    editDuration: (() -> Unit)? = null,
 ) {
     val because = unavailable?.let { reason -> { explain(reason) } }
     Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -251,6 +256,7 @@ internal fun SelectionBar(
                             )
                         }
                         preview?.let { item(R.string.range_preview_cut, Icons.Outlined.Slideshow, action = it) }
+                        editDuration?.let { item(R.string.range_edit_duration, Icons.Outlined.Schedule, action = it) }
                     }
                 }
                 // The one sound selected plays apart from its picture: by how much, and Restore sync (EditorView.swift:649-655).
@@ -289,7 +295,9 @@ internal fun SelectionBar(
             else Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(start = 4.dp), Arrangement.spacedBy(6.dp), Alignment.CenterVertically) {
                 for (chip in shown) {
                     val held = chip.id != null && chip.id == armed
-                    EffectChipButton(
+                    val options = chip.options
+                    if (options != null) EffectOptionsChip(chip.label, chip.color, chip.description, edit = { armed = null; chip.open() }, options = options)
+                    else EffectChipButton(
                         chip.label, chip.color, held, edit = { armed = null; chip.open() },
                         arm = chip.remove?.let { { armed = chip.id } }, cancel = { armed = null },
                         remove = { armed = null; chip.remove?.invoke() }, description = chip.description, adds = chip.adds,

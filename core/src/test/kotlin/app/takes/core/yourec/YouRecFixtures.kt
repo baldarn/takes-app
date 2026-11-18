@@ -18,7 +18,7 @@ import java.util.zip.ZipOutputStream
  * as the original does, in the manifest too.
  */
 object YouRecFixtures {
-    val cases = listOf("takes", "layers", "titles", "effects", "canvas", "audio")
+    val cases = listOf("takes", "layers", "titles", "effects", "canvas", "audio", "scoped")
 
     class Fixture(val manifest: ByteArray, val steps: Map<String, ByteArray>)
 

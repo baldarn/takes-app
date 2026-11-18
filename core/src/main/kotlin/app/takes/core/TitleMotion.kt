@@ -2,6 +2,7 @@ package app.takes.core
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -88,6 +89,16 @@ data class TitleMotion(
         return Ends(a * fit, b * fit)
     }
 
+    /**
+     * The part of [clock], a run of the title on the movie's clock, in which
+     * it is neither arriving nor leaving (YouRec/TitleDesign.swift:410-414).
+     */
+    fun readableRange(clock: ClosedFloatingPointRange<Double>): ClosedFloatingPointRange<Double> {
+        val ends = fittedEnds(clock.endInclusive - clock.start)
+        val first = clock.start + ends.entrance
+        return first..maxOf(first, clock.endInclusive - ends.exit)
+    }
+
     /** The stretch of the title worth playing to preview one of its ends. */
     fun previewWindow(exit: Boolean, duration: Double): ClosedFloatingPointRange<Double> {
         val ends = fittedEnds(duration)
@@ -140,48 +151,6 @@ object EditorDurationPresets {
 
     private fun ticks(seconds: Double): Long =
         if (seconds.isFinite()) roundedAwayFromZero(minOf(604_800.0, maxOf(-604_800.0, seconds)) * TICKS_PER_SECOND).toLong() else 0
-}
-
-/** Overlay trimming uses the editor clock. A source boundary can be between frames. */
-class OverlayTiming private constructor(
-    val bounds: ClosedFloatingPointRange<Double>,
-    val range: ClosedFloatingPointRange<Double>,
-) {
-    enum class Edge { Start, End }
-
-    val duration: Double get() = range.endInclusive - range.start
-    val available: Double get() = bounds.endInclusive - range.start
-
-    fun limits(edge: Edge): ClosedFloatingPointRange<Double> = when (edge) {
-        Edge.Start -> bounds.start..maxOf(bounds.start, range.endInclusive - PauseDetector.FRAME)
-        Edge.End -> minOf(bounds.endInclusive, range.start + PauseDetector.FRAME)..bounds.endInclusive
-    }
-
-    /** The time for a slider position: whole frames from the lower limit, with both limits exactly reachable. */
-    fun time(fraction: Double, edge: Edge): Double {
-        val limits = limits(edge)
-        if (fraction <= 0) return limits.start
-        if (fraction >= 1) return limits.endInclusive
-        val offset = (limits.endInclusive - limits.start) * fraction
-        val frames = roundedAwayFromZero(offset / PauseDetector.FRAME)
-        return minOf(limits.endInclusive, limits.start + frames * PauseDetector.FRAME)
-    }
-
-    /** The timing with one edge moved, kept a frame from the other where there is room. */
-    fun setting(edge: Edge, value: Double): OverlayTiming {
-        if (!value.isFinite()) return this
-        val limits = limits(edge)
-        val time = minOf(limits.endInclusive, maxOf(limits.start, value))
-        return OverlayTiming(bounds, if (edge == Edge.Start) time..range.endInclusive else range.start..time)
-    }
-
-    companion object {
-        /** [range] is brought inside [bounds]. */
-        operator fun invoke(range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>): OverlayTiming {
-            val start = minOf(bounds.endInclusive, maxOf(bounds.start, range.start))
-            return OverlayTiming(bounds, start..minOf(bounds.endInclusive, maxOf(start, range.endInclusive)))
-        }
-    }
 }
 
 /**

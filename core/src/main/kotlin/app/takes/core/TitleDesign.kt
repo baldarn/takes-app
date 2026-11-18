@@ -187,22 +187,110 @@ data class TitleDesign(
             )
         }
 
-        /** The built-in looks offered when styling a title. */
-        val looks: List<Pair<String, TitleDesign>> = run {
-            val label = TitleDesign(face = "ibmplexmono", weight = 500, tracking = 0.06)
-            listOf(
-                "Clean" to TitleDesign(face = "atkinsonhyperlegiblenext", weight = 600),
-                "Film title" to TitleDesign(face = "sourceserif4", weight = 500),
-                "Lower third" to TitleDesign(face = "barlowcondensed", plate = TitlePlate.Block, shadow = false, alignment = TitleAlignment.Left),
-                "Headline" to TitleDesign(face = "archivoblack"),
-                "Field note" to TitleDesign(face = "caveat", weight = 600),
-                "Dateline" to label,
-                "Warm editorial" to TitleDesign(face = "fraunces", gradient = TitleGradient.gallery[0].second),
-                "Sunset mono" to label.copy(gradient = TitleGradient.gallery[0].second),
-            )
+        /**
+         * The built-in looks offered when styling a title, six in each of four
+         * collections (YouRec/TitleDesign.swift:106-177). A look is applied by
+         * value ([applyingLook]); a title keeps the design, never the look's
+         * name, so titles styled with the eight looks before these keep their
+         * design and open with no look of the gallery chosen, as in the original.
+         */
+        val looks: List<TitleLook> = listOf(
+            TitleLook(TitleLookCollection.Editorial, "Clean", TitleDesign(face = "atkinsonhyperlegiblenext", weight = 600, lineSpacing = 0.04,
+                shade = TitleInk(0x090B0D, alpha = 240), shadowBlur = 0.085, shadowOffset = 0.035)),
+            TitleLook(TitleLookCollection.Editorial, "Field report", TitleDesign(face = "barlowcondensed", weight = 700, alignment = TitleAlignment.Left, tracking = 0.02, lineSpacing = 0.05,
+                fill = TitleInk.opaque(0xF8F8F4), shadow = false, plate = TitlePlate.Lines,
+                backing = TitleInk(0x102335, alpha = 224), padding = 0.15, radius = 0.0)),
+            TitleLook(TitleLookCollection.Editorial, "Dateline", TitleDesign(face = "ibmplexmono", weight = 500, alignment = TitleAlignment.Left, tracking = 0.025, lineSpacing = 0.06,
+                fill = TitleInk.opaque(0xFFD79B), shade = TitleInk(0x21170F, alpha = 250), shadowBlur = 0.055, shadowOffset = 0.055)),
+            TitleLook(TitleLookCollection.Editorial, "Caption box", TitleDesign(face = "atkinsonhyperlegiblenext", weight = 500, lineSpacing = 0.09,
+                shadow = false, plate = TitlePlate.Block, backing = TitleInk(0x111319, alpha = 168), padding = 0.24, radius = 0.24)),
+            TitleLook(TitleLookCollection.Editorial, "Pull quote", TitleDesign(face = "sourceserif4", weight = 600, alignment = TitleAlignment.Left, tracking = -0.012, lineSpacing = 0.12,
+                fill = TitleInk.opaque(0x27231F), shadow = false, plate = TitlePlate.Block,
+                backing = TitleInk.opaque(0xF4EFDF), padding = 0.31, radius = 0.025)),
+            TitleLook(TitleLookCollection.Editorial, "Interview", TitleDesign(face = "system", weight = 600, alignment = TitleAlignment.Left, tracking = -0.01, lineSpacing = 0.06,
+                fill = TitleInk.opaque(0x121D28), shadow = false, plate = TitlePlate.Block,
+                backing = TitleInk(0xEFF6FA, alpha = 166), padding = 0.26, radius = 0.14)),
+
+            TitleLook(TitleLookCollection.Cinema, "Film title", TitleDesign(face = "sourceserif4", weight = 500, tracking = 0.035, lineSpacing = 0.10,
+                fill = TitleInk.opaque(0xF9EFDC), shade = TitleInk(0x181519, alpha = 245), shadowBlur = 0.10, shadowOffset = 0.045)),
+            TitleLook(TitleLookCollection.Cinema, "Opening credit", TitleDesign(face = "barlowcondensed", weight = 400, tracking = 0.075, lineSpacing = 0.16,
+                fill = TitleInk.opaque(0xF4F6FA), shade = TitleInk(0x101720, alpha = 245), shadowBlur = 0.07, shadowOffset = 0.04)),
+            TitleLook(TitleLookCollection.Cinema, "Intertitle", TitleDesign(face = "bodonimoda", weight = 600, tracking = 0.035, lineSpacing = 0.12,
+                fill = TitleInk.opaque(0xF3E6CE), shadow = false, plate = TitlePlate.Block,
+                backing = TitleInk(0x19191A, alpha = 214), padding = 0.40, radius = 0.035)),
+            TitleLook(TitleLookCollection.Cinema, "Daylight", TitleDesign(face = "bodonimoda", weight = 700, italic = true, tracking = -0.012, lineSpacing = 0.08,
+                fill = TitleInk.opaque(0x28212A), shade = TitleInk(0xFFF9ED, alpha = 229), shadowBlur = 0.12, shadowOffset = 0.0)),
+            TitleLook(TitleLookCollection.Cinema, "Night drive", TitleDesign(face = "unbounded", weight = 500, tracking = 0.065, lineSpacing = 0.12,
+                fill = TitleInk.opaque(0xDEEDFF), gradient = TitleGradient(0xF4F8FC, 0xA9CDFA, 90.0),
+                shade = TitleInk.opaque(0x192D50), shadowBlur = 0.07, shadowOffset = 0.035,
+                plate = TitlePlate.Block, backing = TitleInk(0x112238, alpha = 102), padding = 0.22, radius = 0.075)),
+            TitleLook(TitleLookCollection.Cinema, "Matinée", TitleDesign(face = "barlowcondensed", weight = 700, italic = true, tracking = 0.02,
+                fill = TitleInk.opaque(0xFFDAA8), shadow = false, plate = TitlePlate.Lines,
+                backing = TitleInk(0x531E27, alpha = 190), padding = 0.16, radius = 0.035)),
+
+            TitleLook(TitleLookCollection.Print, "Headline", TitleDesign(face = "archivoblack", weight = 400, alignment = TitleAlignment.Left, tracking = -0.035,
+                fill = TitleInk.opaque(0xFFFCF2), shade = TitleInk.opaque(0x151319), shadowBlur = 0.018, shadowOffset = 0.065)),
+            TitleLook(TitleLookCollection.Print, "Magazine italic", TitleDesign(face = "fraunces", weight = 600, italic = true, tracking = -0.018, lineSpacing = 0.04,
+                fill = TitleInk.opaque(0xFFE7DC), shade = TitleInk(0x352027, alpha = 245), shadowBlur = 0.09, shadowOffset = 0.04)),
+            TitleLook(TitleLookCollection.Print, "Source note", TitleDesign(face = "ibmplexmono", weight = 400, alignment = TitleAlignment.Left, tracking = 0.015, lineSpacing = 0.12,
+                fill = TitleInk.opaque(0x302822), shadow = false, plate = TitlePlate.Lines,
+                backing = TitleInk(0xF4E4C7, alpha = 181), padding = 0.16, radius = 0.0)),
+            TitleLook(TitleLookCollection.Print, "Masthead", TitleDesign(face = "bodonimoda", weight = 800, alignment = TitleAlignment.Left, tracking = -0.04,
+                fill = TitleInk.opaque(0x471628), shadow = false, plate = TitlePlate.Block,
+                backing = TitleInk(0xF7E9E9, alpha = 232), padding = 0.12, radius = 0.0)),
+            TitleLook(TitleLookCollection.Print, "Clothbound", TitleDesign(face = "sourceserif4", weight = 500, tracking = 0.045, lineSpacing = 0.10,
+                fill = TitleInk.opaque(0xF1E2B2), shadow = false, plate = TitlePlate.Block,
+                backing = TitleInk(0x183F34, alpha = 200), padding = 0.38, radius = 0.065)),
+            TitleLook(TitleLookCollection.Print, "Field note", TitleDesign(face = "caveat", weight = 700, alignment = TitleAlignment.Left, lineSpacing = 0.06,
+                fill = TitleInk.opaque(0xFFE379), shade = TitleInk.opaque(0x292018), shadowBlur = 0.095, shadowOffset = 0.045)),
+
+            TitleLook(TitleLookCollection.Display, "Gaffer tape", TitleDesign(face = "caveat", weight = 700, alignment = TitleAlignment.Left, tracking = 0.025, lineSpacing = 0.06,
+                fill = TitleInk.opaque(0x1A2025), shadow = false, plate = TitlePlate.Lines,
+                backing = TitleInk(0xF3F1E6, alpha = 186), padding = 0.14, radius = 0.0)),
+            TitleLook(TitleLookCollection.Display, "Highlighter", TitleDesign(face = "atkinsonhyperlegiblenext", weight = 800, alignment = TitleAlignment.Left, tracking = -0.025, lineSpacing = 0.04,
+                fill = TitleInk.opaque(0x142214), shadow = false, plate = TitlePlate.Lines,
+                backing = TitleInk.opaque(0xD9FA68), padding = 0.13, radius = 0.045)),
+            TitleLook(TitleLookCollection.Display, "Afterglow", TitleDesign(face = "fraunces", weight = 800, tracking = -0.025, lineSpacing = 0.03,
+                fill = TitleInk.opaque(0xFFF0AD), gradient = TitleGradient(0xFFF0AD, 0xFFA68E, 105.0),
+                shade = TitleInk(0x462335, alpha = 245), shadowBlur = 0.08, shadowOffset = 0.055)),
+            TitleLook(TitleLookCollection.Display, "Wide type", TitleDesign(face = "unbounded", weight = 800, alignment = TitleAlignment.Left, tracking = -0.03,
+                fill = TitleInk.opaque(0xDDF4C9), shade = TitleInk.opaque(0x17362B), shadowBlur = 0.02, shadowOffset = 0.075)),
+            TitleLook(TitleLookCollection.Display, "Flyer", TitleDesign(face = "archivoblack", weight = 400, tracking = -0.025, lineSpacing = 0.04,
+                fill = TitleInk.opaque(0xFFFFF5), shadow = false, plate = TitlePlate.Block,
+                backing = TitleInk(0xAC2633, alpha = 226), padding = 0.22, radius = 0.0)),
+            TitleLook(TitleLookCollection.Display, "Lilac gel", TitleDesign(face = "unbounded", weight = 600, tracking = -0.025, lineSpacing = 0.05,
+                fill = TitleInk.opaque(0x261A40), shadow = false, plate = TitlePlate.Block,
+                backing = TitleInk(0xE8D9FF, alpha = 170), padding = 0.30, radius = 0.80)),
+        )
+    }
+}
+
+/** The four collections the built-in looks are shown in (YouRec/TitleDesign.swift:106-108). [title] is the original's English name. */
+enum class TitleLookCollection(val title: String) {
+    Editorial("Editorial"),
+    Cinema("Cinema"),
+    Print("Print"),
+    Display("Display"),
+    ;
+
+    companion object {
+        /** The width of a tile of the gallery, in points of the default text size (YouRec/TitleInspector.swift:26). */
+        const val TILE_WIDTH = 122.0
+
+        /**
+         * How many tiles a row of the gallery holds in [width] for tiles [tile]
+         * wide, 8 apart: six, three, two or one, so that a collection's six
+         * fill whole rows (YouRec/TitleInspector.swift:113-117).
+         */
+        fun columns(width: Double, tile: Double = TILE_WIDTH): Int {
+            val capacity = ((width + 8) / (tile + 8)).toInt()
+            return listOf(6, 3, 2, 1).firstOrNull { it <= capacity } ?: 1
         }
     }
 }
+
+/** One built-in look: its collection, its English name, which also identifies it, and its design. */
+data class TitleLook(val collection: TitleLookCollection, val name: String, val design: TitleDesign)
 
 /**
  * A bundled font family, as names only. [upright] and [slanted] are the names
@@ -224,6 +312,8 @@ data class TitleTypeface(
             TitleTypeface("sourceserif4", "Source Serif 4", "SourceSerif4Roman-Regular", "SourceSerif4Italic-Italic"),
             TitleTypeface("fraunces", "Fraunces", "Fraunces-9ptBlack", "Fraunces-9ptBlackItalic"),
             TitleTypeface("ibmplexmono", "IBM Plex Mono", "IBMPlexMono-Regular", "IBMPlexMono-Italic", listOf(400, 500, 700)),
+            TitleTypeface("bodonimoda", "Bodoni Moda", "BodoniModa-Regular", "BodoniModa-Italic"),
+            TitleTypeface("unbounded", "Unbounded", "Unbounded-Regular"),
             TitleTypeface("caveat", "Caveat", "Caveat-Regular", weights = listOf(400, 500, 600, 700)),
         )
 
@@ -270,6 +360,10 @@ data class ImportedFontReference(val digest: String, val index: Int, val postScr
     }
 }
 
+/** A card's look kept for reuse in any project, a channel style of label and headline (YouRec/TitleInspector.swift:459-463). */
+@Serializable
+data class SavedCardLook(val id: String = newID(), val name: String, val look: LabelHeadlineLook)
+
 /** A design kept for reuse in any project: a "channel style". */
 @Serializable
 data class SavedTitleLook(val id: String = newID(), val name: String, val design: TitleDesign)
@@ -283,12 +377,17 @@ object TitleLibrary {
     const val LOOKS_KEY = "title.savedLooks.v1"
     const val FAVORITES_KEY = "title.favoriteFonts.v1"
     const val RECENT_COLORS_KEY = "title.recentColors.v1"
+    const val CARD_LOOKS_KEY = "title.groupLooks.v1"
+
+    /** What a card shows as its look when it matches none (YouRec/TitleInspector.swift:472). */
+    const val CUSTOM = "Custom"
     const val MAXIMUM_NAME = 60
     const val RECENT_COLORS = 8
 
     private val looksFormat = kotlinx.serialization.builtins.ListSerializer(SavedTitleLook.serializer())
     private val namesFormat = kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>())
     private val inksFormat = kotlinx.serialization.builtins.ListSerializer(TitleInk.serializer())
+    private val cardsFormat = kotlinx.serialization.builtins.ListSerializer(SavedCardLook.serializer())
 
     private fun <T> read(format: kotlinx.serialization.KSerializer<List<T>>, saved: String?): List<T> =
         if (saved.isNullOrEmpty()) emptyList() else try { documentJson.decodeFromString(format, saved) } catch (_: Exception) { emptyList() }
@@ -310,6 +409,30 @@ object TitleLibrary {
     }
 
     fun deleting(saved: String?, id: String): String = documentJson.encodeToString(looksFormat, looks(saved).filter { it.id != id })
+
+    /** The saved card looks, newest first. One out of range is left out. */
+    fun cardLooks(saved: String?): List<SavedCardLook> = read(cardsFormat, saved).filter { entry ->
+        entry.name.isNotBlank() && entry.look.let { it.label.valid && it.headline.valid && it.card.valid && it.labelScale in 0.2..1.0 && it.headlineScale in 0.5..1.8 }
+    }
+
+    /**
+     * A card look needs a name of its own, whatever the capitals: not a saved
+     * one's, a built-in one's or "Custom" (YouRec/TitleInspector.swift:518-522).
+     */
+    fun canSaveCard(looks: List<SavedCardLook>, name: String): Boolean {
+        val trimmed = name.trim()
+        val taken = looks.map { it.name } + LabelHeadline.looks.map { it.first } + CUSTOM
+        return trimmed.isNotEmpty() && name.length <= MAXIMUM_NAME && taken.none { it.equals(trimmed, ignoreCase = true) }
+    }
+
+    /** The library with [look] saved first as [name]; unchanged when the name cannot be used. */
+    fun savingCard(saved: String?, name: String, look: LabelHeadlineLook): String {
+        val looks = cardLooks(saved)
+        if (!canSaveCard(looks, name)) return documentJson.encodeToString(cardsFormat, looks)
+        return documentJson.encodeToString(cardsFormat, listOf(SavedCardLook(name = name.trim(), look = look)) + looks)
+    }
+
+    fun deletingCard(saved: String?, id: String): String = documentJson.encodeToString(cardsFormat, cardLooks(saved).filter { it.id != id })
 
     /** Font faces listed first, in the order they were starred. */
     fun favorites(saved: String?): List<String> = read(namesFormat, saved)

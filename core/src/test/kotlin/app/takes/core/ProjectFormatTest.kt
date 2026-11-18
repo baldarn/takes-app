@@ -193,7 +193,7 @@ class ProjectFormatTest {
             val project = cropped(crop)
             assertEquals(14, project.edit.clips[0].schema)
             assertEquals(14, project.schemaVersion)
-            assertEquals(24, Project.LATEST_READABLE_SCHEMA) // fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23), then stabilisation (24)
+            assertEquals(26, Project.LATEST_READABLE_SCHEMA) // fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23), then stabilisation (24), then cards of a label and a headline (25), then effects on part of a clip or across pieces (26)
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }

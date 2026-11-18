@@ -206,6 +206,17 @@ import app.takes.core.TransitionGeometry
 import app.takes.core.TransitionLayout
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionTiming
+import app.takes.core.grade
+import app.takes.core.gradeTime
+import app.takes.core.resolvingEffects
+import app.takes.core.EffectRangeEdit
+import app.takes.core.TimeRange
+import app.takes.core.ScopedEffectOperation
+import app.takes.core.isAudioRange
+import androidx.compose.material.icons.outlined.RemoveCircleOutline
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import kotlinx.coroutines.Dispatchers
@@ -475,6 +486,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val located by remember(edit) { derivedStateOf { TrackEditState.locate(edit, playhead)?.index } }
     // The marked range and the selection: the editor's own, never saved. They follow the edit as it changes.
     var marks by remember { mutableStateOf(RangeMarks()) }
+    // An effect's range being adjusted by its two handles on the timeline (YouRec/EditorView.swift:1152-1191 at 57e5d91).
+    var effectRange by remember { mutableStateOf<EffectRangeEdit?>(null) }
+    // The marked range's duration being edited from the selection's menu.
+    var durationOpen by remember { mutableStateOf(false) }
     // Link of picture and sound that cover different times, waiting for the question to be answered.
     var pendingLink by remember { mutableStateOf<PendingLink?>(null) }
     LaunchedEffect(saved) { marks = marks.retained(saved) }
@@ -640,13 +655,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val grade: (TimelineClip, Double) -> android.graphics.RenderEffect? = grade@{ clip, offset ->
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@grade null
             val log = logProfiles[clip.sourceID]
-            if (clip.color == null && log == null) return@grade null
-            val preview = made.getOrPut((clip.color ?: ColorSettings()) to log) { ColorLuts.Preview(clip.color ?: ColorSettings(), folder, log) }
+            // Graded over parts of it, the grade in force at the frame (YouRec/VideoToolCompositor.swift:130-134).
+            val graded = clip.grade(clip.gradeTime(offset.coerceIn(0.0, clip.duration)))
+            if (graded == null && log == null) return@grade null
+            val preview = made.getOrPut((graded ?: ColorSettings()) to log) { ColorLuts.Preview(graded ?: ColorSettings(), folder, log) }
             if (!preview.moves) preview.effect() else preview.effect(GradeMotion.fraction(clip, offset) ?: 0.0)
         }
         grade
     }
-    val deckColors = shownClips.map { shown -> shown?.let { (clip, _) -> logProfiles[clip.sourceID].let { log -> if (clip.color == null && log == null) null else (clip.color ?: ColorSettings()) to log } } }
+    val deckColors = shownClips.map { shown ->
+        shown?.let { (clip, start) ->
+            // Graded over parts of it, the grade in force at the playhead (YouRec/VideoToolCompositor.swift:130-134).
+            val graded = if (clip.colorRegions == null) clip.color else clip.grade(clip.gradeTime((playhead - start).coerceIn(0.0, clip.duration)))
+            logProfiles[clip.sourceID].let { log -> if (graded == null && log == null) null else (graded ?: ColorSettings()) to log }
+        }
+    }
     // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
     // is open what the tool would leave on it.
     val cropFor = { clip: TimelineClip, start: Double ->
@@ -1025,7 +1048,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         // While the Video effects tool is open, its draft (or nothing, comparing with the original).
                         val work = effecting
                         val sourceTime = clip.sourceTime(offset)
-                        val shown = if (work != null) work.shown(clip, sourceTime, playhead) else clip.videoEffects
+                        val shown = if (work != null) work.shown(clip, sourceTime, playhead)
+                            else if (clip.effectWindows == null) clip.videoEffects else clip.resolvingEffects(clip.gradeTime(offset)).videoEffects
                         val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false, context = context, media = project.sources.firstOrNull { it.id == clip.sourceID }) { palettesReady++ }
                         palettesReady.let { } // read, so that the picture is drawn again once a palette or a person mask is ready
                         restored = effectPreviews?.get(deck)?.nightFix(shown, sourceTime)
@@ -1400,7 +1424,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 if (clip != null && subtitling == null && titling == null && imaging == null && transitioning == null && cropping == null && effecting == null && moving == null && placementWork == null && trim == null) {
                     editor.pause()
                     TimelineEditing.titleRange(clips, index, title)?.let { range ->
-                        if (playhead < range.start || playhead >= range.endInclusive) jump(range.start.coerceIn(0.0, duration))
+                        jump(titleOpening(edit, title, range, clip.id).coerceIn(0.0, duration))
                         titling = Titling(title, range, clip.id, title, range)
                     }
                 }
@@ -1452,6 +1476,19 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                 }
             } else null,
+            // The handles of an effect's range: each frame they move to is shown paused (YouRec/EditorView.swift:1156-1164).
+            effectRange = effectRange?.let { draft ->
+                EffectRangeHandles(draft.timing.range.start, draft.timing.range.endInclusive, toolTint(draft.region.tool)) { edge, time ->
+                    effectRange?.let { now ->
+                        val next = now.setting(edge, time)
+                        if (next.timing.range != now.timing.range || now.lastEdge != edge) {
+                            effectRange = next
+                            val frame = next.timing.previewTime(edge)
+                            editor.pause(); playhead = frame; editor.seek(frame)
+                        }
+                    }
+                }
+            },
             pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
             moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(
@@ -1615,14 +1652,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val index = work.clipID?.let { id -> clips.indexOfFirst { it.id == id } }
             val bounds = if (index == null) 0.0..duration else TimelineEditing.clipRange(clips, index)
             if (bounds == null) titling = null else TitlePanel(
-                draft = work.title, existing = work.existing, change = { titling = work.copy(title = it) },
+                draft = work.title, existing = work.existing,
+                change = { next ->
+                    // Still on the frame the tool opened on, a new motion moves it to where the title is readable (YouRec/EditorTools.swift:296-305).
+                    if (next.motion != work.title.motion && !editor.playing && abs(playhead - titleOpening(edit, work.title, work.range, work.clipID).coerceIn(0.0, duration)) < 1e-5) {
+                        jump(titleOpening(edit, next, work.range, work.clipID).coerceIn(0.0, duration))
+                    }
+                    titling = work.copy(title = next)
+                },
                 range = work.range, bounds = bounds, setRange = { titling = work.copy(range = it) },
                 replay = { exit, title ->
                     // On the clips as they would be with the title as it is at this moment.
                     val moved = work.copy(title = title).applied(edit)?.clips ?: titled
                     val run = TitleMotionRanges(moved).range(title, work.range.start)
                     val motion = title.motion
-                    if (run != null && motion != null && title.text.isNotBlank()) {
+                    if (run != null && motion != null && title.hasText) {
                         val window = motion.previewWindow(exit, run.endInclusive - run.start)
                         val from = (run.start + window.start).coerceIn(0.0, duration)
                         val to = (run.start + window.endInclusive).coerceIn(0.0, duration)
@@ -1649,7 +1693,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (index != null) commit(TimelineEditing.removeText(edit, index, work.title.id), playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; titling = null },
-                modifier = Modifier.layoutId(EditorSlot.Tools),
+                modifier = Modifier.layoutId(EditorSlot.Tools), canvas = canvas,
             )
         } else if (imaging != null) {
             val work = imaging!!
@@ -1922,7 +1966,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val clip = clips.getOrNull(index)
                 when (region.tool) {
                     EditorTool.Text -> clip?.texts?.firstOrNull { it.id == region.effectID }?.let { title ->
-                        TimelineEditing.titleRange(clips, index, title)?.let { range -> titling = Titling(title, range, clip.id, title, range) }
+                        TimelineEditing.titleRange(clips, index, title)?.let { range -> jump(titleOpening(edit, title, range, clip.id).coerceIn(0.0, duration)); titling = Titling(title, range, clip.id, title, range) }
                     }
                     EditorTool.Image -> clip?.images?.firstOrNull { it.id == region.effectID }?.let { image -> Imaging.opening(clips, index, image)?.let { imaging = it } }
                     EditorTool.Color -> clip?.let { coloring = Coloring(saved, edit, listOf(it.id), null, null, it.color ?: ColorSettings()) }
@@ -1957,9 +2001,70 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val removeRegion: (ToolRegion, String) -> Unit = { region, label ->
                 ToolRegions.removing(edit, region)?.let { next -> commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(label) }
             }
+            // An effect's options (YouRec/EditorView.swift:1116-1155 at 57e5d91): its part on this clip, the selected
+            // clips or the marked range taken away; the whole effect opened or taken away; its range adjusted on the timeline.
+            val optionWords = EffectOptionWords(
+                removeThisClip = stringResource(R.string.effect_remove_this_clip), removeThisAudioClip = stringResource(R.string.effect_remove_this_audio_clip),
+                removeSelected = stringResource(R.string.effect_remove_selected_clips), removeMarked = stringResource(R.string.effect_remove_marked_range),
+                editWhole = stringResource(R.string.effect_edit_whole), adjust = stringResource(R.string.effect_adjust_range), removeWhole = stringResource(R.string.effect_remove_whole),
+            )
+            val regionOptions: (ToolRegion, String) -> List<ChipOption> = { region, label ->
+                val timeline = edit.toTimeline()
+                val marking = marks.range != null || marks.start != null || !marks.selected.isEmpty
+                val scope = if (!marking) null else {
+                    val chosen = marks.rangeTargets ?: marks.selected.takeIf { !it.isEmpty }
+                    TimelineSelection(
+                        chosen?.clips ?: timeline.video.mapTo(HashSet()) { it.id },
+                        chosen?.audio?.mapTo(HashSet()) { TrackSequenceView.soundID(edit, it) } ?: timeline.audio.mapTo(HashSet()) { it.id },
+                        marks.range?.let { EditInterval.of(it.start, it.end) },
+                    )
+                }
+                val audio = region.tool.isAudioRange
+                val selection = scope ?: TimelineSelection(video = if (audio) emptySet() else setOf(region.clipID), audio = if (audio) setOf(region.clipID) else emptySet())
+                val local = if (marks.start == null) ScopedEffectOperation.of(region, edit, selection, regions) else null
+                val trim = EffectRangeEdit.of(region, edit, playhead, regions)
+                fun removed(next: EditState) { if (next != edit) { commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(label) } }
+                buildList {
+                    local?.let { operation ->
+                        val words = when (operation.scopeName) {
+                            ScopedEffectOperation.ScopeName.MarkedRange -> optionWords.removeMarked
+                            ScopedEffectOperation.ScopeName.ThisClip -> optionWords.removeThisClip
+                            ScopedEffectOperation.ScopeName.ThisAudioClip -> optionWords.removeThisAudioClip
+                            ScopedEffectOperation.ScopeName.SelectedClips -> optionWords.removeSelected
+                        }
+                        add(ChipOption(words, Icons.Outlined.RemoveCircleOutline, destructive = true) { removed(operation.removing(edit)) })
+                    }
+                    add(ChipOption(optionWords.editWhole, Icons.Outlined.Tune) { openRegion(region) })
+                    trim?.let { draft -> add(ChipOption(optionWords.adjust, Icons.Outlined.SwapHoriz) { cancelPendingPlay(); editor.pause(); effectRange = draft }) }
+                    add(ChipOption(optionWords.removeWhole, Icons.Outlined.Delete, destructive = true) {
+                        val whole = ScopedEffectOperation.of(region, edit, null, regions)
+                        if (whole != null) removed(whole.removing(edit)) else removeRegion(region, label)
+                    })
+                }
+            }
             // In landscape the tools scroll beside the picture.
             Column(Modifier.layoutId(EditorSlot.Tools).then(if (landscape) Modifier.verticalScroll(toolRows) else Modifier)) {
-            SelectionBar(
+            val markedRange = marks.range
+            if (durationOpen && markedRange != null) {
+                val back = Snapshot.withoutReadObservation { playhead }
+                SelectionDurationDialog(
+                    markedRange.start..markedRange.end, 0.0..duration,
+                    show = { time -> editor.pause(); playhead = time; editor.seek(time) },
+                    cancel = { durationOpen = false; jump(back) },
+                    done = { range -> durationOpen = false; marks = marks.copy(range = TimeRange(range.start, range.endInclusive)); jump(range.start) },
+                )
+            }
+            effectRange?.let { draft ->
+                EffectRangeActions(
+                    cancel = { effectRange = null; jump(draft.originalPlayhead) },
+                    done = {
+                        effectRange = null
+                        val next = draft.applying(edit)
+                        if (next != edit) commit(next, draft.originalPlayhead.coerceAtMost(next.duration)) else jump(draft.originalPlayhead)
+                    },
+                )
+            }
+            if (effectRange == null) SelectionBar(
                 step = marks.step,
                 // On the frame grid, on a cut when one is near, and never inside a transition.
                 mark = if (duration <= 0) null else ({
@@ -1997,6 +2102,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     feedback = if (removed != null) deleted else nothingToDelete
                 }),
                 deleteLabel = if (!open && TrackComponents.leavesGap(edit, marks.selected)) R.string.selection_delete_gap else R.string.selection_delete,
+                editDuration = marks.range?.let { { editor.pause(); durationOpen = true } },
                 restoreSync = syncOffset?.let { off ->
                     SyncAction(signedSeconds(off.seconds)) {
                         TrackComponents.restoringSync(edit, off.audio)?.let { next -> commit(next, playhead); feedback = syncRestored }
@@ -2044,7 +2150,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val name = regionLabel(region)
                     TransitionChip(
                         name, stringResource(R.string.effect_chip_edit, name), adds = false, color = toolTint(region.tool),
-                        id = region.id, remove = { removeRegion(region, name) },
+                        id = region.id, remove = { removeRegion(region, name) }, options = { regionOptions(region, name) },
                     ) { openRegion(region) }
                 },
             )
@@ -2073,13 +2179,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val range = marks.range?.let { EditInterval.of(it.start, it.end) }
                 val sounds = remember(edit, toolScope, toolSounds, range) { soundSelection(edit, toolScope.clips, toolSounds, range) }
                 val canAdjust = duration > 0
+                val starterText = stringResource(R.string.title_starter)
                 val entries = mapOf(
                     SheetTool.AddVideo to SheetEntry(true) { editor.pause(); addSite = null; adding = true },
                     SheetTool.AddAudio to SheetEntry(clips.isNotEmpty()) { editor.pause(); addingAudio = playhead },
                     // Always a new title, also over another one: one that is there is opened from its bar or its chip. It starts at the
                     // playhead and stays three seconds of the movie, on every clip those seconds cover; over the marked range when there is one.
                     SheetTool.Title to SheetEntry(canAdjust && located != null) {
-                        if (clips.isNotEmpty()) titling = Titling(TextOverlay.fresh(), marks.range?.let { it.start..it.end } ?: TimelineEditing.newTitleRange(clips, playhead), null, null, null)
+                        if (clips.isNotEmpty()) {
+                            val fresh = TextOverlay.fresh(starterText)
+                            val range = marks.range?.let { it.start..it.end } ?: TimelineEditing.newTitleRange(clips, playhead)
+                            editor.pause()
+                            jump(titleOpening(edit, fresh, range, null).coerceIn(0.0, duration))
+                            titling = Titling(fresh, range, null, null, null)
+                        }
                     },
                     // A picture over the footage (EditorTools.swift:54): over the marked range, over the clips selected and on them alone,
                     // else three seconds from the playhead (EditorView.swift:1012-1016).
@@ -2531,4 +2644,20 @@ private fun linkErrorTexts(): Map<TimelineLinkError, String> = TimelineLinkError
             TimelineLinkError.TransitionBoundary -> R.string.link_transition_boundary
         },
     )
+}
+
+/** The words of an effect's options, read once where they are composed. */
+private class EffectOptionWords(
+    val removeThisClip: String, val removeThisAudioClip: String, val removeSelected: String, val removeMarked: String,
+    val editWhole: String, val adjust: String, val removeWhole: String,
+)
+
+/** "Drag either handle." with Cancel and Done, while an effect's range is adjusted (YouRec/EditorView.swift:1166-1191 at 57e5d91). */
+@Composable
+private fun EffectRangeActions(cancel: () -> Unit, done: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.effect_range_hint), Modifier.weight(1f), color = Color(0xFFA0A4AB), fontSize = 13.sp)
+        TextButton(onClick = cancel) { Text(stringResource(R.string.effect_range_cancel)) }
+        Button(onClick = done) { Text(stringResource(R.string.effect_range_done)) }
+    }
 }

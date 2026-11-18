@@ -67,6 +67,9 @@ data class VideoTimelineItem(
     val layer: Int = 0,
     val localOrigin: EditTime = EditTime.ZERO,
     val mapping: SourcePlaybackMap,
+    /** Effects authored across pieces, by id, including pieces split from one take (YouRec/TrackTimeline.swift:117-118). */
+    @Serializable(with = IdSetSerializer::class)
+    val spanningEffects: Set<String>? = null,
 ) {
     val id: String get() = content.id
     val end: EditTime get() = start + mapping.duration
@@ -122,6 +125,9 @@ data class AudioTimelineItem(
     val enhancements: List<AudioEnhancementRegion> = emptyList(),
     val censorRegions: List<AudioCensorRegion>? = null,
     val subtitleWords: List<SubtitleWord>? = null,
+    /** Effects authored across pieces, by id (YouRec/TrackTimeline.swift:175-176). */
+    @Serializable(with = IdSetSerializer::class)
+    val spanningEffects: Set<String>? = null,
 ) {
     val censors: List<AudioCensorRegion> get() = censorRegions.orEmpty()
     val end: EditTime get() = start + mapping.duration

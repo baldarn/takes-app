@@ -180,6 +180,17 @@ class SubtitlePlacement(val canvas: Size, val largest: Size) {
         return Rect(settings.centerX - width / 2, settings.y - height / 2, width, height)
     }
 
+    /**
+     * The series with its centre dragged to ([x], [y]), shares of the frame
+     * where the drag would put it: each axis snaps to the middle within 1.5 %
+     * of the frame ([OverlayPlacement.snappedCenter]), and the result is kept
+     * within the limits (YouRec/SubtitleEditor.swift:214-216).
+     */
+    fun dragged(value: SubtitleSettings, x: Double, y: Double): SubtitleSettings {
+        val (centerX, centerY) = OverlayPlacement.snappedCenter(x, y)
+        return constrained(value.copy(x = centerX, y = centerY))
+    }
+
     /** The series moved by [dx] and [dy], shares of the frame, within the limits (YouRec/SubtitleEditor.swift:190). */
     fun moved(value: SubtitleSettings, dx: Double, dy: Double): SubtitleSettings =
         constrained(value.copy(x = value.centerX + dx, y = value.y + dy))

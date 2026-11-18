@@ -416,7 +416,15 @@ object TrackClipboard {
                     color = content.color?.let { it.copy(id = fresh(it.id)) },
                     texts = content.texts?.map { it.copy(id = fresh(it.id)) },
                     images = content.images?.map { it.copy(id = fresh(it.id)) },
+                    // A pasted grade, effect or framing is independent of the original footage (YouRec/TrackTimeline.swift:1557-1569).
+                    colorRegions = content.colorRegions?.map { it.copy(grade = it.grade.copy(id = fresh(it.grade.id))) },
+                    videoEffects = content.videoEffects?.map { effect ->
+                        (if (effect.analysisFile != null) effect.copy(capturedEffectID = effect.analysisID) else effect).copy(id = fresh(effect.id))
+                    },
+                    effectWindows = content.effectWindows?.mapKeys { fresh(it.key) },
+                    framingVariants = content.framingVariants?.map { it.identified(fresh(it.id)) },
                 ),
+                spanningEffects = item.spanningEffects?.mapTo(LinkedHashSet(), ::fresh),
             )
         }
         val audio = addition.audio.map { item ->
@@ -428,6 +436,7 @@ object TrackClipboard {
                 subtitleWords = item.subtitleWords?.map { it.copy(id = fresh(it.id), phraseID = fresh(it.phraseID)) },
                 enhancements = item.enhancements.map { it.copy(id = fresh(it.id)) },
                 censorRegions = item.censorRegions?.map { it.copy(id = fresh(it.id)) },
+                spanningEffects = item.spanningEffects?.mapTo(LinkedHashSet(), ::fresh),
             )
         }
         val links = addition.links.map { TimelineLink(members = it.members.mapTo(LinkedHashSet(), ::fresh)) }

@@ -155,7 +155,13 @@ object PictureFraming {
         canvas: Size,
         mirror: MirrorSettings? = clip.mirror,
         cuts: List<SourceInterval> = emptyList(),
-    ): PictureFrame = frame(clip.crop, motionTime(clip, offset, cuts), source, canvas, mirror)
+    ): PictureFrame {
+        val time = motionTime(clip, offset, cuts)
+        if (!clip.scopedFraming) return frame(clip.crop, time, source, canvas, mirror)
+        // Only the framing in force at the frame, inside its active range (YouRec/VideoToolCompositor.swift:204-220).
+        val shown = clip.framingAt(clip.gradeTime(offset))
+        return frame(shown.crop, time, source, canvas, if (mirror === clip.mirror) shown.mirror else mirror)
+    }
 
     /** The frame of a framing at a source second. A moving [crop] is sampled there. */
     fun frame(crop: CropSettings?, sourceTime: Double, source: Size, canvas: Size, mirror: MirrorSettings? = null): PictureFrame {

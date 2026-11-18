@@ -193,7 +193,7 @@ class YouRecRestoreTest {
 
     @Test fun aManifestTheOriginalWouldRefuseIsRefused() {
         val fixture = YouRecFixtures.load("takes")
-        val broken = YouRecFixtures.Fixture(fixture.manifest.decodeToString().replace("\"schemaVersion\":6", "\"schemaVersion\":13").toByteArray(), fixture.steps)
+        val broken = YouRecFixtures.Fixture(fixture.manifest.decodeToString().replace("\"schemaVersion\":6", "\"schemaVersion\":17").toByteArray(), fixture.steps)
         val files = media("takes")
         val data = YouRecFixtures.zip(broken, files, YouRecFixtures.integrity(files.mapValues { sha256(it.value) }, 1))
         val error = assertThrows(ProjectException::class.java) { restore(data) }

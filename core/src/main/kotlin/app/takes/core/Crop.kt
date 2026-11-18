@@ -22,6 +22,11 @@ data class CropSettings(
     val rotation: Double = 0.0,
     /** A move between two framings. While set, it decides what is shown; see [at]. */
     val motion: EffectAnimation? = null,
+    /**
+     * The source seconds in which the crop applies, when it applies to part of
+     * the clip only (YouRec/VideoTools.swift:13). Null: the whole clip.
+     */
+    val activeRange: SourceInterval? = null,
 ) {
     private val radians: Double get() = rotation * Math.PI / 180
 
@@ -112,7 +117,13 @@ data class CropSettings(
 
 /** Flips in output space. */
 @Serializable
-data class MirrorSettings(val id: String = newID(), val horizontal: Boolean = false, val vertical: Boolean = false) {
+data class MirrorSettings(
+    val id: String = newID(),
+    val horizontal: Boolean = false,
+    val vertical: Boolean = false,
+    /** The source seconds in which the flip applies, when it applies to part of the clip only (YouRec/VideoTools.swift:81). */
+    val activeRange: SourceInterval? = null,
+) {
     fun transform(canvas: Size): Affine = Affine(
         if (horizontal) -1.0 else 1.0, 0.0, 0.0, if (vertical) -1.0 else 1.0,
         if (horizontal) canvas.width else 0.0, if (vertical) canvas.height else 0.0,

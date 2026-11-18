@@ -23,12 +23,13 @@ val TrackTimeline.projectedClips: List<TimelineClip>
             val leaving = leavings[item.id]
             val content = item.content
             val bare = content.transition == null && content.openingTransition == null && content.transitionFit == null && content.openingTransitionFit == null
-            if (opening == null && leaving == null && bare) content
+            if (opening == null && leaving == null && bare && item.spanningEffects == null) content
             else content.copy(
                 openingTransition = opening?.settings,
                 openingTransitionFit = opening?.let { TransitionFit(it.factor) },
                 transition = leaving?.settings?.copy(nextClipID = leaving.incoming),
                 transitionFit = leaving?.let { TransitionFit(it.factor) },
+                spanningEffects = item.spanningEffects,
             )
         }
     }
@@ -881,12 +882,12 @@ object TrackEditing {
             val before = video[index]
             val clean = content.copy(
                 openingTransition = null, transition = null, openingTransitionFit = null, transitionFit = null,
-                audio = null, bookmarks = null, subtitleWords = null,
+                audio = null, bookmarks = null, subtitleWords = null, spanningEffects = null,
             )
             val derived = SourcePlaybackMap.of(clean)
             val timingChanged = derived != SourcePlaybackMap.of(before.content)
             val difference = if (timingChanged) derived.duration - before.mapping.duration else EditTime.ZERO
-            video[index] = before.copy(content = clean, mapping = if (timingChanged) derived else before.mapping)
+            video[index] = before.copy(content = clean, mapping = if (timingChanged) derived else before.mapping, spanningEffects = content.spanningEffects)
             if (difference == EditTime.ZERO) continue
             retimed += content.id
             val group = links.firstOrNull { content.id in it.members } ?: continue

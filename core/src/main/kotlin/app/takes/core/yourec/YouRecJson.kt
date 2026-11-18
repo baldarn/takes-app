@@ -75,21 +75,31 @@ internal object YouRecJson {
         }
         result.remove("style")
         result.remove("color")
-        val words = (text["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        if (words != null && words.length > TITLE_LENGTH) {
-            // Never half of a character made of two UTF-16 units.
-            val end = if (Character.isHighSurrogate(words[TITLE_LENGTH - 1])) TITLE_LENGTH - 1 else TITLE_LENGTH
-            result["text"] = JsonPrimitive(words.substring(0, end))
-            shortened()
+        shorten(text["text"])?.let { result["text"] = it; shortened() }
+        // A card's label is held to the same length (YouRec/TitleDesign.swift:200).
+        (text["labelHeadline"] as? JsonObject)?.let { group ->
+            shorten(group["label"])?.let { result["labelHeadline"] = JsonObject(LinkedHashMap(group).apply { put("label", it) }); shortened() }
         }
         return JsonObject(result)
     }
 
-    /** A `TimelineClip`: only its titles differ. */
+    /** [element], a string longer than Takes allows a title, cut to [TITLE_LENGTH]; null when it is not one. */
+    private fun shorten(element: kotlinx.serialization.json.JsonElement?): JsonPrimitive? {
+        val words = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        if (words.length <= TITLE_LENGTH) return null
+        // Never half of a character made of two UTF-16 units.
+        val end = if (Character.isHighSurrogate(words[TITLE_LENGTH - 1])) TITLE_LENGTH - 1 else TITLE_LENGTH
+        return JsonPrimitive(words.substring(0, end))
+    }
+
+    /** A `TimelineClip`: its titles, and its effect windows, a dictionary keyed by UUID (T4; YouRec/Project.swift:61-63). */
     fun timelineClipToTakes(clip: JsonObject, shortened: () -> Unit): JsonObject {
-        val texts = clip["texts"] as? JsonArray ?: return clip
+        val texts = clip["texts"] as? JsonArray
+        val windows = clip["effectWindows"]?.takeIf { it !is kotlinx.serialization.json.JsonNull }
+        if (texts == null && windows == null) return clip
         return JsonObject(LinkedHashMap(clip).apply {
-            put("texts", JsonArray(texts.map { textOverlayToTakes(it as? JsonObject ?: throw YouRecFormatException("A title is not an object"), shortened) }))
+            if (texts != null) put("texts", JsonArray(texts.map { textOverlayToTakes(it as? JsonObject ?: throw YouRecFormatException("A title is not an object"), shortened) }))
+            if (windows != null) put("effectWindows", flatDictionaryToObject(windows))
         })
     }
 
@@ -154,9 +164,10 @@ internal object YouRecJson {
     /** The keys of a Takes clip that only its sequence form has (TrackConversion.kt:78-81); the original has none of them. */
     private val SEQUENCE_ONLY = listOf("audio", "bookmarks", "subtitleWords", "transitionFit", "openingTransitionFit")
 
-    /** A `TimelineClip` as the original reads it: without the sequence form's keys, its titles and transitions completed. */
+    /** A `TimelineClip` as the original reads it: without the sequence form's keys, its titles and transitions completed, its windows a flat dictionary. */
     fun timelineClipToYouRec(clip: JsonObject): JsonObject = JsonObject(LinkedHashMap(clip).apply {
         SEQUENCE_ONLY.forEach { remove(it) }
+        (clip["effectWindows"] as? JsonObject)?.let { put("effectWindows", objectToFlatDictionary(it)) }
         (clip["texts"] as? JsonArray)?.let { texts -> put("texts", JsonArray(texts.map { textOverlayToYouRec(it as JsonObject) })) }
         for (key in listOf("transition", "openingTransition")) (clip[key] as? JsonObject)?.let { put(key, clipTransitionToYouRec(it)) }
     })

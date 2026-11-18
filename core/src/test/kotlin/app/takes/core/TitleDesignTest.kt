@@ -51,41 +51,12 @@ class TitleDesignTest {
         assertEquals(motion, documentJson.decodeFromString(TitleMotion.serializer(), documentJson.encodeToString(TitleMotion.serializer(), motion)))
     }
 
-    @Test fun durationPresetsNeverMoveStartOrRoundTheLength() {
-        var timing = OverlayTiming(3.125..6.125, 1.25..70.38)
-        for (seconds in EditorDurationPresets.wholeSeconds) {
-            assertTrue(EditorDurationPresets.fits(seconds, timing.available))
-            timing = timing.setting(OverlayTiming.Edge.End, timing.range.start + seconds)
-            assertEquals(3.125..(3.125 + seconds), timing.range)
-        }
-        timing = timing.setting(OverlayTiming.Edge.Start, 62.0)
-        // Overlong presets must not change Start.
-        assertTrue(!EditorDurationPresets.fits(9.0, timing.available) && EditorDurationPresets.fits(8.0, timing.available))
-        timing = timing.setting(OverlayTiming.Edge.End, timing.time(1.0, OverlayTiming.Edge.End))
-        // A fractional final boundary must be reachable.
-        assertEquals(timing.bounds.endInclusive, timing.range.endInclusive, 0.0)
-        timing = timing.setting(OverlayTiming.Edge.End, timing.time(0.0, OverlayTiming.Edge.End))
-        // Dragging End past Start must preserve a frame.
-        assertEquals(frame, timing.duration, 0.000001)
-    }
-
-    @Test fun tinyTrimRangeStaysInsideItsBounds() {
-        for (length in listOf(0.0, frame / 2, frame, frame * 1.4)) {
-            val bounds = 8.125..(8.125 + length)
-            var short = OverlayTiming(bounds, bounds)
-            for (edge in OverlayTiming.Edge.entries) for (fraction in listOf(0.0, 0.1, 0.95, 1.0)) {
-                short = short.setting(edge, short.time(fraction, edge))
-                assertTrue(short.range.start in bounds && short.range.endInclusive in bounds && short.duration + 0.000001 >= minOf(length, frame))
-            }
-        }
-    }
-
     // Own tests.
 
     @Test fun defaultsAreValidAndRangesAreEnforced() {
         val d = TitleDesign()
         assertTrue(d.valid)
-        for ((_, look) in TitleDesign.looks) assertTrue(look.valid)
+        for (look in TitleDesign.looks) assertTrue(look.design.valid)
         assertFalse(d.copy(face = "").valid)
         assertFalse(d.copy(face = "é".repeat(128)).valid) // 256 bytes
         assertTrue(d.copy(face = "é".repeat(127)).valid)
@@ -171,7 +142,7 @@ class TitleDesignTest {
 
     @Test fun lookKeepsTheOutlineAndLayoutKeyIgnoresColor() {
         val outlined = TitleDesign(outlined = true, border = TitleInk.opaque(0xff0000), borderWidth = 0.1)
-        val next = outlined.applyingLook(TitleDesign.looks[2].second)
+        val next = outlined.applyingLook(TitleDesign.looks.first { it.name == "Field report" }.design)
         assertEquals("barlowcondensed", next.face)
         assertTrue(next.outlined && next.border == outlined.border && next.borderWidth == 0.1)
         assertEquals(TitleDesign().layoutKey, TitleDesign(fill = TitleInk.opaque(0x00ff00), gradient = TitleGradient.gallery[3].second).layoutKey)
@@ -189,8 +160,64 @@ class TitleDesignTest {
         assertEquals("BarlowCondensed-Italic", TitleTypeface.resourceName(TitleDesign(face = "barlowcondensed", weight = 400, italic = true)))
         assertEquals("IBMPlexMono-Medium", TitleTypeface.resourceName(TitleDesign(face = "ibmplexmono", weight = 500)))
         assertEquals("IBMPlexMono-MediumItalic", TitleTypeface.resourceName(TitleDesign(face = "ibmplexmono", weight = 500, italic = true)))
+        // The two families added with the original's 24 looks (YouRec/TitleDesign.swift:313-314): one variable file each, upright and italic.
+        assertEquals("BodoniModa-Italic", TitleTypeface.resourceName(TitleDesign(face = "bodonimoda", weight = 800, italic = true)))
+        assertEquals("BodoniModa-Regular", TitleTypeface.resourceName(TitleDesign(face = "bodonimoda", weight = 600)))
+        assertEquals("Unbounded-Regular", TitleTypeface.resourceName(TitleDesign(face = "unbounded", weight = 500, italic = true)))
+        assertEquals(listOf("system", "atkinsonhyperlegiblenext", "barlowcondensed", "archivoblack", "sourceserif4", "fraunces", "ibmplexmono", "bodonimoda", "unbounded", "caveat"),
+            TitleTypeface.families.map { it.id })
         assertEquals("Georgia-Bold", TitleTypeface.resourceName(TitleDesign(face = "Georgia-Bold")))
-        for ((_, look) in TitleDesign.looks) assertTrue(TitleTypeface.family(look.face)!!.weights.contains(look.weight) || look.face == "archivoblack")
+        for (look in TitleDesign.looks) assertTrue(TitleTypeface.family(look.design.face)!!.weights.contains(look.design.weight))
+    }
+
+    // Tests/TitleDesignTests.swift:150-171: 24 single-text looks, six in each of four collections.
+    @Test fun twentyFourLooksInFourCollections() {
+        val looks = TitleDesign.looks
+        assertEquals(24, looks.size)
+        assertEquals("Single text look names must be unique in the gallery", looks.size, looks.map { it.name }.toSet().size)
+        for (collection in TitleLookCollection.entries) {
+            val inCollection = looks.filter { it.collection == collection }
+            assertEquals(collection.title + " must have six distinct choices", 6, inCollection.size)
+            assertTrue(collection.title + " must include a look that lets the footage show through its backing",
+                inCollection.any { it.design.plate != TitlePlate.Off && it.design.backing.alpha in 0.3..0.9 })
+        }
+        assertEquals(listOf("Editorial", "Cinema", "Print", "Display"), TitleLookCollection.entries.map { it.title })
+        val design = TitleDesign(outlined = true, border = TitleInk.opaque(0x123456), borderWidth = 0.09)
+        for ((_, name, preset) in looks) {
+            assertTrue("$name must use an available font and weight", preset.valid && TitleTypeface.families.any { family ->
+                family.id == preset.face && preset.weight in family.weights && (!preset.italic || family.slanted != null)
+            })
+            val applied = design.applyingLook(preset)
+            assertTrue("$name must keep the user's outline", applied.outlined && applied.border == design.border && applied.borderWidth == design.borderWidth)
+            val restored = documentJson.decodeFromString(TitleDesign.serializer(), documentJson.encodeToString(TitleDesign.serializer(), applied))
+            assertEquals("$name must survive saving and reopening", applied, restored)
+        }
+        assertEquals("No two looks are the same design", looks.size, looks.map { it.design }.toSet().size)
+    }
+
+    // YouRec/TitleInspector.swift:113-117: rows of six, three, two or one tile, so a collection's six fill whole rows.
+    @Test fun theGalleryKeepsItsRowsEven() {
+        assertEquals(1, TitleLookCollection.columns(200.0))
+        assertEquals(2, TitleLookCollection.columns(252.0))
+        assertEquals(2, TitleLookCollection.columns(380.0)) // room for three, but three is the next that divides six
+        assertEquals(3, TitleLookCollection.columns(382.0))
+        assertEquals(3, TitleLookCollection.columns(700.0)) // room for five
+        assertEquals(6, TitleLookCollection.columns(772.0))
+        assertEquals(1, TitleLookCollection.columns(0.0))
+    }
+
+    // YouRec/TitleDesign.swift:110-176, a few of the looks' numbers as the original writes them.
+    @Test fun theLooksHoldTheOriginalsNumbers() {
+        val byName = TitleDesign.looks.associateBy { it.name }
+        assertEquals(TitleInk(0x112238, alpha = 102), byName.getValue("Night drive").design.backing)
+        assertEquals(TitleGradient(0xF4F8FC, 0xA9CDFA, 90.0), byName.getValue("Night drive").design.gradient)
+        assertEquals(0.80, byName.getValue("Lilac gel").design.radius, 0.0)
+        assertEquals(TitleLookCollection.Cinema, byName.getValue("Matinée").collection)
+        assertTrue(byName.getValue("Daylight").design.italic && byName.getValue("Daylight").design.face == "bodonimoda")
+        assertEquals(TitleInk.opaque(0xD9FA68), byName.getValue("Highlighter").design.backing)
+        assertEquals("system", byName.getValue("Interview").design.face)
+        assertEquals(listOf("Clean", "Field report", "Dateline", "Caption box", "Pull quote", "Interview"),
+            TitleDesign.looks.filter { it.collection == TitleLookCollection.Editorial }.map { it.name })
     }
 
     @Test fun importedFaceReferencesAreParsed() {
@@ -283,10 +310,10 @@ class TitleProjectTest {
 
     @Test fun aDesignOrAMotionRaisesTheSchemaSoOlderReadersRefuse() {
         val plain = TextOverlay(id = "T", text = "Hello", start = 1.0, end = 3.0)
-        for (title in listOf(plain.copy(appearance = TitleDesign()), plain.copy(motion = fade), plain.copy(appearance = TitleDesign.looks[2].second, motion = fade))) {
+        for (title in listOf(plain.copy(appearance = TitleDesign()), plain.copy(motion = fade), plain.copy(appearance = TitleDesign.looks.first { it.name == "Field report" }.design, motion = fade))) {
             val project = project(title)
             assertEquals(12, project.schemaVersion)
-            assertEquals(24, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23), then stabilisation (24)
+            assertEquals(26, Project.LATEST_READABLE_SCHEMA) // the nine transitions, turned or moving crops, fades cut by a split and the timeline and timelines that are no sequence came after, held frames and time effects after them, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23), then stabilisation (24), then cards of a label and a headline (25), then effects on part of a clip or across pieces (26)
             project.validate()
             val files = mutableMapOf<String, ByteArray>()
             val manifest = project.manifest { name, data -> files[name] = data }
@@ -333,12 +360,12 @@ class TitleProjectTest {
         assertEquals(TitleDesign(), fresh.design)
         assertTrue(fresh.design.shadow && !fresh.design.outlined)
         assertEquals(0.045, fresh.design.borderWidth, 0.0)
-        assertEquals("", fresh.text)
+        assertEquals(TextOverlay.STARTER_TEXT, fresh.text)
         assertTrue(fresh.valid && fresh.styled)
         // Saved, the design is written out, so the project is one older versions refuse instead of drawing an outline.
         val project = project(fresh.copy(id = "N", text = "New", start = 1.0, end = 4.0))
         assertEquals(12, project.schemaVersion)
-        assertTrue(project.snapshots[1].data().decodeToString().contains(""""id":"N","text":"New","start":1.0,"end":4.0,"x":0.5,"y":0.5,"size":0.065,"appearance":{"face":"system","weight":700,"""))
+        assertTrue(project.snapshots[1].data().decodeToString().contains(""""id":"N","text":"New","start":1.0,"end":4.0,"x":0.5,"y":0.5,"size":0.1,"appearance":{"face":"system","weight":700,"""))
         // A title of an older project has no design and still starts the tools from its outlined look.
         val older = TextOverlay(id = "T", text = "Hello", start = 1.0, end = 3.0)
         assertNull(older.appearance)
@@ -545,7 +572,7 @@ class TitleProjectTest {
 
 class TitleLibraryTest {
     @Test fun aStyleIsSavedFirstUnderAUniqueName() {
-        val lower = TitleDesign.looks[2].second
+        val lower = TitleDesign.looks.first { it.name == "Field report" }.design
         var saved = TitleLibrary.saving(null, "  My channel ", lower)
         saved = TitleLibrary.saving(saved, "Second", TitleDesign(face = "caveat"))
         val looks = TitleLibrary.looks(saved)

@@ -77,10 +77,11 @@ object TrackConversion {
                 start = EditTime(starts[index]),
                 content = clip.copy(
                     transition = null, openingTransition = null, transitionFit = null, openingTransitionFit = null,
-                    audio = null, bookmarks = null, subtitleWords = null,
+                    audio = null, bookmarks = null, subtitleWords = null, spanningEffects = null,
                 ),
                 layer = index,
                 mapping = SourcePlaybackMap.of(clip, EditTime(lengths[index])),
+                spanningEffects = clip.spanningEffects,
             )
         }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardTab
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
@@ -69,6 +71,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -82,9 +85,14 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.takes.core.EditState
 import app.takes.core.EditorDurationPresets
 import app.takes.core.ImportedFontFile
-import app.takes.core.OverlayTiming
+import app.takes.core.LabelHeadline
+import app.takes.core.LabelHeadlineLook
+import app.takes.core.TitleCard
+import app.takes.core.OverlayOpening
+import app.takes.core.EditorRangeTiming
 import app.takes.core.Size
 import app.takes.core.TextColor
 import app.takes.core.TextOverlay
@@ -94,9 +102,11 @@ import app.takes.core.TitleDirection
 import app.takes.core.TitleGradient
 import app.takes.core.TitleInk
 import app.takes.core.TitleLibrary
+import app.takes.core.TitleLookCollection
 import app.takes.core.TitleMotion
 import app.takes.core.TitleMove
 import app.takes.core.TitlePlate
+import app.takes.core.TimelineEditing
 import app.takes.core.TitleTypeface
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -122,14 +132,37 @@ private enum class TitleTab(val label: Int, val icon: ImageVector) {
 /** The built-in looks and gradients are named in the model in English; these are their names on screen. */
 private fun lookLabel(name: String): Int? = when (name) {
     "Clean" -> R.string.title_look_clean
-    "Film title" -> R.string.title_look_film
-    "Lower third" -> R.string.title_look_lower_third
-    "Headline" -> R.string.title_look_headline
-    "Field note" -> R.string.title_look_field_note
+    "Field report" -> R.string.title_look_field_report
     "Dateline" -> R.string.title_look_dateline
-    "Warm editorial" -> R.string.title_look_warm_editorial
-    "Sunset mono" -> R.string.title_look_sunset_mono
+    "Caption box" -> R.string.title_look_caption_box
+    "Pull quote" -> R.string.title_look_pull_quote
+    "Interview" -> R.string.title_look_interview
+    "Film title" -> R.string.title_look_film
+    "Opening credit" -> R.string.title_look_opening_credit
+    "Intertitle" -> R.string.title_look_intertitle
+    "Daylight" -> R.string.title_look_daylight
+    "Night drive" -> R.string.title_look_night_drive
+    "Matinée" -> R.string.title_look_matinee
+    "Headline" -> R.string.title_look_headline
+    "Magazine italic" -> R.string.title_look_magazine_italic
+    "Source note" -> R.string.title_look_source_note
+    "Masthead" -> R.string.title_look_masthead
+    "Clothbound" -> R.string.title_look_clothbound
+    "Field note" -> R.string.title_look_field_note
+    "Gaffer tape" -> R.string.title_look_gaffer_tape
+    "Highlighter" -> R.string.title_look_highlighter
+    "Afterglow" -> R.string.title_look_afterglow
+    "Wide type" -> R.string.title_look_wide_type
+    "Flyer" -> R.string.title_look_flyer
+    "Lilac gel" -> R.string.title_look_lilac_gel
     else -> null
+}
+
+private fun collectionLabel(collection: TitleLookCollection): Int = when (collection) {
+    TitleLookCollection.Editorial -> R.string.title_collection_editorial
+    TitleLookCollection.Cinema -> R.string.title_collection_cinema
+    TitleLookCollection.Print -> R.string.title_collection_print
+    TitleLookCollection.Display -> R.string.title_collection_display
 }
 
 private fun gradientLabel(name: String): Int? = when (name) {
@@ -168,8 +201,10 @@ private class TitleMemory(context: Context) {
     var looks by mutableStateOf(prefs.getString(TitleLibrary.LOOKS_KEY, null)); private set
     var favorites by mutableStateOf(prefs.getString(TitleLibrary.FAVORITES_KEY, null)); private set
     var colors by mutableStateOf(prefs.getString(TitleLibrary.RECENT_COLORS_KEY, null)); private set
+    var cards by mutableStateOf(prefs.getString(TitleLibrary.CARD_LOOKS_KEY, null)); private set
 
     fun saveLooks(text: String) { looks = text; prefs.edit().putString(TitleLibrary.LOOKS_KEY, text).apply() }
+    fun saveCards(text: String) { cards = text; prefs.edit().putString(TitleLibrary.CARD_LOOKS_KEY, text).apply() }
     fun saveFavorites(text: String) { favorites = text; prefs.edit().putString(TitleLibrary.FAVORITES_KEY, text).apply() }
     fun remember(ink: TitleInk) {
         val text = TitleLibrary.remembering(colors, ink)
@@ -188,15 +223,52 @@ private class TitleMemory(context: Context) {
  * @param bounds the seconds of the movie it may cover: all of it for a new title, the clip of the piece that was opened for an existing one.
  * @param replay plays one end of the title's motion; the title is passed as it is at that moment.
  * @param sample a picture of the frame under the playhead to take a color from, or null when it cannot be read.
+ * @param canvas the movie's frame in pixels, which sets the size a title takes when it becomes a card.
  */
 @Composable
 fun TitlePanel(
     draft: TextOverlay, existing: TextOverlay?, change: (TextOverlay) -> Unit,
     range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, setRange: (ClosedFloatingPointRange<Double>) -> Unit,
     replay: (exit: Boolean, title: TextOverlay) -> Unit, sample: suspend () -> Bitmap?,
-    done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
+    done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier, canvas: Pair<Int, Int>? = null,
 ) {
     var showPosition by remember { mutableStateOf(false) }
+    val starterText = stringResource(R.string.title_starter)
+    // A new title holds the starter words, shown as the field's prompt so typing replaces them in one step; kept when
+    // the layout changes until something is typed (YouRec/EditorTools.swift:1236-1242, 1541-1548).
+    var example by remember { mutableStateOf(if (existing == null) draft.text else null) }
+    // What a card's tools edit, and what the other layout was, to go back to it (YouRec/EditorTools.swift:1232-1236, 1599-1618).
+    var part by remember { mutableStateOf(LabelHeadline.Part.Headline) }
+    var previousGroup by remember { mutableStateOf<LabelHeadline?>(null) }
+    var previousGroupSize by remember { mutableStateOf<Double?>(null) }
+    var previousTextSize by remember { mutableStateOf<Double?>(null) }
+    var showMotion by remember { mutableStateOf(false) }
+    val firstText = stringResource(R.string.title_card_label_default)
+    val secondText = stringResource(R.string.title_card_headline_default)
+    val group = draft.labelHeadline
+    val grouped = group != null
+    val editsText = !grouped || part != LabelHeadline.Part.Card
+    val isLabel = grouped && part == LabelHeadline.Part.Label
+
+    fun changeLayout(toGroup: Boolean) {
+        if (toGroup && draft.labelHeadline == null) {
+            previousTextSize = draft.size
+            var next = draft.copy(labelHeadline = previousGroup ?: LabelHeadline(label = firstText))
+            if (example != null || (draft.text.isEmpty() && previousGroup == null)) {
+                example = draft.text
+                next = next.copy(text = secondText)
+            }
+            val shortSide = canvas?.let { maxOf(1, minOf(it.first, it.second)).toDouble() } ?: 1.0
+            val wide = canvas?.let { it.first / shortSide } ?: 1.0
+            change(next.copy(size = previousGroupSize ?: minOf(0.20, 0.14 * maxOf(1.0, wide))))
+            part = LabelHeadline.Part.Headline
+        } else if (!toGroup && draft.labelHeadline != null) {
+            previousGroup = draft.labelHeadline
+            previousGroupSize = draft.size
+            change(draft.copy(labelHeadline = null, text = example ?: draft.text, size = previousTextSize ?: draft.size))
+        }
+    }
+    fun changeGroup(next: LabelHeadline) = change(draft.copy(labelHeadline = next))
 
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -204,22 +276,67 @@ fun TitlePanel(
             Text(stringResource(if (existing == null) R.string.title_add else R.string.title_edit), color = Color.White, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
             if (existing != null) TextButton(onClick = remove) { Text(stringResource(R.string.common_remove), color = RecordRed) }
-            TextButton(onClick = done, enabled = draft.text.isNotBlank()) { Text(stringResource(R.string.common_done)) }
+            TextButton(onClick = done, enabled = draft.hasText) { Text(stringResource(R.string.common_done)) }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val write = stringResource(R.string.title_write)
-            OutlinedTextField(
-                draft.text, { change(draft.copy(text = it.take(500))) }, Modifier.fillMaxWidth().semantics { contentDescription = write },
-                placeholder = { Text(write) }, maxLines = 4,
-            )
+            // One text, or a label and a headline on a card (YouRec/EditorTools.swift:1527-1537).
+            val layoutName = stringResource(R.string.title_layout)
+            Box(Modifier.semantics { contentDescription = layoutName }) {
+                Segments(listOf(stringResource(R.string.title_layout_single) to false, stringResource(R.string.title_layout_card) to true), grouped) { changeLayout(it) }
+            }
+            if (grouped) {
+                val partName = stringResource(R.string.title_part)
+                Box(Modifier.semantics { contentDescription = partName }) {
+                    Segments(LabelHeadline.Part.entries.map { stringResource(partLabel(it)) to it }, part) { part = it }
+                }
+            }
+            if (editsText) {
+                val prompt = stringResource(if (!grouped) R.string.title_write else if (isLabel) R.string.title_part_label else R.string.title_part_headline)
+                val starter = !grouped && example != null && example == starterText && draft.text == starterText
+                val shown = if (isLabel) group?.label.orEmpty() else if (starter) "" else draft.text
+                OutlinedTextField(
+                    shown,
+                    { value ->
+                        val limited = value.take(500)
+                        if (isLabel) group?.let { changeGroup(it.copy(label = limited)) } else { example = null; change(draft.copy(text = limited)) }
+                    },
+                    Modifier.fillMaxWidth().semantics { contentDescription = prompt },
+                    placeholder = { if (starter) Text(starterText, color = Color.White) else Text(prompt) }, maxLines = 4,
+                )
+            }
+            if (group != null) {
+                CardLooks(group, draft.text, ::changeGroup)
+                if (editsText) {
+                    if (isLabel) Amount(stringResource(R.string.title_label_size), group.labelScale, 0.2..1.0) { changeGroup(group.copy(labelScale = it)) }
+                    else Amount(stringResource(R.string.title_headline_size), group.headlineScale, 0.5..1.8) { changeGroup(group.copy(headlineScale = it)) }
+                } else {
+                    CardControls(group, sample, ::changeGroup)
+                }
+            }
             DurationPicker(range, bounds, setRange)
-            TitleInspector(
-                appearance = draft.appearance, setDesign = { change(draft.copy(appearance = it)) },
-                motion = draft.motion, setMotion = { change(draft.copy(motion = it)) },
-                words = draft.text, replay = { exit, motion -> replay(exit, draft.copy(motion = motion)) }, sample = sample,
-            )
+            if (editsText) {
+                val style = if (group == null) draft.appearance else if (isLabel) group.labelStyle else group.headlineStyle
+                TitleInspector(
+                    appearance = style,
+                    setDesign = { next ->
+                        when {
+                            group == null -> change(draft.copy(appearance = next))
+                            isLabel -> changeGroup(group.copy(labelStyle = next))
+                            else -> changeGroup(group.copy(headlineStyle = next))
+                        }
+                    },
+                    motion = draft.motion, setMotion = { change(draft.copy(motion = it)) },
+                    words = if (isLabel) group?.label.orEmpty() else draft.text, replay = { exit, motion -> replay(exit, draft.copy(motion = motion)) }, sample = sample,
+                    showsMotion = !grouped, showsLooks = !grouped,
+                )
+            }
+            if (grouped) {
+                // The card arrives and leaves as one title (YouRec/EditorTools.swift:1576-1580).
+                Disclosure(stringResource(R.string.title_motion_group), showMotion) { showMotion = !showMotion }
+                if (showMotion) Motion(draft.motion, { change(draft.copy(motion = it)) }) { exit, motion -> replay(exit, draft.copy(motion = motion)) }
+            }
             Text(stringResource(R.string.title_drag_hint), color = Soft, fontSize = 12.sp)
-            Amount(stringResource(R.string.title_size), draft.size, 0.02..0.3, 0.001, label = "") { change(draft.copy(size = it)) }
+            Amount(stringResource(if (grouped) R.string.title_whole_size else R.string.title_size), draft.size, 0.02..0.3, 0.001, label = "") { change(draft.copy(size = it)) }
             Disclosure(stringResource(R.string.title_position), showPosition) { showPosition = !showPosition }
             if (showPosition) {
                 Amount(stringResource(R.string.title_across), draft.x, 0.0..1.0, 0.001, label = "") { change(draft.copy(x = it)) }
@@ -229,6 +346,20 @@ fun TitlePanel(
             Spacer(Modifier.height(8.dp))
         }
     }
+}
+
+/**
+ * The movie second the Title tool opens [title] on, a paused frame over the
+ * footage it covers, where it is readable (YouRec/EditorTools.swift:308-320):
+ * every clip for a new title, the clip [clipID] for one opened from its bar.
+ * [edit] is the edit before the title is placed over [range].
+ */
+internal fun titleOpening(edit: EditState, title: TextOverlay, range: ClosedFloatingPointRange<Double>, clipID: String?): Double {
+    val clips = edit.clips
+    val placements = TimelineEditing.layout(clips).placements
+    val footage = clips.indices.filter { clipID == null || clips[it].id == clipID }.mapNotNull { index -> placements.getOrNull(index)?.let { it.start..it.end } }
+    val placed = TimelineEditing.placeTitle(edit, title, range, clipID?.let { setOf(it) })?.clips ?: clips
+    return OverlayOpening.title(placed, title, range, footage)
 }
 
 /**
@@ -245,16 +376,22 @@ fun TitlePanel(
 fun TitleInspector(
     appearance: TitleDesign?, setDesign: (TitleDesign) -> Unit, motion: TitleMotion?, setMotion: (TitleMotion) -> Unit,
     words: String, replay: (exit: Boolean, motion: TitleMotion) -> Unit, sample: suspend () -> Bitmap?,
-    plain: TitleDesign = TitleDesign.plain,
+    plain: TitleDesign = TitleDesign.plain, showsMotion: Boolean = true, showsLooks: Boolean = true,
 ) {
     val context = LocalContext.current
     val memory = remember { TitleMemory(context) }
-    var tab by remember { mutableStateOf(TitleTab.Looks) }
+    var chosenTab by remember { mutableStateOf(TitleTab.Looks) }
+    // A text of a card has no looks or motion of its own: the card's are above (YouRec/TitleInspector.swift:160-164).
+    val tab = when {
+        chosenTab == TitleTab.Looks && !showsLooks -> TitleTab.Font
+        chosenTab == TitleTab.Motion && !showsMotion -> if (showsLooks) TitleTab.Looks else TitleTab.Font
+        else -> chosenTab
+    }
     val design = appearance ?: plain
     // Two columns where a name does not fit a quarter of the width, as the original's grids at large sizes.
     FitGrid(4) {
-        for (value in TitleTab.entries) {
-            Cell(tab == value, { tab = value }, minHeight = 46) {
+        for (value in TitleTab.entries.filter { (it != TitleTab.Motion || showsMotion) && (it != TitleTab.Looks || showsLooks) }) {
+            Cell(tab == value, { chosenTab = value }, minHeight = 46) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(value.icon, null, Modifier.size(20.dp))
                     Text(stringResource(value.label), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -268,10 +405,19 @@ fun TitleInspector(
         TitleTab.Font -> Fonts(words, design, memory, setDesign)
         TitleTab.Fill -> Fill(design, memory, sample, setDesign)
         TitleTab.Outline -> {
-            Toggle(stringResource(R.string.title_outline_toggle), design.outlined) { setDesign(design.copy(outlined = it)) }
+            // The text border, in three thicknesses or a width of its own (YouRec/TitleInspector.swift:84-87, 165-176).
+            Toggle(stringResource(R.string.title_border_toggle), design.outlined) { setDesign(design.copy(outlined = it)) }
             if (design.outlined) {
-                ColorControl(stringResource(R.string.title_outline_color), design.border, memory, sample) { setDesign(design.copy(border = it)) }
-                Amount(stringResource(R.string.title_width), design.borderWidth, 0.01..0.20, 0.005) { setDesign(design.copy(borderWidth = it)) }
+                val presets = listOf(stringResource(R.string.title_border_thin) to 0.025, stringResource(R.string.title_border_medium) to 0.045, stringResource(R.string.title_border_bold) to 0.09)
+                val custom = presets.none { it.second == design.borderWidth }
+                val thickness = stringResource(R.string.title_border_thickness)
+                Box(Modifier.semantics { contentDescription = thickness }) {
+                    Segments(presets + if (custom) listOf(stringResource(R.string.title_border_custom) to design.borderWidth) else emptyList(), design.borderWidth) {
+                        setDesign(design.copy(borderWidth = it))
+                    }
+                }
+                Amount(stringResource(R.string.title_border_width), design.borderWidth, 0.01..0.20, 0.005) { setDesign(design.copy(borderWidth = it)) }
+                ColorControl(stringResource(R.string.title_border_color), design.border, memory, sample) { setDesign(design.copy(border = it)) }
             }
         }
         TitleTab.Shadow -> {
@@ -288,7 +434,11 @@ fun TitleInspector(
                 design.plate,
             ) { setDesign(design.copy(plate = it)) }
             if (design.plate != TitlePlate.Off) {
-                ColorControl(stringResource(R.string.title_box_color), design.backing, memory, sample) { setDesign(design.copy(backing = it)) }
+                // The box's color and its opacity apart (YouRec/TitleInspector.swift:101-106).
+                ColorControl(stringResource(R.string.title_box_color), design.backing, memory, sample, editsOpacity = false) { setDesign(design.copy(backing = it)) }
+                Amount(stringResource(R.string.title_background_opacity), design.backing.alpha, 0.0..1.0) {
+                    setDesign(design.copy(backing = TitleInk(design.backing.rgb, (it * 255).roundToInt())))
+                }
                 Amount(stringResource(R.string.title_padding), design.padding, 0.0..0.8) { setDesign(design.copy(padding = it)) }
                 Amount(stringResource(R.string.title_radius), design.radius, 0.0..0.8) { setDesign(design.copy(radius = it)) }
             }
@@ -356,103 +506,88 @@ private fun Amount(
     }
 }
 
-/** How long a title or a picture stays: a row that opens the original's presets and its start and end sliders (YouRec/EditorTools.swift:1353-1393). */
-@Composable
-internal fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, change: (ClosedFloatingPointRange<Double>) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    // All in seconds of the movie, as the original: a title may run across cuts and clips of any speed.
-    val timing = OverlayTiming(range, bounds)
-    val shown = timing.duration
-    val name = stringResource(R.string.title_duration)
-    val set = { next: OverlayTiming -> change(next.range) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(Rounded).background(Plain).clickable { expanded = !expanded }
-                .semantics { contentDescription = name }.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Schedule, null, Modifier.size(18.dp), tint = Color.White)
-            Text(name, color = Color.White, modifier = Modifier.weight(1f).padding(start = 8.dp))
-            Text(stringResource(R.string.title_seconds, seconds(shown)), color = Color.White)
-            Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, Modifier.size(18.dp), tint = Soft)
-        }
-        if (expanded) {
-            FitGrid(5) {
-                for (value in EditorDurationPresets.wholeSeconds) {
-                    Cell(
-                        abs(shown - value) < 1e-4, { set(timing.setting(OverlayTiming.Edge.End, timing.range.start + value)) },
-                        enabled = EditorDurationPresets.fits(value, timing.available),
-                    ) { Text(stringResource(R.string.title_seconds, seconds(value)), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
-                }
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.title_available, seconds(timing.available)), color = Soft, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { set(timing.setting(OverlayTiming.Edge.End, bounds.endInclusive)) }) { Text(stringResource(R.string.title_to_end)) }
-            }
-            for (edge in OverlayTiming.Edge.entries) {
-                val label = stringResource(if (edge == OverlayTiming.Edge.Start) R.string.title_start else R.string.title_end)
-                val limits = timing.limits(edge)
-                val time = if (edge == OverlayTiming.Edge.Start) timing.range.start else timing.range.endInclusive
-                val span = limits.endInclusive - limits.start
-                Row(Modifier.fillMaxWidth()) {
-                    Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    Text(seconds(time) + " s", color = Soft, fontSize = 13.sp)
-                }
-                Slider(
-                    value = if (span > 0) ((time - limits.start) / span).toFloat().coerceIn(0f, 1f) else 0f,
-                    onValueChange = { set(timing.setting(edge, timing.time(it.toDouble(), edge))) },
-                    enabled = span > 0, modifier = Modifier.height(36.dp).semantics { contentDescription = label },
-                )
-            }
-        }
-    }
-}
-
-/** A small picture of [words] in [design], as the title will be drawn. */
+/**
+ * A small picture of [words] in [design], as the title will be drawn: the
+ * words on one line, cut to 20 characters (YouRec/TitleInspector.swift:609-617).
+ */
 @Composable
 private fun Specimen(words: String, design: TitleDesign, modifier: Modifier = Modifier) {
     val assets = LocalContext.current.assets
-    // Letters 72 pixels tall on a made-up square picture, shown at half that size.
-    val bitmap = remember(words, design) { TitleRaster.styled(assets, words, design, 72.0 / 766, Size(766.0, 766.0)) }
-    Box(modifier.fillMaxWidth().height(32.dp), Alignment.CenterStart) {
-        if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.height(32.dp), alignment = Alignment.CenterStart, contentScale = ContentScale.Fit)
+    val line = words.split(' ', '\n', '\t').filter { it.isNotEmpty() }.joinToString(" ")
+    val excerpt = (if (line.length > 20) line.take(19) + "…" else line).ifEmpty { stringResource(R.string.title_specimen_default) }
+    // Letters 48 units tall in lines at most 560 wide, as the original's tiles, drawn at twice that for a sharp picture.
+    val bitmap = remember(excerpt, design) { StyledText(assets, excerpt, design, 48f, 560f).image(2f) }
+    Box(modifier.fillMaxWidth().height(54.dp).background(Color.Black).padding(horizontal = 9.dp, vertical = 3.dp), Alignment.Center) {
+        if (bitmap != null) Image(bitmap.asImageBitmap(), null, contentScale = ContentScale.Fit)
     }
 }
 
+/** A look in a gallery: its specimen over its name, lit and ticked when chosen (YouRec/TitleInspector.swift:553-572). */
+@Composable
+internal fun LookTile(name: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, specimen: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(9.dp)
+    Column(
+        modifier.clip(shape).background(Plain).border(1.5.dp, if (selected) Accent else Color.Transparent, shape).clickable(onClick = onClick)
+            .semantics { contentDescription = name; role = Role.Button; this.selected = selected },
+    ) {
+        specimen()
+        Row(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (selected) Icon(Icons.Filled.CheckCircle, null, Modifier.size(14.dp), tint = Accent)
+        }
+    }
+}
+
+/**
+ * The Looks tab (YouRec/TitleInspector.swift:207-250): the four collections
+ * of built-in looks, six each, with the one the design matches ticked, then
+ * the saved styles and "Save as channel style".
+ */
 @Composable
 private fun Looks(appearance: TitleDesign?, design: TitleDesign, words: String, memory: TitleMemory, setDesign: (TitleDesign) -> Unit) {
-    val demo = words.trim().ifEmpty { stringResource(R.string.editor_title) }.replace('\n', ' ').take(48)
     val library = TitleLibrary.looks(memory.looks)
     var saving by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
+    // The look last chosen or saved, which stays ticked while the design is still the one it gave.
+    var chosen by remember { mutableStateOf<String?>(null) }
+    var browsed by remember { mutableStateOf<TitleLookCollection?>(null) }
     // Outline is a tool of its own: a look never changes it. A title that has no design yet shows a
     // look as it was made, without the dark outline such a title is drawn with.
     val applied = { look: TitleDesign -> (if (appearance == null) TitleDesign() else design).applyingLook(look) }
+    val builtIn = TitleDesign.looks.firstOrNull { appearance != null && applied(it.design) == appearance }
+    val matches = listOfNotNull(builtIn?.name) + library.filter { appearance != null && applied(it.design) == appearance }.map { it.id }
+    val selected = chosen?.takeIf { it in matches } ?: matches.firstOrNull()
+    val collection = browsed ?: builtIn?.collection ?: TitleLookCollection.Editorial
 
     @Composable
-    fun look(label: String, value: TitleDesign, modifier: Modifier) {
-        Column(
-            modifier.heightIn(min = 58.dp).clip(Rounded).background(if (appearance == applied(value)) Chosen else Plain).clickable { setDesign(applied(value)) }
-                .semantics { contentDescription = label; role = Role.Button }.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Specimen(demo, applied(value))
-            Text(label, color = Soft, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    fun look(id: String, label: String, value: TitleDesign, modifier: Modifier) {
+        val result = applied(value)
+        LookTile(label, id == selected, { setDesign(result); chosen = id }, modifier) { Specimen(words, result) }
+    }
+    val pick = stringResource(R.string.title_look_collection)
+    Box(Modifier.semantics { contentDescription = pick }) {
+        Segments(TitleLookCollection.entries.map { stringResource(collectionLabel(it)) to it }, collection) { browsed = it }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // The tiles keep their width as text grows, as the original's scaled metric does.
+        val tile = TitleLookCollection.TILE_WIDTH * LocalDensity.current.fontScale
+        val columns = TitleLookCollection.columns(maxWidth.value.toDouble(), tile)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (row in TitleDesign.looks.filter { it.collection == collection }.chunked(columns)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (item in row) look(item.name, lookLabel(item.name)?.let { stringResource(it) } ?: item.name, item.design, Modifier.weight(1f))
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
         }
     }
     if (library.isNotEmpty()) {
         Text(stringResource(R.string.title_my_styles), color = Color.White, fontWeight = FontWeight.SemiBold)
         for (entry in library) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                look(entry.name, entry.design, Modifier.weight(1f))
+                look(entry.id, entry.name, entry.design, Modifier.weight(1f))
                 IconButton(onClick = { deleting = entry.id }) { Icon(Icons.Outlined.Delete, stringResource(R.string.title_delete_named, entry.name), tint = Color.White) }
             }
-        }
-    }
-    for (row in TitleDesign.looks.chunked(2)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((name, value) in row) look(lookLabel(name)?.let { stringResource(it) } ?: name, value, Modifier.weight(1f))
-            repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
     TextButton(onClick = { saving = true }, contentPadding = PaddingValues(horizontal = 4.dp)) {
@@ -471,7 +606,12 @@ private fun Looks(appearance: TitleDesign?, design: TitleDesign, words: String, 
                 }
             },
             confirmButton = {
-                TextButton(onClick = { memory.saveLooks(TitleLibrary.saving(memory.looks, name, design)); saving = false }, enabled = TitleLibrary.canSave(library, name)) {
+                TextButton(onClick = {
+                    val saved = TitleLibrary.saving(memory.looks, name, design)
+                    memory.saveLooks(saved)
+                    chosen = TitleLibrary.looks(saved).firstOrNull()?.id
+                    saving = false
+                }, enabled = TitleLibrary.canSave(library, name)) {
                     Text(stringResource(R.string.common_save))
                 }
             },
@@ -647,7 +787,7 @@ private fun Fill(design: TitleDesign, memory: TitleMemory, sample: suspend () ->
  * system color picker, which Android does not have.
  */
 @Composable
-private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, sample: suspend () -> Bitmap?, change: (TitleInk) -> Unit) {
+private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, sample: suspend () -> Bitmap?, editsOpacity: Boolean = true, change: (TitleInk) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val alpha = (ink.rgba and 0xff).toInt()
     val encoded = "%06X".format(ink.rgb)
@@ -655,7 +795,12 @@ private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, samp
     // Kept apart from the color: at no saturation or no brightness a color has forgotten its hue.
     var hsv by remember { mutableStateOf(FloatArray(3).also { android.graphics.Color.colorToHSV(ink.toColor(), it) }) }
     if ((android.graphics.Color.HSVToColor(hsv) and 0xffffff).toLong() != ink.rgb) hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(ink.toColor(), it) }
-    val select = { next: TitleInk -> change(next); memory.remember(next) }
+    // Without its own opacity, a color keeps the one it has, and is remembered opaque (YouRec/TitleInspector.swift:679-690).
+    val select = { next: TitleInk ->
+        val kept = if (editsOpacity) next else TitleInk(next.rgb, alpha)
+        change(kept)
+        memory.remember(if (editsOpacity) kept else TitleInk.opaque(kept.rgb))
+    }
     val scope = rememberCoroutineScope()
     var frame by remember { mutableStateOf<Bitmap?>(null) }
     var failed by remember { mutableStateOf(false) }
@@ -689,13 +834,14 @@ private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, samp
                 Text(stringResource(R.string.title_set))
             }
         }
-        Amount(stringResource(R.string.title_opacity), ink.alpha, 0.0..1.0) { change(TitleInk(ink.rgb, (it * 255).roundToInt())) }
+        if (editsOpacity) Amount(stringResource(R.string.title_opacity), ink.alpha, 0.0..1.0) { change(TitleInk(ink.rgb, (it * 255).roundToInt())) }
         val palette = TextColor.entries.map(TitleInk::of)
-        val swatches = palette + TitleLibrary.recentColors(memory.colors).filter { it !in palette }
+        val swatches = (palette + TitleLibrary.recentColors(memory.colors).map { if (editsOpacity) it else TitleInk.opaque(it.rgb) }).distinct()
         for (row in swatches.chunked(7)) {
             Row {
                 for (color in row) {
-                    val label = stringResource(R.string.title_color_named, "%06X".format(color.rgb))
+                    val label = if (color.alpha < 1) stringResource(R.string.title_color_named_opacity, "%06X".format(color.rgb), "${(color.alpha * 100).roundToInt()}%")
+                    else stringResource(R.string.title_color_named, "%06X".format(color.rgb))
                     Box(Modifier.weight(1f).height(44.dp).clickable { select(color) }.semantics { contentDescription = label; role = Role.Button }, Alignment.Center) {
                         Box(Modifier.size(24.dp).background(Color(color.toColor()), CircleShape).border(1.dp, Color.Gray, CircleShape))
                     }
@@ -733,7 +879,7 @@ private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, samp
 }
 
 @Composable
-private fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boolean, TitleMotion) -> Unit) {
+internal fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boolean, TitleMotion) -> Unit) {
     val context = LocalContext.current
     var exit by remember { mutableStateOf(false) }
     val motion = saved ?: TitleMotion()
@@ -775,4 +921,176 @@ private fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boo
             Text(stringResource(if (exit) R.string.title_preview_exit else R.string.title_preview_entrance), modifier = Modifier.padding(start = 6.dp))
         }
     }
+}
+
+private fun partLabel(part: LabelHeadline.Part): Int = when (part) {
+    LabelHeadline.Part.Label -> R.string.title_part_label
+    LabelHeadline.Part.Headline -> R.string.title_part_headline
+    LabelHeadline.Part.Card -> R.string.title_part_card
+}
+
+/** The built-in card looks are named in the model in English; these are their names on screen. */
+private fun cardLookLabel(name: String): Int? = when (name) {
+    "Graphite" -> R.string.title_card_look_graphite
+    "Editorial" -> R.string.title_card_look_editorial
+    "Broadcast" -> R.string.title_card_look_broadcast
+    "Notebook" -> R.string.title_card_look_notebook
+    "Terminal" -> R.string.title_card_look_terminal
+    "Poster" -> R.string.title_card_look_poster
+    else -> null
+}
+
+/**
+ * A small picture of a card, as it will be drawn: its texts cut to 18 and 23
+ * characters, the default words where both are empty (YouRec/TitleInspector.swift:574-601).
+ */
+@Composable
+private fun CardSpecimen(group: LabelHeadline, headline: String) {
+    val assets = LocalContext.current.assets
+    fun excerpt(text: String, limit: Int): String {
+        val words = text.split(' ', '\n', '\t').filter { it.isNotEmpty() }.joinToString(" ")
+        return if (words.length <= limit) words else words.take(limit - 1) + "…"
+    }
+    val firstText = stringResource(R.string.title_card_label_default)
+    val secondText = stringResource(R.string.title_card_headline_default)
+    var label = excerpt(group.label, 18)
+    var heading = excerpt(headline, 23)
+    if (label.isEmpty() && heading.isEmpty()) { label = firstText; heading = secondText }
+    val sample = group.copy(label = label)
+    // At 58 units in lines at most 460 wide, fitting 460 by 240, as the original's tiles.
+    val bitmap = remember(sample, heading) { CardText(assets, sample, heading, 58f, 460f).image(460f, 240f, 1f) }
+    Box(Modifier.fillMaxWidth().height(54.dp).background(Color.Black).padding(horizontal = 10.dp, vertical = 7.dp), Alignment.Center) {
+        if (bitmap != null) Image(bitmap.asImageBitmap(), null, contentScale = ContentScale.Fit)
+    }
+}
+
+/**
+ * The looks of a card (YouRec/TitleInspector.swift:447-551): a row naming the
+ * one the card matches, or "Custom", that opens the six built-in looks, the
+ * saved ones and "Save as channel style", which keeps the look of the label,
+ * the headline and the card under its own key.
+ */
+@Composable
+private fun CardLooks(group: LabelHeadline, headline: String, change: (LabelHeadline) -> Unit) {
+    val context = LocalContext.current
+    val memory = remember { TitleMemory(context) }
+    var expanded by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var chosen by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf<String?>(null) }
+    val personal = TitleLibrary.cardLooks(memory.cards)
+    val current = group.look
+    val matches = LabelHeadline.looks.filter { it.second == current }.map { it.first } + personal.filter { it.look == current }.map { it.name }
+    val selected = chosen?.takeIf { it in matches } ?: matches.firstOrNull() ?: TitleLibrary.CUSTOM
+    // The built-in looks and "Custom" in the phone's language; a saved look cannot take one of their names.
+    val names = LabelHeadline.looks.associate { (name, _) -> name to (cardLookLabel(name)?.let { stringResource(it) } ?: name) } +
+        (TitleLibrary.CUSTOM to stringResource(R.string.title_custom_look))
+    fun named(name: String) = names[name] ?: name
+
+    val looks = stringResource(R.string.title_tab_looks)
+    val hint = stringResource(if (expanded) R.string.title_card_looks_hide else R.string.title_card_looks_show)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(Rounded).background(Color.White.copy(alpha = 0.08f)).clickable { expanded = !expanded }
+            .semantics { contentDescription = looks + ", " + named(selected); onClick(label = hint) { expanded = !expanded; true } }.padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.GridView, null, Modifier.size(18.dp), tint = Color.White)
+        Text(looks, color = Color.White, modifier = Modifier.weight(1f).padding(start = 8.dp))
+        Text(named(selected), color = Soft)
+        Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, Modifier.size(18.dp), tint = Soft)
+    }
+    if (!expanded) return
+    @Composable
+    fun tile(name: String, look: LabelHeadlineLook, modifier: Modifier) {
+        val applied = group.applyingLook(look)
+        LookTile(named(name), selected == name, { change(applied); chosen = name }, modifier) { CardSpecimen(applied, headline) }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // As many tiles of at least 112 points as fit, as the original's adaptive grid.
+        val columns = maxOf(1, ((maxWidth.value + 8) / (112 + 8)).toInt())
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (row in LabelHeadline.looks.chunked(columns)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for ((name, look) in row) tile(name, look, Modifier.weight(1f))
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+    if (personal.isNotEmpty()) {
+        Text(stringResource(R.string.title_my_styles), color = Color.White, fontWeight = FontWeight.SemiBold)
+        for (entry in personal) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                tile(entry.name, entry.look, Modifier.weight(1f))
+                IconButton(onClick = { deleting = entry.id }) { Icon(Icons.Outlined.Delete, stringResource(R.string.title_delete_named, entry.name), tint = Color.White) }
+            }
+        }
+    }
+    TextButton(onClick = { saving = true }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+        Icon(Icons.Outlined.BookmarkBorder, null, Modifier.size(18.dp))
+        Text(stringResource(R.string.title_save_style), modifier = Modifier.padding(start = 6.dp))
+    }
+    if (saving) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { saving = false },
+            title = { Text(stringResource(R.string.title_save_card_look_title), fontSize = 18.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.title_style_name)) }, singleLine = true)
+                    Text(stringResource(R.string.title_save_card_look_message), fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    memory.saveCards(TitleLibrary.savingCard(memory.cards, name, group.look))
+                    chosen = name.trim()
+                    saving = false
+                }, enabled = TitleLibrary.canSaveCard(personal, name)) { Text(stringResource(R.string.common_save)) }
+            },
+            dismissButton = { TextButton(onClick = { saving = false }) { Text(stringResource(R.string.common_cancel)) } },
+        )
+    }
+    deleting?.let { id ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text(stringResource(R.string.title_delete_card_look_title), fontSize = 18.sp) },
+            confirmButton = { TextButton(onClick = { memory.saveCards(TitleLibrary.deletingCard(memory.cards, id)); deleting = null }) { Text(stringResource(R.string.title_delete_card_look), color = RecordRed) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.common_cancel)) } },
+        )
+    }
+}
+
+/** Where one text of a card was moved to, as two sliders from -100 % to 100 % and a reset (YouRec/EditorTools.swift:1632-1653). */
+@Composable
+private fun CardPosition(name: String, offset: TitleCard.Offset?, change: (TitleCard.Offset?) -> Unit) {
+    fun set(next: TitleCard.Offset) = change(next.takeIf { it != TitleCard.Offset() })
+    val at = offset ?: TitleCard.Offset()
+    Column {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            val reset = stringResource(R.string.title_reset_named, name)
+            TextButton(onClick = { change(null) }, enabled = offset != null, modifier = Modifier.semantics { contentDescription = reset }) { Text(stringResource(R.string.title_reset)) }
+        }
+        Amount(stringResource(R.string.title_offset_axis, name, stringResource(R.string.title_x_offset)), at.x, -1.0..1.0) { set(at.copy(x = it)) }
+        Amount(stringResource(R.string.title_offset_axis, name, stringResource(R.string.title_y_offset)), at.y, -1.0..1.0) { set(at.copy(y = it)) }
+    }
+}
+
+/** The card's own tools (YouRec/EditorTools.swift:1655-1675): its color and opacity, where its texts are, its padding, corners, spacing and border. */
+@Composable
+private fun CardControls(group: LabelHeadline, sample: suspend () -> Bitmap?, change: (LabelHeadline) -> Unit) {
+    val context = LocalContext.current
+    val memory = remember { TitleMemory(context) }
+    val card = group.card
+    fun set(next: TitleCard) = change(group.copy(card = next))
+    ColorControl(stringResource(R.string.title_card_color), card.fill, memory, sample, editsOpacity = false) { set(card.copy(fill = it)) }
+    Amount(stringResource(R.string.title_card_opacity), card.fill.alpha, 0.0..1.0) { set(card.copy(fill = TitleInk(card.fill.rgb, (it * 255).roundToInt()))) }
+    CardPosition(stringResource(R.string.title_label_position), card.labelOffset) { set(card.copy(labelOffset = it)) }
+    CardPosition(stringResource(R.string.title_headline_position), card.headlineOffset) { set(card.copy(headlineOffset = it)) }
+    Amount(stringResource(R.string.title_padding), card.padding, 0.0..1.0) { set(card.copy(padding = it)) }
+    Amount(stringResource(R.string.title_radius), card.radius, 0.0..1.0) { set(card.copy(radius = it)) }
+    Amount(stringResource(R.string.title_line_gap), card.spacing, 0.0..1.0) { set(card.copy(spacing = it)) }
+    Amount(stringResource(R.string.title_card_border_width), card.borderWidth, 0.0..0.1, 0.001, label = String.format(Locale.getDefault(), "%.1f%%", card.borderWidth * 100)) { set(card.copy(borderWidth = it)) }
+    if (card.borderWidth > 0) ColorControl(stringResource(R.string.title_card_border_color), card.border, memory, sample) { set(card.copy(border = it)) }
 }

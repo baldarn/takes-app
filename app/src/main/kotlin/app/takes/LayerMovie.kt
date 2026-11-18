@@ -82,7 +82,11 @@ class LayerMovie(
         val effects = buildList<Effect> {
             // In an HDR movie each picture ends in HLG, as a sequence's clips do (ExportMovie).
             val color = ClipColor(this, hdr, transfers[shown.sourceID])
-            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log, clip, begins) }
+            LogFootage.profile(files[shown.sourceID]).let { log ->
+                // Graded over parts of it: the grade in force at each frame (ColorRegionRendering).
+                if (ColorRegionRendering.applies(clip)) { color.asSdr(); addAll(ColorRegionRendering.passes(clip, begins, luts, log)) }
+                else if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log, clip, begins)
+            }
             if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
             val source = size(shown.sourceID)
             // A stabilised clip's frame is corrected before it is framed (YouRec/VideoToolCompositor.swift:158-161).
@@ -92,7 +96,7 @@ class LayerMovie(
             if (corrected != null && source != null) add(StabilizedFramingEffect(clip, begins, corrected, rotations[shown.sourceID] ?: 0, source, frame))
             else {
                 corrected?.let { add(StabilizationEffect(clip, begins, it, rotations[shown.sourceID] ?: 0)) }
-                if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, begins, source, frame))
+                if ((shown.crop != null || clip.mirror != null || clip.framingVariants != null) && source != null) add(FramingEffect(clip, begins, source, frame))
             }
             add(fit())
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0

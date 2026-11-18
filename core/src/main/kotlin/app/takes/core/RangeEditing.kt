@@ -728,6 +728,14 @@ object RangeEditing {
                 stabilization = clip.stabilization?.let { it.copy(id = it.id?.let(::fresh)) },
                 speed = clip.speed?.let { it.copy(id = fresh(it.id)) },
                 subtitleWords = clip.subtitleWords?.map { it.copy(id = fresh(it.id), phraseID = fresh(it.phraseID)) },
+                // Grades over parts of the clip, its windows and variants: independent of the original footage (YouRec/TimelineEditing.swift:102).
+                colorRegions = clip.colorRegions?.map { it.copy(grade = it.grade.copy(id = fresh(it.grade.id))) },
+                videoEffects = clip.videoEffects?.map { effect ->
+                    (if (effect.analysisFile != null) effect.copy(capturedEffectID = effect.analysisID) else effect).copy(id = fresh(effect.id))
+                },
+                effectWindows = clip.effectWindows?.mapKeys { fresh(it.key) },
+                framingVariants = clip.framingVariants?.map { it.identified(fresh(it.id)) },
+                spanningEffects = clip.spanningEffects?.mapTo(LinkedHashSet(), ::fresh),
             )
         }
         return ClipFragment(clips, fragment.audio.map { it.copy(id = fresh(it.id)) }, fragment.subtitles)

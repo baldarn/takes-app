@@ -4,6 +4,10 @@ import app.takes.core.BookmarkAnchor
 import app.takes.core.EditTime
 import app.takes.core.ExportSettings
 import app.takes.core.Project
+import app.takes.core.TitleInk
+import app.takes.core.TitleCard
+import app.takes.core.LabelHeadline
+import app.takes.core.TimelineClip
 import app.takes.core.ProjectException
 import app.takes.core.Size
 import app.takes.core.SourceMedia
@@ -193,8 +197,8 @@ class YouRecImportTest {
         assertEquals("effect-lut-${"cd".repeat(32)}.cube", clip.color!!.imported!!.filename)
         val held = timeline.video[1].content
         assertEquals(3.0, held.frozenFrame!!.duration, 0.0)
-        // Stabilisation is the newest thing Takes reads.
-        assertEquals(Project.LATEST_READABLE_SCHEMA, project.schemaVersion)
+        // Stabilisation is the newest thing this project holds.
+        assertEquals(TimelineClip.STABILIZATION_SCHEMA, project.schemaVersion)
         assertEquals(
             listOf(mov1, mov2, "effect-$analysis.bin", "effect-$analysis.json", "effect-lut-${"cd".repeat(32)}.cube", "image-${uid(0x1111)}.png"),
             imported.mediaFiles,
@@ -231,6 +235,46 @@ class YouRecImportTest {
         assertEquals(-3.0, timeline.audio.single().volumeDB, 0.0)
     }
 
+    /** [case] with the step's text changed by [edit] and the manifest's schema set to [schema], the step named by its new hash. */
+    private fun changed(case: String, schema: Int, edit: (String) -> String): YouRecFixtures.Fixture {
+        val fixture = YouRecFixtures.load(case)
+        val (name, bytes) = fixture.steps.entries.single()
+        val step = edit(bytes.decodeToString()).toByteArray()
+        val renamed = app.takes.core.sha256(step) + ".json"
+        val manifest = fixture.manifest.decodeToString().replace(name, renamed).replace(Regex("\"schemaVersion\":\\d+"), "\"schemaVersion\":$schema")
+        return YouRecFixtures.Fixture(manifest.toByteArray(), mapOf(renamed to step))
+    }
+
+    // Tests/TitleDesignTests.swift:54-59, YouRec/Project.swift:333-335 at dadc258: a card of the original's schema 14 opens with both texts.
+    @Test fun aCardOfALabelAndAHeadlineComesFromTheIPhone() {
+        val card = LabelHeadline().let {
+            it.copy(label = "Location 04", card = it.card.copy(fill = TitleInk(0x916235, alpha = 218), labelOffset = TitleCard.Offset(0.6, 0.15)))
+        }
+        val swift = documentJson.encodeToString(LabelHeadline.serializer(), card)
+        // Swift leaves out an Optional that is nil, as here; every other key is written.
+        assertFalse("headlineOffset" in swift)
+        val fixture = changed("titles", 14) { it.replace("\"text\":\"Designed\"", "\"text\":\"Designed\",\"labelHeadline\":$swift") }
+        val imported = YouRecCodec.import(fixture.manifest, { fixture.steps.getValue(it) })
+        val project = imported.project
+        project.validate()
+        val title = project.snapshots.single().timeline!!.video.single().content.texts!![1]
+        assertEquals(card, title.labelHeadline)
+        assertEquals("Designed", title.text)
+        assertEquals(TimelineClip.LABEL_HEADLINE_SCHEMA, project.schemaVersion)
+        // A label longer than Takes keeps is shortened as a title's text is.
+        val long = changed("titles", 14) { it.replace("\"text\":\"Designed\"", "\"text\":\"Designed\",\"labelHeadline\":" + swift.replace("Location 04", "x".repeat(600))) }
+        val cut = YouRecCodec.import(long.manifest, { long.steps.getValue(it) })
+        assertEquals(500, cut.project.snapshots.single().timeline!!.video.single().content.texts!![1].labelHeadline!!.label.length)
+        assertTrue(YouRecNote.Kind.TitlesShortened in kinds(cut))
+    }
+
+    // Schema 13 (YouRec/Project.swift:332 at 57e5d91) holds colour regions, which are read since they are modelled.
+    @Test fun colourRegionsAreRead() {
+        val fixture = changed("titles", 14) { it.replace("\"texts\":[", "\"colorRegions\":[{\"end\":1,\"grade\":{\"amount\":1,\"id\":\"5A1E0000-0000-4000-8000-00000000C0C1\",\"look\":\"warm\"},\"start\":0}],\"texts\":[") }
+        val imported = YouRecCodec.import(fixture.manifest, { fixture.steps.getValue(it) })
+        assertEquals(1, imported.project.snapshots.single().timeline!!.video.single().content.colorRegions!!.size)
+    }
+
     @Test fun whatTheOriginalWouldNotReadIsRefused() {
         val fixture = YouRecFixtures.load("takes")
         val manifest = fixture.manifest.decodeToString()
@@ -238,7 +282,7 @@ class YouRecImportTest {
             val error = assertThrows(ProjectException::class.java) { YouRecCodec.import(text.toByteArray(), { steps.getValue(it) }) }
             assertEquals(ProjectException.Reason.InvalidDocument, error.reason)
         }
-        refused(manifest.replace("\"schemaVersion\":6", "\"schemaVersion\":13"))
+        refused(manifest.replace("\"schemaVersion\":6", "\"schemaVersion\":17"))
         refused(manifest.replace("\"recordingHistoryVersion\":1", "\"recordingHistoryVersion\":2"))
         refused(manifest.replace("\"historyCursor\":1", "\"historyCursor\":2"))
         refused(manifest.replace("784111111.25", "\"yesterday\""))
@@ -256,5 +300,30 @@ class YouRecImportTest {
             }
             assertEquals(ProjectException.Reason.InvalidDocument, error.reason)
         }
+    }
+
+    /**
+     * A current iPhone project (schema 16, 57e5d91): a grade over part of a clip,
+     * a flip's active range, a framing variant, windows, a title's clock and
+     * effects made across pieces all come across (YouRec/Project.swift:332-352).
+     */
+    @Test fun effectsOnPartOfAClipComeAcross() {
+        val imported = import("scoped")
+        val project = imported.project
+        project.validate()
+        assertEquals(app.takes.core.TimelineClip.SCOPED_EFFECTS_SCHEMA, project.schemaVersion)
+        val timeline = project.snapshots.single().timeline!!
+        val first = timeline.video[0]
+        val clip = first.content
+        val title = uid(0x7E01)
+        assertEquals(setOf(title), first.spanningEffects)
+        assertEquals(listOf(app.takes.core.SourceInterval(0.5, 1.5)), clip.effectWindows!![title])
+        assertEquals(app.takes.core.SourceInterval(0.5, 1.5), clip.mirror!!.activeRange)
+        assertEquals(1.0, clip.colorRegions!!.single().end, 0.0)
+        assertEquals(2.5, (clip.framingVariants!!.single() as app.takes.core.FramingVariant.Crop).value.zoom, 0.0)
+        assertEquals(4.0, clip.texts!!.single().playbackClock!!.duration, 0.0)
+        assertEquals(setOf(uid(0xA001)), timeline.audio[0].spanningEffects)
+        // The schema the original gives it.
+        assertEquals(16, YouRecSchema.of(emptyList(), emptyList(), listOf(YouRecJson.trackTimelineToYouRec(documentJson.encodeToJsonElement(TrackTimeline.serializer(), timeline) as JsonObject))))
     }
 }

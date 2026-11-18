@@ -37,6 +37,8 @@ import app.takes.core.VideoEffectSequenceClock
 import app.takes.core.VideoEffectFormulas
 import app.takes.core.VideoEffectGrain
 import app.takes.core.VideoEffectShaderMath
+import app.takes.core.gradeTime
+import app.takes.core.resolvingEffects
 import java.nio.ByteBuffer
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -1268,7 +1270,9 @@ class VideoEffectChain(
             val placing = { upright: EffectSize ->
                 app.takes.core.PictureFraming.frame(clip, offset, upright, frameSize).transform.concatenating(app.takes.core.Affine.scale(1 / frameSize.width, 1 / frameSize.height))
             }
-            val passes = EffectShader.passes(clip.videoEffects, sourceTime, frameRate, EffectAssets.inputs(assets, clip.videoEffects, sourceTime, placing), shown.holdTime)
+            // Only the effects in force at this second of the footage, inside their windows (YouRec/VideoToolCompositor.swift:142-146).
+            val effects = if (clip.effectWindows == null) clip.videoEffects else clip.resolvingEffects(clip.gradeTime(offset)).videoEffects
+            val passes = EffectShader.passes(effects, sourceTime, frameRate, EffectAssets.inputs(assets, effects, sourceTime, placing), shown.holdTime)
             if (passes.isEmpty()) {
                 // The picture as it is, pixel for pixel: read without filtering, which some GPUs let a hair of a
                 // neighbour into at a pixel's centre.

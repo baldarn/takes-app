@@ -11,6 +11,8 @@ import app.takes.core.ProjectRestore
 import app.takes.core.SourceMedia
 import app.takes.core.SubtitleSettings
 import app.takes.core.TextOverlay
+import app.takes.core.TitleCard
+import app.takes.core.LabelHeadline
 import app.takes.core.TimelineEditing
 import app.takes.core.TrackTimeline
 import app.takes.core.TransitionStyle
@@ -104,7 +106,7 @@ class YouRecExportTest {
         assertEquals(1, (manifest["recordingHistoryVersion"] as JsonPrimitive).intOrNull)
         assertFalse("captureInsertions" in manifest || "recordingInsertion" in manifest || "recordingSite" in manifest)
         val schema = (manifest["schemaVersion"] as JsonPrimitive).intOrNull!!
-        assertTrue(schema in 6..12)
+        assertTrue(schema in 6..YouRecCodec.LATEST_READABLE_SCHEMA)
         assertEquals(plan.schema, schema)
         val names = (manifest["snapshotFiles"] as JsonArray).map { (it as JsonPrimitive).content }
         assertEquals(project.snapshots.size, names.size)
@@ -190,6 +192,32 @@ class YouRecExportTest {
         assertEquals(JsonPrimitive(""), (timeline["subtitles"] as JsonObject)["timingFingerprint"])
     }
 
+    // Tests/TitleDesignTests.swift:54-59, YouRec/Project.swift:333-335 at dadc258: a card goes to the iPhone at schema 14, with every key Swift requires, and comes back.
+    @Test fun aCardOfALabelAndAHeadlineGoesAtSchemaFourteen() {
+        var project = trip()
+        val plain = YouRecExport.plan(project, save(project))
+        assertEquals("Without a card the schema stays where it was", 11, plain.schema)
+        val group = LabelHeadline().let { it.copy(card = it.card.copy(headlineOffset = TitleCard.Offset(-0.4, -0.2))) }
+        val edit = project.edit
+        project = project.commit(edit.copy(clips = edit.clips.mapIndexed { index, clip ->
+            if (index != 0) clip else clip.copy(texts = clip.texts.orEmpty() + TextOverlay.fresh().copy(text = "Headline", labelHeadline = group))
+        }))
+        val folder = save(project)
+        val plan = YouRecExport.plan(project, folder)
+        assertEquals(emptyList<YouRecExport.Issue>(), plan.blockers)
+        assertEquals(14, plan.schema)
+        assertShape(plan, project)
+        val timeline = (plan.stepTrees[project.historyCursor]["state"] as JsonObject)["timeline"] as JsonObject
+        val texts = (timeline["video"] as JsonArray).map { (it as JsonObject)["content"] as JsonObject }.flatMap { (it["texts"] as? JsonArray).orEmpty() }.map { it as JsonObject }
+        val card = texts.mapNotNull { it["labelHeadline"] as? JsonObject }.single()
+        assertTrue(listOf("label", "labelStyle", "headlineStyle", "labelScale", "headlineScale", "card").all { it in card })
+        val frame = card["card"] as JsonObject
+        assertTrue(listOf("fill", "border", "borderWidth", "padding", "radius", "spacing", "headlineOffset").all { it in frame })
+        assertFalse("A nil offset is left out, as Swift leaves it", "labelOffset" in frame)
+        val restored = ProjectRestore.restoreArchive(ByteArrayInputStream(zip(plan)), File(temporary.root, "Card"), Long.MAX_VALUE).project
+        assertEquals(group, restored.edit.toTimeline().video.flatMap { it.content.texts.orEmpty() }.mapNotNull { it.labelHeadline }.single())
+    }
+
     /** 7.5 #4: Takes → iPhone → Takes gives every step's timeline back. */
     @Test fun aTakesProjectComesBackFromTheIPhoneForm() {
         val project = trip()
@@ -263,8 +291,8 @@ class YouRecExportTest {
     private fun normalize(element: JsonElement): JsonElement = when (element) {
         is JsonObject -> JsonObject(element.filterValues { it !is JsonNull }.toSortedMap().mapValues { (key, value) ->
             when {
-                (key == "members" || key == "participants") && value is JsonArray -> JsonArray(value.map { it.toString() }.sorted().map { documentJson.parseToJsonElement(it) })
-                key == "videos" && value is JsonArray -> normalize(YouRecJson.flatDictionaryToObject(value))
+                (key == "members" || key == "participants" || key == "spanningEffects") && value is JsonArray -> JsonArray(value.map { it.toString() }.sorted().map { documentJson.parseToJsonElement(it) })
+                (key == "videos" || key == "effectWindows") && value is JsonArray -> normalize(YouRecJson.flatDictionaryToObject(value))
                 else -> normalize(value)
             }
         })
@@ -342,5 +370,25 @@ class YouRecExportTest {
         val manifest = plan.manifestTree(emptyMap())
         assertEquals(JsonPrimitive(id), ((manifest["sources"] as JsonArray)[0] as JsonObject)["id"])
         assertTrue(plan.stepTrees.all { it.toString().contains("\"sourceID\":\"$id\"") && !it.toString().contains("take-1") })
+    }
+
+    /** The schema the original gives each new thing (YouRec/Project.swift:332-352 at 57e5d91). */
+    @Test fun effectsOnPartOfAClipRaiseTheSchemaAsTheOriginalDoes() {
+        fun schema(change: (app.takes.core.TimelineClip) -> app.takes.core.TimelineClip, items: (TrackTimeline) -> TrackTimeline = { it }): Int {
+            val project = Project("Scoped").addRecording(take)
+            val edited = project.commit(project.edit.copy(clips = project.edit.clips.map(change)))
+            val timeline = items(edited.edit.toTimeline())
+            return YouRecSchema.of(emptyList(), emptyList(), listOf(YouRecJson.trackTimelineToYouRec(documentJson.encodeToJsonElement(TrackTimeline.serializer(), timeline) as JsonObject)))
+        }
+        val warm = app.takes.core.ColorSettings(look = app.takes.core.ColorLook.Warm)
+        assertEquals(6, schema({ it }))
+        assertEquals(13, schema({ it.copy(colorRegions = listOf(app.takes.core.ColorRegion(0.0, 1.0, warm))) }))
+        assertEquals(15, schema({ it.copy(mirror = app.takes.core.MirrorSettings(horizontal = true, activeRange = app.takes.core.SourceInterval(1.0, 2.0))) }))
+        assertEquals(16, schema({ it.copy(mirror = app.takes.core.MirrorSettings(id = "M", horizontal = true), effectWindows = mapOf("M" to listOf(app.takes.core.SourceInterval(1.0, 2.0)))) }))
+        // Memberships alone raise nothing; a grade in two pieces of one membership does.
+        assertEquals(13, schema({ it.copy(colorRegions = listOf(app.takes.core.ColorRegion(0.0, 1.0, warm))) }) { t -> t.copy(video = t.video.map { item -> item.copy(spanningEffects = setOf(warm.id)) }) })
+        assertEquals(16, schema({ it.copy(colorRegions = listOf(app.takes.core.ColorRegion(0.0, 1.0, warm), app.takes.core.ColorRegion(2.0, 3.0, warm))) }) { t ->
+            t.copy(video = t.video.map { item -> item.copy(spanningEffects = setOf(warm.id)) })
+        })
     }
 }

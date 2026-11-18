@@ -78,6 +78,7 @@ object TrackSequenceForm {
                 // What a clip has saved for its end names the clip it leads into (YouRec/TrackTimeline.swift:1262-1264).
                 transition = leaving?.settings?.copy(nextClipID = leaving.incoming),
                 transitionFit = leaving?.let { TransitionFit(it.factor) },
+                spanningEffects = picture.spanningEffects,
                 audio = if (linked) clipAudio(sound, denoise(sound) ?: return null) else ClipAudio(muted = true),
                 bookmarks = marks[picture.id],
                 subtitleWords = sound.subtitleWords,

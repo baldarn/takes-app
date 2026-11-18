@@ -705,7 +705,8 @@ object TimelineEditing {
     // MARK: Titles
 
     fun textsAt(clip: TimelineClip, sourceTime: Double): List<TextOverlay> =
-        clip.texts.orEmpty().filter { sourceTime >= it.start && sourceTime < it.end }
+        // A title with windows shows only inside them (YouRec/ScopedEffect.swift:95-108).
+        (if (clip.effectWindows == null) clip.texts else clip.resolvingEffects(sourceTime).texts).orEmpty().filter { sourceTime >= it.start && sourceTime < it.end }
 
     /**
      * Every title showing at timeline second [time], with its opacity: a

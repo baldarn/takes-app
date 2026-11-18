@@ -43,7 +43,7 @@ class ImageOverlayTest {
         val edited = base.commit(ImageOverlays.place(base.edit, moving, 0.0..4.0, moving.motion)!!, now = 3)
         assertEquals(TimelineClip.IMAGES_SCHEMA, edited.schemaVersion)
         assertEquals(23, TimelineClip.IMAGES_SCHEMA)
-        assertEquals(24, Project.LATEST_READABLE_SCHEMA) // stabilisation (24) came after
+        assertEquals(26, Project.LATEST_READABLE_SCHEMA) // stabilisation (24) came after, then cards of a label and a headline (25), then effects on part of a clip or across pieces (26)
         edited.validate()
         val files = mutableMapOf<String, ByteArray>()
         val manifest = edited.manifest { name, data -> files[name] = data }

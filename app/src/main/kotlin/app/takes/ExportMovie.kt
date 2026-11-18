@@ -157,7 +157,11 @@ class ExportMovie(
                 add(NightFixEffect(plan.clips[part.index], shown.start - origin)) // on the raw frame
             }
             // Color on the footage itself, before it is fitted: the bars around a clip of another shape stay black.
-            LogFootage.profile(files[shown.sourceID]).let { log -> if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log, plan.clips[part.index], shown.start - origin) }
+            LogFootage.profile(files[shown.sourceID]).let { log ->
+                // Graded over parts of it: the grade in force at each frame (ColorRegionRendering).
+                if (ColorRegionRendering.applies(plan.clips[part.index])) { color.asSdr(); addAll(ColorRegionRendering.passes(plan.clips[part.index], shown.start - origin, luts, log)) }
+                else if (shown.color != null || log != null) color.look(shown.color ?: ColorSettings(), luts, log, plan.clips[part.index], shown.start - origin)
+            }
             val clip = plan.clips[part.index]
             // Before the fitting where nothing after it needs SDR: an effect after a deck's Presentation is best avoided (docs/EXPORT-TWO-SEQUENCES.md, section 8).
             if (clip.videoEffects.isNullOrEmpty() && !printsSteps(clip)) color.inHdr()
@@ -170,7 +174,7 @@ class ExportMovie(
             if (corrected != null && source != null) add(StabilizedFramingEffect(clip, shown.start - origin, corrected, rotations[shown.sourceID] ?: 0, source, frame))
             else {
                 corrected?.let { add(StabilizationEffect(clip, shown.start - origin, it, rotations[shown.sourceID] ?: 0)) }
-                if ((shown.crop != null || clip.mirror != null) && source != null) add(FramingEffect(clip, shown.start - origin, source, frame))
+                if ((shown.crop != null || clip.mirror != null || clip.framingVariants != null) && source != null) add(FramingEffect(clip, shown.start - origin, source, frame))
             }
             add(fit())
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
