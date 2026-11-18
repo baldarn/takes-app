@@ -1414,6 +1414,15 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val movingSounds = remember(drawnEdit, session?.moving) { session?.let { TrackComponents.targets(drawnEdit, it.moving).audio }.orEmpty() }
         // Where the footage of each clip would begin, which its thumbnails keep to through a split or a move (YouRec/EditorTimeline.swift:1298 at 57e5d91).
         val filmOrigins = remember(drawnEdit) { (drawnEdit.layered ?: drawnEdit.toTimeline()).video.associate { it.id to (it.start - it.localOrigin).seconds } }
+        // The thumbnails of the picture as edited, kept by what they draw (YouRec/Filmstrip.swift:95-275 at 57e5d91), in
+        // the movie's own frame whatever a tool frames into while it is open.
+        val filmFrames = remember(folder) { FilmstripFrames(context, folder) }
+        DisposableEffect(filmFrames) { onDispose { filmFrames.close() } }
+        val filmCanvas = (saved.outputSize ?: originalShape)?.let { it.width.roundToInt() to it.height.roundToInt() }
+        filmFrames.setting = filmCanvas?.let { shape ->
+            FilmstripSetting(files, sizes, project.sources.associateBy { it.id }, logProfiles, shape, movieRate)
+        }
+        val filmstrip = remember(drawnEdit, filmFrames) { filmFrames.view(drawnEdit, drawnEdit.layered ?: drawnEdit.toTimeline()) }.takeIf { filmCanvas != null }
         // How linked groups are stitched on the timeline, its pictures on their rows and its sounds on their tracks (YouRec/EditorTimeline.swift:406 at 57e5d91).
         val linkLayout = remember(drawnEdit, rows, soundRows, session != null) {
             if (session != null) null
@@ -1531,7 +1540,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
             },
             pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
-            links = linkLayout, origins = filmOrigins,
+            links = linkLayout, origins = filmOrigins, filmstrip = filmstrip,
             moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },

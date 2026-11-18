@@ -207,6 +207,8 @@ internal fun Timeline(
     links: TimelineLinkLayout? = null,
     /** Where the footage each clip is a piece of would begin on the timeline, by clip, which its thumbnails' grid keeps to (YouRec/EditorTimeline.swift:1298). */
     origins: Map<String, Double> = emptyMap(),
+    /** The thumbnails of the edited picture; null shows the footage as recorded. */
+    filmstrip: FilmstripView? = null,
 ) {
     val density = LocalDensity.current
     // The gesture below outlives recompositions; always call the latest callbacks.
@@ -477,7 +479,7 @@ internal fun Timeline(
                 clips, files, rows, current, trim, pixelsPerSecond, viewport, scroll, marked, Modifier.width(width).height(strip),
                 openTitle = openTitle, openImage = openImage, select = { onSelect(it, null) },
                 toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(it, null) },
-                focusTransition = focusTransition, soundless = soundless, markers = markers, links = links, origins = origins,
+                focusTransition = focusTransition, soundless = soundless, markers = markers, links = links, origins = origins, filmstrip = filmstrip,
             )
             // Clips sit at their timeline position; a dissolve draws the incoming clip over the end of the previous one.
             else Box(Modifier.width(width).height(TileSize + WaveHeight).offset { IntOffset(shift.roundToInt(), 0) }, Alignment.CenterStart) {
@@ -494,7 +496,7 @@ internal fun Timeline(
                             openImage = { openImage(index, it) },
                             select = { onSelect(clip.id, null) }, toggle = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onToggle(clip.id, null) },
                             soundless = clip.id in soundless, linkedParts = links?.edges?.get(clip.id)?.memberCount ?: 0,
-                            start = TimelineEditing.clipStart(clips, index), origin = origins[clip.id] ?: TimelineEditing.clipStart(clips, index),
+                            start = TimelineEditing.clipStart(clips, index), origin = origins[clip.id] ?: TimelineEditing.clipStart(clips, index), filmstrip = filmstrip,
                         )
                     }
                 }
@@ -637,6 +639,8 @@ internal fun ClipStrip(
     linkedParts: Int = 0,
     /** Where the clip begins on the timeline, and where the footage it is a piece of would begin, which the thumbnails' grid keeps to. */
     start: Double = offset.toDouble() / pixelsPerSecond, origin: Double = start,
+    /** The thumbnails of the edited picture; null shows the footage as recorded. */
+    filmstrip: FilmstripView? = null,
 ) {
     val density = LocalDensity.current
     val group = linkedParts.takeIf { it > 1 }?.let { stringResource(R.string.timeline_linked_group, it) }
@@ -646,16 +650,17 @@ internal fun ClipStrip(
     val toggleLabel = stringResource(R.string.selection_toggle)
     val width = (clip.duration * pixelsPerSecond).toFloat()
     // The thumbnails on the footage's own grid, so a split or a move does not reshuffle them, each showing the first frame
-    // of its tile (YouRec/Filmstrip.swift:3-40, YouRec/EditorTimeline.swift:1548-1572 at 57e5d91). Only the tiles near the
-    // screen are composed and decoded.
+    // of its tile, cut where a tool's region begins or ends (YouRec/Filmstrip.swift:3-40, YouRec/EditorTimeline.swift:1548-1572
+    // at 57e5d91). Only the tiles near the screen are composed and decoded.
     val grid = remember(tileHeight, pixelsPerSecond, density) {
         FilmstripGrid(maxOf(64.0, tileHeight.value.toDouble()), (pixelsPerSecond / density.density).toDouble(), FilmstripTiles.FPS)
     }
-    val visible by remember(offset, viewport, grid, start, origin, clip.duration) {
+    val edges = filmstrip?.edges?.get(clip.id).orEmpty()
+    val visible by remember(offset, viewport, grid, start, origin, clip.duration, edges) {
         derivedStateOf {
             val from = maxOf(0.0, (scroll.value - viewport - offset) / pixelsPerSecond.toDouble())
             val to = minOf(clip.duration, (scroll.value + viewport - offset) / pixelsPerSecond.toDouble())
-            FilmstripTiles.of(grid, start, clip.duration, origin, from, to)
+            FilmstripTiles.of(grid, start, clip.duration, origin, from, to, edges, (pixelsPerSecond / density.density).toDouble())
         }
     }
     val peaks by produceState<ByteArray?>(null, file) { value = Waveforms.peaks(file) }
@@ -696,7 +701,9 @@ internal fun ClipStrip(
                 for (piece in visible) {
                     key(piece.from) {
                         val time = clip.sourceTime(piece.at).coerceAtMost(clip.end)
-                        val image by produceState<Bitmap?>(null, file, (time * 2).roundToInt()) { value = Thumbnails.frame(file, time) }
+                        val item = filmstrip?.items?.get(clip.id)
+                        val image by if (filmstrip == null || item == null) produceState<Bitmap?>(null, file, (time * 2).roundToInt()) { value = Thumbnails.frame(file, time) }
+                            else editedThumbnail(filmstrip, item, piece.time, file, time)
                         image?.let {
                             Image(
                                 it.asImageBitmap(), null,
@@ -969,6 +976,7 @@ private fun PictureRows(
     openImage: (index: Int, image: ImageOverlay) -> Unit = { _, _ -> },
     links: TimelineLinkLayout? = null,
     origins: Map<String, Double> = emptyMap(),
+    filmstrip: FilmstripView? = null,
 ) {
     val density = LocalDensity.current
     val tile = rowTile(rows)
@@ -997,7 +1005,7 @@ private fun PictureRows(
                     openTitle = { openTitle(index, it) }, openImage = { openImage(index, it) }, select = { select(clip.id) }, toggle = { toggle(clip.id) },
                     top = (rows.rows[index] * pitch).roundToInt(), tileHeight = tile, waveHeight = wave,
                     outline = GhostColor.takeIf { clip.id in rows.moving }, soundless = clip.id in soundless, linkedParts = links?.edges?.get(clip.id)?.memberCount ?: 0,
-                    start = rows.starts[index], origin = origins[clip.id] ?: rows.starts[index],
+                    start = rows.starts[index], origin = origins[clip.id] ?: rows.starts[index], filmstrip = filmstrip,
                 )
             }
         }
