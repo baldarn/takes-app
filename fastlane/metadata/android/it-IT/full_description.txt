@@ -1,48 +1,41 @@
 Takes è una videocamera e un editor video in una sola app, pensata per come si girano davvero i video: una ripresa alla volta.
 
 REGISTRA A RIPRESE
-• Registra, metti in pausa, riprendi e ferma: il pulsante grande ferma, quello tondo accanto mette in pausa. Ogni pausa chiude una ripresa, e puoi tornare sullo stesso progetto più tardi, anche dopo aver chiuso l'app.
-• Passa dalla camera frontale a quella posteriore mentre registri.
-• Zoom predefiniti, pizzico per zoomare e transizioni di zoom fluide e temporizzate. Ogni camera ricorda il proprio zoom.
-• Tocco per il fuoco, blocco del fuoco e fuoco manuale, 4K, selfie a specchio e luce frontale, ognuno dove la camera del telefono lo offre.
-• Impostazioni del registratore e un pannello rapido.
-• Scegli il microfono e un ordine di preferenza tra i microfoni, e controlla in alto quello in uso e il suo livello in tempo reale.
-• Comandi che ruotano insieme al telefono.
-• Segnalibri: segna un momento mentre registri e ritrovalo nel montaggio.
+• Registra, pausa, riprendi e ferma: il pulsante grande ferma, quello rotondo mette in pausa. Ogni pausa chiude una ripresa, e puoi tornare al progetto più tardi, anche dopo aver chiuso l'app.
+• Cambia fotocamera mentre registri, scegli l'obiettivo principale, grandangolare, tele o frontale, zoom preimpostati, zoom con le dita e passaggi di zoom temporizzati.
+• Usa due fotocamere: la posteriore e la frontale in un'unica immagine, in quattro disposizioni, sui telefoni che le usano insieme.
+• 1080p o 4K, HDR (HLG, dieci bit), stabilizzazione, Livella orizzonte, Segui volto, blocco della messa a fuoco, messa a fuoco manuale e focus peaking, dove il telefono lo permette.
+• Effetti video dal vivo mentre registri, con i pulsanti Crash Zoom e Dolly Zoom.
+• Scegli il microfono, guardane il livello e regola il guadagno.
+• Segnalibri: segna un momento mentre registri e ritrovalo nell'editor.
+• Registra qui: le nuove riprese entrano nel montaggio alla testina.
 
 MONTA SULLA TIMELINE
-• Timeline scorrevole con miniature e forme d'onda dell'audio.
-• Dividi sul cursore, rifila con le maniglie, elimina e riordina le clip.
-• Intervalli e selezione: segna inizio e fine, guarda l'anteprima del taglio, poi elimina, copia, taglia e incolla, oppure applica uno strumento solo a quella parte.
-• Salta al taglio precedente o successivo, con un magnete che aggancia ai tagli.
-• Titoli che seguono le immagini, con look, font, gradienti, contorno, ombra, sfondo, animazioni di entrata e uscita, e stili che puoi salvare.
-• Nove transizioni tra le clip, in apertura e in chiusura: dissolvenza, fade su colore, wipe, split screen, Hitchcock, whip pan, flash cut, fermo immagine e defocus, ognuna con i suoi tempi per l'audio.
-• Importa nel progetto i video già presenti sul telefono.
-• Audio per ogni clip: volume a passi di mezzo decibel con un avviso quando il mix satura, mute e dissolvenze di lunghezza libera. Trascina la forma d'onda per regolare il livello.
-• Due tracce audio separate per musica o voce, importate dai tuoi file.
-• Riduzione del rumore per l'audio registrato.
-• Rimuovi le pause: trova i silenzi in una clip e li taglia.
-• Colore: look, esposizione, calore e tinta per ogni clip, oppure importa una tua LUT .cube.
-• Effetti video come in YouRec: Noir, Notte americana, Bleach Bypass, Caleidoscopio, Sfondo automatico e molti altri, ognuno con la sua storia nel cinema.
-• Ritaglia e reinquadra l'immagine, ruotala o animala tra due inquadrature.
-• Aggiungi video sul cursore: registra lì una nuova ripresa, o inserisci quelle che non hai ancora usato.
-• Sottotitoli: il parlato viene trascritto sul telefono, poi puoi correggere il testo e sceglierne lo stile. Due modelli vocali tra cui scegliere: il più grande è quello usato da YouRec.
-• Velocità della clip da 0,25× a 4×, con l'intonazione mantenuta.
-• Annulla e ripristina che restano anche dopo aver chiuso l'app.
+• Timeline a miniature con forme d'onda, zoom e anteprima a schermo intero.
+• Dividi, accorcia, elimina e riordina le clip; segna un tratto per eliminarlo, copiarlo, tagliarlo, incollarlo o applicare uno strumento solo lì; annulla e ripeti anche dopo aver chiuso l'app.
+• Livelli: video sovrapposti a tutto schermo, affiancati, sopra e sotto o picture in picture, e immagini sovrapposte.
+• Importa video e foto alla testina, o le riprese non ancora usate.
+• Nove transizioni: dissolvenza, fade su colore, wipe, split screen, Hitchcock, whip pan, flash cut, fermo immagine e defocus, ognuna con i suoi tempi per l'audio.
+• Titoli che seguono il video, con stili, font, sfumature, contorno, ombra, animazioni di entrata e uscita, e stili salvati.
+• Immagine: velocità da 0,25× a 4× mantenendo l'intonazione, ritaglio, rotazione e inquadratura animata, 16:9, 9:16, 1:1 o 4:5, specchio e stabilizzazione.
+• Colore: quattordici look, le tue LUT .cube, esposizione, temperatura, tinta, alte luci, correzione colore con keyframe, look salvati e animati, e girato in Log.
+• Effetti video come in YouRec: Noir, Bleach Bypass, Caleidoscopio, Quantizzazione, texture da pellicola, Chroma Key, Sfondo automatico, Colore isolato, Crash Zoom, Dolly Zoom, Recupero notturno e molti altri, con keyframe e la storia di ogni effetto.
+• Audio: livelli a mezzi decibel, dissolvenze, due tracce audio per musica o voce, registrazione della voce, riduzione del rumore con RNNoise o DeepFilterNet3, EQ voce, beep di censura e Rimuovi pause.
+• Sottotitoli: il parlato viene trascritto sul telefono, con il modello di YouRec o uno più leggero; correggi, raggruppa e dai stile alle didascalie.
 • Le registrazioni originali non vengono mai modificate.
 
 ESPORTA E CONDIVIDI
-• Esporta il montaggio scegliendo dimensione, H.264 o H.265 e fotogrammi al secondo.
-• L'esportazione va in pausa quando esci dall'app o spegni lo schermo, e riprende da dove si era fermata.
-• Il filmato finito viene controllato prima di esserti proposto.
-• Guardalo, condividilo o salvalo nella galleria.
+• Esporta a dimensione originale, 720p, 1080p o 4K, H.264 o H.265, da 24 a 60 fps, mantenendo l'HDR.
+• Un export si ferma quando esci dall'app e riprende da dove era rimasto. Il filmato finito viene controllato prima di proportelo.
+• Guardalo, condividilo, salvalo nella galleria, o condividi un fotogramma come copertina.
 
 I TUOI VIDEO RESTANO TUOI
 • Nessun account, nessuna pubblicità, nessun tracciamento.
-• Registrazioni e progetti non lasciano mai il tuo dispositivo.
+• Registrazioni e progetti non lasciano il tuo dispositivo, se non li condividi tu.
 • L'app va su internet per una cosa sola: scaricare il modello vocale per i sottotitoli (circa 987 MB o circa 375 MB, secondo il modello), e solo quando lo chiedi tu.
 • I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
-• Duplica un progetto, oppure esportalo come ZIP e riaprilo più tardi o su un altro telefono.
+• Duplica un progetto, oppure salvalo come ZIP e riaprilo più tardi o su un altro telefono.
+• I progetti passano da e verso YouRec su iPhone: Takes apre gli ZIP di progetto di YouRec, e Zip per iPhone ne salva uno che YouRec apre.
 • In italiano e in inglese.
 
-Takes è un port Android non ufficiale e open source di YouRec di Salvatore Sanfilippo (antirez). È una prima versione: altri strumenti di montaggio sono in arrivo.
+Takes è un port Android non ufficiale e open source di YouRec di Salvatore Sanfilippo (antirez).

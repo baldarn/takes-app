@@ -2,47 +2,40 @@ Takes is a camera and a video editor in one app, built around the way videos are
 
 RECORD IN TAKES
 • Record, pause, resume and stop: the large button stops, the round one beside it pauses. Every pause closes a take, and you can come back to the same project later, even after closing the app.
-• Switch between front and rear camera while recording.
-• Zoom presets, pinch to zoom, and smooth timed zoom transitions. Each camera remembers its own zoom.
-• Tap to focus, focus lock and manual focus, 4K, mirrored selfies and a front light, each where your phone's camera offers it.
-• Recorder settings and a quick panel.
-• Choose the microphone and an order of preference among microphones, and watch the one in use and its live level at the top of the screen.
-• Controls that turn with the phone.
+• Switch camera while recording, choose the main, ultrawide, tele or front lens, zoom presets, pinch to zoom and timed zoom transitions.
+• Use two cameras: the rear and the front camera in one picture, in four layouts, on phones that run both at once.
+• 1080p or 4K, HDR (HLG, ten bits), stabilisation, Level horizon, Follow face, focus lock, manual focus and focus peaking, each where your phone's camera offers it.
+• Live video effects while you record, with Crash Zoom and Dolly Zoom buttons.
+• Choose the microphone, watch its live level, and set a recording gain.
 • Bookmarks: mark a moment while recording and jump back to it in the editor.
+• Record here: new takes go into the edit at the playhead.
 
 EDIT ON A TIMELINE
-• Scrolling thumbnail timeline with audio waveforms.
-• Split at the playhead, trim with handles, delete and reorder clips.
-• Ranges and selection: mark a start and an end, preview the cut, then delete, copy, cut and paste, or apply a tool to just that part.
-• Jump to the previous or next cut, with a magnet that snaps to cuts.
-• Titles that follow the footage, with looks, fonts, gradients, outline, shadow, background, entrance and exit motion, and styles you can save.
-• Nine transitions between clips and at the start and end: dissolve, fade through a color, wipe, split screen, Hitchcock, whip pan, flash cut, still and defocus, each with its own sound timing.
-• Import videos from your device into a project.
-• Sound for each clip: volume in half decibels with a warning when the mix would clip, mute, and fades of any length. Drag the waveform to set the level.
-• Two separate audio tracks for music or voice, imported from your files.
-• Noise reduction for recorded sound.
-• Remove pauses: find the silences in a clip and cut them out.
-• Color: looks, exposure, warmth and tint for each clip, or import your own .cube LUT.
-• Video effects as in YouRec: Noir, Day for Night, Bleach Bypass, Kaleidoscope, Auto Background and many more, each with its film history.
-• Crop and reframe the picture, rotate it, or animate between two framings.
-• Add video at the playhead: record a new take there, or drop in takes you have not used yet.
-• Subtitles: speech is transcribed on your phone, then you can edit the text and choose its style. Two speech models to choose from: the larger one is the model YouRec uses.
-• Clip speed from 0.25× to 4×, with the pitch kept.
-• Undo and redo that survive closing the app.
+• Thumbnail timeline with waveforms, timeline zoom and full-screen preview.
+• Split, trim, delete and reorder clips; mark a range to delete, copy, cut, paste or apply a tool to just that part; undo and redo that survive closing the app.
+• Layers: overlapping videos as cover, side by side, top and bottom or picture in picture, and image overlays.
+• Import videos and photos at the playhead, or takes you have not used yet.
+• Nine transitions: dissolve, fade through a color, wipe, split screen, Hitchcock, whip pan, flash cut, still and defocus, each with its own sound timing.
+• Titles that follow the footage, with looks, fonts, gradients, outline, shadow, entrance and exit motion, and saved styles.
+• Picture: speed from 0.25× to 4× with the pitch kept, crop, rotation and animated reframing, 16:9, 9:16, 1:1 or 4:5, mirror and stabilisation.
+• Color: fourteen looks, your own .cube LUTs, exposure, warmth, tint, highlights, color correction with keyframes, saved and animated grades, and Log footage.
+• Video effects as in YouRec: Noir, Bleach Bypass, Kaleidoscope, Quantization, film textures, Chroma Key, Auto Background, Color Isolation, Crash Zoom, Dolly Zoom, Night fix and many more, with keyframes and each effect's film history.
+• Sound: levels in half decibels, fades, two audio tracks for music or voice, voice recording, noise reduction with RNNoise or DeepFilterNet3, voice EQ, censor beep, and Remove pauses.
+• Subtitles: speech is transcribed on your phone, with the model YouRec uses or a lighter one; correct, regroup and style the captions.
 • Your original recordings are never modified.
 
 EXPORT AND SHARE
-• Export your edit as a movie, choosing size, H.264 or H.265 and frame rate.
-• An export pauses when you leave the app or turn the screen off, and goes on from where it stopped.
-• The finished movie is checked before it is offered to you.
-• Play it, share it, or save it to your gallery.
+• Export at original size, 720p, 1080p or 4K, H.264 or H.265, 24 to 60 fps, with HDR kept.
+• An export pauses when you leave the app and goes on from where it stopped. The finished movie is checked before it is offered to you.
+• Play it, share it, save it to your gallery, or share a frame as the cover.
 
 YOUR VIDEOS STAY YOURS
 • No account, no ads, no tracking.
-• Your recordings and projects never leave your device.
+• Your recordings and projects never leave your device unless you share them.
 • The app goes online for one thing only: downloading the speech model for subtitles (about 987 MB or about 375 MB, depending on the model), and only when you ask.
 • Deleted projects go to Recently Deleted, where you can restore them.
-• Duplicate a project, or export it as a ZIP and open it again later or on another phone.
+• Duplicate a project, or save it as a ZIP and open it again later or on another phone.
+• Projects travel to and from YouRec on iPhone: Takes opens YouRec's project ZIPs, and Zip for iPhone saves one YouRec opens.
 • In English and Italian.
 
-Takes is an unofficial, open source Android port of YouRec by Salvatore Sanfilippo (antirez). It is an early release: more editing tools are on the way.
+Takes is an unofficial, open source Android port of YouRec by Salvatore Sanfilippo (antirez).
