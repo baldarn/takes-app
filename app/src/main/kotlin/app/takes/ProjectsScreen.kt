@@ -58,6 +58,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,6 +106,17 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { videos ->
         store.importVideos(importInto.ifEmpty { null }, videos)
     }
+    // Import, Create a new project: From Photos, photos and videos in the order picked, and Video from Files
+    // (YouRec/ContentView.swift:798-814); each opens the new project in the editor, as the original's does.
+    val fromPhotos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { items ->
+        store.newProjectFromMedia(items) { open(it, 2) }
+    }
+    val fromFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { video ->
+        if (video != null) store.importVideos(null, listOf(video)) { open(it, 2) }
+    }
+    var importMenu by remember { mutableStateOf(false) }
+    // The projects of Recently deleted to delete for good, once confirmed (ContentView.swift:620-642).
+    var eraseAll by remember { mutableStateOf(emptyList<String>()) }
     // The project being zipped, while the user chooses where to save it.
     var zipping by rememberSaveable { mutableStateOf("") }
     val saveZip = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { destination ->
@@ -128,7 +143,16 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
             FlowRow(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
                 Text(stringResource(R.string.projects_title), Modifier.align(Alignment.CenterVertically), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
                 FlowRow(Modifier.align(Alignment.CenterVertically)) {
-                    TextButton(onClick = { pickVideos("") }, contentPadding = PaddingValues(horizontal = 8.dp)) { Icon(Icons.Outlined.FileDownload, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_import), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false) }
+                    Box {
+                        TextButton(onClick = { importMenu = true }, enabled = store.importing == null, contentPadding = PaddingValues(horizontal = 8.dp)) { Icon(Icons.Outlined.FileDownload, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_import), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false) }
+                        ImportMenu(
+                            importMenu, { importMenu = false },
+                            photos = { fromPhotos.launch(PickVisualMediaRequest.Builder().setMediaType(ActivityResultContracts.PickVisualMedia.ImageAndVideo).setOrderedSelection(true).build()) },
+                            video = { fromFiles.launch(arrayOf("video/*")) },
+                            // Some file managers label a ZIP as generic data, so both kinds are offered.
+                            zip = { openZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
+                        )
+                    }
                     Button(onClick = { store.create()?.let { open(it, 0) } }, contentPadding = PaddingValues(horizontal = 14.dp)) { Icon(Icons.Filled.Add, null, Modifier.size(18.dp)); Text(stringResource(R.string.projects_new_recording), Modifier.padding(start = 4.dp), maxLines = 1, softWrap = false) }
                 }
             }
@@ -153,7 +177,15 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
             }
         }
         if (store.deleted.isNotEmpty()) {
-            item { Text(stringResource(R.string.projects_recently_deleted), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
+            item {
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.projects_recently_deleted), Modifier.weight(1f), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    // Delete All, as the original's Recently deleted (ContentView.swift:620-628).
+                    TextButton(onClick = { eraseAll = store.deleted.map { it.project.id } }, enabled = store.importing == null) {
+                        Text(stringResource(R.string.projects_delete_all), color = RecordRed)
+                    }
+                }
+            }
             items(store.deleted, key = { "deleted-" + it.project.id }) { entry ->
                 Column(Modifier.fillMaxWidth().background(Card, RoundedCornerShape(16.dp)).padding(16.dp)) {
                     Text(entry.project.title, color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -167,12 +199,6 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
                         TextButton(onClick = { erasing = entry.project }) { Text(stringResource(R.string.projects_delete_permanently), color = RecordRed) }
                     }
                 }
-            }
-        }
-        item {
-            // Some file managers label a ZIP as generic data, so both kinds are offered.
-            TextButton(onClick = { openZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) }) {
-                Text(stringResource(R.string.projects_open_zip), color = Muted)
             }
         }
         item { TextButton(onClick = { showingCredits = true }) { Text(stringResource(R.string.credits_title), color = Muted) } }
@@ -233,6 +259,20 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
             // As in the original, an empty or blank name cannot be saved.
             confirmButton = { TextButton(onClick = { store.rename(project, title); renaming = null }, enabled = title.isNotBlank()) { Text(stringResource(R.string.projects_rename)) } },
             dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.common_cancel)) } },
+        )
+    }
+    if (eraseAll.isNotEmpty()) {
+        val count = eraseAll.size
+        AlertDialog(
+            onDismissRequest = { eraseAll = emptyList() },
+            title = { Text(stringResource(R.string.projects_delete_all_title)) },
+            text = { Text(stringResource(R.string.projects_delete_all_message)) },
+            confirmButton = {
+                TextButton(onClick = { store.eraseDeleted(eraseAll); eraseAll = emptyList() }) {
+                    Text(pluralStringResource(R.plurals.projects_delete_all_confirm, count, count), color = RecordRed)
+                }
+            },
+            dismissButton = { TextButton(onClick = { eraseAll = emptyList() }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
     erasing?.let { project ->
@@ -377,4 +417,37 @@ private fun CardExport(project: Project, store: ProjectStore, exporter: Exporter
     ExportPanel(project, canvas, store, exporter, choosing) { choosing = false }
     val ended = !choosing && exporter.status == null && exporter.result == null
     LaunchedEffect(ended) { if (ended) close() }
+}
+
+/**
+ * The Import menu, as the original's (YouRec/ContentView.swift:798-822): Create a new project, From Photos (photos and
+ * videos in the order picked) or Video from Files; Restore a project, from a YouRec project ZIP.
+ */
+@Composable
+private fun ImportMenu(open: Boolean, dismiss: () -> Unit, photos: () -> Unit, video: () -> Unit, zip: () -> Unit) {
+    androidx.compose.material3.DropdownMenu(open, dismiss) {
+        MenuHeader(stringResource(R.string.projects_import_create))
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Column { Text(stringResource(R.string.projects_import_photos)); Text(stringResource(R.string.projects_import_photos_detail), color = Muted, fontSize = 12.sp) } },
+            onClick = { dismiss(); photos() },
+            leadingIcon = { Icon(Icons.Outlined.PhotoLibrary, null) },
+        )
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Text(stringResource(R.string.projects_import_video_files)) },
+            onClick = { dismiss(); video() },
+            leadingIcon = { Icon(Icons.Outlined.Movie, null) },
+        )
+        androidx.compose.material3.HorizontalDivider()
+        MenuHeader(stringResource(R.string.projects_import_restore))
+        androidx.compose.material3.DropdownMenuItem(
+            text = { Column { Text(stringResource(R.string.projects_import_zip)); Text(stringResource(R.string.projects_import_zip_detail), color = Muted, fontSize = 12.sp) } },
+            onClick = { dismiss(); zip() },
+            leadingIcon = { Icon(Icons.Outlined.Inventory2, null) },
+        )
+    }
+}
+
+@Composable
+private fun MenuHeader(text: String) {
+    Text(text, Modifier.padding(horizontal = 12.dp, vertical = 6.dp).semantics { heading() }, color = Muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
 }

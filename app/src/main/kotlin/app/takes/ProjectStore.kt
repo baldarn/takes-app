@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.takes.core.MediaImport
 import app.takes.core.CaptureEffectsFile
 import app.takes.core.CaptureEventsFile
 import app.takes.core.CubeLUT
@@ -150,6 +151,12 @@ class ProjectStore(context: Context) {
         prefs.edit().putStringSet("soundLengthAdopted", soundLengthAdopted).apply()
     }
     var error by mutableStateOf<String?>(null)
+
+    /**
+     * Picks the same items again after one could not be added, offered with [error] as the original's "Retry
+     * selection" (YouRec/AddVideoPanel.swift:40-44): kept until the error is put away or the import is tried again.
+     */
+    var retry by mutableStateOf<(() -> Unit)?>(null)
     /** What changed in a project opened from a ZIP of YouRec, the iPhone original, one line each, until it is read. */
     var youRecNotes by mutableStateOf<List<String>?>(null)
     /** What an import in progress is doing, for display. */
@@ -245,7 +252,7 @@ class ProjectStore(context: Context) {
      * one when [projectID] is null, and adds them to the end of its timeline.
      * The originals stay where they are; the project owns its copies.
      */
-    fun importVideos(projectID: String?, uris: List<Uri>) {
+    fun importVideos(projectID: String?, uris: List<Uri>, opened: (Project) -> Unit = {}) {
         if (uris.isEmpty() || importing != null) return
         val previous = selectedID
         val project = projectID?.let { id -> projects.firstOrNull { it.id == id } } ?: create() ?: return
@@ -272,8 +279,68 @@ class ProjectStore(context: Context) {
             if (failed > 0) {
                 error = if (uris.size == 1) context.getString(R.string.projects_import_failed_one)
                 else context.getString(R.string.projects_import_failed_some, failed, uris.size)
+            } else {
+                // As the original opens the editor on an imported project (YouRec/ContentView.swift:654-658).
+                projects.firstOrNull { it.id == project.id }?.let(opened)
             }
         }
+    }
+
+    /**
+     * A new project of the photos and videos picked, in the order picked, each as a clip of the timeline, as the
+     * original's Import, Create a new project, From Photos (YouRec/ProjectStore.swift:476-506): it appears only once
+     * every item is in, so a failed or cancelled import leaves no project behind, and the one that fails is named.
+     * [opened] is told the project, to open it in the editor.
+     */
+    fun newProjectFromMedia(uris: List<Uri>, opened: (Project) -> Unit) {
+        if (uris.isEmpty() || importing != null) return
+        retry = null
+        val previous = selectedID
+        val project = create() ?: return
+        begin(cancellable = true)
+        scope.launch {
+            val added = mutableListOf<SourceMedia>()
+            var failure: String? = null
+            try {
+                for ((index, uri) in uris.withIndex()) {
+                    importing = context.getString(R.string.projects_importing_progress, index + 1, uris.size)
+                    val source = if (resolver.getType(uri)?.startsWith("image/") == true) photoIn(project.id, uri) else withContext(Dispatchers.IO) { copyIn(project.id, uri) }
+                    if (source == null) { failure = itemFailure(index, uris.size, uri); break }
+                    added += source
+                }
+            } catch (_: Cancelled) {
+                discardNew(project, previous)
+                end()
+                return@launch
+            }
+            val placed = if (failure != null) null else placeFootage(added.fold(project) { it, source -> it.addSource(source) }, added, 0.0, null)
+            end()
+            if (placed == null || !update(placed.first)) {
+                discardNew(project, previous)
+                error = failure ?: context.getString(R.string.add_media_failed)
+                retry = { newProjectFromMedia(uris, opened) }
+                return@launch
+            }
+            select(project.id)
+            projects.firstOrNull { it.id == project.id }?.let(opened)
+        }
+    }
+
+    /** [uris] in the order of their names, as the original adds several files (YouRec/AddVideoPanel.swift:111). */
+    fun byName(uris: List<Uri>): List<Uri> = MediaImport.byName(uris) { uri ->
+        runCatching { resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } }.getOrNull()
+            ?: uri.lastPathSegment.orEmpty()
+    }
+
+    /**
+     * Why item [index] (from 0) of [count], [uri], could not be added (YouRec/ProjectStore.swift:522-524): a picked
+     * item whose file cannot be read, as a cloud item not yet on the phone, with what to do about it
+     * (YouRec/OrderedMediaPicker.swift:93-97); else one that is not a playable movie or a picture.
+     */
+    private suspend fun itemFailure(index: Int, count: Int, uri: Uri): String {
+        val readable = withContext(Dispatchers.IO) { runCatching { resolver.openInputStream(uri)?.use { it.read() >= 0 } == true }.getOrDefault(false) }
+        val reason = context.getString(if (readable) R.string.import_item_unplayable else R.string.import_item_unavailable)
+        return context.getString(R.string.import_item_failed, index + 1, count, reason)
     }
 
     /**
@@ -285,13 +352,15 @@ class ProjectStore(context: Context) {
      */
     fun insertMedia(projectID: String, uris: List<Uri>, at: Double, site: VideoInsertionSite? = null, done: (TrackEditorEdits.Made) -> Unit = {}) {
         if (uris.isEmpty() || importing != null) return
+        retry = null
         scope.launch {
             val added = mutableListOf<SourceMedia>()
             var failed = false
+            var failure: String? = null
             for ((index, uri) in uris.withIndex()) {
                 importing = context.getString(R.string.projects_importing_progress, index + 1, uris.size)
                 val source = if (resolver.getType(uri)?.startsWith("image/") == true) photoIn(projectID, uri) else withContext(Dispatchers.IO) { copyIn(projectID, uri) }
-                if (source == null) { failed = true; break }
+                if (source == null) { failed = true; failure = itemFailure(index, uris.size, uri); break }
                 added += source
             }
             importing = null
@@ -299,7 +368,9 @@ class ProjectStore(context: Context) {
             val placed = if (failed || project == null) null else placeFootage(added.fold(project) { it, source -> it.addSource(source) }, added, at, site)
             if (placed == null || !update(placed.first)) {
                 project?.let { for (source in added) file(it, source).delete() }
-                error = if (uris.size == 1) context.getString(R.string.projects_import_failed_one) else context.getString(R.string.add_media_failed)
+                error = failure ?: if (uris.size == 1) context.getString(R.string.projects_import_failed_one) else context.getString(R.string.add_media_failed)
+                // The same selection can be tried again, as the original's Retry selection (AddVideoPanel.swift:40-44).
+                retry = { insertMedia(projectID, uris, at, site, done) }
             } else done(placed.second)
         }
     }
@@ -1035,6 +1106,21 @@ class ProjectStore(context: Context) {
     }
 
     fun erase(project: Project) = attempt(R.string.projects_erase_failed) { disk.eraseDeleted(project.id) }
+
+    /**
+     * Permanently deletes the projects of [ids] that are still in Recently deleted, as the original's Delete All
+     * (YouRec/ProjectStore.swift:291-311): each one it can, and says so when one could not be.
+     */
+    fun eraseDeleted(ids: List<String>) {
+        if (importing != null) return
+        val targets = ids.toSet().intersect(deleted.map { it.project.id }.toSet())
+        var failure: String? = null
+        for (id in targets) {
+            try { disk.eraseDeleted(id) } catch (problem: Exception) { if (failure == null) failure = describe(problem) }
+        }
+        failure?.let { error = context.getString(R.string.projects_erase_all_failed, it) }
+        reload()
+    }
 
     /**
      * The projects of Recently Deleted that have been there more than 30 days, as the original's

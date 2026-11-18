@@ -28,7 +28,7 @@
     <string name="projects_recently_deleted">Recently deleted</string>
     <string name="projects_deleted_summary">%1$s · deleted %2$s</string>
     <string name="projects_over_30_days">Over 30 days</string>
-    <string name="projects_deleted_no_date">Deletion date unavailable · excluded from bulk cleanup</string>
+    <string name="projects_deleted_no_date">Deletion date unavailable</string>
     <string name="projects_expired_title">Delete older projects?</string>
     <plurals name="projects_expired_message">
         <item quantity="one">%1$d project has been in Recently deleted for more than 30 days. Permanently delete it, including original recordings, edits and exports? This cannot be undone.</item>
@@ -123,7 +123,6 @@
     <string name="iphone_recording_run">Recording at a chosen place ends. On iPhone, the next take goes at the end.</string>
     <string name="iphone_caption_regrouping">On iPhone, caption words can be regrouped only after transcribing again.</string>
     <string name="projects_delete_failed">The project could not be deleted: %1$s</string>
-    <string name="projects_open_zip">Open a project ZIP</string>
     <string name="projects_unzipping">Opening the ZIP…</string>
     <string name="projects_unzipping_percent">Opening the ZIP… %1$d%%</string>
     <string name="projects_unzip_done">The project from the ZIP was added to your projects.</string>
@@ -1188,4 +1187,25 @@
     <string name="image_opacity_label">Image opacity</string>
     <string name="image_across_label">Image horizontal position</string>
     <string name="image_down_label">Image vertical position</string>
+    <string name="import_item_failed">Couldn’t add item %1$d of %2$d. %3$s</string>
+    <string name="import_item_unavailable">The gallery couldn’t provide a file for this item. Open it in the gallery to finish downloading it, then try again. You can also save it to Files and add it from there.</string>
+    <string name="import_item_unplayable">It may not be a playable movie or a picture.</string>
+    <string name="import_retry_selection">Retry selection</string>
+    <string name="projects_import_create">Create a new project</string>
+    <string name="projects_import_photos">From Photos</string>
+    <string name="projects_import_photos_detail">Select photos and videos in playback order</string>
+    <string name="projects_import_video_files">Video from Files</string>
+    <string name="projects_import_restore">Restore a project</string>
+    <string name="projects_import_zip">YouRec project ZIP</string>
+    <string name="projects_import_zip_detail">Open a copy with its media and edit history</string>
+    <string name="projects_delete_all">Delete All</string>
+    <string name="projects_delete_all_title">Empty Recently Deleted?</string>
+    <string name="projects_delete_all_message">This permanently deletes the projects in Recently Deleted, including their recordings, edits and exports. You can’t undo this.</string>
+    <string name="projects_erase_all_failed">Couldn’t delete every selected project. %1$s</string>
+    <string name="add_media_files">From Files</string>
+    <string name="add_media_files_detail">Multiple files are added in filename order</string>
+    <plurals name="projects_delete_all_confirm">
+        <item quantity="one">Delete %d project</item>
+        <item quantity="other">Delete %d projects</item>
+    </plurals>
 </resources>

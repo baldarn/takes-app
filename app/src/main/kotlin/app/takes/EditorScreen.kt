@@ -843,6 +843,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val at = InsertionSites.time(edit, playhead, site) ?: playhead
         if (uris.isNotEmpty()) store.insertMedia(project.id, uris, at, site) { made -> footageAdded(made, uris.size) }
     }
+    // Or from Files, several in the order of their names (AddVideoPanel.swift:107-116).
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { picked ->
+        val site = addSite
+        val at = InsertionSites.time(edit, playhead, site) ?: playhead
+        val uris = store.byName(picked)
+        if (uris.isNotEmpty()) store.insertMedia(project.id, uris, at, site) { made -> footageAdded(made, uris.size) }
+    }
     // Bookmarks anywhere: on the picture in front or the one selected, on a selected sound, or in empty time and at the
     // end (EditorView.swift:1259-1295). Made on the saved edit, so a draft on the screen is never committed with one.
     val bookmarks = rememberBookmarks(edit, saved, { playhead }, marks.selected, editable = moving == null, commit = commit, said = { feedback = it })
@@ -2168,6 +2175,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     },
                     unused = { adding = false; choosing = emptyList() },
                     dismiss = { adding = false },
+                    files = { adding = false; pickFiles.launch(arrayOf("video/*", "image/*")) },
                 )
             }
             choosing?.let { chosen ->
