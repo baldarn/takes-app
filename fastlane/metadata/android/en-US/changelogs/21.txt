@@ -1,0 +1,2 @@
+• One Zip project for both phones: the ZIP opens in Takes and in YouRec on iPhone (Open a project ZIP). Zip for iPhone is gone. If a project cannot open on iPhone, the ZIP still opens in Takes and the message says why.
+• Recordings with the phone's microphone sound fuller and brighter: stereo at 192 kbps, as in the original, where some phones (such as the Pixel 9a) recorded mono at 96 kbps and quieter.

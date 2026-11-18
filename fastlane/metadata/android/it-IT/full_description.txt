@@ -34,8 +34,8 @@ I TUOI VIDEO RESTANO TUOI
 • Registrazioni e progetti non lasciano il tuo dispositivo, se non li condividi tu.
 • L'app va su internet per una cosa sola: scaricare il modello vocale per i sottotitoli (circa 987 MB o circa 375 MB, secondo il modello), e solo quando lo chiedi tu.
 • I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
-• Duplica un progetto, oppure salvalo come ZIP e riaprilo più tardi o su un altro telefono.
-• I progetti passano da e verso YouRec su iPhone: Takes apre gli ZIP di progetto di YouRec, e Zip per iPhone ne salva uno che YouRec apre.
+• Duplica un progetto.
+• Esporta un progetto come ZIP per conservarlo o spostarlo: lo stesso ZIP si apre in Takes e in YouRec su iPhone, e Takes apre gli ZIP di progetto di YouRec.
 • In italiano e in inglese.
 
 Takes è un port Android non ufficiale e open source di YouRec di Salvatore Sanfilippo (antirez).
