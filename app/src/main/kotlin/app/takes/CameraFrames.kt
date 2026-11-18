@@ -1,14 +1,11 @@
 package app.takes
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.PointF
 import android.graphics.SurfaceTexture
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.media.FaceDetector
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
@@ -31,6 +28,7 @@ import app.takes.core.CrashLook
 import app.takes.core.DualCameraControls
 import app.takes.core.DualCameraLayout
 import app.takes.core.DualCameraMasks
+import app.takes.core.FaceDetection
 import app.takes.core.FaceFraming
 import app.takes.core.FaceTarget
 import app.takes.core.HorizonEstimate
@@ -75,10 +73,12 @@ import kotlin.math.roundToInt
  * The preview's frames and, while an assist shapes the take, the recording's come as two pictures of the camera,
  * each drawn with OpenGL on a thread and a context of its own ([Pass]), so that the looks drawn over the preview never
  * hold up a frame of the take. The framing is worked out with the recording's frames when they pass here, else with
- * the preview's, and the other follows it. Faces are found with the platform's [FaceDetector] on a small copy of the
- * picture, a few times a second, off those threads.
+ * the preview's, and the other follows it. Faces are found with MediaPipe's full-range face detector ([FaceFinder])
+ * on a small copy of the picture, ten times a second, off those threads.
  */
 class CameraFrames(context: Context) {
+    private val context: Context = context.applicationContext
+
     /** What the frames are to do; set from the main thread, read with each frame. */
     data class Assists(
         /** The largest angle of the level horizon, or null when it is off. */
@@ -673,16 +673,18 @@ class CameraFrames(context: Context) {
 
     // MARK: Looking at the picture
 
-    private var faceDetector: FaceDetector? = null
-    private var faceSize = android.util.Size(0, 0)
+    /** The face finder, made and used on the analysis thread. */
+    private var faceFinder: FaceFinder? = null
+    private var faceBytes = ByteArray(0)
 
     /**
      * Copies a small picture now and then and looks at it off this thread: a long straight edge for the level
-     * horizon, at most every quarter of a second, and faces for the follow, at most five times a second.
+     * horizon, at most every quarter of a second, and faces for the follow, at most ten times a second, five when the
+     * phone is hot ([faceInterval]).
      */
     private fun analyse(now: Double, roll: Double?, wanted: Assists, level: Boolean, pass: Pass) {
         // The subject of a camera move is looked for fifteen times a second, as the original tracks it.
-        if (analysing || now - lastAnalysis < (if (level) 0.24 else if (wanted.tracking) 1.0 / 15 else 0.2)) return
+        if (analysing || now - lastAnalysis < (if (level) 0.24 else if (wanted.tracking) 1.0 / 15 else faceInterval())) return
         analysing = true
         lastAnalysis = now
         val long = if (level && !wanted.follow && !wanted.tracking) 256 else 480
@@ -704,8 +706,8 @@ class CameraFrames(context: Context) {
                 analysing = false
                 if (token != generation) return@execute
                 if (roll != null && luma != null) horizon.observe(line, roll, now)
-                if (wanted.follow) target = target.observing(faces, now)
-                if (wanted.tracking) track(faces, now, zoom, effect, wanted)
+                if (wanted.follow) target = target.observing(faces.map { it.box }, now)
+                if (wanted.tracking) track(faces.map { it.box }, now, zoom, effect, wanted)
             }
         }
     }
@@ -719,49 +721,26 @@ class CameraFrames(context: Context) {
         return if (upright % 180 != 0) HorizonLine.estimateSideways(small, w, h) else HorizonLine.estimate(small, w, h)
     }
 
-    /** The faces in the picture, as boxes in fractions of the camera's picture. */
-    private fun faces(pixels: ByteBuffer, width: Int, height: Int, upright: Int): List<Rect> {
-        val colours = IntArray(width * height)
-        for (i in colours.indices) {
-            val p = i * 4
-            colours[i] = (0xFF shl 24) or ((pixels.get(p).toInt() and 0xFF) shl 16) or ((pixels.get(p + 1).toInt() and 0xFF) shl 8) or (pixels.get(p + 2).toInt() and 0xFF)
-        }
-        val picture = Bitmap.createBitmap(colours, width, height, Bitmap.Config.ARGB_8888)
-        // The detector finds faces standing up, in pictures stored in 16 bits.
-        val turned = Bitmap.createBitmap(picture, 0, 0, width, height, android.graphics.Matrix().apply { postRotate(upright.toFloat()) }, false)
-            .copy(Bitmap.Config.RGB_565, false)
-        val w = turned.width and 1.inv()
-        val h = turned.height
-        if (faceDetector == null || faceSize.width != w || faceSize.height != h) {
-            faceDetector = FaceDetector(w, h, MAX_FACES)
-            faceSize = android.util.Size(w, h)
-        }
-        val input = if (turned.width == w) turned else Bitmap.createBitmap(turned, 0, 0, w, h)
-        val found = arrayOfNulls<FaceDetector.Face>(MAX_FACES)
-        val count = runCatching { faceDetector!!.findFaces(input, found) }.getOrDefault(0)
-        val middle = PointF()
-        return (0 until count).mapNotNull { index ->
-            val face = found[index]?.takeIf { it.confidence() >= FaceDetector.Face.CONFIDENCE_THRESHOLD } ?: return@mapNotNull null
-            face.getMidPoint(middle)
-            val eyes = face.eyesDistance().toDouble()
-            // From the eyes to a box around the face, on the picture standing up.
-            val box = Rect((middle.x - eyes * 1.1) / w, (middle.y - eyes * 0.9) / h, eyes * 2.2 / w, eyes * 2.6 / h)
-            camera(box, upright)
-        }
-    }
+    /** The time between looks for faces: a tenth of a second, a fifth when the phone is hot (DualFaceDetector.swift:19). */
+    private fun faceInterval(): Double = if (LiveVideoEffects.serious(thermal)) 0.2 else 0.1
 
-    /** A box on the picture standing up, turned back into the camera's picture. */
-    private fun camera(box: Rect, upright: Int): Rect {
-        fun back(x: Double, y: Double): Pair<Double, Double> = when ((upright % 360 + 360) % 360) {
-            90 -> y to 1 - x
-            180 -> 1 - x to 1 - y
-            270 -> 1 - y to x
-            else -> x to y
+    /**
+     * The faces in the picture read back, [width] × [height] RGBA pixels from its top row, which stands when turned
+     * [upright] degrees clockwise: boxes in fractions of the camera's picture, and their scores. Found by MediaPipe's
+     * full-range face detector ([FaceFinder]), made on this thread the first time; none where LiteRT does not run.
+     */
+    private fun faces(pixels: ByteBuffer, width: Int, height: Int, upright: Int): List<FaceDetection.Face> {
+        val finder = faceFinder ?: (if (FaceFinder.available()) runCatching { FaceFinder(context) }
+            .onFailure { android.util.Log.w("CameraFrames", "face finder", it) }.getOrNull() else null)?.also { faceFinder = it } ?: return emptyList()
+        // Copied out in one go: reading a direct buffer a byte at a time took 23 ms a look on a Galaxy A54, the model 10.
+        val size = width * height * 4
+        val bytes = faceBytes.takeIf { it.size >= size } ?: ByteArray(size).also { faceBytes = it }
+        pixels.duplicate().apply { rewind() }.get(bytes, 0, size)
+        val found = finder.faces(width, height, upright) { x, y ->
+            val p = (y * width + x) * 4
+            (bytes[p].toInt() and 0xFF shl 16) or (bytes[p + 1].toInt() and 0xFF shl 8) or (bytes[p + 2].toInt() and 0xFF)
         }
-        val corners = listOf(back(box.minX, box.minY), back(box.maxX, box.maxY))
-        val minX = min(corners[0].first, corners[1].first)
-        val minY = min(corners[0].second, corners[1].second)
-        return Rect(minX, minY, abs(corners[0].first - corners[1].first), abs(corners[0].second - corners[1].second))
+        return found.map { it.copy(box = FaceDetection.toCamera(it.box, upright)) }
     }
 
     // MARK: Two cameras
@@ -1172,9 +1151,9 @@ class CameraFrames(context: Context) {
             }
         }
 
-        /** Both feeds standing, 480 on the long side, looked at for faces five times a second off this thread. DualFaceDetector.swift:19. */
+        /** Both feeds standing, 480 on the long side, looked at for faces ten times a second, five when hot, off this thread. DualFaceDetector.swift:19. */
         private fun detectFaces(feedSizes: Array<Size>, matrices: Array<Affine>, now: Double) {
-            if (detecting || now - lastFaces < 0.2) return
+            if (detecting || now - lastFaces < faceInterval()) return
             lastFaces = now
             detecting = true
             val pictures = Array(2) { f ->
@@ -1194,7 +1173,7 @@ class CameraFrames(context: Context) {
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             val token = synchronized(framingLock) { faceGeneration }
             analysis.execute {
-                val found = pictures.map { (pixels, w, h) -> faces(pixels, w, h, 0) }
+                val found = pictures.map { (pixels, w, h) -> faces(pixels, w, h, 0).map { it.box } }
                 preview.handler.post {
                     detecting = false
                     if (token != synchronized(framingLock) { faceGeneration }) return@post
@@ -1315,7 +1294,6 @@ class CameraFrames(context: Context) {
         }
 
         private const val EGL_RECORDABLE_ANDROID = 0x3142
-        private const val MAX_FACES = 4
         private const val ZOOMS = 32
         /** The preview's pass works out the framing again once the recording's has had no frame for this long. */
         private const val HANDOVER = 100_000_000L

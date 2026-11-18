@@ -32,6 +32,11 @@
         android:name="app.takes.effects.SubjectTrackRunner"
         android:label="Subject tracks"
         android:targetPackage="app.takes.dev" />
+    <!-- The face finder on still pictures, timed: adb shell am instrument -w -e images <names> app.takes.dev.test/app.takes.effects.FaceFinderRunner -->
+    <instrumentation
+        android:name="app.takes.effects.FaceFinderRunner"
+        android:label="Face finder"
+        android:targetPackage="app.takes.dev" />
     <!-- Exports of a recording with the temporal matte, timed: adb shell am instrument -w -e clip <name> app.takes.dev.test/app.takes.effects.TemporalExportRunner -->
     <instrumentation
         android:name="app.takes.effects.TemporalExportRunner"

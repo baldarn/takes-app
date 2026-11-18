@@ -120,7 +120,7 @@ audio session setting).
 
 Different because of Android: the preview in the editor is SDR (the exported movie keeps
 HDR), and an HDR export is ten bits drawn from an eight-bit pipeline; the recording codec
-is CameraX's choice; faces are found by Android's detector, which sees frontal faces only;
+is CameraX's choice; faces are found by MediaPipe's face detector rather than Vision;
 before Android 13 the preview shows some transitions as dissolves. Every detail is in
 [docs/PARITY.md](docs/PARITY.md).
 
