@@ -66,6 +66,7 @@ import app.takes.core.EditState
 import app.takes.core.EditTargets
 import app.takes.core.RangeMarks
 import app.takes.core.TimeRange
+import androidx.compose.material.icons.outlined.Schedule
 import app.takes.core.TimelinePasteTarget
 import app.takes.core.TrackComponents
 import kotlin.math.roundToInt
@@ -213,6 +214,8 @@ internal fun SelectionBar(
     effects: List<TransitionChip> = emptyList(),
     unavailable: String? = null, explain: (String) -> Unit = {},
     deleteLabel: Int = R.string.selection_delete, restoreSync: SyncAction? = null,
+    /** Edit duration, for a marked range (YouRec/EditorDurationPicker.swift:304-346 at 57e5d91); null when none is marked. */
+    editDuration: (() -> Unit)? = null,
 ) {
     val because = unavailable?.let { reason -> { explain(reason) } }
     Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -253,6 +256,7 @@ internal fun SelectionBar(
                             )
                         }
                         preview?.let { item(R.string.range_preview_cut, Icons.Outlined.Slideshow, action = it) }
+                        editDuration?.let { item(R.string.range_edit_duration, Icons.Outlined.Schedule, action = it) }
                     }
                 }
                 // The one sound selected plays apart from its picture: by how much, and Restore sync (EditorView.swift:649-655).

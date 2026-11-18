@@ -210,6 +210,7 @@ import app.takes.core.grade
 import app.takes.core.gradeTime
 import app.takes.core.resolvingEffects
 import app.takes.core.EffectRangeEdit
+import app.takes.core.TimeRange
 import app.takes.core.ScopedEffectOperation
 import app.takes.core.isAudioRange
 import androidx.compose.material.icons.outlined.RemoveCircleOutline
@@ -487,6 +488,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var marks by remember { mutableStateOf(RangeMarks()) }
     // An effect's range being adjusted by its two handles on the timeline (YouRec/EditorView.swift:1152-1191 at 57e5d91).
     var effectRange by remember { mutableStateOf<EffectRangeEdit?>(null) }
+    // The marked range's duration being edited from the selection's menu.
+    var durationOpen by remember { mutableStateOf(false) }
     // Link of picture and sound that cover different times, waiting for the question to be answered.
     var pendingLink by remember { mutableStateOf<PendingLink?>(null) }
     LaunchedEffect(saved) { marks = marks.retained(saved) }
@@ -2028,6 +2031,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             }
             // In landscape the tools scroll beside the picture.
             Column(Modifier.layoutId(EditorSlot.Tools).then(if (landscape) Modifier.verticalScroll(toolRows) else Modifier)) {
+            val markedRange = marks.range
+            if (durationOpen && markedRange != null) {
+                val back = Snapshot.withoutReadObservation { playhead }
+                SelectionDurationDialog(
+                    markedRange.start..markedRange.end, 0.0..duration,
+                    show = { time -> editor.pause(); playhead = time; editor.seek(time) },
+                    cancel = { durationOpen = false; jump(back) },
+                    done = { range -> durationOpen = false; marks = marks.copy(range = TimeRange(range.start, range.endInclusive)); jump(range.start) },
+                )
+            }
             effectRange?.let { draft ->
                 EffectRangeActions(
                     cancel = { effectRange = null; jump(draft.originalPlayhead) },
@@ -2076,6 +2089,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     feedback = if (removed != null) deleted else nothingToDelete
                 }),
                 deleteLabel = if (!open && TrackComponents.leavesGap(edit, marks.selected)) R.string.selection_delete_gap else R.string.selection_delete,
+                editDuration = marks.range?.let { { editor.pause(); durationOpen = true } },
                 restoreSync = syncOffset?.let { off ->
                     SyncAction(signedSeconds(off.seconds)) {
                         TrackComponents.restoringSync(edit, off.audio)?.let { next -> commit(next, playhead); feedback = syncRestored }

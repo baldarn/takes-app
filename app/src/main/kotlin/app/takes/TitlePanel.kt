@@ -506,58 +506,6 @@ private fun Amount(
     }
 }
 
-/** How long a title or a picture stays: a row that opens the original's presets and its start and end sliders (YouRec/EditorTools.swift:1353-1393). */
-@Composable
-internal fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, change: (ClosedFloatingPointRange<Double>) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    // All in seconds of the movie, as the original: a title may run across cuts and clips of any speed.
-    val timing = EditorRangeTiming(range, bounds)
-    val shown = timing.duration
-    val name = stringResource(R.string.title_duration)
-    val set = { next: EditorRangeTiming -> change(next.range) }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(Rounded).background(Plain).clickable { expanded = !expanded }
-                .semantics { contentDescription = name }.padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Schedule, null, Modifier.size(18.dp), tint = Color.White)
-            Text(name, color = Color.White, modifier = Modifier.weight(1f).padding(start = 8.dp))
-            Text(stringResource(R.string.title_seconds, seconds(shown)), color = Color.White)
-            Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, Modifier.size(18.dp), tint = Soft)
-        }
-        if (expanded) {
-            FitGrid(5) {
-                for (value in EditorDurationPresets.wholeSeconds) {
-                    Cell(
-                        abs(shown - value) < 1e-4, { set(timing.setting(EditorRangeTiming.Edge.End, timing.range.start + value)) },
-                        enabled = EditorDurationPresets.fits(value, timing.available),
-                    ) { Text(stringResource(R.string.title_seconds, seconds(value)), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
-                }
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.title_available, seconds(timing.available)), color = Soft, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { set(timing.setting(EditorRangeTiming.Edge.End, bounds.endInclusive)) }) { Text(stringResource(R.string.title_to_end)) }
-            }
-            for (edge in EditorRangeTiming.Edge.entries) {
-                val label = stringResource(if (edge == EditorRangeTiming.Edge.Start) R.string.title_start else R.string.title_end)
-                val limits = timing.limits(edge)
-                val time = if (edge == EditorRangeTiming.Edge.Start) timing.range.start else timing.range.endInclusive
-                val span = limits.endInclusive - limits.start
-                Row(Modifier.fillMaxWidth()) {
-                    Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                    Text(seconds(time) + " s", color = Soft, fontSize = 13.sp)
-                }
-                Slider(
-                    value = timing.fraction(edge).toFloat().coerceIn(0f, 1f),
-                    onValueChange = { set(timing.setting(edge, timing.time(it.toDouble(), edge))) },
-                    enabled = span > 0, modifier = Modifier.height(36.dp).semantics { contentDescription = label },
-                )
-            }
-        }
-    }
-}
-
 /**
  * A small picture of [words] in [design], as the title will be drawn: the
  * words on one line, cut to 20 characters (YouRec/TitleInspector.swift:609-617).
