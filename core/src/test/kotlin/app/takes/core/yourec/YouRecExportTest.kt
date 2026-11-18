@@ -11,6 +11,8 @@ import app.takes.core.ProjectRestore
 import app.takes.core.SourceMedia
 import app.takes.core.SubtitleSettings
 import app.takes.core.TextOverlay
+import app.takes.core.TitleCard
+import app.takes.core.LabelHeadline
 import app.takes.core.TimelineEditing
 import app.takes.core.TrackTimeline
 import app.takes.core.TransitionStyle
@@ -104,7 +106,7 @@ class YouRecExportTest {
         assertEquals(1, (manifest["recordingHistoryVersion"] as JsonPrimitive).intOrNull)
         assertFalse("captureInsertions" in manifest || "recordingInsertion" in manifest || "recordingSite" in manifest)
         val schema = (manifest["schemaVersion"] as JsonPrimitive).intOrNull!!
-        assertTrue(schema in 6..12)
+        assertTrue(schema in 6..YouRecCodec.LATEST_READABLE_SCHEMA)
         assertEquals(plan.schema, schema)
         val names = (manifest["snapshotFiles"] as JsonArray).map { (it as JsonPrimitive).content }
         assertEquals(project.snapshots.size, names.size)
@@ -188,6 +190,32 @@ class YouRecExportTest {
         assertTrue(texts.all { it["style"] == JsonPrimitive("bold") && it["color"] == JsonPrimitive("white") && it["appearance"] is JsonObject })
         assertEquals(JsonPrimitive(true), (texts[0]["appearance"] as JsonObject)["outlined"])
         assertEquals(JsonPrimitive(""), (timeline["subtitles"] as JsonObject)["timingFingerprint"])
+    }
+
+    // Tests/TitleDesignTests.swift:54-59, YouRec/Project.swift:333-335 at dadc258: a card goes to the iPhone at schema 14, with every key Swift requires, and comes back.
+    @Test fun aCardOfALabelAndAHeadlineGoesAtSchemaFourteen() {
+        var project = trip()
+        val plain = YouRecExport.plan(project, save(project))
+        assertEquals("Without a card the schema stays where it was", 11, plain.schema)
+        val group = LabelHeadline().let { it.copy(card = it.card.copy(headlineOffset = TitleCard.Offset(-0.4, -0.2))) }
+        val edit = project.edit
+        project = project.commit(edit.copy(clips = edit.clips.mapIndexed { index, clip ->
+            if (index != 0) clip else clip.copy(texts = clip.texts.orEmpty() + TextOverlay.fresh().copy(text = "Headline", labelHeadline = group))
+        }))
+        val folder = save(project)
+        val plan = YouRecExport.plan(project, folder)
+        assertEquals(emptyList<YouRecExport.Issue>(), plan.blockers)
+        assertEquals(14, plan.schema)
+        assertShape(plan, project)
+        val timeline = (plan.stepTrees[project.historyCursor]["state"] as JsonObject)["timeline"] as JsonObject
+        val texts = (timeline["video"] as JsonArray).map { (it as JsonObject)["content"] as JsonObject }.flatMap { (it["texts"] as? JsonArray).orEmpty() }.map { it as JsonObject }
+        val card = texts.mapNotNull { it["labelHeadline"] as? JsonObject }.single()
+        assertTrue(listOf("label", "labelStyle", "headlineStyle", "labelScale", "headlineScale", "card").all { it in card })
+        val frame = card["card"] as JsonObject
+        assertTrue(listOf("fill", "border", "borderWidth", "padding", "radius", "spacing", "headlineOffset").all { it in frame })
+        assertFalse("A nil offset is left out, as Swift leaves it", "labelOffset" in frame)
+        val restored = ProjectRestore.restoreArchive(ByteArrayInputStream(zip(plan)), File(temporary.root, "Card"), Long.MAX_VALUE).project
+        assertEquals(group, restored.edit.toTimeline().video.flatMap { it.content.texts.orEmpty() }.mapNotNull { it.labelHeadline }.single())
     }
 
     /** 7.5 #4: Takes → iPhone → Takes gives every step's timeline back. */

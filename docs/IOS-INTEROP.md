@@ -156,7 +156,7 @@ Legend:
 | Swift key / JSON | R? | Kotlin key / JSON | iOS→T | T→iOS | Absent |
 |---|---|---|---|---|---|
 | `exportSettings` obj | o (`decodeIfPresent`, :607) | `exportSettings` (default) | = | = | defaults |
-| `schemaVersion` Int | R, 1…12 (:440) | `schemaVersion` Int, 1…24 | Recompute; see §2.3. | Recompute; see §2.2. | — |
+| `schemaVersion` Int | R, 1…12 (:440); 1…16 at `dadc258`, of which Takes reads 1…14 | `schemaVersion` Int, 1…24 | Recompute; see §2.3. | Recompute; see §2.2. | — |
 | `id` UUID | R | `id` String | = (restore gives a new one anyway) | = | — |
 | `title` String | R | `title` | = | = | — |
 | `createdAt`, `updatedAt` Double (2001 s) | R | Long ms 1970 | convert (§1.1) | convert | — |
@@ -372,7 +372,9 @@ transform is **=**. "R" means required in Swift.
 | `ImportedLUT` | ColorGrading.swift:11-20 | ColorSettings.kt:35-39 | `filename` (`effect-lut-…cube`), `name`, `input` | = |
 | `TextStyle` | VideoTools.swift:159 | TitleDesign.kt:10-15 | clean, bold, box, highlight | — |
 | `TextColor` | VideoTools.swift:160-168 | TitleDesign.kt:19-26 | white, black, yellow, coral, mint, blue | — |
-| **`TextOverlay`** | VideoTools.swift:218-232 | K/Project.kt:61-78 | R: `id`, `text` (≤500), `start`, `end`, `x`, `y`, `size`, **`style`**, **`color`**. o: `appearance`, `motion`. | **iOS→T:** if `appearance` is absent, set it to `TitleDesign.legacy(style, color)` (K/TitleDesign.kt:176-187). iOS draws a title without one that way (VideoTools.swift:231); Takes would draw it as `TitleDesign.plain`. Then drop `style` and `color`. **T→iOS:** write `"style":"bold","color":"white"`. If `appearance` is null, write `TitleDesign.plain` in full (K/TitleDesign.kt:173: outlined, borderWidth 0.06, no shadow); otherwise iOS draws a bold white title with a shadow. |
+| **`TextOverlay`** | VideoTools.swift:218-232 | K/Project.kt:61-78 | R: `id`, `text` (≤500), `start`, `end`, `x`, `y`, `size`, **`style`**, **`color`**. o: `appearance`, `labelHeadline` (`dadc258`, raises 14), `motion`. | **iOS→T:** if `appearance` is absent, set it to `TitleDesign.legacy(style, color)` (K/TitleDesign.kt:176-187). iOS draws a title without one that way (VideoTools.swift:231); Takes would draw it as `TitleDesign.plain`. Then drop `style` and `color`. **T→iOS:** write `"style":"bold","color":"white"`. If `appearance` is null, write `TitleDesign.plain` in full (K/TitleDesign.kt:173: outlined, borderWidth 0.06, no shadow); otherwise iOS draws a bold white title with a shadow. |
+| `LabelHeadline` (at `dadc258`) | TitleDesign.swift:187-205 | K/LabelHeadline.kt | All 6 are R: `label` (≤500 characters; Takes keeps 500 UTF-16 units and shortens a longer one on import, with the titles' note), `labelStyle`, `headlineStyle` (`TitleDesign`), `labelScale` (0.2…1), `headlineScale` (0.5…1.8), `card`. The headline's words are the title's `text`. | = |
+| `TitleCard` / `TitleCard.Offset` (at `dadc258`) | TitleDesign.swift:207-228 | K/LabelHeadline.kt | R: `fill`, `border`, `borderWidth` (0…0.1), `padding`, `radius`, `spacing` (0…1). o: `labelOffset`, `headlineOffset`, each R: `x`, `y` (−1…1); a nil one is left out on both sides. | = |
 | `TitleInk` | TitleDesign.swift:6-7 | TitleDesign.kt:54-55 | `rgba` (UInt32 RRGGBBAA) | = |
 | `TitleGradient` | TitleDesign.swift:23-27 | TitleDesign.kt:78-83 | `first`, `last`, `angle` | = |
 | `TitleAlignment` / `TitlePlate` | TitleDesign.swift:53-54 | TitleDesign.kt:108-120 | left/center/right; off/block/lines | = |
@@ -453,9 +455,15 @@ transform is **=**. "R" means required in Swift.
 | 10 | an edit keeps a `canvasReference` | :327, :597 |
 | 11 | an audio item has `fadeIn` or `fadeOut` | :328 |
 | 12 | a motion on a crop, colour, image, clip video effect or placement | :320-324 |
+| 13 | a clip has `colorRegions` (a grade over part of it) | :332 at `dadc258` |
+| 14 | a title has a `labelHeadline`, a card of a label and a headline | :333-335 at `dadc258` |
 
-Restore and open refuse anything above 12 (S/Project.swift:440;
-S/ProjectRecovery.swift:156, :280). Mirror, pauses, images, stabilisation,
+At `faf1815` restore and open refuse anything above 12 (S/Project.swift:440;
+S/ProjectRecovery.swift:156, :280); at `dadc258` the original reads up to 16
+(:235), 15 and 16 being its effect ranges. Takes reads and writes up to 14
+(K/yourec/YouRecCodec.kt `LATEST_READABLE_SCHEMA`), and refuses a project
+whose clips have `colorRegions`, which it does not read yet, rather than
+opening it without them. Mirror, pauses, images, stabilisation,
 frozen frames, time effects, layers, placements, transitions, title designs
 and caption designs raise nothing on iOS.
 
@@ -506,10 +514,13 @@ if any audio item censorRegions non-empty || any source.audioOnly == true -> max
 if any audio item fadeIn/fadeOut != null                                 -> max(v, 11)
 if any motion on clip.crop / clip.color / clip.images[] / clip.videoEffects[] (in timeline content AND ledger clips)
    or on placement.videos[*]                                             -> max(v, 12)
+if any title of timeline content has a labelHeadline                     -> max(v, 14)
 ```
 
-10 is never written, because Takes never writes `canvasReference`. The
-result is always 6 to 12.
+10 is never written, because Takes never writes `canvasReference`, nor 13,
+because it has no colour regions. The result is 6 to 12, or 14 with a card
+of a label and a headline, which an iPhone with an older YouRec refuses
+rather than drawing its headline alone.
 
 **On import:**
 

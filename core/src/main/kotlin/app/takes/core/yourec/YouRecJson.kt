@@ -75,14 +75,21 @@ internal object YouRecJson {
         }
         result.remove("style")
         result.remove("color")
-        val words = (text["text"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        if (words != null && words.length > TITLE_LENGTH) {
-            // Never half of a character made of two UTF-16 units.
-            val end = if (Character.isHighSurrogate(words[TITLE_LENGTH - 1])) TITLE_LENGTH - 1 else TITLE_LENGTH
-            result["text"] = JsonPrimitive(words.substring(0, end))
-            shortened()
+        shorten(text["text"])?.let { result["text"] = it; shortened() }
+        // A card's label is held to the same length (YouRec/TitleDesign.swift:200).
+        (text["labelHeadline"] as? JsonObject)?.let { group ->
+            shorten(group["label"])?.let { result["labelHeadline"] = JsonObject(LinkedHashMap(group).apply { put("label", it) }); shortened() }
         }
         return JsonObject(result)
+    }
+
+    /** [element], a string longer than Takes allows a title, cut to [TITLE_LENGTH]; null when it is not one. */
+    private fun shorten(element: kotlinx.serialization.json.JsonElement?): JsonPrimitive? {
+        val words = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        if (words.length <= TITLE_LENGTH) return null
+        // Never half of a character made of two UTF-16 units.
+        val end = if (Character.isHighSurrogate(words[TITLE_LENGTH - 1])) TITLE_LENGTH - 1 else TITLE_LENGTH
+        return JsonPrimitive(words.substring(0, end))
     }
 
     /** A `TimelineClip`: only its titles differ. */

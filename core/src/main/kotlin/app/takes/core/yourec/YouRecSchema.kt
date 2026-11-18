@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * The schema number the original gives a project, by what it holds
- * (YouRec/Project.swift:316-330, 338-345, 378; docs/IOS-INTEROP.md, 2.1 and
+ * (YouRec/Project.swift:316-330, 338-345, 378, and 333-335 at dadc258; docs/IOS-INTEROP.md, 2.1 and
  * 2.3). Takes' own numbers mean other things and are never compared with it.
  */
 object YouRecSchema {
@@ -35,6 +35,9 @@ object YouRecSchema {
                 clip.objects("images").any { present(it["motion"]) } || clip.objects("videoEffects").any { present(it["motion"]) }
         }
         if (moving || placements.any { present(it["motion"]) }) raise(12)
+        // 14: a title of a label and a headline on the timeline (YouRec/Project.swift:333-335, at dadc258).
+        val pictures = timelines.flatMap { it.objects("video") }.map { it["content"] as JsonObject }
+        if (pictures.any { clip -> clip.objects("texts").any { present(it["labelHeadline"]) } }) raise(14)
         // 10 is a kept canvasReference, which Takes never writes.
         return schema
     }

@@ -62,8 +62,15 @@ object SwiftRequiredKeys {
         one("gradient") { titleGradient }
     }
     val titleMotion: Type = type("TitleMotion", "entrance", "exit", "inSeconds", "outSeconds")
+    val titleCardOffset: Type = type("TitleCard.Offset", "x", "y")
+    val titleCard: Type = type("TitleCard", "fill", "border", "borderWidth", "padding", "radius", "spacing") {
+        one("fill") { titleInk }; one("border") { titleInk }; one("labelOffset") { titleCardOffset }; one("headlineOffset") { titleCardOffset }
+    }
+    val labelHeadline: Type = type("LabelHeadline", "label", "labelStyle", "headlineStyle", "labelScale", "headlineScale", "card") {
+        one("labelStyle") { titleDesign }; one("headlineStyle") { titleDesign }; one("card") { titleCard }
+    }
     val textOverlay: Type = type("TextOverlay", "id", "text", "start", "end", "x", "y", "size", "style", "color", uuids = setOf("id")) {
-        one("appearance") { titleDesign }; one("motion") { titleMotion }
+        one("appearance") { titleDesign }; one("labelHeadline") { labelHeadline }; one("motion") { titleMotion }
     }
     val transitionFraming: Type = type("TransitionFraming", "x", "y", "zoom")
     val transitionColor: Type = type("TransitionColor", "red", "green", "blue")
