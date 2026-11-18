@@ -410,6 +410,13 @@ data class RenderPlan(
         fun cutMicros(seconds: Double): Long = floor(seconds * 1e6).toLong()
 
         /**
+         * The second whose picture timeline second [time] shows, with the pictures ending at [end]: at the end or past
+         * it, the last instant before it, so the last frame shows there rather than none, as the original's player
+         * shows the last included frame at the out point (YouRec/EditorController.swift:11-20 at 57e5d91).
+         */
+        fun pictureTime(time: Double, end: Double): Double = if (time >= end) maxOf(0.0, end - 1.0 / EditTime.SCALE) else time
+
+        /**
          * Where a clip's own picture lies in a frame of [canvas] pixels, from
          * the top left: all of it when the clip is cropped or the size of its
          * footage is not known, else the footage fitted inside it.

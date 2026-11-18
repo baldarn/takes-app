@@ -632,10 +632,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var choosing by remember { mutableStateOf<List<String>?>(null) }
     val current = located?.let { clips[it] }
     // Which deck shows each clip, and the clip each deck is playing now or holding the last frame of.
+    // At the end of the pictures, their last frame shows, as the original's player has it at the out point (YouRec/EditorController.swift:11-20 at 57e5d91).
+    val pictureEnd = asked.duration
     val deckClips by remember(plan, edit) {
         derivedStateOf {
+            val at = RenderPlan.pictureTime(playhead, pictureEnd)
             List(2) { deck ->
-                plan.onDeck(deck, playhead)?.index ?: plan.held(deck, playhead)?.index ?: located?.takeIf { plan.pictures.getOrNull(it)?.deck == deck }
+                plan.onDeck(deck, at)?.index ?: plan.held(deck, at)?.index ?: located?.takeIf { plan.pictures.getOrNull(it)?.deck == deck }
             }
         }
     }
@@ -643,9 +646,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val lanePictures by remember(layers) {
         derivedStateOf {
             layers?.let { drawn ->
+                val at = RenderPlan.pictureTime(playhead, drawn.duration)
                 List(drawn.lanes) { lane ->
-                    drawn.onLane(lane, playhead)?.index ?: drawn.freezes.firstOrNull { it.lane == lane && playhead >= it.from && playhead < it.until }?.picture
-                        ?: drawn.pictures.filter { it.lane == lane && it.start > playhead }.minByOrNull { it.start }?.index
+                    drawn.onLane(lane, at)?.index ?: drawn.freezes.firstOrNull { it.lane == lane && at >= it.from && at < it.until }?.picture
+                        ?: drawn.pictures.filter { it.lane == lane && it.start > at }.minByOrNull { it.start }?.index
                 }
             }
         }
@@ -755,8 +759,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val titlePlan = remember(titledEdit, plan) { titledEdit?.takeIf { it.isSequence }?.let { TrackRenderPlan.of(it) } ?: plan }
     // Worked out where they are drawn, at each frame, without composing the editor again. With the shader each clip's
     // titles are on its deck and go through the transition with it; over the picture only a split screen's.
-    fun titleMoment() = titlePlan.moment(playhead, frames = frames)
-    fun shownTitles() = if (shadedPreview && layers == null) titlePlan.titleSides(titleMoment(), playhead).over else titlePlan.titlesShown(playhead, frames)
+    fun titleMoment() = titlePlan.moment(RenderPlan.pictureTime(playhead, pictureEnd), frames = frames)
+    fun shownTitles() = RenderPlan.pictureTime(playhead, pictureEnd).let { at -> if (shadedPreview && layers == null) titlePlan.titleSides(titleMoment(), at).over else titlePlan.titlesShown(at, frames) }
     fun deckTitles() = titleMoment().let { titlePlan.titleSides(it, playhead).onDecks(it) }
     // An edit drawn by layers has its titles inside the layer of their picture: each lane's, as a clip by itself.
     val titleLayers = remember(titledEdit, layers) { titledEdit?.takeIf { !it.isSequence }?.let { (EditRender.of(it, EditRendering.LANES) as? EditRender.Layers)?.plan } ?: layers }
@@ -1112,7 +1116,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             val perTransition = { _: TimelineTransition -> movieRate }
                             LayerPictures(
                                 editor.lanes, layers.lanes, effects(), deckFrames, laneTitles(), titlePainter,
-                                moment = { frame -> layers.moment(playhead, frame, perTransition) },
+                                moment = { frame -> layers.moment(RenderPlan.pictureTime(playhead, layers.duration), frame, perTransition) },
                                 content = { index, frame ->
                                     val picture = layers.pictures[index]
                                     RenderPlan.content(frame, sizes[picture.sourceID], cropped = cropFor(picture.content, picture.start).first != null)
@@ -1121,7 +1125,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         }
                         refusal != null -> LayersRefused(refusal)
                         else -> Box {
-                            DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures, titles = deckTitles(), painter = titlePainter)
+                            DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(RenderPlan.pictureTime(playhead, pictureEnd), frame, frames) }, content = content, held = editor.heldPictures, titles = deckTitles(), painter = titlePainter)
                             StabilizationStatus(stabilization, Modifier.align(Alignment.TopStart))
                             // Past the last picture the movie is black under its sound, as it is exported.
                             if (pastPictures) Box(Modifier.matchParentSize().background(Color.Black))

@@ -263,6 +263,8 @@ internal class EditorPlayer(private val context: Context) {
         layered?.let { this.time = it.seek(time, starting); if (!starting) mix.seek(this.time); return }
         if (clips.isEmpty()) return
         this.time = time.coerceIn(0.0, duration)
+        // At the end of the pictures, their last frame (YouRec/EditorController.swift:11-20, 268-277 at 57e5d91).
+        @Suppress("NAME_SHADOWING") val time = RenderPlan.pictureTime(time, plan.pictures.maxOfOrNull { it.end } ?: duration)
         decks.forEachIndexed { deck, player ->
             val active = playing(deck, time)
             val frozen = held(deck, time)

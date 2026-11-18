@@ -115,7 +115,8 @@ internal class LanePlayback(private val lanes: List<ExoPlayer>, val plan: LayerP
     /** Puts every lane where [time] needs it, and returns the time, inside the movie. */
     fun seek(time: Double, starting: Boolean = false): Double {
         this.time = time.coerceIn(0.0, plan.duration)
-        val at = this.time
+        // At the end of the pictures, their last frame (YouRec/EditorController.swift:11-20 at 57e5d91).
+        val at = app.takes.core.RenderPlan.pictureTime(this.time, plan.duration)
         for (lane in lanes.indices) {
             val player = lanes[lane]
             if (items[lane].isEmpty()) continue
