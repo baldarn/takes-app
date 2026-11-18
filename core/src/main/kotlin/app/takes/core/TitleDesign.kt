@@ -360,6 +360,10 @@ data class ImportedFontReference(val digest: String, val index: Int, val postScr
     }
 }
 
+/** A card's look kept for reuse in any project, a channel style of label and headline (YouRec/TitleInspector.swift:459-463). */
+@Serializable
+data class SavedCardLook(val id: String = newID(), val name: String, val look: LabelHeadlineLook)
+
 /** A design kept for reuse in any project: a "channel style". */
 @Serializable
 data class SavedTitleLook(val id: String = newID(), val name: String, val design: TitleDesign)
@@ -373,12 +377,17 @@ object TitleLibrary {
     const val LOOKS_KEY = "title.savedLooks.v1"
     const val FAVORITES_KEY = "title.favoriteFonts.v1"
     const val RECENT_COLORS_KEY = "title.recentColors.v1"
+    const val CARD_LOOKS_KEY = "title.groupLooks.v1"
+
+    /** What a card shows as its look when it matches none (YouRec/TitleInspector.swift:472). */
+    const val CUSTOM = "Custom"
     const val MAXIMUM_NAME = 60
     const val RECENT_COLORS = 8
 
     private val looksFormat = kotlinx.serialization.builtins.ListSerializer(SavedTitleLook.serializer())
     private val namesFormat = kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>())
     private val inksFormat = kotlinx.serialization.builtins.ListSerializer(TitleInk.serializer())
+    private val cardsFormat = kotlinx.serialization.builtins.ListSerializer(SavedCardLook.serializer())
 
     private fun <T> read(format: kotlinx.serialization.KSerializer<List<T>>, saved: String?): List<T> =
         if (saved.isNullOrEmpty()) emptyList() else try { documentJson.decodeFromString(format, saved) } catch (_: Exception) { emptyList() }
@@ -400,6 +409,30 @@ object TitleLibrary {
     }
 
     fun deleting(saved: String?, id: String): String = documentJson.encodeToString(looksFormat, looks(saved).filter { it.id != id })
+
+    /** The saved card looks, newest first. One out of range is left out. */
+    fun cardLooks(saved: String?): List<SavedCardLook> = read(cardsFormat, saved).filter { entry ->
+        entry.name.isNotBlank() && entry.look.let { it.label.valid && it.headline.valid && it.card.valid && it.labelScale in 0.2..1.0 && it.headlineScale in 0.5..1.8 }
+    }
+
+    /**
+     * A card look needs a name of its own, whatever the capitals: not a saved
+     * one's, a built-in one's or "Custom" (YouRec/TitleInspector.swift:518-522).
+     */
+    fun canSaveCard(looks: List<SavedCardLook>, name: String): Boolean {
+        val trimmed = name.trim()
+        val taken = looks.map { it.name } + LabelHeadline.looks.map { it.first } + CUSTOM
+        return trimmed.isNotEmpty() && name.length <= MAXIMUM_NAME && taken.none { it.equals(trimmed, ignoreCase = true) }
+    }
+
+    /** The library with [look] saved first as [name]; unchanged when the name cannot be used. */
+    fun savingCard(saved: String?, name: String, look: LabelHeadlineLook): String {
+        val looks = cardLooks(saved)
+        if (!canSaveCard(looks, name)) return documentJson.encodeToString(cardsFormat, looks)
+        return documentJson.encodeToString(cardsFormat, listOf(SavedCardLook(name = name.trim(), look = look)) + looks)
+    }
+
+    fun deletingCard(saved: String?, id: String): String = documentJson.encodeToString(cardsFormat, cardLooks(saved).filter { it.id != id })
 
     /** Font faces listed first, in the order they were starred. */
     fun favorites(saved: String?): List<String> = read(namesFormat, saved)

@@ -1616,7 +1616,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     val moved = work.copy(title = title).applied(edit)?.clips ?: titled
                     val run = TitleMotionRanges(moved).range(title, work.range.start)
                     val motion = title.motion
-                    if (run != null && motion != null && title.text.isNotBlank()) {
+                    if (run != null && motion != null && title.hasText) {
                         val window = motion.previewWindow(exit, run.endInclusive - run.start)
                         val from = (run.start + window.start).coerceIn(0.0, duration)
                         val to = (run.start + window.endInclusive).coerceIn(0.0, duration)
@@ -1643,7 +1643,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     if (index != null) commit(TimelineEditing.removeText(edit, index, work.title.id), playhead)
                 },
                 cancel = { editor.pause(); auditionEnd = null; titling = null },
-                modifier = Modifier.layoutId(EditorSlot.Tools),
+                modifier = Modifier.layoutId(EditorSlot.Tools), canvas = canvas,
             )
         } else if (imaging != null) {
             val work = imaging!!

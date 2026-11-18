@@ -88,6 +88,9 @@ import androidx.compose.ui.unit.sp
 import app.takes.core.EditState
 import app.takes.core.EditorDurationPresets
 import app.takes.core.ImportedFontFile
+import app.takes.core.LabelHeadline
+import app.takes.core.LabelHeadlineLook
+import app.takes.core.TitleCard
 import app.takes.core.OverlayOpening
 import app.takes.core.OverlayTiming
 import app.takes.core.Size
@@ -198,8 +201,10 @@ private class TitleMemory(context: Context) {
     var looks by mutableStateOf(prefs.getString(TitleLibrary.LOOKS_KEY, null)); private set
     var favorites by mutableStateOf(prefs.getString(TitleLibrary.FAVORITES_KEY, null)); private set
     var colors by mutableStateOf(prefs.getString(TitleLibrary.RECENT_COLORS_KEY, null)); private set
+    var cards by mutableStateOf(prefs.getString(TitleLibrary.CARD_LOOKS_KEY, null)); private set
 
     fun saveLooks(text: String) { looks = text; prefs.edit().putString(TitleLibrary.LOOKS_KEY, text).apply() }
+    fun saveCards(text: String) { cards = text; prefs.edit().putString(TitleLibrary.CARD_LOOKS_KEY, text).apply() }
     fun saveFavorites(text: String) { favorites = text; prefs.edit().putString(TitleLibrary.FAVORITES_KEY, text).apply() }
     fun remember(ink: TitleInk) {
         val text = TitleLibrary.remembering(colors, ink)
@@ -218,17 +223,52 @@ private class TitleMemory(context: Context) {
  * @param bounds the seconds of the movie it may cover: all of it for a new title, the clip of the piece that was opened for an existing one.
  * @param replay plays one end of the title's motion; the title is passed as it is at that moment.
  * @param sample a picture of the frame under the playhead to take a color from, or null when it cannot be read.
+ * @param canvas the movie's frame in pixels, which sets the size a title takes when it becomes a card.
  */
 @Composable
 fun TitlePanel(
     draft: TextOverlay, existing: TextOverlay?, change: (TextOverlay) -> Unit,
     range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, setRange: (ClosedFloatingPointRange<Double>) -> Unit,
     replay: (exit: Boolean, title: TextOverlay) -> Unit, sample: suspend () -> Bitmap?,
-    done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
+    done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier, canvas: Pair<Int, Int>? = null,
 ) {
     var showPosition by remember { mutableStateOf(false) }
-    // A new title holds the starter words, shown as the field's prompt so typing replaces them in one step (YouRec/EditorTools.swift:1541-1548).
+    val starterText = stringResource(R.string.title_starter)
+    // A new title holds the starter words, shown as the field's prompt so typing replaces them in one step; kept when
+    // the layout changes until something is typed (YouRec/EditorTools.swift:1236-1242, 1541-1548).
     var example by remember { mutableStateOf(if (existing == null) draft.text else null) }
+    // What a card's tools edit, and what the other layout was, to go back to it (YouRec/EditorTools.swift:1232-1236, 1599-1618).
+    var part by remember { mutableStateOf(LabelHeadline.Part.Headline) }
+    var previousGroup by remember { mutableStateOf<LabelHeadline?>(null) }
+    var previousGroupSize by remember { mutableStateOf<Double?>(null) }
+    var previousTextSize by remember { mutableStateOf<Double?>(null) }
+    var showMotion by remember { mutableStateOf(false) }
+    val firstText = stringResource(R.string.title_card_label_default)
+    val secondText = stringResource(R.string.title_card_headline_default)
+    val group = draft.labelHeadline
+    val grouped = group != null
+    val editsText = !grouped || part != LabelHeadline.Part.Card
+    val isLabel = grouped && part == LabelHeadline.Part.Label
+
+    fun changeLayout(toGroup: Boolean) {
+        if (toGroup && draft.labelHeadline == null) {
+            previousTextSize = draft.size
+            var next = draft.copy(labelHeadline = previousGroup ?: LabelHeadline(label = firstText))
+            if (example != null || (draft.text.isEmpty() && previousGroup == null)) {
+                example = draft.text
+                next = next.copy(text = secondText)
+            }
+            val shortSide = canvas?.let { maxOf(1, minOf(it.first, it.second)).toDouble() } ?: 1.0
+            val wide = canvas?.let { it.first / shortSide } ?: 1.0
+            change(next.copy(size = previousGroupSize ?: minOf(0.20, 0.14 * maxOf(1.0, wide))))
+            part = LabelHeadline.Part.Headline
+        } else if (!toGroup && draft.labelHeadline != null) {
+            previousGroup = draft.labelHeadline
+            previousGroupSize = draft.size
+            change(draft.copy(labelHeadline = null, text = example ?: draft.text, size = previousTextSize ?: draft.size))
+        }
+    }
+    fun changeGroup(next: LabelHeadline) = change(draft.copy(labelHeadline = next))
 
     Column(modifier.fillMaxWidth().background(Color(0xFF1B1D21))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -236,23 +276,67 @@ fun TitlePanel(
             Text(stringResource(if (existing == null) R.string.title_add else R.string.title_edit), color = Color.White, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
             if (existing != null) TextButton(onClick = remove) { Text(stringResource(R.string.common_remove), color = RecordRed) }
-            TextButton(onClick = done, enabled = draft.text.isNotBlank()) { Text(stringResource(R.string.common_done)) }
+            TextButton(onClick = done, enabled = draft.hasText) { Text(stringResource(R.string.common_done)) }
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            val write = stringResource(R.string.title_write)
-            val starter = example != null && example == draft.text
-            OutlinedTextField(
-                if (starter) "" else draft.text, { example = null; change(draft.copy(text = it.take(500))) }, Modifier.fillMaxWidth().semantics { contentDescription = write },
-                placeholder = { if (starter) Text(draft.text, color = Color.White) else Text(write) }, maxLines = 4,
-            )
+            // One text, or a label and a headline on a card (YouRec/EditorTools.swift:1527-1537).
+            val layoutName = stringResource(R.string.title_layout)
+            Box(Modifier.semantics { contentDescription = layoutName }) {
+                Segments(listOf(stringResource(R.string.title_layout_single) to false, stringResource(R.string.title_layout_card) to true), grouped) { changeLayout(it) }
+            }
+            if (grouped) {
+                val partName = stringResource(R.string.title_part)
+                Box(Modifier.semantics { contentDescription = partName }) {
+                    Segments(LabelHeadline.Part.entries.map { stringResource(partLabel(it)) to it }, part) { part = it }
+                }
+            }
+            if (editsText) {
+                val prompt = stringResource(if (!grouped) R.string.title_write else if (isLabel) R.string.title_part_label else R.string.title_part_headline)
+                val starter = !grouped && example != null && example == starterText && draft.text == starterText
+                val shown = if (isLabel) group?.label.orEmpty() else if (starter) "" else draft.text
+                OutlinedTextField(
+                    shown,
+                    { value ->
+                        val limited = value.take(500)
+                        if (isLabel) group?.let { changeGroup(it.copy(label = limited)) } else { example = null; change(draft.copy(text = limited)) }
+                    },
+                    Modifier.fillMaxWidth().semantics { contentDescription = prompt },
+                    placeholder = { if (starter) Text(starterText, color = Color.White) else Text(prompt) }, maxLines = 4,
+                )
+            }
+            if (group != null) {
+                CardLooks(group, draft.text, ::changeGroup)
+                if (editsText) {
+                    if (isLabel) Amount(stringResource(R.string.title_label_size), group.labelScale, 0.2..1.0) { changeGroup(group.copy(labelScale = it)) }
+                    else Amount(stringResource(R.string.title_headline_size), group.headlineScale, 0.5..1.8) { changeGroup(group.copy(headlineScale = it)) }
+                } else {
+                    CardControls(group, sample, ::changeGroup)
+                }
+            }
             DurationPicker(range, bounds, setRange)
-            TitleInspector(
-                appearance = draft.appearance, setDesign = { change(draft.copy(appearance = it)) },
-                motion = draft.motion, setMotion = { change(draft.copy(motion = it)) },
-                words = draft.text, replay = { exit, motion -> replay(exit, draft.copy(motion = motion)) }, sample = sample,
-            )
+            if (editsText) {
+                val style = if (group == null) draft.appearance else if (isLabel) group.labelStyle else group.headlineStyle
+                TitleInspector(
+                    appearance = style,
+                    setDesign = { next ->
+                        when {
+                            group == null -> change(draft.copy(appearance = next))
+                            isLabel -> changeGroup(group.copy(labelStyle = next))
+                            else -> changeGroup(group.copy(headlineStyle = next))
+                        }
+                    },
+                    motion = draft.motion, setMotion = { change(draft.copy(motion = it)) },
+                    words = if (isLabel) group?.label.orEmpty() else draft.text, replay = { exit, motion -> replay(exit, draft.copy(motion = motion)) }, sample = sample,
+                    showsMotion = !grouped, showsLooks = !grouped,
+                )
+            }
+            if (grouped) {
+                // The card arrives and leaves as one title (YouRec/EditorTools.swift:1576-1580).
+                Disclosure(stringResource(R.string.title_motion_group), showMotion) { showMotion = !showMotion }
+                if (showMotion) Motion(draft.motion, { change(draft.copy(motion = it)) }) { exit, motion -> replay(exit, draft.copy(motion = motion)) }
+            }
             Text(stringResource(R.string.title_drag_hint), color = Soft, fontSize = 12.sp)
-            Amount(stringResource(R.string.title_size), draft.size, 0.02..0.3, 0.001, label = "") { change(draft.copy(size = it)) }
+            Amount(stringResource(if (grouped) R.string.title_whole_size else R.string.title_size), draft.size, 0.02..0.3, 0.001, label = "") { change(draft.copy(size = it)) }
             Disclosure(stringResource(R.string.title_position), showPosition) { showPosition = !showPosition }
             if (showPosition) {
                 Amount(stringResource(R.string.title_across), draft.x, 0.0..1.0, 0.001, label = "") { change(draft.copy(x = it)) }
@@ -292,16 +376,22 @@ internal fun titleOpening(edit: EditState, title: TextOverlay, range: ClosedFloa
 fun TitleInspector(
     appearance: TitleDesign?, setDesign: (TitleDesign) -> Unit, motion: TitleMotion?, setMotion: (TitleMotion) -> Unit,
     words: String, replay: (exit: Boolean, motion: TitleMotion) -> Unit, sample: suspend () -> Bitmap?,
-    plain: TitleDesign = TitleDesign.plain,
+    plain: TitleDesign = TitleDesign.plain, showsMotion: Boolean = true, showsLooks: Boolean = true,
 ) {
     val context = LocalContext.current
     val memory = remember { TitleMemory(context) }
-    var tab by remember { mutableStateOf(TitleTab.Looks) }
+    var chosenTab by remember { mutableStateOf(TitleTab.Looks) }
+    // A text of a card has no looks or motion of its own: the card's are above (YouRec/TitleInspector.swift:160-164).
+    val tab = when {
+        chosenTab == TitleTab.Looks && !showsLooks -> TitleTab.Font
+        chosenTab == TitleTab.Motion && !showsMotion -> if (showsLooks) TitleTab.Looks else TitleTab.Font
+        else -> chosenTab
+    }
     val design = appearance ?: plain
     // Two columns where a name does not fit a quarter of the width, as the original's grids at large sizes.
     FitGrid(4) {
-        for (value in TitleTab.entries) {
-            Cell(tab == value, { tab = value }, minHeight = 46) {
+        for (value in TitleTab.entries.filter { (it != TitleTab.Motion || showsMotion) && (it != TitleTab.Looks || showsLooks) }) {
+            Cell(tab == value, { chosenTab = value }, minHeight = 46) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(value.icon, null, Modifier.size(20.dp))
                     Text(stringResource(value.label), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -841,7 +931,7 @@ private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, samp
 }
 
 @Composable
-private fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boolean, TitleMotion) -> Unit) {
+internal fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boolean, TitleMotion) -> Unit) {
     val context = LocalContext.current
     var exit by remember { mutableStateOf(false) }
     val motion = saved ?: TitleMotion()
@@ -883,4 +973,176 @@ private fun Motion(saved: TitleMotion?, set: (TitleMotion) -> Unit, replay: (Boo
             Text(stringResource(if (exit) R.string.title_preview_exit else R.string.title_preview_entrance), modifier = Modifier.padding(start = 6.dp))
         }
     }
+}
+
+private fun partLabel(part: LabelHeadline.Part): Int = when (part) {
+    LabelHeadline.Part.Label -> R.string.title_part_label
+    LabelHeadline.Part.Headline -> R.string.title_part_headline
+    LabelHeadline.Part.Card -> R.string.title_part_card
+}
+
+/** The built-in card looks are named in the model in English; these are their names on screen. */
+private fun cardLookLabel(name: String): Int? = when (name) {
+    "Graphite" -> R.string.title_card_look_graphite
+    "Editorial" -> R.string.title_card_look_editorial
+    "Broadcast" -> R.string.title_card_look_broadcast
+    "Notebook" -> R.string.title_card_look_notebook
+    "Terminal" -> R.string.title_card_look_terminal
+    "Poster" -> R.string.title_card_look_poster
+    else -> null
+}
+
+/**
+ * A small picture of a card, as it will be drawn: its texts cut to 18 and 23
+ * characters, the default words where both are empty (YouRec/TitleInspector.swift:574-601).
+ */
+@Composable
+private fun CardSpecimen(group: LabelHeadline, headline: String) {
+    val assets = LocalContext.current.assets
+    fun excerpt(text: String, limit: Int): String {
+        val words = text.split(' ', '\n', '\t').filter { it.isNotEmpty() }.joinToString(" ")
+        return if (words.length <= limit) words else words.take(limit - 1) + "…"
+    }
+    val firstText = stringResource(R.string.title_card_label_default)
+    val secondText = stringResource(R.string.title_card_headline_default)
+    var label = excerpt(group.label, 18)
+    var heading = excerpt(headline, 23)
+    if (label.isEmpty() && heading.isEmpty()) { label = firstText; heading = secondText }
+    val sample = group.copy(label = label)
+    // At 58 units in lines at most 460 wide, fitting 460 by 240, as the original's tiles.
+    val bitmap = remember(sample, heading) { CardText(assets, sample, heading, 58f, 460f).image(460f, 240f, 1f) }
+    Box(Modifier.fillMaxWidth().height(54.dp).background(Color.Black).padding(horizontal = 10.dp, vertical = 7.dp), Alignment.Center) {
+        if (bitmap != null) Image(bitmap.asImageBitmap(), null, contentScale = ContentScale.Fit)
+    }
+}
+
+/**
+ * The looks of a card (YouRec/TitleInspector.swift:447-551): a row naming the
+ * one the card matches, or "Custom", that opens the six built-in looks, the
+ * saved ones and "Save as channel style", which keeps the look of the label,
+ * the headline and the card under its own key.
+ */
+@Composable
+private fun CardLooks(group: LabelHeadline, headline: String, change: (LabelHeadline) -> Unit) {
+    val context = LocalContext.current
+    val memory = remember { TitleMemory(context) }
+    var expanded by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var chosen by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf<String?>(null) }
+    val personal = TitleLibrary.cardLooks(memory.cards)
+    val current = group.look
+    val matches = LabelHeadline.looks.filter { it.second == current }.map { it.first } + personal.filter { it.look == current }.map { it.name }
+    val selected = chosen?.takeIf { it in matches } ?: matches.firstOrNull() ?: TitleLibrary.CUSTOM
+    // The built-in looks and "Custom" in the phone's language; a saved look cannot take one of their names.
+    val names = LabelHeadline.looks.associate { (name, _) -> name to (cardLookLabel(name)?.let { stringResource(it) } ?: name) } +
+        (TitleLibrary.CUSTOM to stringResource(R.string.title_custom_look))
+    fun named(name: String) = names[name] ?: name
+
+    val looks = stringResource(R.string.title_tab_looks)
+    val hint = stringResource(if (expanded) R.string.title_card_looks_hide else R.string.title_card_looks_show)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(Rounded).background(Color.White.copy(alpha = 0.08f)).clickable { expanded = !expanded }
+            .semantics { contentDescription = looks + ", " + named(selected); onClick(label = hint) { expanded = !expanded; true } }.padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.GridView, null, Modifier.size(18.dp), tint = Color.White)
+        Text(looks, color = Color.White, modifier = Modifier.weight(1f).padding(start = 8.dp))
+        Text(named(selected), color = Soft)
+        Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, Modifier.size(18.dp), tint = Soft)
+    }
+    if (!expanded) return
+    @Composable
+    fun tile(name: String, look: LabelHeadlineLook, modifier: Modifier) {
+        val applied = group.applyingLook(look)
+        LookTile(named(name), selected == name, { change(applied); chosen = name }, modifier) { CardSpecimen(applied, headline) }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // As many tiles of at least 112 points as fit, as the original's adaptive grid.
+        val columns = maxOf(1, ((maxWidth.value + 8) / (112 + 8)).toInt())
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (row in LabelHeadline.looks.chunked(columns)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for ((name, look) in row) tile(name, look, Modifier.weight(1f))
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+    if (personal.isNotEmpty()) {
+        Text(stringResource(R.string.title_my_styles), color = Color.White, fontWeight = FontWeight.SemiBold)
+        for (entry in personal) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                tile(entry.name, entry.look, Modifier.weight(1f))
+                IconButton(onClick = { deleting = entry.id }) { Icon(Icons.Outlined.Delete, stringResource(R.string.title_delete_named, entry.name), tint = Color.White) }
+            }
+        }
+    }
+    TextButton(onClick = { saving = true }, contentPadding = PaddingValues(horizontal = 4.dp)) {
+        Icon(Icons.Outlined.BookmarkBorder, null, Modifier.size(18.dp))
+        Text(stringResource(R.string.title_save_style), modifier = Modifier.padding(start = 6.dp))
+    }
+    if (saving) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { saving = false },
+            title = { Text(stringResource(R.string.title_save_card_look_title), fontSize = 18.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.title_style_name)) }, singleLine = true)
+                    Text(stringResource(R.string.title_save_card_look_message), fontSize = 13.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    memory.saveCards(TitleLibrary.savingCard(memory.cards, name, group.look))
+                    chosen = name.trim()
+                    saving = false
+                }, enabled = TitleLibrary.canSaveCard(personal, name)) { Text(stringResource(R.string.common_save)) }
+            },
+            dismissButton = { TextButton(onClick = { saving = false }) { Text(stringResource(R.string.common_cancel)) } },
+        )
+    }
+    deleting?.let { id ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text(stringResource(R.string.title_delete_card_look_title), fontSize = 18.sp) },
+            confirmButton = { TextButton(onClick = { memory.saveCards(TitleLibrary.deletingCard(memory.cards, id)); deleting = null }) { Text(stringResource(R.string.title_delete_card_look), color = RecordRed) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.common_cancel)) } },
+        )
+    }
+}
+
+/** Where one text of a card was moved to, as two sliders from -100 % to 100 % and a reset (YouRec/EditorTools.swift:1632-1653). */
+@Composable
+private fun CardPosition(name: String, offset: TitleCard.Offset?, change: (TitleCard.Offset?) -> Unit) {
+    fun set(next: TitleCard.Offset) = change(next.takeIf { it != TitleCard.Offset() })
+    val at = offset ?: TitleCard.Offset()
+    Column {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            val reset = stringResource(R.string.title_reset_named, name)
+            TextButton(onClick = { change(null) }, enabled = offset != null, modifier = Modifier.semantics { contentDescription = reset }) { Text(stringResource(R.string.title_reset)) }
+        }
+        Amount(stringResource(R.string.title_offset_axis, name, stringResource(R.string.title_x_offset)), at.x, -1.0..1.0) { set(at.copy(x = it)) }
+        Amount(stringResource(R.string.title_offset_axis, name, stringResource(R.string.title_y_offset)), at.y, -1.0..1.0) { set(at.copy(y = it)) }
+    }
+}
+
+/** The card's own tools (YouRec/EditorTools.swift:1655-1675): its color and opacity, where its texts are, its padding, corners, spacing and border. */
+@Composable
+private fun CardControls(group: LabelHeadline, sample: suspend () -> Bitmap?, change: (LabelHeadline) -> Unit) {
+    val context = LocalContext.current
+    val memory = remember { TitleMemory(context) }
+    val card = group.card
+    fun set(next: TitleCard) = change(group.copy(card = next))
+    ColorControl(stringResource(R.string.title_card_color), card.fill, memory, sample, editsOpacity = false) { set(card.copy(fill = it)) }
+    Amount(stringResource(R.string.title_card_opacity), card.fill.alpha, 0.0..1.0) { set(card.copy(fill = TitleInk(card.fill.rgb, (it * 255).roundToInt()))) }
+    CardPosition(stringResource(R.string.title_label_position), card.labelOffset) { set(card.copy(labelOffset = it)) }
+    CardPosition(stringResource(R.string.title_headline_position), card.headlineOffset) { set(card.copy(headlineOffset = it)) }
+    Amount(stringResource(R.string.title_padding), card.padding, 0.0..1.0) { set(card.copy(padding = it)) }
+    Amount(stringResource(R.string.title_radius), card.radius, 0.0..1.0) { set(card.copy(radius = it)) }
+    Amount(stringResource(R.string.title_line_gap), card.spacing, 0.0..1.0) { set(card.copy(spacing = it)) }
+    Amount(stringResource(R.string.title_card_border_width), card.borderWidth, 0.0..0.1, 0.001, label = String.format(Locale.getDefault(), "%.1f%%", card.borderWidth * 100)) { set(card.copy(borderWidth = it)) }
+    if (card.borderWidth > 0) ColorControl(stringResource(R.string.title_card_border_color), card.border, memory, sample) { set(card.copy(border = it)) }
 }

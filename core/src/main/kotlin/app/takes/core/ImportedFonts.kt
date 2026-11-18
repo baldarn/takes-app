@@ -289,7 +289,7 @@ class FontLibrary(val root: File) {
         }
 
         internal fun files(clips: List<TimelineClip>, subtitles: SubtitleSettings?): Set<String> {
-            val faces = clips.flatMap { clip -> clip.texts.orEmpty().mapNotNull { it.appearance?.face } } + listOfNotNull(subtitles?.appearance?.face)
+            val faces = clips.flatMap { clip -> clip.texts.orEmpty().flatMap { it.fontFaces } } + listOfNotNull(subtitles?.appearance?.face)
             return faces.mapNotNullTo(LinkedHashSet()) { ImportedFontReference.parse(it)?.filename }
         }
     }

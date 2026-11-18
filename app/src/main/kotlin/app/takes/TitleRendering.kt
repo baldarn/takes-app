@@ -18,6 +18,8 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import app.takes.core.ImageOverlay
+import app.takes.core.LabelHeadline
+import app.takes.core.LabelHeadlineArrangement
 import app.takes.core.Size
 import app.takes.core.TextOverlay
 import app.takes.core.TitleAlignment
@@ -116,10 +118,16 @@ object TitleRaster {
     class Art(val bitmap: Bitmap, val left: Float, val top: Float)
 
     fun art(assets: AssetManager, title: TextOverlay, width: Float, height: Float): Art? {
-        if (title.text.isBlank() || width < 1 || height < 1) return null
-        val design = title.appearance ?: return plain(title, width, height)
+        if (!title.hasText || width < 1 || height < 1) return null
         val picture = Size(width.toDouble(), height.toDouble())
-        val bitmap = (if (design == TitleDesign()) untouched(assets, title.text, title.size, picture) else styled(assets, title.text, design, title.size, picture)) ?: return null
+        val group = title.labelHeadline
+        val design = title.appearance
+        if (group == null && design == null) return plain(title, width, height)
+        val bitmap = when {
+            group != null -> card(assets, group, title.text, title.size, picture)
+            design == TitleDesign() -> untouched(assets, title.text, title.size, picture)
+            else -> styled(assets, title.text, design!!, title.size, picture)
+        } ?: return null
         // Centered on its anchor, kept inside the frame.
         val left = (title.x * width - bitmap.width / 2f).toFloat().coerceIn(0f, maxOf(0f, width - bitmap.width))
         val top = (title.y * height - bitmap.height / 2f).toFloat().coerceIn(0f, maxOf(0f, height - bitmap.height))
@@ -183,6 +191,21 @@ object TitleRaster {
      */
     fun styled(assets: AssetManager, text: String, design: TitleDesign, size: Double, picture: Size): Bitmap? =
         drawn(assets, text, design, size, picture, null, 0.94)
+
+    /**
+     * A card of a label and a headline, [headline] its words, for a picture of
+     * [picture] pixels, the card's size [size] of its short side, in lines at
+     * most 0.94 of its width, scaled down to fit the picture whole
+     * (YouRec/VideoToolCompositor.swift:617-624).
+     */
+    fun card(assets: AssetManager, group: LabelHeadline, headline: String, size: Double, picture: Size): Bitmap? {
+        if (picture.width < 1 || picture.height < 1) return null
+        val unit = minOf(picture.width, picture.height) / REFERENCE
+        val canvasWidth = (picture.width / unit).toFloat()
+        val canvasHeight = (picture.height / unit).toFloat()
+        val layout = CardText(assets, group, headline, maxOf(8f, (REFERENCE * size).toFloat()), canvasWidth * 0.94f)
+        return layout.image(canvasWidth, canvasHeight, unit.toFloat())
+    }
 
     /** [padding], in em, replaces the room a design leaves around its letters; [share] is how much of the picture's width the title may take. */
     private fun drawn(assets: AssetManager, text: String, design: TitleDesign, size: Double, picture: Size, padding: Double?, share: Double): Bitmap? {
@@ -335,12 +358,78 @@ class StyledText(assets: AssetManager, text: String, val design: TitleDesign, pr
 }
 
 /**
+ * A card of a label and a headline laid out once, as the original's
+ * (YouRec/StyledTextRenderer.swift:144-224): each text laid out by
+ * [StyledText] in lines at most [width] less the card's padding wide, the
+ * label [LabelHeadline.labelScale] and the headline
+ * [LabelHeadline.headlineScale] of [fontSize], placed by
+ * [LabelHeadlineArrangement]. A text with nothing but spaces is left out.
+ */
+class CardText(assets: AssetManager, group: LabelHeadline, headline: String, private val fontSize: Float, width: Float) {
+    val label: StyledText?
+    val headline: StyledText?
+    val arrangement: LabelHeadlineArrangement
+    private val card = group.card
+
+    init {
+        val pad = ceil(group.card.padding * fontSize).toFloat()
+        fun layout(words: String, style: TitleDesign, scale: Double) =
+            if (words.isBlank()) null else StyledText(assets, words, style, (fontSize * scale).toFloat(), maxOf(1f, width - 2 * pad))
+        label = layout(group.label, group.labelStyle, group.labelScale)
+        this.headline = layout(headline, group.headlineStyle, group.headlineScale)
+        arrangement = LabelHeadlineArrangement(
+            label?.let { Size(it.width.toDouble(), it.height.toDouble()) }, group.labelStyle.alignment,
+            this.headline?.let { Size(it.width.toDouble(), it.height.toDouble()) }, group.headlineStyle.alignment,
+            group.card, fontSize.toDouble(),
+        )
+    }
+
+    /**
+     * The card for a picture [canvasWidth] by [canvasHeight] units, [unit]
+     * pixels each: made smaller to fit it whole, never larger. Null when there
+     * is nothing to draw or the picture would be too large.
+     */
+    fun image(canvasWidth: Float, canvasHeight: Float, unit: Float): Bitmap? {
+        val size = arrangement.size
+        if (!(size.width > 0 && size.height > 0)) return null
+        val scale = unit * minOf(1.0, canvasWidth / size.width, canvasHeight / size.height).toFloat()
+        val pixelWidth = ceil(size.width * scale).toInt()
+        val pixelHeight = ceil(size.height * scale).toInt()
+        if (pixelWidth < 1 || pixelHeight < 1 || pixelWidth > 16384 || pixelHeight > 16384 || pixelWidth.toLong() * pixelHeight > 32_000_000) return null
+        val bitmap = Bitmap.createBitmap(pixelWidth, pixelHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.save()
+        canvas.scale(scale, scale)
+        val bounds = RectF(0f, 0f, size.width.toFloat(), size.height.toFloat())
+        val radius = minOf(card.radius * fontSize, minOf(size.width, size.height) / 2).toFloat()
+        canvas.drawRoundRect(bounds, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = card.fill.toColor() })
+        val stroke = minOf(card.borderWidth * fontSize, minOf(size.width, size.height)).toFloat()
+        if (stroke > 0) {
+            val inset = stroke / 2
+            val corner = maxOf(0f, radius - inset)
+            val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = stroke; color = card.border.toColor() }
+            canvas.drawRoundRect(RectF(inset, inset, bounds.right - inset, bounds.bottom - inset), corner, corner, edge)
+        }
+        canvas.restore()
+        val filter = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        for ((text, rect) in listOf(label to arrangement.label, headline to arrangement.headline)) {
+            if (text == null || rect == null) continue
+            val lettering = text.image(scale) ?: run { bitmap.recycle(); return null }
+            val place = RectF((rect.x * scale).toFloat(), (rect.y * scale).toFloat(), ((rect.x + rect.width) * scale).toFloat(), ((rect.y + rect.height) * scale).toFloat())
+            canvas.drawBitmap(lettering, null, place, filter)
+            lettering.recycle()
+        }
+        return bitmap
+    }
+}
+
+/**
  * Draws the titles of a moment over a picture: each one's bitmap, made once
  * and kept, posed by its motion. The preview and the export use the same code
  * at their own sizes. Not for two threads at once: each makes its own.
  */
 class TitlePainter(private val assets: AssetManager, private val pictures: OverlayPictures? = null) {
-    private data class Key(val text: String, val x: Double, val y: Double, val size: Double, val design: TitleDesign?, val width: Float, val height: Float)
+    private data class Key(val text: String, val x: Double, val y: Double, val size: Double, val design: TitleDesign?, val group: LabelHeadline?, val width: Float, val height: Float)
 
     // Access-ordered: the title being restyled makes a new picture at every change, and old ones go.
     private val arts = object : LinkedHashMap<Key, TitleRaster.Art?>(8, 0.75f, true) {
@@ -355,7 +444,7 @@ class TitlePainter(private val assets: AssetManager, private val pictures: Overl
     }
 
     private fun art(title: TextOverlay, width: Float, height: Float): TitleRaster.Art? =
-        arts.getOrPut(Key(title.text, title.x, title.y, title.size, title.appearance, width, height)) { TitleRaster.art(assets, title, width, height) }
+        arts.getOrPut(Key(title.text, title.x, title.y, title.size, title.appearance, title.labelHeadline, width, height)) { TitleRaster.art(assets, title, width, height) }
 
     /** Draws [shown] on a picture of [width] by [height] pixels. [level] dims every title, as a fade to black does. */
     fun draw(target: Canvas, width: Float, height: Float, shown: List<TitleMotionRanges.Shown>, level: Float = 1f) {
@@ -367,7 +456,7 @@ class TitlePainter(private val assets: AssetManager, private val pictures: Overl
             if (title == null) continue
             val opacity = (share * level * pose.opacity).toFloat().coerceIn(0f, 1f)
             if (opacity <= 0f) continue
-            if (title.appearance == null && pose.copy(opacity = 1.0) == STILL) {
+            if (title.appearance == null && title.labelHeadline == null && pose.copy(opacity = 1.0) == STILL) {
                 // A title without a design that is not moving: exactly as before designs existed.
                 TitleRenderer.draw(target, width, height, title, opacity)
                 continue

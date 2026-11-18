@@ -486,7 +486,8 @@ and caption designs raise nothing on iOS.
 | 21 | fixed output size |
 | 22 | pauses |
 | 23 | images |
-| 24 | stabilisation (`LATEST_READABLE_SCHEMA`, K/Project.kt:871) |
+| 24 | stabilisation |
+| 25 | a title made a card of a label and a headline (`LATEST_READABLE_SCHEMA`, K/Project.kt `TimelineClip.LABEL_HEADLINE_SCHEMA`) |
 
 **The numbers overlap with iOS's but mean different things. Never compare
 them across sides.**

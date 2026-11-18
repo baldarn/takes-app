@@ -4,6 +4,7 @@ import app.takes.core.BookmarkAnchor
 import app.takes.core.EditTime
 import app.takes.core.ExportSettings
 import app.takes.core.Project
+import app.takes.core.TimelineClip
 import app.takes.core.ProjectException
 import app.takes.core.Size
 import app.takes.core.SourceMedia
@@ -193,8 +194,8 @@ class YouRecImportTest {
         assertEquals("effect-lut-${"cd".repeat(32)}.cube", clip.color!!.imported!!.filename)
         val held = timeline.video[1].content
         assertEquals(3.0, held.frozenFrame!!.duration, 0.0)
-        // Stabilisation is the newest thing Takes reads.
-        assertEquals(Project.LATEST_READABLE_SCHEMA, project.schemaVersion)
+        // Stabilisation is the newest thing this project holds.
+        assertEquals(TimelineClip.STABILIZATION_SCHEMA, project.schemaVersion)
         assertEquals(
             listOf(mov1, mov2, "effect-$analysis.bin", "effect-$analysis.json", "effect-lut-${"cd".repeat(32)}.cube", "image-${uid(0x1111)}.png"),
             imported.mediaFiles,

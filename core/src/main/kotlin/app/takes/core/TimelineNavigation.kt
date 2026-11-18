@@ -215,7 +215,7 @@ class TimelineNavigation private constructor(
                 clip.color?.takeIf { it.look != ColorLook.Natural && it.amount > 0 }
                     ?.let { builder.change(recipe("color", ColorSettings.serializer(), it), start, end) }
                 for (text in clip.texts.orEmpty()) {
-                    if (text.text.isEmpty()) continue
+                    if (!text.hasText) continue
                     val a = maxOf(text.start, clip.start)
                     val b = minOf(text.end, clip.end)
                     // A title is anchored to its footage: where it shows follows the clip's speed.

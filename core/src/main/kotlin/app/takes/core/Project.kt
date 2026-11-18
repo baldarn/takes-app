@@ -78,16 +78,31 @@ data class TextOverlay(
      * Only titles of older projects have none; a new one is made by [fresh] with the default design.
      */
     val appearance: TitleDesign? = null,
+    /**
+     * Set, the title is a card of two texts ([LabelHeadline]): [text] is its
+     * headline, and [appearance] is kept for when it is a single text again
+     * (YouRec/VideoTools.swift:374). Readers before [TimelineClip.LABEL_HEADLINE_SCHEMA] would draw the headline alone.
+     */
+    val labelHeadline: LabelHeadline? = null,
     /** How it arrives and leaves. Null stays still. */
     val motion: TitleMotion? = null,
 ) {
     val valid: Boolean
         get() = start.isFinite() && end.isFinite() && start >= 0 && end > start && text.length <= 500 &&
             x.isFinite() && y.isFinite() && x in 0.0..1.0 && y in 0.0..1.0 && size.isFinite() && size in 0.02..0.3 &&
-            appearance?.valid != false && motion?.valid != false
+            appearance?.valid != false && labelHeadline?.valid != false && motion?.valid != false
 
     /** True when the title uses a design or a motion, which readers before schema 12 would draw wrongly. */
-    val styled: Boolean get() = appearance != null || motion != null
+    val styled: Boolean get() = appearance != null || motion != null || labelHeadline != null
+
+    /** What the title says: its words, or a card's label when the headline is empty (YouRec/VideoTools.swift:377-379). */
+    val displayText: String get() = if (text.isBlank()) labelHeadline?.label ?: "" else text
+
+    /** True when there is something to draw: a card with only a label still is a title (YouRec/VideoTools.swift:380). */
+    val hasText: Boolean get() = displayText.isNotBlank()
+
+    /** The faces the title's texts use: its design's, or a card's two (YouRec/VideoTools.swift:381-383). */
+    val fontFaces: List<String> get() = listOfNotNull(appearance?.face, labelHeadline?.labelStyle?.face, labelHeadline?.headlineStyle?.face)
 
     /** What the design tools start from: the title's own design, or the look of a title without one. */
     val design: TitleDesign get() = appearance ?: TitleDesign.plain
@@ -337,6 +352,8 @@ data class TimelineClip(
 
     /** The oldest schema whose readers understand everything this clip uses. */
     val schema: Int get() = when {
+        // Readers before 25 would draw a card's headline alone.
+        texts.orEmpty().any { it.labelHeadline != null } -> LABEL_HEADLINE_SCHEMA
         // Readers before 24 would show the footage unstabilised.
         stabilization != null -> STABILIZATION_SCHEMA
         // Readers before 23 would leave the pictures out.
@@ -373,6 +390,9 @@ data class TimelineClip(
         const val IMAGES_SCHEMA = 23
         /** Readers before it would show a stabilised clip as it was shot. */
         const val STABILIZATION_SCHEMA = 24
+
+        /** The schema of a title made a card of a label and a headline ([TextOverlay.labelHeadline]). */
+        const val LABEL_HEADLINE_SCHEMA = 25
     }
 }
 
@@ -892,7 +912,7 @@ data class Project(
     }
 
     companion object {
-        const val LATEST_READABLE_SCHEMA = TimelineClip.STABILIZATION_SCHEMA
+        const val LATEST_READABLE_SCHEMA = TimelineClip.LABEL_HEADLINE_SCHEMA
         const val BOOKMARK_EVENT = "bookmark"
         private const val MAX_DURATION = 604800.0
         private const val HEX = "0123456789abcdef"
