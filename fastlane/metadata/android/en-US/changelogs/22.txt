@@ -1,0 +1,7 @@
+• Voice restoration: LavaSR and VoiceFixer in Enhance audio › Add filter (models downloaded on first use).
+• Follow face finds faces in profile and farther away.
+• Effects, colour, crop and audio tools can apply to one clip, the selected clips or a range.
+• 24 new title looks and two new fonts.
+• Create a project from Photos or Files.
+• Timeline thumbnails show the edited picture.
+• HDR keeps its highlights under effects; export warns when the sound clips.

@@ -1,0 +1,7 @@
+• Restauro della voce: LavaSR e VoiceFixer in Migliora audio › Aggiungi filtro (modelli scaricati al primo uso).
+• Segui il volto trova i volti di profilo e più lontani.
+• Effetti, colore, ritaglio e audio valgono anche su una clip, le clip selezionate o un intervallo.
+• 24 nuovi stili per i titoli e due nuovi font.
+• Crea un progetto da Foto o File.
+• Le miniature della timeline mostrano l'immagine modificata.
+• L'HDR mantiene le alte luci sotto gli effetti; l'export avvisa se l'audio satura.
