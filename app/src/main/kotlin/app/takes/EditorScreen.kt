@@ -1405,6 +1405,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val soundRows = remember(drawnEdit) { TrackComponents.soundRows(drawnEdit) }
         val soundless = remember(drawnEdit) { TrackComponents.soundless(drawnEdit.toTimeline()) }
         val movingSounds = remember(drawnEdit, session?.moving) { session?.let { TrackComponents.targets(drawnEdit, it.moving).audio }.orEmpty() }
+        // Where the footage of each clip would begin, which its thumbnails keep to through a split or a move (YouRec/EditorTimeline.swift:1298 at 57e5d91).
+        val filmOrigins = remember(drawnEdit) { (drawnEdit.layered ?: drawnEdit.toTimeline()).video.associate { it.id to (it.start - it.localOrigin).seconds } }
         // How linked groups are stitched on the timeline, its pictures on their rows and its sounds on their tracks (YouRec/EditorTimeline.swift:406 at 57e5d91).
         val linkLayout = remember(drawnEdit, rows, soundRows, session != null) {
             if (session != null) null
@@ -1522,7 +1524,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
             },
             pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
-            links = linkLayout,
+            links = linkLayout, origins = filmOrigins,
             moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },
