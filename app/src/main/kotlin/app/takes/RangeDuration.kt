@@ -102,7 +102,8 @@ internal fun EditorRangeDuration(
                 for (value in row) {
                     if (value == null) {
                         val customHint = stringResource(R.string.range_custom_hint)
-                        Chip(customLabel, isCustom, enabled = true, Modifier.weight(1f), customHint) { custom = true }
+                        // Custom takes the row's free cells too, so a longer word than the original's English one fits.
+                        Chip(customLabel, isCustom, enabled = true, Modifier.weight((6 - row.size).toFloat()), customHint) { custom = true }
                     } else {
                         val label = stringResource(R.string.range_seconds, short(value))
                         Chip(label, !isCustom && EditTime.of(timing.duration) == EditTime.of(value), EditorDurationPresets.fits(value, timing.available), Modifier.weight(1f)) {
@@ -111,7 +112,7 @@ internal fun EditorRangeDuration(
                         }
                     }
                 }
-                repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
+                if (null !in row) repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
             }
             for (edge in EditorRangeTiming.Edge.entries) EdgeControl(timing, edge, name) { time -> custom = true; change(edge, time, true) }
             TextButton(onClick = { custom = true; change(EditorRangeTiming.Edge.End, timing.bounds.endInclusive, true) }, Modifier.heightIn(min = 44.dp)) {
