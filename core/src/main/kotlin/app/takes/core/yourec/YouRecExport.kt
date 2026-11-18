@@ -2,6 +2,7 @@ package app.takes.core.yourec
 
 import app.takes.core.CaptureEffectsFile
 import app.takes.core.ExportSettings
+import app.takes.core.OpenTimeline
 import app.takes.core.Project
 import app.takes.core.SupportedVideoEffects
 import app.takes.core.TimelineClip
@@ -72,6 +73,9 @@ object YouRecExport {
         val media: List<Media>,
         val schema: Int,
         private val build: (Map<String, String>) -> JsonObject,
+        /** The OpenTimelineIO file of the current edit and its name, as the original's ZIP holds them (YouRec/ProjectArchive.swift:259). */
+        val timelineName: String,
+        val timeline: ByteArray,
     ) {
         val blockers: List<Issue> get() = issues.filter { it.kind.blocker }
         val losses: List<Issue> get() = issues.filter { !it.kind.blocker }
@@ -269,7 +273,10 @@ object YouRecExport {
         }
         val problems = SwiftRequiredKeys.problems(manifest(emptyMap()), steps)
         check(problems.isEmpty()) { problems.take(5).joinToString("; ") }
-        return Plan(issues.map { (kind, files) -> Issue(kind, files) }, distinct, steps, media, schema, manifest)
+        return Plan(
+            issues.map { (kind, files) -> Issue(kind, files) }, distinct, steps, media, schema, manifest,
+            YouRecMediaFiles.timelineName(mediaFiles), OpenTimeline.text(project).toByteArray(),
+        )
     }
 
     /** What the original checks of a clip and Takes does not (1.7). */

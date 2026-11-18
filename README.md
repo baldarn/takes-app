@@ -99,10 +99,10 @@ that Android imposes, and 8 are left out (listed under
   movie it has instead of exporting again.
 - Play, share or save to the gallery; share a frame as the cover.
 - Zip project: the recordings, sounds, LUTs, fonts, editing history and the edit as an
-  OpenTimelineIO file. Opening such a ZIP brings the project back as a new one.
-- Projects shared with the iPhone app: Takes opens the ZIPs of YouRec's "Zip project", and
-  "Zip for iPhone" writes one YouRec restores ([docs/IOS-INTEROP.md](docs/IOS-INTEROP.md)).
-  Not yet tried on an iPhone: reports are welcome.
+  OpenTimelineIO file, in the form YouRec writes, so the same ZIP opens in Takes and in
+  YouRec on iPhone; Takes opens YouRec's ZIPs too ([docs/IOS-INTEROP.md](docs/IOS-INTEROP.md)).
+  A project the iPhone could not open, such as one with WebM or Ogg files, is zipped for
+  Takes only, and the app says why. Not yet tried on an iPhone: reports are welcome.
 - Duplicate a project; Recently Deleted with restore; a damaged project falls back to its
   previous revision.
 

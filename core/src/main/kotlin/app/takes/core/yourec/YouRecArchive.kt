@@ -19,8 +19,8 @@ import java.util.zip.ZipOutputStream
  * docs/IOS-INTEROP.md, 3.6): every entry stored, with its checksum and sizes
  * in its local header and no data descriptor, as ZIPFoundation writes them
  * (ZIPFoundation/Archive+Writing.swift:138-152); the steps, the manifest,
- * the media, then `integrity.json` with the hash of each media file. No
- * timeline file and no recovery files.
+ * the current edit as an OpenTimelineIO file, the media, then
+ * `integrity.json` with the hash of each media file. No recovery files.
  *
  * A stored entry needs its checksum before its first byte, so each file is
  * read twice: once for its checksum and hash, once to copy it.
@@ -31,7 +31,7 @@ object YouRecArchive {
     /** The room the ZIP needs before it is begun: [ProjectArchive.SPACE_MARGIN] and every file it holds, a re-encoded picture as encoded. */
     fun requiredSpace(plan: YouRecExport.Plan, png: (File) -> ByteArray): Long =
         ProjectArchive.SPACE_MARGIN + plan.media.sumOf { if (it.png) png(it.file).size.toLong() else it.file.length() } +
-            plan.steps.values.sumOf { it.size.toLong() }
+            plan.steps.values.sumOf { it.size.toLong() } + plan.timeline.size
 
     /**
      * Writes the ZIP of [plan] to [output], which is left open. [png] re-encodes a picture as PNG ([YouRecExport.Media.png]).
@@ -78,6 +78,7 @@ object YouRecArchive {
         }
         for ((name, data) in plan.steps) add("History/$name", data)
         add("project.json", plan.manifest(hashes.filterKeys { name -> plan.media.any { it.name == name && it.recording } }))
+        add(plan.timelineName, plan.timeline)
         var written = 0L
         progress(0, total)
         val buffer = ByteArray(1 shl 20)

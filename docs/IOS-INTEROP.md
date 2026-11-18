@@ -726,6 +726,14 @@ returns the project. The app passes a `MediaProbe(size, playable)`.
 
 ### 3.6 Writing a ZIP for iPhone in Takes
 
+Since the owner's decision of 2026-11-18 there is one "Zip project", and it
+writes this form whenever the project has no blocker: Takes opens it as it
+opens any YouRec ZIP (§3.5). A project with a blocker is written in Takes'
+own form, with the blockers named in the message that the ZIP opens in Takes
+only. No dialog comes before the file is chosen; what the round trip back
+into Takes changes is §7.5's round trip (the effects' analysis, which Takes
+works out again, and a recording run, which ends).
+
 1. Run `YouRecCodec.check(project)`, which returns **blockers** and
    **losses** (§2.4, §1.7). Any blocker stops the export.
 2. Run `YouRecCodec.export(project)`, which returns the manifest JSON, the
@@ -738,7 +746,12 @@ returns the project. The app passes a `MediaProbe(size, playable)`.
    - media;
    - `integrity.json` `{"sha256":{…},"version":1}`, where `sha256` holds
      media only;
-   - **no `.otio` and no `Recovery/`.**
+   - the current edit as `Timeline.otio`, or `Timeline-N.otio` on a
+     case-insensitive collision with a media name, after `project.json`, as
+     the original writes it (S/ProjectArchive.swift:259;
+     S/EditorialTimeline.swift:16-21), which both restores accept under
+     that name and ignore;
+   - **no `Recovery/`.**
 5. **Compression.** Write every entry **STORED** with the CRC and sizes in
    the local header and no data descriptor: compute the CRC in a first
    pass, then use `ZipEntry.setMethod(STORED)` with `size`,
@@ -962,9 +975,10 @@ function rather than `YouRecCodec.export`/`check`), `YouRecSchema.kt`,
 `SwiftRequiredKeys.kt` (`problems`, which every plan asserts empty),
 `YouRecArchive.kt` (`write`, `requiredSpace`, `integrity`), the export
 transforms in `YouRecJson.kt`, `YouRecMediaFiles.of(manifest, steps)` on
-the original's form; in the app, `ProjectStore.checkForIPhone` /
-`archiveForIPhone`, `YouRecMedia.exportProbe` (track MIME types) and
-`YouRecMedia.png`, "Zip for iPhone" with its two dialogs.
+the original's form; in the app, `ProjectStore.archive`,
+`YouRecMedia.exportProbe` (track MIME types) and `YouRecMedia.png`. "Zip
+for iPhone" with its two dialogs was merged into "Zip project" on
+2026-11-18 (§3.6).
 
 Decided in phase 2:
 - **Analysis (T8).** An analysis file is the original's when `palettes` is
@@ -990,7 +1004,7 @@ notes, as kinds plus file names, which the app words), `LinearPcm.kt`
 `SourceMedia.isStillPhoto`; in the app, `A/YouRecMedia.kt` (probe and note
 texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
 `YouRecCodec.export`/`check`, `YouRecSchema.kt`, `SwiftRequiredKeys.kt`,
-`YouRecArchive.kt`, "Zip for iPhone".
+`YouRecArchive.kt`, "Zip project" in the original's form (§3.6).
 
 ### 7.2 Transforms, collected
 
@@ -1033,7 +1047,9 @@ texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
   - Detection happens inside restore; no new entry point is needed.
   - Change the result to carry `notes`, and show them in a dialog after a
     YouRec restore ("Imported from YouRec: …").
-- **Export.** Add **"Zip for iPhone"** right after "Zip project"
+- **Export.** *Superseded on 2026-11-18: "Zip project" writes the
+  original's form itself (§3.6), and the steps below describe the first,
+  separate "Zip for iPhone".* Add **"Zip for iPhone"** right after "Zip project"
   (A/…/ProjectsScreen.kt:306; strings.xml:100).
   - Add a new string in `values` and `values-it`.
   - Give it its own target state and `CreateDocument` launcher, modelled on
@@ -1117,7 +1133,7 @@ texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
    - Entries are STORED, with no data descriptor (read back with
      `java.util.zip.ZipFile` and check `method == STORED`).
    - `integrity.json` is exactly `{"sha256":{…},"version":1}`.
-   - There is no `.otio` and no `Recovery/`.
+   - The `.otio` is there under the original's name; there is no `Recovery/`.
    - Step names are lowercase hex of their bytes.
    - A YouRec fixture ZIP with Recovery entries restores; one with an extra
      file is refused, as iOS does.
@@ -1125,7 +1141,7 @@ texts) and the dialog in `A/ProjectsScreen.kt`. Phase 2 (export):
    reference rewrite in steps, ledger and sources.
 
 There is also a manual gate before release:
-- restore a Takes "Zip for iPhone" on an iPhone with the current YouRec,
+- restore a Takes "Zip project" on an iPhone with the current YouRec,
   open it, play and export;
 - restore a YouRec ZIP on a Galaxy A54 and play it.
 

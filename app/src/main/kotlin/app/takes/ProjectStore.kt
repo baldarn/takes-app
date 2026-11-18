@@ -50,7 +50,6 @@ import app.takes.core.WaveFile
 import app.takes.core.PhotoClip
 import app.takes.core.newID
 import app.takes.core.yourec.YouRecArchive
-import app.takes.core.yourec.YouRecBlockedException
 import app.takes.core.yourec.YouRecExport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -389,9 +388,10 @@ class ProjectStore(context: Context) {
     }
 
     /**
-     * Writes the project as a ZIP to a document the user chose: its recordings
-     * and sounds, its editing history, and the current edit as an
-     * OpenTimelineIO file that other editors can open.
+     * Writes the project as a ZIP to a document the user chose, in the form YouRec, the iPhone original, writes and
+     * restores (docs/IOS-INTEROP.md, 3.6), which Takes opens as well: its recordings and sounds, its editing history,
+     * and the current edit as an OpenTimelineIO file that other editors can open. A project the iPhone could not
+     * open ([YouRecExport.Plan.blockers]) is written in Takes' own form instead, and the message says why.
      */
     fun archive(project: Project, destination: Uri) {
         if (importing != null) return
@@ -399,25 +399,33 @@ class ProjectStore(context: Context) {
         scope.launch {
             importing = context.getString(R.string.projects_zipping)
             var stopped = false
+            var takesOnly: List<YouRecExport.Issue> = emptyList()
             val problem = withContext(Dispatchers.IO) {
                 try {
                     var shown = -1
+                    val folder = disk.folder(project.id)
+                    val plan = YouRecExport.plan(project, folder, YouRecMedia.exportProbe)
+                    takesOnly = plan.blockers
                     // As the original, the margin and the media must fit above the floor before anything is written, and the
                     // floor is checked again every 16 MB (ProjectArchive.swift:80-91, 232-240). The person's document is
                     // measured on the phone's storage, where the providers on it keep what they are given.
-                    shortOfSpace(ProjectArchive.requiredSpace(disk.folder(project.id), project))?.let { throw IOException(it) }
+                    val required = if (takesOnly.isEmpty()) YouRecArchive.requiredSpace(plan, YouRecMedia::png) else ProjectArchive.requiredSpace(folder, project)
+                    shortOfSpace(required)?.let { throw IOException(it) }
                     var nextCheck = RecoveryRules.CHECK_INTERVAL
+                    val progress = { written: Long, total: Long ->
+                        stopIfCancelled()
+                        if (written >= nextCheck) {
+                            shortOfSpace(0)?.let { throw IOException(it) }
+                            nextCheck = written + RecoveryRules.CHECK_INTERVAL
+                        }
+                        val percent = if (total > 0) (written * 100 / total).toInt() else 100
+                        if (percent != shown) { shown = percent; importing = context.getString(R.string.projects_zipping_percent, percent) }
+                    }
                     resolver.openOutputStream(destination)!!.use { stream ->
                         // write() flushes; use() closes the document.
-                        ProjectArchive.write(disk.folder(project.id), project, stream.buffered(1 shl 16)) { written, total ->
-                            stopIfCancelled()
-                            if (written >= nextCheck) {
-                                shortOfSpace(0)?.let { throw IOException(it) }
-                                nextCheck = written + RecoveryRules.CHECK_INTERVAL
-                            }
-                            val percent = if (total > 0) (written * 100 / total).toInt() else 100
-                            if (percent != shown) { shown = percent; importing = context.getString(R.string.projects_zipping_percent, percent) }
-                        }
+                        val output = stream.buffered(1 shl 16)
+                        if (takesOnly.isEmpty()) YouRecArchive.write(plan, output, project.updatedAt, YouRecMedia::png, progress)
+                        else ProjectArchive.write(folder, project, output, progress)
                     }
                     null
                 } catch (failure: Exception) {
@@ -429,72 +437,11 @@ class ProjectStore(context: Context) {
             }
             end()
             if (stopped) return@launch
-            error = if (problem == null) context.getString(R.string.projects_zip_saved) else context.getString(R.string.projects_zip_failed, problem)
-        }
-    }
-
-    /** What "Zip for iPhone" found in a project before the file is chosen: what stops it, and what the person accepts. */
-    data class IPhoneCheck(val projectID: String, val blockers: List<String>, val losses: List<String>)
-
-    /** The check of the project being zipped for the iPhone, until it is answered. */
-    var iPhoneCheck by mutableStateOf<IPhoneCheck?>(null)
-
-    /**
-     * Looks at [project] as YouRec would restore it (docs/IOS-INTEROP.md, 7.3): what the iPhone cannot take stops
-     * the export, what changes on the way is said before the file is chosen ([iPhoneCheck]).
-     */
-    fun checkForIPhone(project: Project) {
-        if (importing != null) return
-        begin(cancellable = false)
-        scope.launch {
-            importing = context.getString(R.string.projects_iphone_checking)
-            val result = withContext(Dispatchers.IO) {
-                runCatching { YouRecExport.plan(project, disk.folder(project.id), YouRecMedia.exportProbe) }
+            error = when {
+                problem != null -> context.getString(R.string.projects_zip_failed, problem)
+                takesOnly.isEmpty() -> context.getString(R.string.projects_zip_saved)
+                else -> context.getString(R.string.projects_zip_saved_takes_only, takesOnly.joinToString(" ") { YouRecMedia.describe(context, it) })
             }
-            end()
-            result.onSuccess { plan ->
-                iPhoneCheck = IPhoneCheck(project.id, plan.blockers.map { YouRecMedia.describe(context, it) }, plan.losses.map { YouRecMedia.describe(context, it) })
-            }.onFailure { error = context.getString(R.string.projects_zip_failed, describe(it as? Exception ?: Exception(it))) }
-        }
-    }
-
-    /** Writes [project] as a ZIP that YouRec, the iPhone original, restores (docs/IOS-INTEROP.md, 3.6), as [archive] writes Takes' own. */
-    fun archiveForIPhone(project: Project, destination: Uri) {
-        if (importing != null) return
-        begin(cancellable = true)
-        scope.launch {
-            importing = context.getString(R.string.projects_zipping)
-            var stopped = false
-            val problem = withContext(Dispatchers.IO) {
-                try {
-                    var shown = -1
-                    val folder = disk.folder(project.id)
-                    val plan = YouRecExport.plan(project, folder, YouRecMedia.exportProbe)
-                    // The original's margin and every file, a re-encoded picture as encoded (ProjectArchive.swift:232-240).
-                    shortOfSpace(YouRecArchive.requiredSpace(plan, YouRecMedia::png))?.let { throw IOException(it) }
-                    var nextCheck = RecoveryRules.CHECK_INTERVAL
-                    resolver.openOutputStream(destination)!!.use { stream ->
-                        YouRecArchive.write(plan, stream.buffered(1 shl 16), project.updatedAt, YouRecMedia::png) { written, total ->
-                            stopIfCancelled()
-                            if (written >= nextCheck) {
-                                shortOfSpace(0)?.let { throw IOException(it) }
-                                nextCheck = written + RecoveryRules.CHECK_INTERVAL
-                            }
-                            val percent = if (total > 0) (written * 100 / total).toInt() else 100
-                            if (percent != shown) { shown = percent; importing = context.getString(R.string.projects_zipping_percent, percent) }
-                        }
-                    }
-                    null
-                } catch (failure: Exception) {
-                    // A partial archive would look like a backup and not be one.
-                    runCatching { DocumentsContract.deleteDocument(resolver, destination) }
-                    stopped = failure is Cancelled
-                    (failure as? YouRecBlockedException)?.blockers?.joinToString(" ") { YouRecMedia.describe(context, it) } ?: describe(failure)
-                }
-            }
-            end()
-            if (stopped) return@launch
-            error = if (problem == null) context.getString(R.string.projects_iphone_saved) else context.getString(R.string.projects_zip_failed, problem)
         }
     }
 

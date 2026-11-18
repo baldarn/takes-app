@@ -120,10 +120,13 @@ class YouRecExportTest {
                 assertEquals(0, ((region as JsonObject)["videos"] as JsonArray).size % 2)
             }
         }
-        // The archive holds exactly what the original works out it owns, and nothing of Takes' own.
+        // The archive holds exactly what the original works out it owns, its timeline file under the name the original
+        // gives it (YouRec/EditorialTimeline.swift:16-21), and nothing of Takes' own.
         val media = YouRecMediaFiles.of(manifest, names.distinct().map { json(entries.getValue("History/$it")) })
-        assertEquals(media.toSet() + "project.json" + YouRecArchive.INTEGRITY + names.map { "History/$it" }, entries.keys)
-        assertTrue(entries.keys.none { it.endsWith(".otio") || it.startsWith("Recovery/") })
+        val otio = YouRecMediaFiles.timelineName(media)
+        assertEquals(media.toSet() + "project.json" + otio + YouRecArchive.INTEGRITY + names.map { "History/$it" }, entries.keys)
+        assertTrue(entries.keys.none { it.startsWith("Recovery/") })
+        assertTrue(json(entries.getValue(otio))["OTIO_SCHEMA"].toString().contains("Timeline"))
         for (name in media) {
             assertTrue(name, name in (manifest["sources"] as JsonArray).map { ((it as JsonObject)["filename"] as JsonPrimitive).content } ||
                 name.startsWith("image-") || name.startsWith("font-") || name.startsWith("effect-"))
