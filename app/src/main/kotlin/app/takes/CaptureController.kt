@@ -16,6 +16,7 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioRecord
 import android.media.AudioRecordingConfiguration
 import android.media.AudioTrack
 import android.media.MediaRecorder
@@ -25,6 +26,7 @@ import android.text.format.Formatter
 import android.util.Range
 import android.view.Display
 import android.view.Surface
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.annotation.RequiresApi
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -48,6 +50,7 @@ import androidx.camera.video.AudioStats
 import androidx.camera.video.ExperimentalPersistentRecording
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.MediaSpec
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
@@ -528,7 +531,27 @@ class CaptureController(private val context: Context, private val store: Project
     // to record from a headset, which needs the voice communication source. Check this
     // call again whenever the camera library is updated.
     @SuppressLint("RestrictedApi")
-    private fun recorder(audioSource: Int) = Recorder.Builder().setAudioSource(audioSource)
+    private fun recorder(audioSource: Int) = Recorder.Builder().setAudioSource(audioSource).also { originalSound(it, audioSource) }
+
+    /**
+     * The phone's microphones recorded as the original records them, stereo AAC at 48 kHz and 192 kbit/s
+     * (YouRec/CaptureSegmentWriter.swift:244-248), where the camera library would follow the phone's camcorder
+     * profile: mono at 96 kbit/s on a Pixel 9a, which sounds smaller and duller beside its own camera's stereo.
+     * The library takes these values in its media spec, which its builder keeps to itself, so the spec is reached
+     * by its field (kept from R8 in proguard-rules.pro); where that or stereo capture is missing, the profile stays.
+     * A headset, on the communication source, is a mono voice line and keeps the profile too.
+     */
+    @SuppressLint("RestrictedApi")
+    private fun originalSound(builder: Recorder.Builder, audioSource: Int) {
+        if (audioSource != MediaRecorder.AudioSource.CAMCORDER) return
+        if (AudioRecord.getMinBufferSize(ORIGINAL_SAMPLE_RATE, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT) <= 0) return
+        runCatching {
+            val field = Recorder.Builder::class.java.getDeclaredField("mMediaSpecBuilder").apply { isAccessible = true }
+            (field.get(builder) as MediaSpec.Builder).configureAudio { audio ->
+                audio.setChannelCount(2).setSampleRate(ORIGINAL_SAMPLE_RATE).setBitrate(ORIGINAL_AUDIO_BITRATE)
+            }
+        }.onFailure { Log.w("CaptureController", "The recording keeps the camcorder profile's sound", it) }
+    }
 
     private fun bind(choice: CameraChoice) {
         target = choice
@@ -2205,6 +2228,9 @@ class CaptureController(private val context: Context, private val store: Project
         // A segment ends in a second or two; after five the recorder is taken to be stuck.
         const val SAVE_STEPS = 50
         const val SAVE_STEP_MILLIS = 100L
+        /** The original's recorded sound: 48 kHz, 192 kbit/s (YouRec/CaptureSegmentWriter.swift:246-247). */
+        const val ORIGINAL_SAMPLE_RATE = 48_000
+        const val ORIGINAL_AUDIO_BITRATE = 192_000
         /** Thirty frames per second, exactly, as the original sets it. */
         val THIRTY = Range(CaptureFormat.FRAMES_PER_SECOND, CaptureFormat.FRAMES_PER_SECOND)
         val FRAME_SIZES = mapOf(
