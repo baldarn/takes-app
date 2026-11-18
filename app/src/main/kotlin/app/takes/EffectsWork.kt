@@ -13,6 +13,7 @@ import app.takes.core.VideoEffectID
 import app.takes.core.VideoEffectLibrarySection
 import app.takes.core.VideoEffectSettings
 import app.takes.core.newID
+import app.takes.core.resolvingEffects
 import kotlin.math.abs
 
 /**
@@ -325,9 +326,10 @@ internal data class EffectsWork(
     fun shown(clip: TimelineClip, sourceTime: Double, time: Double): List<VideoEffectSettings>? {
         val piece = on.all.filter { it.clip.sourceID == clip.sourceID && sourceTime >= it.clip.start - 0.000001 && sourceTime <= it.clip.end + 0.000001 }
             .minWithOrNull(compareBy<CropScope.Piece> { abs(it.start + it.clip.offset(sourceTime) - time) }.thenBy { sourceTime - it.clip.start })
-            ?: return clip.videoEffects
-        if (piece.clip.id !in on.ids) return piece.clip.videoEffects
-        return if (bypass) null else effects[piece.clip.id]?.takeIf { it.isNotEmpty() }
+            ?: return clip.resolvingEffects(sourceTime).videoEffects
+        // Each effect only inside its windows, as the original resolves each frame (YouRec/VideoToolCompositor.swift:204-205).
+        if (piece.clip.id !in on.ids) return piece.clip.resolvingEffects(sourceTime).videoEffects
+        return if (bypass) null else effects[piece.clip.id]?.takeIf { it.isNotEmpty() }?.let { piece.clip.copy(videoEffects = it).resolvingEffects(sourceTime).videoEffects }
     }
 
     companion object {
