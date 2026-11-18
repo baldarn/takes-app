@@ -98,10 +98,13 @@ data class TextOverlay(
     }
 }
 
-/** A mark on the footage, at a source second. It follows its clip through trims, splits and moves. */
+/**
+ * A mark on the footage, at a source second. It follows its clip through trims, splits and moves.
+ * Its label is as long as the original allows a timeline bookmark's (YouRec/TrackTimeline.swift:1220).
+ */
 @Serializable
 data class Bookmark(val id: String = newID(), val time: Double, val label: String? = null) {
-    val valid: Boolean get() = time.isFinite() && time >= 0 && (label?.length ?: 0) <= 100
+    val valid: Boolean get() = time.isFinite() && time >= 0 && (label?.length ?: 0) <= TrackInvariants.MAXIMUM_LABEL
 }
 
 /**
