@@ -35,8 +35,8 @@ In section 13, the row on the operations of effect ranges and scoped edits was b
 
 | Status | Count |
 |---|---|
-| DONE | 203 |
-| PARTIAL | 14 |
+| DONE | 204 |
+| PARTIAL | 13 |
 | CORE ONLY | 0 |
 | MISSING | 0 |
 | N/A | 7 |
@@ -58,7 +58,7 @@ Per area:
 | 10. Video effects | 14 | 0 | 0 | 0 | 1 |
 | 11. Export | 11 | 1 | 0 | 0 | 0 |
 | 12. Settings, credits, localisation, accessibility | 5 | 0 | 0 | 0 | 2 |
-| 13. Effect ranges and scoped effects | 8 | 3 | 0 | 0 | 0 |
+| 13. Effect ranges and scoped effects | 9 | 2 | 0 | 0 | 0 |
 
 The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
 
