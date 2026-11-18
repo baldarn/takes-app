@@ -1162,6 +1162,10 @@
     <string name="cover_preparing">Preparing full-resolution JPEG</string>
     <string name="cover_failed">Couldn’t load this frame</string>
     <string name="cover_try_again">Try again</string>
+    <string name="cover_detail_swipe_hint">Swipe left for later frames or right for earlier frames.</string>
+    <string name="cover_detail_update_hint">Show another random frame from the same range.</string>
+    <string name="cover_detail_later">Later frame</string>
+    <string name="cover_detail_earlier">Earlier frame</string>
     <!-- Image tool: a picture over the footage (YouRec/EditorTools.swift:1207-1254). -->
     <string name="image_tool">Image</string>
     <string name="image_add">Add image</string>

@@ -77,12 +77,17 @@ class CoverPickTest {
         assertEquals(0, CoverPick.source(timeline, TimeRange(2.2, 2.8)).pool.count)
     }
 
-    // EditorTimeline.swift:1052-1055: minutes, seconds and the frame as hundredths.
-    @Test fun timesAreWrittenAsTheEditorWritesThem() {
+    // CoverPicker.swift:6-9: minutes, seconds and hundredths, rounded to the hundredth
+    // (Tests/EditorUITests.swift:11041-11044 writes a frame's time the same way).
+    @Test fun timesAreWrittenInHundredths() {
         assertEquals("0:00.00", CoverPick.label(0.0))
         assertEquals("0:01.50", CoverPick.label(1.5))
         assertEquals("0:01.03", CoverPick.label(1.0 + 1.0 / 30))
         assertEquals("1:05.97", CoverPick.label(65.0 + 29.0 / 30))
+        // At 60 frames a second, 1/60 s is 0.02 s, where the 30-frame grid wrote 0.03.
+        assertEquals("0:00.02", CoverPick.label(1.0 / 60))
+        assertEquals("0:00.04", CoverPick.label(0.044))
+        assertEquals("1:00.00", CoverPick.label(59.996))
         assertEquals("75:00.00", CoverPick.label(4500.0))
         assertEquals("0:00.00", CoverPick.label(-3.0))
         assertEquals("0:00.00", CoverPick.label(Double.NaN))
@@ -118,5 +123,17 @@ class CoverPickTest {
         assertEquals(148, CoverPick.columnWidth(16.0 / 9, accessible = false))
         assertEquals(100, CoverPick.columnWidth(0.5625, accessible = false))
         assertEquals(170, CoverPick.columnWidth(0.5625, accessible = true))
+    }
+
+    // CoverPicker.swift:198-213: a frame for every 24 points of travel, later to the left, held inside the pool.
+    @Test fun aSwipeStepsOneFrameEvery24Points() {
+        assertEquals(10, CoverPick.scrubbed(10, 0.0, 100))
+        assertEquals(10, CoverPick.scrubbed(10, -23.0, 100))
+        assertEquals(11, CoverPick.scrubbed(10, -36.0, 100))
+        assertEquals(9, CoverPick.scrubbed(10, 36.0, 100))
+        assertEquals(12, CoverPick.scrubbed(10, -48.0, 100))
+        assertEquals(0, CoverPick.scrubbed(1, 480.0, 100))
+        assertEquals(99, CoverPick.scrubbed(98, -480.0, 100))
+        assertEquals(0, CoverPick.scrubbed(0, -48.0, 1))
     }
 }
