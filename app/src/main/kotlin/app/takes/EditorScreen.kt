@@ -170,6 +170,7 @@ import app.takes.core.TimelineZoom
 import app.takes.core.ToolCompare
 import app.takes.core.EditorTool
 import app.takes.core.ToolRegion
+import app.takes.core.TimelineLinkLayout
 import app.takes.core.ToolRange
 import app.takes.core.ToolRegions
 import app.takes.core.TrackPlacements
@@ -1404,6 +1405,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val soundRows = remember(drawnEdit) { TrackComponents.soundRows(drawnEdit) }
         val soundless = remember(drawnEdit) { TrackComponents.soundless(drawnEdit.toTimeline()) }
         val movingSounds = remember(drawnEdit, session?.moving) { session?.let { TrackComponents.targets(drawnEdit, it.moving).audio }.orEmpty() }
+        // How linked groups are stitched on the timeline, its pictures on their rows and its sounds on their tracks (YouRec/EditorTimeline.swift:406 at 57e5d91).
+        val linkLayout = remember(drawnEdit, rows, soundRows, session != null) {
+            if (session != null) null
+            else TimelineLinkLayout.drawn(drawnEdit, drawnEdit.clips.mapIndexed { index, clip -> clip.id to (rows?.rows?.getOrNull(index) ?: 0) }.toMap(), soundRows.items)
+        }
         // The picked material's start put on a stop, the playhead with it (EditorView.swift:1184-1198).
         // A change of scope, a nudge, a stop or the end of a drag: the draft is the preview's at once.
         val updateMove = { next: TrackMoveSession? -> if (next != null) { moving = next; moveShown = next.draft.toEdit(saved.captureBase) } }
@@ -1516,6 +1522,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
             },
             pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
+            links = linkLayout,
             moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },

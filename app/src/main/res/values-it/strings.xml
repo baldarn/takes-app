@@ -222,6 +222,7 @@
     <string name="editor_edit_sound">Modifica audio</string>
     <string name="editor_clip_duration">Clip %1$d: %2$s</string>
     <string name="editor_clip_position">Clip %1$d di %2$d</string>
+    <string name="timeline_linked_group">gruppo collegato di %1$d parti</string>
     <string name="editor_tag_crop">Ritaglio</string>
     <string name="editor_tag_fade">Fade</string>
     <string name="editor_tag_clean">Pulito</string>

@@ -33,10 +33,10 @@ In sections 1 and 2, the rows on the tabs during an import, the selected project
 
 | Status | Count |
 |---|---|
-| DONE | 200 |
+| DONE | 201 |
 | PARTIAL | 14 |
 | CORE ONLY | 0 |
-| MISSING | 1 |
+| MISSING | 0 |
 | N/A | 7 |
 | Total | 222 |
 
@@ -56,7 +56,7 @@ Per area:
 | 10. Video effects | 14 | 0 | 0 | 0 | 1 |
 | 11. Export | 11 | 1 | 0 | 0 | 0 |
 | 12. Settings, credits, localisation, accessibility | 5 | 0 | 0 | 0 | 2 |
-| 13. Effect ranges and scoped effects | 5 | 3 | 0 | 1 | 0 |
+| 13. Effect ranges and scoped effects | 6 | 3 | 0 | 0 | 0 |
 
 The port goes beyond the original in three places, not counted above: Italian localisation (the original is English only, `YouRec.xcodeproj/project.pbxproj:644-647`), a lighter second speech model (Whisper small, 375 MB) beside the original's Qwen3-ASR, and "Save to gallery" plus "Play" on the export result.
 
@@ -366,7 +366,7 @@ Ported from the original at `57e5d91`, "Capture the current iPhone, iPad, and de
 | Effect badge options | O/EditorView.swift:521-527, 554-557, 1116-1155, 2299-2374; O/ScopedEffect.swift:276-292 | DONE | A/EffectChips.kt (`EffectOptionsChip`), A/SelectionBar.kt, A/EditorScreen.kt (`regionOptions`, `openRegionIn`, `ScopedEdit`) | "Edit on this clip", "… this audio clip", "… selected clips" and "Edit in marked range" open the Text, Image, Color, Crop and Mirror, Video effects, Stabilize, Censor and Enhance tools on `inspectorState`, on the part's clips and without the range editor (the Crop tool without the movie's shape for a part), named "This clip · 1.2–3.4 s"; Apply takes the part back with `applying`. "Edit entire effect" and a tap on the badge go through the parts when the effect is held in several, or in windows or variants. Departures: the preview of Stabilize, Censor and Enhance shows the tool's draft over the whole of the part's clips until Apply, where the original previews only the part; "Remove effect" in the Video effects inspector of a part takes it from the list, to be applied, where the original applies at once (O/VideoEffects/VideoEffectsEditor.swift:1101) | M | yes |
 | Adjust effect range on the timeline | O/EditorView.swift:1152-1191, O/EditorTimeline.swift:675-760 | PARTIAL | A/EditorTimeline.kt (`EffectRangeOverlay`), A/EditorScreen.kt (`EffectRangeActions`), C/EffectRangeEdit.kt | Departures: the preview shows the frame at the moved edge from the saved edit, not the draft drawn with the effect at its new range (the original prepares a draft player, O/EditorDurationPicker.swift:225-302); the timeline does not scroll by itself when a handle is dragged to its edge, and its other gestures stay on. Handles snap to the frame grid, not to cuts | M | yes |
 | Range editor (duration, Custom, Start and End by the frame, Extend to end) | O/EditorDurationPicker.swift:6-180, 304-346; O/EditorTools.swift ~1670; O/CropEditor.swift:115-127, 219-263, 420; O/VideoEffects/VideoEffectsEditor.swift:392-428, 1335; O/TrackEditors.swift:196-243, 326; O/AudioToolsEditor.swift:106-116, 147 | DONE | A/RangeDuration.kt (`EditorRangeDuration`, `DurationPicker` for the Text and Image tools, `SelectionDurationDialog` from Edit duration in the selection's menu); the Crop (A/CropPanel.kt, `Cropping.trimmed`), Video effects (A/EffectsWork.kt, `rangeTiming`, `trimmed`), Enhance and Censor (A/AudioToolsPanel.kt, `AudioToolWork.ranged`, `trimmed`) inspectors, with C/ToolRange.kt (`ToolRange`, `VideoEffectRangeTrim`, `trimmingSourceRange`) and `CropDraft.trimmed` (`ToolRangeTest`) | Not for a part of an effect edited from its badge, as in the original. Departures: Edit duration is a dialog over the editor's own preview, which follows the edge moved, where the original opens a sheet with a player of its own; the Crop tool opened from a crop's badge starts from its whole clip, where the original starts from the badge's stretch; a flip's badge opens the Crop tool, Takes having no Mirror tool of its own, without the range editor | M | yes |
-| Linked groups stitched on the timeline | O/TrackTimeline.swift:1708-1772 (`TimelineLinkLayout`), Tests/TrackTimelineTests.swift:461-485, 540-545 | MISSING | — | The shared seams and outline of glued picture and sound are not drawn yet | M | yes |
+| Linked groups stitched on the timeline | O/TrackTimeline.swift:1708-1772 (`TimelineLinkLayout`), O/EditorTimeline.swift:613-615, 1617-1641, 1674-1728; Tests/TrackTimelineTests.swift:461-485, 540-545 | DONE | C/TimelineLinkLayout.kt (`TimelineLinkLayoutTest`), A/EditorTimeline.kt (`LinkStitches`, the label of a clip and of a sound) | The stitched seam on the cuts a group shares in a row, the quiet outline of a group glued along a row, the stitched border where its picture and sound lie one above the other, and "linked group of N parts" said of each part. Departures: a picture's own sound is drawn on the picture's card here, so the two share no drawn border; cards keep their corners where parts meet; the label is the clip's state for a picture, Takes' clips having no label of their own | M | yes |
 
 ## Pure core work packages (new files in `core`, host tests, no edits to existing files)
 
