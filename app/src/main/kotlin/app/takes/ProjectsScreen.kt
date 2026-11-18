@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.background
@@ -211,6 +212,20 @@ fun ProjectsScreen(store: ProjectStore, exporter: Exporter, modifier: Modifier =
             confirmButton = {
                 if (store.cancellable) TextButton(onClick = store::cancelOperation, enabled = !store.cancelling) { Text(stringResource(R.string.common_cancel)) }
             })
+    }
+    store.youRecNotes?.let { notes ->
+        // A project from the iPhone that changed on the way: what changed, one line each (docs/IOS-INTEROP.md, 3.5).
+        AlertDialog(
+            onDismissRequest = { store.youRecNotes = null },
+            title = { Text(stringResource(R.string.yourec_opened_title)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.yourec_opened_intro))
+                    for (note in notes) Text("• $note")
+                }
+            },
+            confirmButton = { TextButton(onClick = { store.youRecNotes = null }) { Text(stringResource(R.string.common_ok)) } },
+        )
     }
     renaming?.let { project ->
         var title by remember(project.id) { mutableStateOf(project.title) }

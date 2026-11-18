@@ -147,6 +147,8 @@ class ProjectStore(context: Context) {
         prefs.edit().putStringSet("soundLengthAdopted", soundLengthAdopted).apply()
     }
     var error by mutableStateOf<String?>(null)
+    /** What changed in a project opened from a ZIP of YouRec, the iPhone original, one line each, until it is read. */
+    var youRecNotes by mutableStateOf<List<String>?>(null)
     /** What an import in progress is doing, for display. */
     var importing by mutableStateOf<String?>(null); private set
     /** Whether the work in progress offers Cancel: an import of videos, a duplicate, a ZIP made or opened. */
@@ -944,6 +946,8 @@ class ProjectStore(context: Context) {
         scope.launch {
             importing = context.getString(R.string.projects_unzipping)
             var stopped = false
+            // What changed on the way, for a project from the iPhone.
+            var notes: List<String>? = null
             val problem = withContext(Dispatchers.IO) {
                 try {
                     val size = resolver.query(source, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { row ->
@@ -953,13 +957,14 @@ class ProjectStore(context: Context) {
                     // What is written keeps the original's floor free, so the phone is not filled to the brim (ProjectArchive.swift:80-91, 135).
                     val room = RecoveryRules.room(disk.root.usableSpace, disk.root.totalSpace)
                     var shown = -1
-                    resolver.openInputStream(source)!!.use { stream ->
-                        ProjectRestore.restore(stream, disk.root, room) { read ->
+                    val restored = resolver.openInputStream(source)!!.use { stream ->
+                        ProjectRestore.restoreArchive(stream, disk.root, room, probe = YouRecMedia.probe) { read ->
                             stopIfCancelled()
                             val percent = if (size > 0) (read * 100 / size).toInt().coerceIn(0, 100) else -1
                             if (percent != shown && percent >= 0) { shown = percent; importing = context.getString(R.string.projects_unzipping_percent, percent) }
                         }
                     }
+                    if (restored.fromYouRec && restored.notes.isNotEmpty()) notes = restored.notes.map { YouRecMedia.describe(context, it) }
                     null
                 } catch (failure: Exception) {
                     stopped = failure is Cancelled
@@ -969,7 +974,9 @@ class ProjectStore(context: Context) {
             end()
             reload()
             if (stopped) return@launch
-            error = if (problem == null) context.getString(R.string.projects_unzip_done) else context.getString(R.string.projects_unzip_failed, problem)
+            // A project from the iPhone that changed on the way says how, in a dialog of its own.
+            if (problem == null && notes != null) youRecNotes = notes
+            else error = if (problem == null) context.getString(R.string.projects_unzip_done) else context.getString(R.string.projects_unzip_failed, problem)
         }
     }
 
