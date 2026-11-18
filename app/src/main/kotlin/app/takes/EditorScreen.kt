@@ -170,6 +170,8 @@ import app.takes.core.TimelineZoom
 import app.takes.core.ToolCompare
 import app.takes.core.EditorTool
 import app.takes.core.ToolRegion
+import app.takes.core.TimelineLinkLayout
+import app.takes.core.ToolRange
 import app.takes.core.ToolRegions
 import app.takes.core.TrackPlacements
 import app.takes.core.TrackTimeline
@@ -208,7 +210,10 @@ import app.takes.core.TransitionScene
 import app.takes.core.TransitionTiming
 import app.takes.core.grade
 import app.takes.core.gradeTime
+import app.takes.core.visibleGrades
+import app.takes.core.framingAt
 import app.takes.core.resolvingEffects
+import app.takes.core.EditorRangeTiming
 import app.takes.core.EffectRangeEdit
 import app.takes.core.TimeRange
 import app.takes.core.ScopedEffectOperation
@@ -216,6 +221,7 @@ import app.takes.core.isAudioRange
 import androidx.compose.material.icons.outlined.RemoveCircleOutline
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
@@ -284,8 +290,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val coloringShown = coloring?.shown
     var pacing by remember { mutableStateOf<Pacing?>(null) }
     val pacingShown = pacing?.shown
-    val edit = remember(saved, transitioning?.join, transitioning?.shown, auditioning, moveShown, placementShown, pausingShown, coloringShown, pacingShown) {
-        moveShown ?: placementShown ?: auditioning?.state ?: pausingShown ?: coloringShown ?: pacingShown ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: saved
+    // An effect edited on one clip, the selected clips or the marked range, or whole where it is held in parts, from its
+    // badge (YouRec/EditorView.swift:521-527, 554-557 at 57e5d91): its tool opens on the edit each variant of it in its
+    // slot, and what it leaves is taken back into the part, in the preview as on Apply.
+    var scopedEdit by remember { mutableStateOf<ScopedEdit?>(null) }
+    val scopedShown = { shown: EditState -> scopedEdit?.let { it.operation.applying(shown, it.base) } ?: shown }
+    val edit = remember(saved, transitioning?.join, transitioning?.shown, auditioning, moveShown, placementShown, pausingShown, coloringShown, pacingShown, scopedEdit) {
+        moveShown ?: placementShown ?: auditioning?.state ?: pausingShown ?: coloringShown?.let(scopedShown) ?: pacingShown ?: transitioning?.let { drafted(saved, it.join, it.shown) } ?: scopedEdit?.inspector ?: saved
     }
     val clips = edit.clips
     // The movie lasts until its sound ends, past the last picture in black, once the project takes that length ([MovieLength]).
@@ -476,10 +487,14 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     // Lambdas, not local functions: references to local functions compare
     // equal across recompositions, so a long-lived gesture would keep the first.
     val commit = { next: EditState?, time: Double ->
-        if (next != null) {
+        // A tool opened on part of an effect leaves its edit in that part only (YouRec/EditorView.swift:554-557 at 57e5d91).
+        val scoped = scopedEdit
+        val made = if (scoped == null || next == null) next else scoped.operation.applying(next, scoped.base).takeIf { it != scoped.base }
+        scopedEdit = null
+        if (made != null) {
             editor.pause()
             playhead = time
-            store.commit(project.id, next)
+            store.commit(project.id, made)
         }
     }
     // The clip under the playhead, by its place in the clips; where in it the playhead is, [TrackEditState.locate] at the time it is needed.
@@ -606,6 +621,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The Stabilize tool, while it is open.
     var stabilizing by remember { mutableStateOf<Stabilizing?>(null) }
+    // A part of an effect is edited only while the tool opened on it is open.
+    val scopedTool = coloring != null || cropping != null || effecting != null || titling != null || imaging != null || stabilizing != null || audioTool != null
+    LaunchedEffect(scopedTool) { if (!scopedTool) scopedEdit = null }
     var adding by remember { mutableStateOf(false) }
     // The add button of the timeline the panel was opened from; null for the Add video tool, which adds at the playhead.
     var addSite by remember { mutableStateOf<VideoInsertionSite?>(null) }
@@ -614,10 +632,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     var choosing by remember { mutableStateOf<List<String>?>(null) }
     val current = located?.let { clips[it] }
     // Which deck shows each clip, and the clip each deck is playing now or holding the last frame of.
+    // At the end of the pictures, their last frame shows, as the original's player has it at the out point (YouRec/EditorController.swift:11-20 at 57e5d91).
+    val pictureEnd = asked.duration
     val deckClips by remember(plan, edit) {
         derivedStateOf {
+            val at = RenderPlan.pictureTime(playhead, pictureEnd)
             List(2) { deck ->
-                plan.onDeck(deck, playhead)?.index ?: plan.held(deck, playhead)?.index ?: located?.takeIf { plan.pictures.getOrNull(it)?.deck == deck }
+                plan.onDeck(deck, at)?.index ?: plan.held(deck, at)?.index ?: located?.takeIf { plan.pictures.getOrNull(it)?.deck == deck }
             }
         }
     }
@@ -625,9 +646,10 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     val lanePictures by remember(layers) {
         derivedStateOf {
             layers?.let { drawn ->
+                val at = RenderPlan.pictureTime(playhead, drawn.duration)
                 List(drawn.lanes) { lane ->
-                    drawn.onLane(lane, playhead)?.index ?: drawn.freezes.firstOrNull { it.lane == lane && playhead >= it.from && playhead < it.until }?.picture
-                        ?: drawn.pictures.filter { it.lane == lane && it.start > playhead }.minByOrNull { it.start }?.index
+                    drawn.onLane(lane, at)?.index ?: drawn.freezes.firstOrNull { it.lane == lane && at >= it.from && at < it.until }?.picture
+                        ?: drawn.pictures.filter { it.lane == lane && it.start > at }.minByOrNull { it.start }?.index
                 }
             }
         }
@@ -672,11 +694,16 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
     // is open what the tool would leave on it.
+    // Outside the part of an effect being edited from its badge, a clip as it was (YouRec/CropEditor.swift:351 at 57e5d91).
+    val scopedOutside = { clip: TimelineClip, time: Double ->
+        scopedEdit?.takeIf { !it.operation.contains(time, clip.id) }?.let { scoped -> scoped.base.clips.firstOrNull { it.id == clip.id } ?: clip }
+    }
     val cropFor = { clip: TimelineClip, start: Double ->
         val offset = (playhead - start).coerceIn(0.0, clip.duration)
         val shows = PictureFraming.motionTime(clip, offset)
         val framed = cropping
-        (if (framed != null) framed.shown(clip, shows, start + offset) else clip.crop) to shows
+        val outside = scopedOutside(clip, start + offset)
+        (if (outside != null) outside.framingAt(shows).crop else if (framed != null) framed.shown(clip, shows, start + offset) else clip.crop) to shows
     }
     val cropOf = { index: Int -> cropFor(plan.clips[index], plan.pictures[index].start) }
     // The framing each deck shows at this moment, for a frame of the size it is drawn in: a crop is sampled at the
@@ -712,7 +739,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val framing: (FrameSize) -> PictureFrame = { frame ->
                 val (crop, shows) = cropFor(clip, start)
                 // The flip too, the one being worked on while the Crop tool is open.
-                val mirror = tool.mirrorShown(clip, shows, start + (playhead - start).coerceIn(0.0, clip.duration))
+                val at = start + (playhead - start).coerceIn(0.0, clip.duration)
+                val outside = scopedOutside(clip, at)
+                val mirror = if (outside != null) outside.framingAt(shows).mirror else tool.mirrorShown(clip, shows, at)
                 PictureFraming.frame(crop, shows, size, frame, mirror)
             }
             framing
@@ -725,13 +754,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             sent = { editor.sentFrame(deck) }, playhead = { playhead }, base = framing)
     }
     // The titles and pictures under the playhead, with the one being worked on as it is now.
-    val titledEdit = titling?.applied(edit) ?: imaging?.shown(edit)
+    val titledEdit = (titling?.applied(edit) ?: imaging?.shown(edit))?.let(scopedShown)
     val titled = titledEdit?.clips ?: clips
     val titlePlan = remember(titledEdit, plan) { titledEdit?.takeIf { it.isSequence }?.let { TrackRenderPlan.of(it) } ?: plan }
     // Worked out where they are drawn, at each frame, without composing the editor again. With the shader each clip's
     // titles are on its deck and go through the transition with it; over the picture only a split screen's.
-    fun titleMoment() = titlePlan.moment(playhead, frames = frames)
-    fun shownTitles() = if (shadedPreview && layers == null) titlePlan.titleSides(titleMoment(), playhead).over else titlePlan.titlesShown(playhead, frames)
+    fun titleMoment() = titlePlan.moment(RenderPlan.pictureTime(playhead, pictureEnd), frames = frames)
+    fun shownTitles() = RenderPlan.pictureTime(playhead, pictureEnd).let { at -> if (shadedPreview && layers == null) titlePlan.titleSides(titleMoment(), at).over else titlePlan.titlesShown(at, frames) }
     fun deckTitles() = titleMoment().let { titlePlan.titleSides(it, playhead).onDecks(it) }
     // An edit drawn by layers has its titles inside the layer of their picture: each lane's, as a clip by itself.
     val titleLayers = remember(titledEdit, layers) { titledEdit?.takeIf { !it.isSequence }?.let { (EditRender.of(it, EditRendering.LANES) as? EditRender.Layers)?.plan } ?: layers }
@@ -1048,7 +1077,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         // While the Video effects tool is open, its draft (or nothing, comparing with the original).
                         val work = effecting
                         val sourceTime = clip.sourceTime(offset)
-                        val shown = if (work != null) work.shown(clip, sourceTime, playhead)
+                        val outside = scopedOutside(clip, playhead)
+                        val shown = if (outside != null) outside.resolvingEffects(sourceTime).videoEffects
+                            else if (work != null) work.shown(clip, sourceTime, playhead)
                             else if (clip.effectWindows == null) clip.videoEffects else clip.resolvingEffects(clip.gradeTime(offset)).videoEffects
                         val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false, context = context, media = project.sources.firstOrNull { it.id == clip.sourceID }) { palettesReady++ }
                         palettesReady.let { } // read, so that the picture is drawn again once a palette or a person mask is ready
@@ -1085,7 +1116,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             val perTransition = { _: TimelineTransition -> movieRate }
                             LayerPictures(
                                 editor.lanes, layers.lanes, effects(), deckFrames, laneTitles(), titlePainter,
-                                moment = { frame -> layers.moment(playhead, frame, perTransition) },
+                                moment = { frame -> layers.moment(RenderPlan.pictureTime(playhead, layers.duration), frame, perTransition) },
                                 content = { index, frame ->
                                     val picture = layers.pictures[index]
                                     RenderPlan.content(frame, sizes[picture.sourceID], cropped = cropFor(picture.content, picture.start).first != null)
@@ -1094,7 +1125,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         }
                         refusal != null -> LayersRefused(refusal)
                         else -> Box {
-                            DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(playhead, frame, frames) }, content = content, held = editor.heldPictures, titles = deckTitles(), painter = titlePainter)
+                            DeckPictures(editor.decks, effects(), deckFrames, moment = { frame -> plan.moment(RenderPlan.pictureTime(playhead, pictureEnd), frame, frames) }, content = content, held = editor.heldPictures, titles = deckTitles(), painter = titlePainter)
                             StabilizationStatus(stabilization, Modifier.align(Alignment.TopStart))
                             // Past the last picture the movie is black under its sound, as it is exported.
                             if (pastPictures) Box(Modifier.matchParentSize().background(Color.Black))
@@ -1378,6 +1409,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val soundRows = remember(drawnEdit) { TrackComponents.soundRows(drawnEdit) }
         val soundless = remember(drawnEdit) { TrackComponents.soundless(drawnEdit.toTimeline()) }
         val movingSounds = remember(drawnEdit, session?.moving) { session?.let { TrackComponents.targets(drawnEdit, it.moving).audio }.orEmpty() }
+        // Where the footage of each clip would begin, which its thumbnails keep to through a split or a move (YouRec/EditorTimeline.swift:1298 at 57e5d91).
+        val filmOrigins = remember(drawnEdit) { (drawnEdit.layered ?: drawnEdit.toTimeline()).video.associate { it.id to (it.start - it.localOrigin).seconds } }
+        // How linked groups are stitched on the timeline, its pictures on their rows and its sounds on their tracks (YouRec/EditorTimeline.swift:406 at 57e5d91).
+        val linkLayout = remember(drawnEdit, rows, soundRows, session != null) {
+            if (session != null) null
+            else TimelineLinkLayout.drawn(drawnEdit, drawnEdit.clips.mapIndexed { index, clip -> clip.id to (rows?.rows?.getOrNull(index) ?: 0) }.toMap(), soundRows.items)
+        }
         // The picked material's start put on a stop, the playhead with it (EditorView.swift:1184-1198).
         // A change of scope, a nudge, a stop or the end of a drag: the draft is the preview's at once.
         val updateMove = { next: TrackMoveSession? -> if (next != null) { moving = next; moveShown = next.draft.toEdit(saved.captureBase) } }
@@ -1490,6 +1528,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 }
             },
             pickBoundary = { stops -> if (stops.size == 1) placeStop(stops[0]) else if (stops.isNotEmpty()) picker.nearby = stops },
+            links = linkLayout, origins = filmOrigins,
             moveDrag = session?.takeIf { !picker.picking }?.let {
                 MoveDrag(
                     drag = { seconds -> moving?.let { now -> val next = now.dragged(seconds, snap.on, scale.toDouble()); snapFeedback(now, next); moving = next } },
@@ -1499,7 +1538,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             },
         )
         // The badges of Enhance audio and Censor, under the timeline and scrolling with it.
-        AudioToolBadges(timeline, scroll, pixelsPerSecond) { badge -> audioTool = badge.kind to AudioToolWork.of(edit, badge, soundSelection(edit, marks.selected.clips, marks.selected.audio, marks.range?.let { EditInterval.of(it.start, it.end) })) }
+        AudioToolBadges(timeline, scroll, pixelsPerSecond) { badge -> audioTool = badge.kind to AudioToolWork.of(edit, badge, soundSelection(edit, marks.selected.clips, marks.selected.audio, marks.range?.let { EditInterval.of(it.start, it.end) })).ranged(badge.kind, duration) }
         }
         val framing = cropping
         // Once the edit holds the Freeze Frame just made, the tool opens on its controls.
@@ -1572,7 +1611,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     effectsWork.on.scoped?.let { applyScoped(it, next, playhead) } ?: commit(next, playhead)
                 },
                 cancel = { effecting = null },
-                modifier = Modifier.layoutId(EditorSlot.Tools), appliesTo = toolScopeLabel, tools = effectTools,
+                modifier = Modifier.layoutId(EditorSlot.Tools), appliesTo = scopedEdit?.title ?: toolScopeLabel, tools = effectTools,
                 // The held frame goes in at the playhead as one Undo step, with what the tool had done so far in the step before it.
                 freeze = {
                     val base = effectsWork.applied()?.takeIf { effectsWork.on.scoped == null } ?: edit
@@ -1626,14 +1665,27 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     editor.pause()
                     auditionEnd = null
                     cropping = null
-                    if (next != null) {
+                    val scoped = scopedEdit
+                    if (next != null && scoped != null) {
+                        // On a part of a crop, what the tool leaves is taken back into the part; the movie's shape changes only
+                        // with the whole crop (YouRec/ScopedEffect.swift:300-305 at 57e5d91).
+                        scopedEdit = null
+                        val made = scoped.operation.applying(next.state.copy(outputSize = next.outputSize), scoped.base)
+                        if (made != scoped.base) store.commit(project.id, made, made.outputSize)
+                    } else if (next != null) {
                         // One Undo step for the framing, the flip and the movie's shape (CropEditor.swift:212-237).
                         if (next.state != framing.on.base) framing.on.scoped?.let { scoped -> marks.rangeTargets?.let { marks = marks.copy(rangeTargets = it.copy(clips = it.clips + scoped.clips)) } }
                         store.commit(project.id, next.state, next.outputSize)
                     }
                 },
                 cancel = { editor.pause(); auditionEnd = null; cropping = null },
-                modifier = Modifier.layoutId(EditorSlot.Tools), appliesTo = toolScopeLabel,
+                modifier = Modifier.layoutId(EditorSlot.Tools), appliesTo = scopedEdit?.title ?: toolScopeLabel, shapeLocked = scopedEdit?.operation?.local == true,
+                // The frame at the edge moved, else the playhead kept inside the new range (YouRec/CropEditor.swift:233).
+                trim = { edge, time, previewEdge ->
+                    val next = framing.trimmed(edge, time)
+                    cropping = next
+                    next.timing?.let { timing -> jump((if (previewEdge) timing.previewTime(edge) else minOf(timing.previewTime(EditorRangeTiming.Edge.End), maxOf(timing.range.start, playhead))).coerceIn(0.0, duration)) }
+                },
                 headerModifier = Modifier.layoutId(EditorSlot.ToolHeader), playbackModifier = Modifier.layoutId(EditorSlot.ToolPlayback),
                 playhead = { playhead }, playing = editor.playing,
                 // Back to the frame stops the preview, as the original's (CropEditor.swift:294-299).
@@ -1660,7 +1712,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     }
                     titling = work.copy(title = next)
                 },
-                range = work.range, bounds = bounds, setRange = { titling = work.copy(range = it) },
+                range = work.range, bounds = bounds, setRange = if (scopedEdit != null) null else ({ titling = work.copy(range = it) }),
                 replay = { exit, title ->
                     // On the clips as they would be with the title as it is at this moment.
                     val moved = work.copy(title = title).applied(edit)?.clips ?: titled
@@ -1702,7 +1754,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             ImageTool(
                 work, { imaging = it }, edit, bounds, { playhead }, editor.playing, jump, store, project.id,
                 commit = { commit(it, playhead) }, close = { editor.pause(); auditionEnd = null; imaging = null },
-                modifier = Modifier.layoutId(EditorSlot.Tools),
+                modifier = Modifier.layoutId(EditorSlot.Tools), ranged = scopedEdit == null,
             )
         } else if (transitioning != null) {
             val work = transitioning!!
@@ -1958,24 +2010,58 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val removedNote = stringResource(R.string.effect_removed)
             // A region opened in its tool on its own piece, as the original's badge does (VideoTools.swift:455-489): the
             // clip it is on, the sound for a level, the sounds of a censor or a chain; the playhead goes into it first.
-            val openRegion: (ToolRegion) -> Unit = { region ->
+            // [scoped] opens it on the part of the effect from its options, on the edit with each variant of it in its slot, on
+            // the clips of the part, without the range editor (YouRec/EditorView.swift:1122-1131, 521-527 at 57e5d91).
+            val openRegionIn: (ToolRegion, ScopedEdit?) -> Unit = { region, scoped ->
                 cancelPendingPlay()
                 editor.pause()
-                if (playhead < region.start || playhead > region.end) jump(region.start.coerceIn(0.0, duration))
+                val state = scoped?.inspector ?: edit
+                val clips = state.clips
+                val duration = MovieLength.of(state, withSound)
+                val parts = scoped?.operation?.parts?.keys?.toList()
+                if (scoped != null) {
+                    // On the middle of the footage of the part, or of the badge's own piece of it (YouRec/EditorTools.swift:310-318).
+                    val operation = scoped.operation
+                    val tapped = operation.parts[region.clipID].orEmpty().mapNotNull { it.intersection(EditInterval.of(region.start, region.end)) }
+                    val footage = (if (!operation.local && tapped.isNotEmpty()) tapped else operation.parts.values.flatten()).map { it.start.seconds..it.end.seconds }.sortedBy { it.start }
+                    val range = operation.range
+                    if (!operation.contains(playhead)) jump((range.start + EditorRangeTiming(range, 0.0..maxOf(duration, range.endInclusive)).openingPosition(footage, null)).coerceIn(0.0, duration))
+                } else if (playhead < region.start || playhead > region.end) jump(region.start.coerceIn(0.0, duration))
                 val index = clips.indexOfFirst { it.id == region.clipID }
                 val clip = clips.getOrNull(index)
+                val on = parts?.let { RangeEditing.Scoped(state, it) }
                 when (region.tool) {
                     EditorTool.Text -> clip?.texts?.firstOrNull { it.id == region.effectID }?.let { title ->
-                        TimelineEditing.titleRange(clips, index, title)?.let { range -> jump(titleOpening(edit, title, range, clip.id).coerceIn(0.0, duration)); titling = Titling(title, range, clip.id, title, range) }
+                        TimelineEditing.titleRange(clips, index, title)?.let { range ->
+                            val owner = clip.id.takeIf { parts == null || parts.size <= 1 }
+                            if (scoped == null) jump(titleOpening(state, title, range, owner).coerceIn(0.0, duration))
+                            titling = Titling(title, range, owner, title, range)
+                        }
                     }
                     EditorTool.Image -> clip?.images?.firstOrNull { it.id == region.effectID }?.let { image -> Imaging.opening(clips, index, image)?.let { imaging = it } }
-                    EditorTool.Color -> clip?.let { coloring = Coloring(saved, edit, listOf(it.id), null, null, it.color ?: ColorSettings()) }
-                    EditorTool.Crop, EditorTool.Mirror -> clip?.let { cropping = Cropping.opening(edit, null, it) }
+                    // On a part, the grade of the effect itself: it keeps its id, by which its part is taken back.
+                    EditorTool.Color -> clip?.let {
+                        val grade = if (scoped == null) it.color else it.visibleGrades.firstOrNull { entry -> entry.grade.id == region.effectID }?.grade ?: it.color
+                        coloring = Coloring(saved, state, parts ?: listOf(it.id), null, scoped?.title, grade ?: ColorSettings())
+                    }
+                    // From its badge, with the range editor over the clip, which a moved range puts the crop back on alone.
+                    EditorTool.Crop, EditorTool.Mirror -> clip?.let {
+                        val opened = Cropping.opening(state, on, it)
+                        cropping = if (scoped != null || region.tool == EditorTool.Mirror) opened else opened.ranged(setOf(it.id)) { ToolRegions.removing(state, region) }
+                    }
                     EditorTool.Speed -> clip?.let { pacing = Pacing(saved, edit, listOf(it.id), null, null, it.rate, id = region.effectID) }
-                    EditorTool.VideoEffects -> clip?.let { effecting = EffectsWork.opening(edit, null, it) }
+                    // On a part, straight to the effect's controls (YouRec/VideoEffects/VideoEffectsEditor.swift:1094 at 57e5d91).
+                    EditorTool.VideoEffects -> clip?.let {
+                        val opened = EffectsWork.opening(state, on, it)
+                        effecting = if (scoped == null) opened else opened.copy(selected = region.effectID, page = EffectsPage.Inspector, ranged = false)
+                    }
                     EditorTool.Pauses -> clip?.let { pausing = Pausing(saved, edit, listOf(it.id), null) }
                     EditorTool.Subtitles -> subtitling = edit
-                    EditorTool.CensorAudio, EditorTool.EnhanceAudio -> region.audio?.let { badge -> audioTool = badge.kind to AudioToolWork.of(edit, badge, TimelineSelection()) }
+                    EditorTool.CensorAudio, EditorTool.EnhanceAudio -> region.audio?.let { badge ->
+                        val selection = if (scoped == null) TimelineSelection()
+                            else TimelineSelection(video = emptySet(), audio = scoped.operation.parts.keys, range = scoped.operation.range.let { EditInterval.of(it.start, it.endInclusive) })
+                        audioTool = badge.kind to AudioToolWork.of(state, badge, selection).let { if (scoped == null) it.ranged(badge.kind, duration) else it }
+                    }
                     EditorTool.Volume -> {
                         // A picture's own sound in the clip's Sound, a sound of its own in Volume and fades.
                         val follows = edit.toTimeline().audio.firstOrNull { it.id == region.clipID }?.followsVideo
@@ -1990,13 +2076,33 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         }
                     }
                     EditorTool.Stabilize -> if (clip != null) {
-                        val scoped = RangeEditing.Scoped(edit, listOf(clip.id))
+                        val scope = on ?: RangeEditing.Scoped(state, listOf(clip.id))
                         stabilizing = Stabilizing(
-                            saved, scoped, null, ranged = false,
-                            pieces = stabilizePieces(scoped), anchor = playhead.coerceIn(region.start, region.end), shownBy = stabilizeShownBy(edit),
+                            saved, scope, null, ranged = false,
+                            pieces = stabilizePieces(scope), anchor = playhead.coerceIn(region.start, region.end), shownBy = stabilizeShownBy(state),
                         )
                     }
                 }
+                // Kept only while its tool is open.
+                scopedEdit = scoped?.takeIf { coloring != null || cropping != null || effecting != null || titling != null || imaging != null || stabilizing != null || audioTool != null }
+            }
+            val openRegion: (ToolRegion) -> Unit = { region -> openRegionIn(region, null) }
+            // What the menu names a part by, and the stretch it spans in seconds (YouRec/ScopedEffect.swift:276-281 at 57e5d91).
+            val scopeTitle = { operation: ScopedEffectOperation ->
+                val seconds = java.text.NumberFormat.getNumberInstance().apply { minimumFractionDigits = 0; maximumFractionDigits = 2 }
+                val words = if (!operation.local) R.string.effect_scope_entire else when (operation.scopeName) {
+                    ScopedEffectOperation.ScopeName.MarkedRange -> R.string.effect_scope_marked_range
+                    ScopedEffectOperation.ScopeName.ThisClip -> R.string.effect_scope_this_clip
+                    ScopedEffectOperation.ScopeName.ThisAudioClip -> R.string.effect_scope_this_audio_clip
+                    ScopedEffectOperation.ScopeName.SelectedClips -> R.string.effect_scope_selected_clips
+                }
+                resources.getString(words, seconds.format(operation.range.start), seconds.format(operation.range.endInclusive))
+            }
+            // The whole effect: through its parts when it is held in more than one, or in windows or variants; else its tool
+            // on the badge's clip, as before (YouRec/EditorView.swift:1125-1130 at 57e5d91).
+            val openWhole: (ToolRegion) -> Unit = { region ->
+                val whole = ScopedEffectOperation.of(region, edit, null, regions)?.takeIf { it.needsProjection(edit) }
+                openRegionIn(region, whole?.let { ScopedEdit(it, edit, scopeTitle(it)) })
             }
             val removeRegion: (ToolRegion, String) -> Unit = { region, label ->
                 ToolRegions.removing(edit, region)?.let { next -> commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(label) }
@@ -2007,6 +2113,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 removeThisClip = stringResource(R.string.effect_remove_this_clip), removeThisAudioClip = stringResource(R.string.effect_remove_this_audio_clip),
                 removeSelected = stringResource(R.string.effect_remove_selected_clips), removeMarked = stringResource(R.string.effect_remove_marked_range),
                 editWhole = stringResource(R.string.effect_edit_whole), adjust = stringResource(R.string.effect_adjust_range), removeWhole = stringResource(R.string.effect_remove_whole),
+                editThisClip = stringResource(R.string.effect_edit_this_clip), editThisAudioClip = stringResource(R.string.effect_edit_this_audio_clip),
+                editSelected = stringResource(R.string.effect_edit_selected_clips), editMarked = stringResource(R.string.effect_edit_marked_range),
             )
             val regionOptions: (ToolRegion, String) -> List<ChipOption> = { region, label ->
                 val timeline = edit.toTimeline()
@@ -2026,6 +2134,13 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 fun removed(next: EditState) { if (next != edit) { commit(next, playhead.coerceAtMost(next.duration)); feedback = removedNote.format(label) } }
                 buildList {
                     local?.let { operation ->
+                        val edits = when (operation.scopeName) {
+                            ScopedEffectOperation.ScopeName.MarkedRange -> optionWords.editMarked
+                            ScopedEffectOperation.ScopeName.ThisClip -> optionWords.editThisClip
+                            ScopedEffectOperation.ScopeName.ThisAudioClip -> optionWords.editThisAudioClip
+                            ScopedEffectOperation.ScopeName.SelectedClips -> optionWords.editSelected
+                        }
+                        add(ChipOption(edits, Icons.Outlined.Edit) { openRegionIn(region, ScopedEdit(operation, edit, scopeTitle(operation))) })
                         val words = when (operation.scopeName) {
                             ScopedEffectOperation.ScopeName.MarkedRange -> optionWords.removeMarked
                             ScopedEffectOperation.ScopeName.ThisClip -> optionWords.removeThisClip
@@ -2034,7 +2149,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         }
                         add(ChipOption(words, Icons.Outlined.RemoveCircleOutline, destructive = true) { removed(operation.removing(edit)) })
                     }
-                    add(ChipOption(optionWords.editWhole, Icons.Outlined.Tune) { openRegion(region) })
+                    add(ChipOption(optionWords.editWhole, Icons.Outlined.Tune) { openWhole(region) })
                     trim?.let { draft -> add(ChipOption(optionWords.adjust, Icons.Outlined.SwapHoriz) { cancelPendingPlay(); editor.pause(); effectRange = draft }) }
                     add(ChipOption(optionWords.removeWhole, Icons.Outlined.Delete, destructive = true) {
                         val whole = ScopedEffectOperation.of(region, edit, null, regions)
@@ -2151,7 +2266,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     TransitionChip(
                         name, stringResource(R.string.effect_chip_edit, name), adds = false, color = toolTint(region.tool),
                         id = region.id, remove = { removeRegion(region, name) }, options = { regionOptions(region, name) },
-                    ) { openRegion(region) }
+                    ) { openWhole(region) }
                 },
             )
             // Whether Split cuts at the playhead. Knowing it means making the cut, too much for every frame of a scrub on the
@@ -2215,7 +2330,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     // inside what the tool works on (CropEditor.swift:97-119).
                     SheetTool.Crop to SheetEntry(canAdjust && scopeFramed) {
                         val subject = toolSubject
-                        subject?.let { cropping = Cropping.opening(edit, toolScope, it) }
+                        subject?.let {
+                            val opened = Cropping.opening(edit, toolScope, it)
+                            val targets = (marks.scope as? EditScope.Range)?.targets?.clips?.takeIf { chosen -> chosen.isNotEmpty() }
+                            cropping = opened.ranged(ToolRange.eligible(edit, toolScope.clips.toSet(), opened.on.start..opened.on.end, targets))
+                        }
                     },
                     // On the clips of the range, the selection or the whole project, cut at the ends of a range.
                     SheetTool.Color to SheetEntry(canAdjust && scopeHasClips) {
@@ -2226,8 +2345,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     },
                     SheetTool.Pauses to SheetEntry(canAdjust && scopeHasClips) { pausing = Pausing(saved, toolScope.state, toolScope.clips, toolScopeLabel) },
                     // Enhance audio and Censor on the sounds of the scope, in the marked range when there is one.
-                    SheetTool.Enhance to SheetEntry(canAdjust && sounds.audio.isNotEmpty()) { audioTool = AudioToolKind.Enhance to AudioToolWork(edit, null, sounds) },
-                    SheetTool.Censor to SheetEntry(canAdjust && sounds.audio.isNotEmpty()) { audioTool = AudioToolKind.Censor to AudioToolWork(edit, null, sounds) },
+                    SheetTool.Enhance to SheetEntry(canAdjust && sounds.audio.isNotEmpty()) { audioTool = AudioToolKind.Enhance to AudioToolWork(edit, null, sounds).ranged(AudioToolKind.Enhance, duration) },
+                    SheetTool.Censor to SheetEntry(canAdjust && sounds.audio.isNotEmpty()) { audioTool = AudioToolKind.Censor to AudioToolWork(edit, null, sounds).ranged(AudioToolKind.Censor, duration) },
                     SheetTool.Subtitles to SheetEntry(canAdjust && (!edit.audio.isNullOrEmpty() || clips.isNotEmpty() || edit.subtitles != null)) { subtitling = edit },
                 )
                 ToolsSheet(
@@ -2415,7 +2534,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                 val selection = soundSelection(edit, scopeClips, scopeSounds, marks.range?.let { EditInterval.of(it.start, it.end) })
                 stopListening()
                 editingAudio = null
-                audioTool = kind to AudioToolWork(edit, null, selection)
+                audioTool = kind to AudioToolWork(edit, null, selection).ranged(kind, duration)
             },
             measure = { change ->
                 if (targets.isEmpty()) null
@@ -2437,11 +2556,18 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
     }
     audioTool?.let { (kind, work) ->
         val done = { next: EditState? -> commit(next, playhead); audioTool = null }
+        // The range moved, the frame at the edge moved shown (YouRec/TrackEditors.swift:326-332; YouRec/AudioToolsEditor.swift:147-153).
+        val trim = { edge: EditorRangeTiming.Edge, time: Double, _: Boolean ->
+            val next = work.trimmed(edge, time)
+            audioTool = kind to next
+            next.timing?.let { jump(it.previewTime(edge).coerceIn(0.0, duration)) }
+            Unit
+        }
         if (kind == AudioToolKind.Enhance) {
             LaunchedEffect(work) { editor.pause() }
-            EnhanceInspector(work, files, voiced, playhead, apply = { done(work.enhanced(it)) }, remove = { done(if (work.region != null) work.removed() else work.enhanced(emptyList())) }, dismiss = { audioTool = null })
+            EnhanceInspector(work, files, voiced, playhead, apply = { done(work.enhanced(it)) }, remove = { done(if (work.region != null) work.removed() else work.enhanced(emptyList())) }, dismiss = { audioTool = null }, trim = trim)
         }
-        else CensorDialog(work.censor, apply = { done(work.censored(it)) }, remove = work.region?.let { { done(work.removed()) } }, dismiss = { audioTool = null })
+        else CensorDialog(work.censor, apply = { done(work.censored(it)) }, remove = work.region?.let { { done(work.removed()) } }, dismiss = { audioTool = null }, timing = work.timing, trim = trim)
     }
     ExportPanel(project, canvas, store, exporter, choosingExport) { choosingExport = false }
     covering?.let { CoverPicker(project, store, it) { covering = null } }
@@ -2614,6 +2740,14 @@ private fun drafted(state: EditState, join: Int, settings: TransitionSettings): 
  * every clip those seconds cover; one opened from its bar is worked on on
  * that clip only, and [opened] is what it showed over then.
  */
+/**
+ * An effect's part being edited from its badge: [operation] on [base], the edit as it was, its tool opened on
+ * [inspector], with [title] saying which part, as the original's request (YouRec/ScopedEffect.swift:276-292 at 57e5d91).
+ */
+private class ScopedEdit(val operation: ScopedEffectOperation, val base: EditState, val title: String) {
+    val inspector: EditState = operation.inspectorState(base)
+}
+
 private data class Titling(
     val title: TextOverlay, val range: ClosedFloatingPointRange<Double>, val clipID: String?, val existing: TextOverlay?,
     val opened: ClosedFloatingPointRange<Double>?,
@@ -2650,6 +2784,7 @@ private fun linkErrorTexts(): Map<TimelineLinkError, String> = TimelineLinkError
 private class EffectOptionWords(
     val removeThisClip: String, val removeThisAudioClip: String, val removeSelected: String, val removeMarked: String,
     val editWhole: String, val adjust: String, val removeWhole: String,
+    val editThisClip: String, val editThisAudioClip: String, val editSelected: String, val editMarked: String,
 )
 
 /** "Drag either handle." with Cancel and Done, while an effect's range is adjusted (YouRec/EditorView.swift:1166-1191 at 57e5d91). */

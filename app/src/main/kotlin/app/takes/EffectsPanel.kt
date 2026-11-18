@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.core.ChromaScreen
 import app.takes.core.ColorCorrectionControls
+import app.takes.core.EditorRangeTiming
 import app.takes.core.EffectParameter
 import app.takes.core.EffectPalette
 import app.takes.core.EffectParameterKind
@@ -353,6 +354,15 @@ private fun Inspector(work: EffectsWork, effect: VideoEffectSettings, time: () -
             if (effect.kind == VideoEffectID.Quantization) PaletteControls(work, effect, time, change, tools)
             // There is no imported depth here: always the original's words for the person. VideoEffectsEditor.swift:1184.
             if (effect.kind == VideoEffectID.DollyZoom) Text(stringResource(R.string.dolly_person_note), color = Soft, fontSize = 12.sp)
+        }
+    }
+    // The effect's range, the frame at the edge moved shown, else the playhead kept inside it (VideoEffectsEditor.swift:1335-1338, 418-420 at 57e5d91).
+    work.rangeTiming(effect)?.let { timing ->
+        EditorRangeDuration(timing, name) { edge, value, previewEdge ->
+            work.trimmed(effect, edge, value)?.let { (next, moved) ->
+                change(next)
+                tools.seek(if (previewEdge) moved.previewTime(edge) else minOf(moved.previewTime(EditorRangeTiming.Edge.End), maxOf(moved.range.start, time())))
+            }
         }
     }
     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))

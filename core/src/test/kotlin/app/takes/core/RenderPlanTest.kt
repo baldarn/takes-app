@@ -411,4 +411,17 @@ class RenderPlanTest {
         assertNull(plan.leading(7.5))
         assertEquals(2, plan.leading(8.0))
     }
+
+    /** YouRec/EditorController.swift:11-20 at 57e5d91: at the out point the picture is the last included frame. */
+    @Test
+    fun atTheEndOfThePicturesTheirLastFrameShows() {
+        val clips = listOf(TimelineClip(id = "A", sourceID = "S", start = 0.0, end = 4.0))
+        val plan = RenderPlan.of(EditState(clips))
+        val end = RenderPlan.pictureTime(4.0, plan.duration)
+        org.junit.Assert.assertTrue(end < 4.0 && end > 4.0 - 1e-5)
+        org.junit.Assert.assertEquals(0, plan.onDeck(0, end)?.index)
+        org.junit.Assert.assertNull(plan.onDeck(0, 4.0))
+        org.junit.Assert.assertEquals(end, RenderPlan.pictureTime(9.0, 4.0), 0.0)
+        org.junit.Assert.assertEquals(2.0, RenderPlan.pictureTime(2.0, 4.0), 0.0)
+    }
 }

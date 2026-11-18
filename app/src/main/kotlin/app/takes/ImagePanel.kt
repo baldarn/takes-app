@@ -200,6 +200,7 @@ internal fun ImageTool(
     work: Imaging, change: (Imaging) -> Unit, edit: EditState, bounds: ClosedFloatingPointRange<Double>,
     playhead: () -> Double, playing: Boolean, jump: (Double) -> Unit,
     store: ProjectStore, projectID: String, commit: (EditState?) -> Unit, close: () -> Unit, modifier: Modifier = Modifier,
+    ranged: Boolean = true,
 ) {
     val current by rememberUpdatedState(work)
     val changed by rememberUpdatedState(change)
@@ -239,7 +240,7 @@ internal fun ImageTool(
     val finish = { kept: String? -> store.discardImages(projectID, current.imported.filter { it != kept }) }
     ImagePanel(
         work, set = { changed(current.copy(draft = current.draft.adjusted(it))) },
-        setRange = { changed(current.copy(range = it)) }, bounds = bounds,
+        setRange = if (ranged) ({ changed(current.copy(range = it)) }) else null, bounds = bounds,
         choose = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         motion = { changed(current.copy(draft = it(current.draft))) },
         done = {
@@ -264,7 +265,7 @@ internal fun ImageTool(
 /** The controls of the Image tool, in the original's order (YouRec/EditorTools.swift:1238-1254, :1094). */
 @Composable
 private fun ImagePanel(
-    work: Imaging, set: (ImageOverlay) -> Unit, setRange: (ClosedFloatingPointRange<Double>) -> Unit, bounds: ClosedFloatingPointRange<Double>,
+    work: Imaging, set: (ImageOverlay) -> Unit, setRange: ((ClosedFloatingPointRange<Double>) -> Unit)?, bounds: ClosedFloatingPointRange<Double>,
     choose: () -> Unit, motion: ((ImageDraft) -> ImageDraft) -> Unit,
     done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier,
 ) {
@@ -298,7 +299,8 @@ private fun ImagePanel(
                 Icon(Icons.Outlined.AddPhotoAlternate, null, Modifier.size(20.dp))
                 Text(label, Modifier.padding(start = 8.dp))
             }
-            DurationPicker(work.range, bounds, setRange)
+            // Not for a part of a picture edited from its badge, which keeps its range (YouRec/EditorTools.swift:1670 at 57e5d91).
+            if (setRange != null) DurationPicker(work.range, bounds, setRange)
             Text(stringResource(R.string.title_drag_hint), color = Soft, fontSize = 12.sp)
             // On a scale of ratios, from 3% to 300% of the shorter edge (EditorTools.swift:1246).
             val percent = stringResource(R.string.image_percent, (image.width * 100).roundToInt())

@@ -161,14 +161,25 @@ object EditorDurationPresets {
  * Like the picture, a clock can span a straight cut or a dissolve: the pieces
  * of a split clip carry the same title, and it arrives once and leaves once.
  * A real gap, or a motion changed on one piece only, starts a new run.
+ *
+ * A piece of a title edited on part of its range keeps the clock of the whole
+ * title ([TextOverlay.playbackClock]): its run is the whole clock, placed by
+ * where the piece's footage stands on it, and it is posed at the clock's time
+ * of the footage shown (YouRec/VideoTools.swift:1222-1224,
+ * YouRec/VideoToolCompositor.swift:507-511 at 57e5d91).
  */
 class TitleMotionRanges(clips: List<TimelineClip>) {
     private data class Key(val id: String, val motion: TitleMotion)
 
+    /** A clip that carries a title on its own clock, and where it begins. */
+    private data class Clocked(val start: Double, val clip: TimelineClip)
+
     private val runs: Map<Key, List<ClosedFloatingPointRange<Double>>>
+    private val clocked: Map<Key, List<Clocked>>
 
     init {
         val parts = mutableMapOf<Key, MutableList<ClosedFloatingPointRange<Double>>>()
+        val pieces = mutableMapOf<Key, MutableList<Clocked>>()
         clips.forEachIndexed { index, clip ->
             val start = TimelineEditing.clipStart(clips, index)
             for (title in clip.texts.orEmpty()) {
@@ -176,9 +187,15 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
                 if (!(title.end > clip.start && title.start < clip.end)) continue
                 val a = start + clip.offset(maxOf(clip.start, title.start))
                 val b = start + clip.offset(minOf(clip.end, title.end))
-                if (b > a) parts.getOrPut(Key(title.id, motion)) { mutableListOf() }.add(a..b)
+                val clock = title.playbackClock
+                if (clock != null) {
+                    val origin = start - clock.elapsed(clip.gradeTime(0.0))
+                    parts.getOrPut(Key(title.id, motion)) { mutableListOf() }.add(origin..origin + clock.duration)
+                    pieces.getOrPut(Key(title.id, motion)) { mutableListOf() }.add(Clocked(start, clip))
+                } else if (b > a) parts.getOrPut(Key(title.id, motion)) { mutableListOf() }.add(a..b)
             }
         }
+        clocked = pieces
         runs = parts.mapValues { (_, pieces) ->
             val joined = mutableListOf<ClosedFloatingPointRange<Double>>()
             for (piece in pieces.sortedBy { it.start }) {
@@ -203,6 +220,13 @@ class TitleMotionRanges(clips: List<TimelineClip>) {
 
     /** How [title] is posed at timeline second [time]: still unless it is arriving or leaving. */
     fun pose(title: TextOverlay, time: Double): TitleMotion.Pose {
+        val clock = title.playbackClock
+        val motion = title.motion?.takeIf { it.active }
+        if (clock != null && motion != null) {
+            // On its own clock, at the clock's time of the footage shown.
+            val piece = clocked[Key(title.id, motion)]?.firstOrNull { time >= it.start - 0.00001 && time <= it.start + it.clip.duration + 0.00001 }
+            if (piece != null) return motion.pose(clock.elapsed(piece.clip.gradeTime((time - piece.start).coerceIn(0.0, piece.clip.duration))), clock.duration)
+        }
         val range = range(title, time) ?: return TitleMotion.Pose()
         return title.motion!!.pose(time - range.start, range.endInclusive - range.start)
     }

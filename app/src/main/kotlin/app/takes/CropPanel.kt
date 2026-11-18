@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import app.takes.core.at
+import app.takes.core.framingAt
 import app.takes.core.matrixValues
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -107,6 +108,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.takes.core.CropDraft
+import app.takes.core.EditorRangeTiming
+import app.takes.core.ToolRange
 import app.takes.core.CropShape
 import app.takes.core.MirrorSettings
 import app.takes.core.OutputShape
@@ -179,7 +182,41 @@ internal data class Cropping(
     val aspect: Double? = on.base.outputSize?.let { it.width / it.height }, val shape: OutputShape? = null,
     /** Preview, the movie as it will play with every tool, rather than Frame, the footage under the frame (YouRec/CropEditor.swift:78, :385-391). */
     val reviewing: Boolean = false,
+    /**
+     * The range editor (YouRec/CropEditor.swift:115-127, 219-233 at 57e5d91): its range and bounds, null without one; the
+     * clips it may reach; what the tool was opened on; and, for a crop opened from its badge, the edit without that crop,
+     * which a moved range puts it back on.
+     */
+    val timing: EditorRangeTiming? = null,
+    val eligible: Set<String> = emptySet(),
+    val opened: CropScope = on,
+    val without: (() -> EditState?)? = null,
 ) {
+    /** Whether the range editor moved the range off the one the tool opened on. */
+    val retimed: Boolean get() = on !== opened
+
+    /** The tool with its range editor, over [eligible] clips of the edit, and [without] for a crop opened from its badge. */
+    fun ranged(eligible: Set<String>, without: (() -> EditState?)? = null): Cropping {
+        val range = on.start..on.end
+        val bounds = ToolRange.bounds(on.base, eligible)?.let { minOf(it.start, range.start)..maxOf(it.endInclusive, range.endInclusive) } ?: range
+        return copy(timing = EditorRangeTiming(range, bounds), eligible = eligible, without = without)
+    }
+
+    /**
+     * [edge] of the range moved to [time]: the tool then acts on the eligible clips cut at the new range's ends, of the
+     * edit without the crop when it was opened from its badge, and a motion runs over the new range; back on the range
+     * it opened on, on what it opened on (YouRec/CropEditor.swift:219-249 at 57e5d91).
+     */
+    fun trimmed(edge: EditorRangeTiming.Edge, time: Double): Cropping {
+        val now = timing ?: return this
+        val next = now.setting(edge, time)
+        val scope = if (next.range == EditorRangeTiming(opened.start..opened.end, now.bounds).range) opened else {
+            val cut = ToolRange.scoped(without?.invoke() ?: opened.base, eligible, next.range)
+            CropScope(opened.base, cut, cut.clips.toSet())
+        }
+        return copy(timing = next, on = scope, draft = draft.trimmed(next.duration), reviewing = false)
+    }
+
     /** The piece of the tool's edit that shows source second [sourceTime] of [clip]'s footage at timeline second [time]. */
     private fun piece(clip: TimelineClip, sourceTime: Double, time: Double): CropScope.Piece? =
         on.all.filter { it.clip.sourceID == clip.sourceID && sourceTime >= it.clip.start - 0.000001 && sourceTime <= it.clip.end + 0.000001 }
@@ -188,8 +225,9 @@ internal data class Cropping(
 
     /** The flip to draw on [clip] where it shows [sourceTime] at [time]: on the tool's clips the one being worked on once changed. */
     fun mirrorShown(clip: TimelineClip, sourceTime: Double, time: Double): MirrorSettings? {
-        val piece = piece(clip, sourceTime, time) ?: return clip.mirror
-        return if (mirrorChanged && piece.clip.id in on.ids) mirror.takeIf { it.horizontal || it.vertical } else piece.clip.mirror
+        // Elsewhere the flip in force at the frame, inside its active range (YouRec/VideoToolCompositor.swift:216-218).
+        val piece = piece(clip, sourceTime, time) ?: return clip.framingAt(sourceTime).mirror
+        return if (mirrorChanged && piece.clip.id in on.ids) mirror.takeIf { it.horizontal || it.vertical } else piece.clip.framingAt(sourceTime).mirror
     }
 
     /** The flip of the clip the controls measure against at [time], for the touches on the picture. */
@@ -214,10 +252,11 @@ internal data class Cropping(
      * A range cuts clips, so the piece is found by the footage it shows.
      */
     fun shown(clip: TimelineClip, sourceTime: Double, time: Double): CropSettings? {
-        val piece = piece(clip, sourceTime, time) ?: return clip.crop
-        if (piece.clip.id !in on.ids) return piece.clip.crop
+        // What a clip has is the crop in force at the frame, inside its active range (YouRec/VideoToolCompositor.swift:204-215).
+        val piece = piece(clip, sourceTime, time) ?: return clip.framingAt(sourceTime).crop
+        if (piece.clip.id !in on.ids) return piece.clip.framingAt(sourceTime).crop
         // Until something is changed every clip shows what it has; one without a crop fills the frame, as applying leaves it.
-        if (!draft.framingChanged && !draft.animationChanged) return piece.clip.crop ?: CropSettings(id = draft.crop.id)
+        if (!draft.framingChanged && !draft.animationChanged) return if (piece.clip.crop == null) CropSettings(id = draft.crop.id) else piece.clip.framingAt(sourceTime).crop
         return draft.displayed(sourceTime, piece.clip.playbackSpans, piece.start - on.start, piece.clip.crop?.motion)
     }
 
@@ -241,7 +280,7 @@ internal data class Cropping(
         for (piece in on.pieces) {
             val index = next.clips.indexOfFirst { it.id == piece.clip.id }
             val clip = next.clips.getOrNull(index) ?: continue
-            val crop = draft.applied(clip.crop, clip.playbackSpans, piece.start - on.start, sizes[clip.sourceID], canvas, removing)
+            val crop = draft.applied(clip.crop, clip.playbackSpans, piece.start - on.start, sizes[clip.sourceID], canvas, removing, retimed, reopened = without != null)
             TimelineEditing.setCrop(next, index, crop)?.let { next = it; cropped = true }
             if (!removing && mirrorChanged) TimelineEditing.setMirror(next, index, mirror)?.let { next = it; flipped = true }
         }
@@ -345,6 +384,8 @@ internal fun CropPanel(
     headerModifier: Modifier = Modifier, playbackModifier: Modifier = Modifier,
     playhead: () -> Double = { 0.0 }, playing: Boolean = false,
     review: (Boolean) -> Unit = {}, togglePlay: () -> Unit = {}, seek: (Double) -> Unit = {},
+    shapeLocked: Boolean = false,
+    trim: ((EditorRangeTiming.Edge, Double, Boolean) -> Unit)? = null,
 ) {
     val draft = work.draft
     val crop = draft.crop
@@ -381,7 +422,8 @@ internal fun CropPanel(
                     Text(stringResource(R.string.crop_shape_whole), color = Soft, fontSize = 12.sp)
                 }
                 val shown = work.shapeChoice?.let { stringResource(it.label) } ?: stringResource(R.string.crop_shape_custom)
-                if (ready) {
+                // Not for a part of a crop edited from its badge: the shape is the whole movie's (YouRec/CropEditor.swift:485 at 57e5d91).
+                if (ready && !shapeLocked) {
                     Capsule(shown, stringResource(R.string.crop_shape) + ": " + shown, trailing = Icons.Filled.ExpandMore) { close ->
                         for (choice in OutputShape.entries) {
                             DropdownMenuItem({ Text(stringResource(choice.label)) }, { close(); reshape(choice) }, modifier = Modifier.semantics { selected = choice == work.shapeChoice })
@@ -390,6 +432,9 @@ internal fun CropPanel(
                 } else Text(shown, color = Soft, fontSize = 14.sp)
             }
             Text(stringResource(if (work.reviewing) R.string.crop_preview_note else R.string.crop_hint), color = Color.White, fontSize = 14.sp)
+            // The range the crop goes on (YouRec/CropEditor.swift:420-421 at 57e5d91).
+            val timing = work.timing
+            if (timing != null && trim != null) EditorRangeDuration(timing, stringResource(R.string.editor_crop), change = trim)
             // On the frame only, as the original's (YouRec/CropEditor.swift:437-471): the preview shows the result.
             if (!work.reviewing) {
                 // Rotation: the slider, the angle, which a tap sets upright again, and a quarter turn.

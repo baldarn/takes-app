@@ -45,6 +45,8 @@ import app.takes.core.CensorEnvelope
 import app.takes.core.CensorWaveform
 import app.takes.core.EditInterval
 import app.takes.core.EditState
+import app.takes.core.EditorRangeTiming
+import app.takes.core.ToolRange
 import app.takes.core.TimelineSelection
 import app.takes.core.TrackAudio
 import app.takes.core.TrackAudioRegions
@@ -91,13 +93,18 @@ internal fun censorSettings(timeline: TrackTimeline, effectID: String): AudioCen
  * tone is shared by the sounds that overlap ([app.takes.core.AudioCensor]).
  */
 @Composable
-internal fun CensorDialog(initial: AudioCensorSettings, apply: (AudioCensorSettings) -> Unit, remove: (() -> Unit)?, dismiss: () -> Unit) {
+internal fun CensorDialog(
+    initial: AudioCensorSettings, apply: (AudioCensorSettings) -> Unit, remove: (() -> Unit)?, dismiss: () -> Unit,
+    timing: EditorRangeTiming? = null, trim: ((EditorRangeTiming.Edge, Double, Boolean) -> Unit)? = null,
+) {
     var settings by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(stringResource(R.string.censor_title)) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                // The censor's range (YouRec/AudioToolsEditor.swift:147-153 at 57e5d91).
+                if (timing != null && trim != null) EditorRangeDuration(timing, stringResource(R.string.censor_title), change = trim)
                 Text(stringResource(R.string.censor_frequency, settings.frequency.roundToInt()), color = Color.White)
                 Slider(
                     value = settings.frequency.toFloat(),
@@ -172,9 +179,40 @@ internal fun AudioToolBadges(timeline: TrackTimeline, scroll: ScrollState, pixel
     }
 }
 
-/** What a badge's tool works on and does, for [state] and the selection [selection]. */
-internal class AudioToolWork(val state: EditState, val region: AudioToolRegion?, val targets: TimelineSelection) {
+/**
+ * What a badge's tool works on and does, for [state] and the selection [selection]. [timing] is its range editor, null
+ * without one; [opened] what it was opened on, and [without] the edit without the effect opened from its badge, which
+ * a moved range puts it back on (YouRec/TrackEditors.swift:196-199, 241-243; YouRec/AudioToolsEditor.swift:106, 112-116
+ * at 57e5d91).
+ */
+internal class AudioToolWork(
+    val state: EditState, val region: AudioToolRegion?, val targets: TimelineSelection,
+    val timing: EditorRangeTiming? = null,
+    private val opened: Pair<EditState, TimelineSelection>? = null,
+    private val without: (() -> EditState?)? = null,
+) {
     private val timeline = state.toTimeline()
+
+    /**
+     * The tool with its range editor: over the sounds it acts on for Enhance audio, over the whole movie, [duration]
+     * seconds, for Censor (YouRec/TrackEditors.swift:196-199; YouRec/AudioToolsEditor.swift:106).
+     */
+    fun ranged(kind: AudioToolKind, duration: Double): AudioToolWork {
+        val sounds = ToolRange.audioBounds(state, targets.audio)
+        val range = targets.range?.let { it.start.seconds..it.end.seconds } ?: sounds ?: return this
+        val bounds = if (kind == AudioToolKind.Censor) 0.0..maxOf(duration, range.endInclusive) else sounds?.let { minOf(it.start, range.start)..maxOf(it.endInclusive, range.endInclusive) } ?: range
+        return AudioToolWork(state, region, targets.copy(range = targets.range ?: EditInterval.of(range.start, range.endInclusive)), EditorRangeTiming(range, bounds), state to targets, region?.let { { removed() } })
+    }
+
+    /** [edge] of the range moved to [time]: the tool acts there, without the effect it was opened on when the range left it. */
+    fun trimmed(edge: EditorRangeTiming.Edge, time: Double): AudioToolWork {
+        val now = timing ?: return this
+        val (base, selection) = opened ?: return this
+        val next = now.setting(edge, time)
+        val moved = selection.range?.let { next.range != it.start.seconds..it.end.seconds } ?: true
+        val state = if (moved) without?.invoke() ?: base else base
+        return AudioToolWork(state, region, selection.copy(range = EditInterval.of(next.range.start, next.range.endInclusive)), next, opened, without)
+    }
 
     val chain: AudioChainScope get() = TrackAudioRegions.chainScope(timeline, targets)
     val censor: AudioCensorSettings get() = region?.let { censorSettings(timeline, it.effectID) } ?: AudioCensorSettings()
@@ -187,7 +225,11 @@ internal class AudioToolWork(val state: EditState, val region: AudioToolRegion?,
         if (region != null) TrackAudio.censoring(it, settings, targets, region.effectID) else TrackAudio.censoring(it, settings, targets)
     }
 
-    fun removed(): EditState? = region?.let { badge -> withTimeline(state) { TrackAudioRegions.removing(it, badge.kind, badge.effectID, targets) } }
+    /** The edit without the effect where the tool was opened on it, wherever its range was moved since (YouRec/AudioToolsEditor.swift:192). */
+    fun removed(): EditState? = region?.let { badge ->
+        val (base, selection) = opened ?: (state to targets)
+        withTimeline(base) { TrackAudioRegions.removing(it, badge.kind, badge.effectID, selection) }
+    }
 
     companion object {
         /** The tool opened from the badge [region], acting on what [TrackAudioRegions.targets] gives with [selection]. */
