@@ -149,11 +149,11 @@ object YouRecCodec {
 
             if ((root["recordingInsertion"] as? JsonPrimitive)?.doubleOrNull != null) note(YouRecNote.Kind.RecordingRunEnded)
             if (shortened) note(YouRecNote.Kind.TitlesShortened)
+            // The restoration models the stages need, named by the original's model ids: the app tells of those not downloaded.
             val neural = setOf(AudioModel.Lava.id, AudioModel.VoiceFixer.id)
-            val unprocessed = snapshots.any { step ->
-                step.timeline?.audio.orEmpty().any { item -> item.enhancements.any { region -> region.effects.any { it.enabled && it.amount > 0 && it.model?.id in neural } } }
-            }
-            if (unprocessed) note(YouRecNote.Kind.NeuralStagesUnprocessed)
+            snapshots.flatMap { step -> step.timeline?.audio.orEmpty() }.flatMap { item -> item.enhancements.flatMap { it.effects } }
+                .filter { it.enabled && it.amount > 0 && it.model?.id in neural }.mapNotNull { it.model?.id }.distinct().sorted()
+                .forEach { note(YouRecNote.Kind.NeuralStagesUnprocessed, it) }
 
             // Every step in Takes' own form, under the hash of its new bytes.
             val written = LinkedHashMap<String, ByteArray>()

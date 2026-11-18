@@ -52,6 +52,11 @@
         android:name="app.takes.sound.DeepFilterRunner"
         android:label="DeepFilterNet3 on a recording"
         android:targetPackage="app.takes.dev" />
+    <!-- LavaSR and VoiceFixer on a recording, downloaded, timed and resumed: adb shell am instrument -w -e clip <path> -e download true app.takes.dev.test/app.takes.sound.RestorationRunner -->
+    <instrumentation
+        android:name="app.takes.sound.RestorationRunner"
+        android:label="Speech restoration on a recording"
+        android:targetPackage="app.takes.dev" />
     <!-- An export in sections against one pass, phase by phase: adb shell am instrument -w -e case plain app.takes.dev.test/app.takes.effects.ExportSectionsRunner -->
     <instrumentation
         android:name="app.takes.effects.ExportSectionsRunner"

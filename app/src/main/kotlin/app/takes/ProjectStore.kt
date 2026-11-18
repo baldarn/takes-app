@@ -80,6 +80,7 @@ class TakesApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        RestorationModelStore.init(this)
         // The decoded sound of a transcription that was running when the app was last closed.
         thread(name = "subtitle-scratch") { runCatching { SubtitleScratch.clear(cacheDir) } }
     }
@@ -979,7 +980,7 @@ class ProjectStore(context: Context) {
                             if (percent != shown && percent >= 0) { shown = percent; importing = context.getString(R.string.projects_unzipping_percent, percent) }
                         }
                     }
-                    if (restored.fromYouRec && restored.notes.isNotEmpty()) notes = restored.notes.map { YouRecMedia.describe(context, it) }
+                    if (restored.fromYouRec) notes = restored.notes.map { YouRecMedia.describe(context, it) }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() } ?: notes
                     null
                 } catch (failure: Exception) {
                     stopped = failure is Cancelled

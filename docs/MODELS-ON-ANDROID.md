@@ -20,8 +20,8 @@ relying on them.
 |---|---|---|---|---|---|
 | RNNoise v0.1 | Default noise reduction | C through the NDK | under 1 MB | done separately | — |
 | DeepFilterNet3 | Better noise reduction | ONNX Runtime, `soniqo/DeepFilterNet3-ONNX` with the C++ runtime from `soniqo/speech-core` | 8.6 MB | easy to medium | not bit-identical to iOS |
-| LavaSR v2 | Speech detail restoration | own ONNX export from `scripts/convert-lavasr.py`, reuse `LavaDSP.cpp` | about 56 MB | medium | CPU speed unmeasured |
-| VoiceFixer | Studio restoration | own ONNX export, reuse `VoiceFixerDSP.cpp` | 200–400 MB | hard | may be too slow and memory-hungry (0.5× real time and 590 MB on an iPhone 14 Pro Max) |
+| LavaSR v2 | Speech detail restoration | done 2026-11-18: the published ONNX export (Topping1/LavaSR-ONNX), `LavaDSP.cpp` ported to Kotlin in `core/` | 56 MB download | — | not bit-identical to iOS (see below) |
+| VoiceFixer | Studio restoration | done 2026-11-18: the published ONNX export (TigreGotico/audiosronnx-voicefixer) read at 256 frames, `VoiceFixerDSP.cpp` ported to Kotlin in `core/` | 415 MB download | — | slow on a phone (see below) |
 | Qwen3-ASR-0.6B | Subtitles | sherpa-onnx (official Android and Kotlin support, ready int8 model) | 879 MB download | easy to medium | download size, about 1 GB of RAM, no language option in sherpa's config |
 
 All licenses allow redistribution with notices (MIT, Apache 2.0, CC BY 4.0 for
@@ -56,3 +56,10 @@ Since determined for Qwen3-ASR (2026-11-15): it runs through sherpa-onnx 2.0.1 o
 phone sold with 8 GB at 0.5 to 0.6 of real time, takes 2.1 GB of memory, and takes a language
 with each piece (the stream option `language`). The download is 987 MB file by file.
 See `speech/README.md` and `docs/SUBTITLES-REVIEW.md`, finding 1.
+
+Since determined for LavaSR and VoiceFixer (2026-11-18), both ported (`restoration/README.md`):
+the published ONNX exports run on the ONNX Runtime the app carries, with no unsupported
+operator. On a Galaxy A54, 27.7 s of speech: LavaSR 2.9× real time with a peak of 474 MB
+resident, VoiceFixer 0.12× real time with a peak of 1.5 GB, four CPU threads each. On a
+computer VoiceFixer runs about 1.1 s a 1.2 s window, three quarters of it in the vocoder.
+GPU and NNAPI were not tried.

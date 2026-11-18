@@ -34,12 +34,22 @@ server sees your IP address, and that request is covered by
 Subtitles are transcribed on your device. The sound of your videos is not sent to anyone.
 You can remove the downloaded model from the same tool.
 
+From version 0.17 the same kind of download also brings the models of the two speech
+restoration stages of Enhance audio, again only when you ask for them: when you add the
+stage, a dialog shows the size first (LavaSR v2, about 56 MB, from GitHub: `github.com`
+and its release storage; VoiceFixer, about 415 MB, from Hugging Face), with the same check
+for metered connections. The request carries no account, cookie or identifier; GitHub's
+side is covered by
+[GitHub's privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
+The sound is processed on your device, and each model can be removed from the stage's
+settings.
+
 ## Permissions
 
 - **Camera** — to record video.
 - **Microphone** — to record the audio of your video.
-- **Internet** (from version 0.5) — only to download the speech model for subtitles, when
-  you ask for it.
+- **Internet** (from version 0.5) — only to download the speech model for subtitles and,
+  from version 0.17, the speech restoration models of Enhance audio, when you ask for them.
 
 Camera and microphone are used only while you are using the recorder.
 

@@ -6,6 +6,10 @@ import app.takes.core.AudioEffect
 import app.takes.core.AudioEffectKind
 import app.takes.core.AudioModel
 import app.takes.core.ProcessingCache
+import app.takes.core.RestorationTwin
+import app.takes.core.RestorationWindowStore
+import app.takes.core.SpeechDetailChannel
+import app.takes.core.StudioRestorationChannel
 import app.takes.core.TrackAudioRegions
 import app.takes.core.TrackMixPiece
 import app.takes.deepfilter.ChannelDeepFilter
@@ -32,9 +36,11 @@ import kotlin.math.roundToInt
  * folder; the recording itself is never changed. The mixer plays the
  * processed file in place of the recording for every piece with that chain.
  *
- * The stages this device plays are the filters ([AudioChainProcessor]) and
+ * The stages this device plays are the filters ([AudioChainProcessor]),
  * noise reduction ([AudioEffectKind.VoiceIsolation]) by RNNoise or by
- * DeepFilterNet3, whose network the app carries ([DeepFilterModel.bundled]);
+ * DeepFilterNet3, whose network the app carries ([DeepFilterModel.bundled]),
+ * and the speech restoration stages, LavaSR's speech detail and VoiceFixer's
+ * studio restoration, once their model is downloaded ([RestorationModelStore]);
  * a chain with another model is not made, and its pieces play the recording. A chain that
  * is RNNoise's noise reduction alone keeps the name of the file of cleaned sound it
  * always had, so what was made before is found again.
@@ -60,7 +66,56 @@ object Denoiser {
 
     /** Whether this device plays every stage of [effects] that changes the sound. */
     fun playable(effects: List<AudioEffect>): Boolean = AudioChain.active(effects).all {
-        it.supported && (!it.kind.isNeural || (it.kind == AudioEffectKind.VoiceIsolation && (it.model == AudioModel.RNNoise || it.model == AudioModel.DeepFilter)))
+        it.supported && when (it.kind) {
+            AudioEffectKind.VoiceIsolation -> it.model == AudioModel.RNNoise || it.model == AudioModel.DeepFilter
+            AudioEffectKind.StudioVoice, AudioEffectKind.StudioRestoration -> RestorationModelStore.plays(it)
+            else -> !it.kind.isNeural
+        }
+    }
+
+    private fun restores(effect: AudioEffect) = effect.kind == AudioEffectKind.StudioVoice || effect.kind == AudioEffectKind.StudioRestoration
+
+    /**
+     * Where the windows the speech restoration stage at [index] of [active] made of [file] are kept while the
+     * whole recording is processed, so that a run stopped half way resumes ([SavedWindows]), as the original
+     * keeps them (YouRec/OfflineAudioPipeline.swift:73-76). Named by the chain up to that stage; VoiceFixer's
+     * windows are kept before the mix, so its amount is left out, as the original leaves it out of their
+     * identity (YouRec/StudioRestorationProcessor.swift:250).
+     */
+    private fun windowsFolder(file: File, active: List<AudioEffect>, index: Int): File {
+        val prefix = active.take(index + 1).mapIndexed { at, effect ->
+            if (at == index && effect.kind == AudioEffectKind.StudioRestoration) effect.copy(amount = 1.0) else effect
+        }
+        val digest = MessageDigest.getInstance("SHA-256").digest(TrackAudioRegions.cacheKey("", prefix).toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+        return File(folder(file), "${file.name}.chain-$digest$WINDOWS")
+    }
+
+    private const val WINDOWS = ".windows"
+
+    /**
+     * One channel's windows of a restoration stage, each a file of floats named by the channel and the window's
+     * position, written beside and renamed into place, so a window found is whole.
+     */
+    private class SavedWindows(private val folder: File, private val channel: Int) : RestorationWindowStore {
+        override fun load(position: Long, count: Int): FloatArray? {
+            val found = File(folder, "$channel-$position.f32")
+            if (found.length() != count * 4L) return null
+            return runCatching {
+                FloatArray(count).also { ByteBuffer.wrap(found.readBytes()).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(it) }
+            }.getOrNull()
+        }
+
+        override fun save(position: Long, samples: FloatArray, count: Int) {
+            // A window that cannot be kept is made again next time: nothing else depends on it.
+            runCatching {
+                folder.mkdirs()
+                val partial = File(folder, ".$channel-$position.tmp")
+                val bytes = ByteBuffer.allocate(count * 4).order(ByteOrder.LITTLE_ENDIAN)
+                bytes.asFloatBuffer().put(samples, 0, count)
+                partial.writeBytes(bytes.array())
+                if (!partial.renameTo(File(folder, "$channel-$position.f32"))) partial.delete()
+            }
+        }
     }
 
     /**
@@ -71,16 +126,37 @@ object Denoiser {
         runCatching { DeepFilterModel.bundled() ?: error("This build carries no DeepFilterNet3 model") }
     }
 
-    /** One channel's noise reduction by [effect]'s model, with the calls of RNNoise's [ChannelDenoiser]. */
-    private class NoiseReduction(effect: AudioEffect) : AutoCloseable {
-        private val rnnoise = if (effect.model == AudioModel.DeepFilter) null else ChannelDenoiser(effect.amount.toFloat())
-        private val dfn = if (effect.model == AudioModel.DeepFilter) ChannelDeepFilter(deepFilter.getOrThrow(), effect.amount.toFloat()) else null
+    /**
+     * One channel through one neural stage, with the calls of RNNoise's [ChannelDenoiser]: noise reduction by
+     * RNNoise or DeepFilterNet3, speech detail by LavaSR, studio restoration by VoiceFixer. A restoration
+     * stage shares [twin] with the recording's other channels and keeps its windows in [store].
+     */
+    private class NeuralStage(effect: AudioEffect, twin: RestorationTwin, store: RestorationWindowStore?) : AutoCloseable {
+        private val amount = effect.amount.toFloat()
+        private val rnnoise = if (effect.kind == AudioEffectKind.VoiceIsolation && effect.model != AudioModel.DeepFilter) ChannelDenoiser(amount) else null
+        private val dfn = if (effect.kind == AudioEffectKind.VoiceIsolation && effect.model == AudioModel.DeepFilter) ChannelDeepFilter(deepFilter.getOrThrow(), amount) else null
+        private val detail = if (effect.kind == AudioEffectKind.StudioVoice) SpeechDetailChannel(RestorationModelStore.lava(), amount, twin, store) else null
+        private val studio = if (effect.kind == AudioEffectKind.StudioRestoration) {
+            RestorationModelStore.voiceFixer().let { StudioRestorationChannel(it, it.bank, amount, twin, store) }
+        } else null
 
         fun write(samples: FloatArray, offset: Int, count: Int, output: (FloatArray, Int) -> Unit) {
-            if (dfn != null) dfn.write(samples, offset, count, output) else rnnoise!!.write(samples, offset, count, output)
+            when {
+                dfn != null -> dfn.write(samples, offset, count, output)
+                detail != null -> detail.write(samples, offset, count, output)
+                studio != null -> studio.write(samples, offset, count, output)
+                else -> rnnoise!!.write(samples, offset, count, output)
+            }
         }
 
-        fun finish(output: (FloatArray, Int) -> Unit) { if (dfn != null) dfn.finish(output) else rnnoise!!.finish(output) }
+        fun finish(output: (FloatArray, Int) -> Unit) {
+            when {
+                dfn != null -> dfn.finish(output)
+                detail != null -> detail.finish(output)
+                studio != null -> studio.finish(output)
+                else -> rnnoise!!.finish(output)
+            }
+        }
 
         override fun close() { dfn?.close(); rnnoise?.close() }
     }
@@ -103,14 +179,23 @@ object Denoiser {
      */
     private fun makeRoom(file: File, required: Long): Boolean {
         val root = file.parentFile?.parentFile ?: return true
-        val entries = root.listFiles().orEmpty().flatMap { project -> File(project, "Cache").listFiles().orEmpty().toList() }
-            .filter { it.isFile && ProcessingCache.isProcessed(it.name) }
+        val cached = root.listFiles().orEmpty().flatMap { project -> File(project, "Cache").listFiles().orEmpty().toList() }
+        val entries = cached.filter { it.isFile && ProcessingCache.isProcessed(it.name) }
             .map { found ->
                 val priority = runCatching { File(found.path + ".priority").readText().trim().toInt() }.getOrDefault(0)
                 ProcessingCache.Entry(found.path, found.length(), found.lastModified(), priority, pinned = found.lastModified() >= sessionStart)
+            } +
+            // The windows of a restoration stopped half way, worth nothing until it is resumed.
+            cached.filter { it.isDirectory && it.name.endsWith(WINDOWS) }.map { found ->
+                val files = found.listFiles().orEmpty()
+                val modified = files.maxOfOrNull { it.lastModified() } ?: found.lastModified()
+                ProcessingCache.Entry(found.path, files.sumOf { it.length() }, modified, 0, pinned = modified >= sessionStart)
             }
         val trim = ProcessingCache.trim(entries, root.usableSpace, required)
-        for (entry in trim.remove) if (File(entry.path).delete()) ProcessingCache.COMPANIONS.forEach { File(entry.path + it).delete() }
+        for (entry in trim.remove) {
+            val found = File(entry.path)
+            if (found.isDirectory) found.deleteRecursively() else if (found.delete()) ProcessingCache.COMPANIONS.forEach { File(entry.path + it).delete() }
+        }
         if (!trim.enough) android.util.Log.w("Takes", "Not enough free space to process ${file.name}")
         return trim.enough
     }
@@ -233,6 +318,8 @@ object Denoiser {
             if (render(file, active, partial, progress, { context.ensureActive() }) && partial.renameTo(output)) {
                 // What it is worth keeping, beside it, as the original's (SourceMediaCache.swift:446-450).
                 runCatching { File(output.path + ".priority").writeText(ProcessingCache.priority(active.map { it.kind.isNeural }).toString()) }
+                // The whole recording is made: its restoration windows are no longer needed (YouRec/OfflineAudioPipeline.swift:95-96).
+                active.indices.filter { restores(active[it]) }.forEach { windowsFolder(file, active, it).deleteRecursively() }
                 output
             } else null
         } catch (cancelled: CancellationException) {
@@ -260,15 +347,16 @@ object Denoiser {
     }
 
     /**
-     * One channel through the stages in order, as it arrives: each noise reduction gives back exactly as many
-     * samples as it is given, one frame late, and the filters follow it sample by sample.
+     * One channel through the stages in order, as it arrives: each neural stage gives back exactly as many
+     * samples as it is given, some time later (a frame for noise reduction, seconds for restoration), and the
+     * filters follow it sample by sample. [twins] and [stores] are the restoration stages', stage by stage.
      */
-    private class ChannelChain(stages: List<AudioEffect>, private val sink: Pending) : AutoCloseable {
+    private class ChannelChain(stages: List<AudioEffect>, private val sink: Pending, twins: List<RestorationTwin>, stores: (Int) -> RestorationWindowStore?) : AutoCloseable {
         private sealed interface Step
-        private class Neural(val denoiser: NoiseReduction) : Step
+        private class Neural(val denoiser: NeuralStage) : Step
         private class Filter(val processor: AudioChainProcessor) : Step
-        private val steps: List<Step> = stages.map {
-            if (it.kind.isNeural) Neural(NoiseReduction(it)) else Filter(AudioChainProcessor(listOf(it), channels = 1))
+        private val steps: List<Step> = stages.mapIndexed { index, effect ->
+            if (effect.kind.isNeural) Neural(NeuralStage(effect, twins[index], stores(index))) else Filter(AudioChainProcessor(listOf(effect), channels = 1))
         }
 
         fun write(samples: FloatArray, count: Int) = pass(0, samples, count)
@@ -299,6 +387,8 @@ object Denoiser {
     ): Boolean {
         var chains = emptyList<ChannelChain>()
         val began = System.nanoTime()
+        val restoring = stages.any(::restores)
+        if (restoring) RestorationModelStore.use()
         val output = BufferedOutputStream(FileOutputStream(target), 1 shl 16)
         try {
             var inputs = emptyList<Channel48k>()
@@ -332,8 +422,15 @@ object Denoiser {
                     length = format.durationUs
                     inputs = List(format.channels) { Channel48k(it, format.channels, format.sampleRate) }
                     pending = List(format.channels) { Pending() }
-                    // Each channel has its own state, as in the original.
-                    chains = List(format.channels) { ChannelChain(stages, pending[it]) }
+                    // Each channel has its own state, as in the original; equal channels share a restoration's windows.
+                    val twins = stages.map { RestorationTwin() }
+                    // Windows are kept to resume the whole recording, not a stretch of it.
+                    val whole = from == 0.0 && until == Double.POSITIVE_INFINITY
+                    chains = List(format.channels) { channel ->
+                        ChannelChain(stages, pending[channel], twins) { index ->
+                            if (whole && restores(stages[index])) SavedWindows(windowsFolder(file, stages, index), channel) else null
+                        }
+                    }
                 },
                 from = from, until = until,
                 samples = { block, time ->
@@ -364,6 +461,7 @@ object Denoiser {
         } finally {
             runCatching { output.close() }
             chains.forEach { runCatching { it.close() } }
+            if (restoring) RestorationModelStore.done()
         }
     }
 }

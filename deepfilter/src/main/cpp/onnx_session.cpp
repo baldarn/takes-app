@@ -6,7 +6,11 @@
 // newer runtime keeps serving to code built for an older one.
 
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <jni.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <cstring>
 #include <memory>
@@ -95,6 +99,32 @@ size_t elementSize(jint type) {
     }
 }
 
+// Options for a session run on [threads] processor threads, with every optimization of the graph. Null, with
+// a Java exception, on failure; the caller releases them.
+OrtSessionOptions* sessionOptions(JNIEnv* jni, int threads) {
+    OrtSessionOptions* options = nullptr;
+    if (failed(jni, api->CreateSessionOptions(&options))) return nullptr;
+    OrtStatus* status = api->SetIntraOpNumThreads(options, threads);
+    if (status == nullptr) status = api->SetInterOpNumThreads(options, 1);
+    // Threads that wait on a busy loop between runs would hold cores the rest of the app needs.
+    if (status == nullptr && threads > 1) status = api->AddSessionConfigEntry(options, "session.intra_op.allow_spinning", "0");
+    if (status == nullptr) status = api->SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL);
+    if (failed(jni, status)) {
+        api->ReleaseSessionOptions(options);
+        return nullptr;
+    }
+    return options;
+}
+
+std::unique_ptr<Session> namedSession(JNIEnv* jni, jobjectArray inputs, jobjectArray outputs) {
+    auto session = std::make_unique<Session>();
+    session->inputs = strings(jni, inputs);
+    session->outputs = strings(jni, outputs);
+    for (auto& name : session->inputs) session->inputNames.push_back(name.c_str());
+    for (auto& name : session->outputs) session->outputNames.push_back(name.c_str());
+    return session;
+}
+
 }  // namespace
 
 extern "C" {
@@ -139,11 +169,7 @@ JNIEXPORT jstring JNICALL Java_app_takes_deepfilter_OnnxSession_open(JNIEnv* jni
 JNIEXPORT jlong JNICALL Java_app_takes_deepfilter_OnnxSession_create(
         JNIEnv* jni, jclass, jbyteArray graph, jobjectArray names, jobjectArray data, jobjectArray shapes, jintArray types,
         jobjectArray inputs, jobjectArray outputs) {
-    auto session = std::make_unique<Session>();
-    session->inputs = strings(jni, inputs);
-    session->outputs = strings(jni, outputs);
-    for (auto& name : session->inputs) session->inputNames.push_back(name.c_str());
-    for (auto& name : session->outputs) session->outputNames.push_back(name.c_str());
+    auto session = namedSession(jni, inputs, outputs);
 
     std::vector<std::string> initializerNames = strings(jni, names);
     std::vector<const char*> initializerPointers;
@@ -168,12 +194,9 @@ JNIEXPORT jlong JNICALL Java_app_takes_deepfilter_OnnxSession_create(
         initializerPointers.push_back(initializerNames[i].c_str());
     }
 
-    OrtSessionOptions* options = nullptr;
-    if (failed(jni, api->CreateSessionOptions(&options))) return 0;
+    OrtSessionOptions* options = sessionOptions(jni, 1);
+    if (options == nullptr) return 0;
     std::unique_ptr<OrtSessionOptions, void (*)(OrtSessionOptions*)> optionsOwner(options, [](OrtSessionOptions* o) { api->ReleaseSessionOptions(o); });
-    if (failed(jni, api->SetIntraOpNumThreads(options, 1))) return 0;
-    if (failed(jni, api->SetInterOpNumThreads(options, 1))) return 0;
-    if (failed(jni, api->SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL))) return 0;
     if (!initializers.list.empty() &&
         failed(jni, api->AddExternalInitializers(options, initializerPointers.data(), initializers.list.data(), initializers.list.size()))) {
         return 0;
@@ -183,6 +206,63 @@ JNIEXPORT jlong JNICALL Java_app_takes_deepfilter_OnnxSession_create(
     OrtStatus* status = api->CreateSessionFromArray(environment, bytes, static_cast<size_t>(length), options, &session->session);
     jni->ReleaseByteArrayElements(graph, bytes, JNI_ABORT);
     if (failed(jni, status)) return 0;
+    return reinterpret_cast<jlong>(session.release());
+}
+
+// A session for the model in the file at [path], with its weights inside it or in files beside it, run on
+// [threads] processor threads. When [expected] is not null, the [expected] bytes at [offset] are replaced by
+// [replacement] first, in a private copy-on-write mapping of the file, which stays as it is on disk: a fixed
+// dimension of a published graph changes without a second copy of its weights.
+JNIEXPORT jlong JNICALL Java_app_takes_deepfilter_OnnxSession_createFromFile(
+        JNIEnv* jni, jclass, jstring path, jlong offset, jbyteArray expected, jbyteArray replacement, jint threads,
+        jobjectArray inputs, jobjectArray outputs) {
+    auto session = namedSession(jni, inputs, outputs);
+    OrtSessionOptions* options = sessionOptions(jni, threads);
+    if (options == nullptr) return 0;
+    std::unique_ptr<OrtSessionOptions, void (*)(OrtSessionOptions*)> optionsOwner(options, [](OrtSessionOptions* o) { api->ReleaseSessionOptions(o); });
+    const char* chars = jni->GetStringUTFChars(path, nullptr);
+    std::string file = chars;
+    jni->ReleaseStringUTFChars(path, chars);
+    if (expected == nullptr) {
+        if (failed(jni, api->CreateSession(environment, file.c_str(), options, &session->session))) return 0;
+        return reinterpret_cast<jlong>(session.release());
+    }
+    jsize length = jni->GetArrayLength(expected);
+    if (replacement == nullptr || jni->GetArrayLength(replacement) != length) {
+        raise(jni, "the replacement must be as long as the bytes it replaces");
+        return 0;
+    }
+    int descriptor = ::open(file.c_str(), O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0) {
+        raise(jni, "cannot open " + file);
+        return 0;
+    }
+    struct stat status {};
+    if (fstat(descriptor, &status) != 0 || offset < 0 || offset + length > status.st_size) {
+        ::close(descriptor);
+        raise(jni, file + " is shorter than expected");
+        return 0;
+    }
+    auto size = static_cast<size_t>(status.st_size);
+    void* mapped = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE, descriptor, 0);
+    ::close(descriptor);
+    if (mapped == MAP_FAILED) {
+        raise(jni, "cannot map " + file);
+        return 0;
+    }
+    jbyte* bytes = static_cast<jbyte*>(mapped) + offset;
+    std::vector<jbyte> want(length), put(length);
+    jni->GetByteArrayRegion(expected, 0, length, want.data());
+    jni->GetByteArrayRegion(replacement, 0, length, put.data());
+    if (memcmp(bytes, want.data(), static_cast<size_t>(length)) != 0) {
+        munmap(mapped, size);
+        raise(jni, file + " does not hold the expected bytes at " + std::to_string(offset));
+        return 0;
+    }
+    memcpy(bytes, put.data(), static_cast<size_t>(length));
+    OrtStatus* made = api->CreateSessionFromArray(environment, mapped, size, options, &session->session);
+    munmap(mapped, size);
+    if (failed(jni, made)) return 0;
     return reinterpret_cast<jlong>(session.release());
 }
 

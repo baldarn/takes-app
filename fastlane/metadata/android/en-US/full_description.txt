@@ -20,7 +20,7 @@ EDIT ON A TIMELINE
 • Picture: speed from 0.25× to 4× with the pitch kept, crop, rotation and animated reframing, 16:9, 9:16, 1:1 or 4:5, mirror and stabilisation.
 • Color: fourteen looks, your own .cube LUTs, exposure, warmth, tint, highlights, color correction with keyframes, saved and animated grades, and Log footage.
 • Video effects as in YouRec: Noir, Bleach Bypass, Kaleidoscope, Quantization, film textures, Chroma Key, Auto Background, Color Isolation, Crash Zoom, Dolly Zoom, Night fix and many more, with keyframes and each effect's film history.
-• Sound: levels in half decibels, fades, two audio tracks for music or voice, voice recording, noise reduction with RNNoise or DeepFilterNet3, voice EQ, censor beep, and Remove pauses.
+• Sound: levels in half decibels, fades, two audio tracks for music or voice, voice recording, noise reduction with RNNoise or DeepFilterNet3, speech restoration with LavaSR v2 or VoiceFixer, voice EQ, censor beep, and Remove pauses.
 • Subtitles: speech is transcribed on your phone, with the model YouRec uses or a lighter one; correct, regroup and style the captions.
 • Your original recordings are never modified.
 
@@ -32,7 +32,7 @@ EXPORT AND SHARE
 YOUR VIDEOS STAY YOURS
 • No account, no ads, no tracking.
 • Your recordings and projects never leave your device unless you share them.
-• The app goes online for one thing only: downloading the speech model for subtitles (about 987 MB or about 375 MB, depending on the model), and only when you ask.
+• The app goes online only to download a model, when you ask: the one for subtitles (987 or 375 MB) or one for speech restoration (56 or 415 MB).
 • Deleted projects go to Recently Deleted, where you can restore them.
 • Duplicate a project, or save it as a ZIP and open it again later or on another phone.
 • Projects travel to and from YouRec on iPhone: Takes opens YouRec's project ZIPs, and Zip for iPhone saves one YouRec opens.

@@ -57,6 +57,7 @@ class SpeechRecognizer(
     private var recognizer: OfflineRecognizer?
 
     init {
+        require(model.kind.recognizes) { "${model.name} does not recognize speech" }
         for (file in model.files) require(File(modelFolder, file.name).isFile) { "Missing ${file.name} in $modelFolder" }
         hint(language) // refuses a language the model does not know before anything is loaded
         fun path(part: String) = File(modelFolder, model.file(part).name).path
@@ -80,6 +81,7 @@ class SpeechRecognizer(
                     tokens = "",
                     numThreads = threads,
                 )
+                SpeechModel.Kind.LavaSR, SpeechModel.Kind.VoiceFixer -> error("not a recognizer")
             },
         )
         // No AssetManager: the model is read from files, on a phone and on a computer alike.
@@ -97,6 +99,7 @@ class SpeechRecognizer(
             // Empty makes sherpa-onnx detect the language; an English-only model has no such choice.
             SpeechModel.Kind.Whisper -> language ?: if (model.multilingual) "" else "en"
             SpeechModel.Kind.Qwen3Asr -> if (language == null) "" else requireNotNull(QWEN_LANGUAGES[language]) { "Qwen3-ASR does not know the language $language" }
+            SpeechModel.Kind.LavaSR, SpeechModel.Kind.VoiceFixer -> error("not a recognizer")
         }
     }
 

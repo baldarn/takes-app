@@ -20,7 +20,7 @@ MONTA SULLA TIMELINE
 • Immagine: velocità da 0,25× a 4× mantenendo l'intonazione, ritaglio, rotazione e inquadratura animata, 16:9, 9:16, 1:1 o 4:5, specchio e stabilizzazione.
 • Colore: quattordici look, le tue LUT .cube, esposizione, temperatura, tinta, alte luci, correzione colore con keyframe, look salvati e animati, e girato in Log.
 • Effetti video come in YouRec: Noir, Bleach Bypass, Caleidoscopio, Quantizzazione, texture da pellicola, Chroma Key, Sfondo automatico, Colore isolato, Crash Zoom, Dolly Zoom, Recupero notturno e molti altri, con keyframe e la storia di ogni effetto.
-• Audio: livelli a mezzi decibel, dissolvenze, due tracce audio per musica o voce, registrazione della voce, riduzione del rumore con RNNoise o DeepFilterNet3, EQ voce, beep di censura e Rimuovi pause.
+• Audio: livelli a mezzi decibel, dissolvenze, due tracce audio per musica o voce, registrazione della voce, riduzione del rumore con RNNoise o DeepFilterNet3, restauro del parlato (LavaSR, VoiceFixer), EQ voce, beep di censura e Rimuovi pause.
 • Sottotitoli: il parlato viene trascritto sul telefono, con il modello di YouRec o uno più leggero; correggi, raggruppa e dai stile alle didascalie.
 • Le registrazioni originali non vengono mai modificate.
 
@@ -32,7 +32,7 @@ ESPORTA E CONDIVIDI
 I TUOI VIDEO RESTANO TUOI
 • Nessun account, nessuna pubblicità, nessun tracciamento.
 • Registrazioni e progetti non lasciano il tuo dispositivo, se non li condividi tu.
-• L'app va su internet per una cosa sola: scaricare il modello vocale per i sottotitoli (circa 987 MB o circa 375 MB, secondo il modello), e solo quando lo chiedi tu.
+• Va su internet solo per scaricare un modello, quando lo chiedi: sottotitoli (987 o 375 MB) o restauro del parlato (56 o 415 MB).
 • I progetti eliminati finiscono in Eliminati di recente, da dove puoi ripristinarli.
 • Duplica un progetto, oppure salvalo come ZIP e riaprilo più tardi o su un altro telefono.
 • I progetti passano da e verso YouRec su iPhone: Takes apre gli ZIP di progetto di YouRec, e Zip per iPhone ne salva uno che YouRec apre.

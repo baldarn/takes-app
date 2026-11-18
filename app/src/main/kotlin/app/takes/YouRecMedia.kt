@@ -7,10 +7,12 @@ import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import app.takes.core.AudioModel
 import app.takes.core.ProjectRestore
 import app.takes.core.Size
 import app.takes.core.yourec.YouRecExport
 import app.takes.core.yourec.YouRecNote
+import app.takes.restoration.RestorationModels
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -103,7 +105,7 @@ object YouRecMedia {
         }
     }
 
-    /** One line saying what [note] means, in the person's language. */
+    /** One line saying what [note] means, in the person's language; empty when it no longer applies. */
     fun describe(context: Context, note: YouRecNote): String {
         val files = note.files.joinToString(", ")
         return when (note.kind) {
@@ -114,7 +116,12 @@ object YouRecMedia {
             YouRecNote.Kind.DamagedMedia -> context.getString(R.string.yourec_damaged_media, files)
             YouRecNote.Kind.AudioNotConverted -> context.getString(R.string.yourec_audio_not_converted, files)
             YouRecNote.Kind.UnplayableVideo -> context.getString(R.string.yourec_unplayable, files)
-            YouRecNote.Kind.NeuralStagesUnprocessed -> context.getString(R.string.yourec_neural_unprocessed)
+            YouRecNote.Kind.NeuralStagesUnprocessed -> {
+                // Only the models this phone has not downloaded yet; with all of them there is nothing to say.
+                val missing = listOf(RestorationModels.Lava to AudioModel.Lava, RestorationModels.VoiceFixer to AudioModel.VoiceFixer)
+                    .filter { (model, identity) -> identity.id in note.files && !RestorationModelStore.installed(model) }
+                if (missing.isEmpty()) "" else context.getString(R.string.yourec_neural_unprocessed, missing.joinToString(", ") { it.first.name })
+            }
             YouRecNote.Kind.TitlesShortened -> context.getString(R.string.yourec_titles_shortened)
             YouRecNote.Kind.LegacyEffectsDropped -> context.getString(R.string.yourec_legacy_effects)
         }

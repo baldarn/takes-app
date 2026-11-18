@@ -58,7 +58,7 @@ jobs:
 
       # No keystore here: only the debug build is assembled, which needs none.
       - name: Test, lint and build
-        run: ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :app:lintDebug :app:assembleDebug
+        run: ./gradlew :core:test :rnnoise:testDebugUnitTest :speech:testDebugUnitTest :deepfilter:testDebugUnitTest :stabilization:testDebugUnitTest :restoration:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
       - name: Keep the reports of a failed run
         if: failure()

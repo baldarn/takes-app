@@ -31,7 +31,10 @@ data class YouRecNote(val kind: Kind, val files: List<String> = emptyList()) {
         /** Videos whose format this phone cannot decode, such as ProRes. */
         UnplayableVideo,
 
-        /** Speech detail or studio restoration stages, which Takes does not run yet: that sound plays unprocessed. */
+        /**
+         * Speech detail or studio restoration stages, whose models Takes downloads on request: until then that
+         * sound plays unprocessed. [files] holds the ids of the models ([app.takes.core.AudioModel.id]).
+         */
         NeuralStagesUnprocessed,
 
         /** Titles longer than Takes allows were shortened. */

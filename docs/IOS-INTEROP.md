@@ -942,13 +942,16 @@ The ids are identical, so copy them verbatim
 - **Unplayable stages differ by side:**
   - iOS fails the render for an enabled unsupported stage
     (S/OfflineAudioPipeline.swift:43, :64-76).
-  - Takes runs RNNoise and DFN3 only (A/…/Denoiser.kt:62-63). It plays
-    LavaSR and VoiceFixer stages **unprocessed and silently**
-    (A/…/Exporter.kt:598-611).
+  - Takes runs RNNoise and DFN3, and since 2026-11-18 LavaSR and
+    VoiceFixer too, once their model is downloaded
+    (A/…/Denoiser.kt `playable`, `restoration/`). Until then it plays
+    those stages **unprocessed**, the stage's card saying so and
+    offering the download (A/…/EnhanceInspector.kt `RestorationNotes`).
   - **Rule:** keep the stages verbatim. On import, add one note
-    (`NeuralStagesUnprocessed`) when any stage with the LavaSR or
-    VoiceFixer model is enabled with an amount above 0 (at 0 it changes
-    nothing, S/Project.swift:129-131).
+    (`NeuralStagesUnprocessed`, naming the models by their ids) when any
+    stage with the LavaSR or VoiceFixer model is enabled with an amount
+    above 0 (at 0 it changes nothing, S/Project.swift:129-131); the app
+    shows it only for the models the phone has not downloaded.
 
 ---
 
@@ -1160,7 +1163,7 @@ There is also a manual gate before release:
 | R7 | `canvasReference` → `outputSize` changes later editing semantics (fixed frame). | A later edit keeps a frame iOS would have recomputed. | Accept and note it; or decision D1: add `canvasReference` to Takes' `EditState` (a model change: Takes would then need its own canvas rule). |
 | R8 | Subtitle fingerprint formula (Swift Double formatting in `JSONEncoder`). | Only caption regrouping is affected. | Write `""` (Q2: emulate Swift's encoder later, verified on a fixture). |
 | R9 | Probing the referenced source size for `canvasReference` happens in the app layer, not core. | Import needs a probe callback. | Done: `YouRecCodec.import(…, probe: (filename) -> Size?)`, fed by `ProjectRestore.MediaProbe.size` (A/YouRecMedia.kt). Its rounding on a phone with a rotated take is unverified. |
-| R10 | LavaSR and VoiceFixer chains from iOS play unprocessed on Takes. | Different sound, silently. | Import note; long term, port the models (docs/MODELS-ON-ANDROID.md). |
+| R10 | LavaSR and VoiceFixer chains from iOS play unprocessed on Takes until their model is downloaded. | Different sound until then. | Ported on 2026-11-18 (`restoration/`): the import note names the models to download, and the stage's card offers them. The ONNX conversions are not the iPhone's Core ML ones: close, not bit-identical. |
 | R11 | Bookmark labels of 101–500 characters from iOS failed Takes `validate` through the sequence view (K/Project.kt:104, :845-847). | Import refused. | **Closed by D2**: the Takes limit is 500, as the timeline bookmark's (K/TrackTimeline.kt:223). |
 | R12 | Grapheme and UTF-16 length limits differ (titles ≤500, words ≤4000). | A rare import refusal. | Titles: shortened with a note (phase 1). Words: not yet; a word over 4000 UTF-16 units still refuses the import. |
 | R13 | Takes' strict missing or damaged media rule versus iOS's skip-and-relink. | A YouRec ZIP with a missing overlay was refused on Takes. | **Closed by D3**: iOS's behaviour on the YouRec branch only. |

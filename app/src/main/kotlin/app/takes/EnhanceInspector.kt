@@ -105,6 +105,7 @@ import app.takes.core.TrackMixPiece
 import app.takes.core.TrackMixPlan
 import app.takes.core.TrackMixer
 import app.takes.core.toTimeline
+import app.takes.restoration.RestorationModels
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -120,8 +121,8 @@ private val Background = Color(0xFF0F0F0F)
 private val Secondary = Color(0xFFA0A4AB)
 private val Warning = Color(0xFFFF9F0A)
 
-/** The stages Enhance audio offers in its Add filter menu: those this app plays. LavaSR and VoiceFixer are left out (docs/PARITY.md). */
-private val Addable = listOf(AudioEffectKind.VoiceIsolation, AudioEffectKind.HighPass, AudioEffectKind.Equalizer, AudioEffectKind.Gain)
+/** The stages Enhance audio offers in its Add filter menu, in the original's order (YouRec/Project.swift:71). */
+private val Addable = AudioEffectKind.all
 
 private fun stripColor(kind: AudioEffectKind) = Color(0xFF000000 or AudioFader.stripColor(kind).toLong())
 
@@ -175,6 +176,7 @@ internal fun EnhanceInspector(
     var originalEnergies by remember { mutableStateOf<FloatArray?>(null) }
     var failed by remember { mutableStateOf(false) }
     var matchingHelp by remember { mutableStateOf(false) }
+    var offering by remember { mutableStateOf<AudioEffectKind?>(null) }
 
     fun updateVolume() = playback.volume(comparison.listeningVolume)
 
@@ -293,8 +295,9 @@ internal fun EnhanceInspector(
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (scope0.mixed) Text(stringResource(R.string.enhance_mixed), color = Secondary, fontSize = 12.sp)
-                    AddFilterButton { kind -> change(AudioChainEditing.add(effects, kind)) }
-                    ChainControls(effects, selectedID, select = { selectedID = it }, change = ::change)
+                    // A speech restoration stage whose model is not on the phone yet offers its download first.
+                    AddFilterButton { kind -> if (RestorationModelStore.missing(kind) != null) offering = kind else change(AudioChainEditing.add(effects, kind)) }
+                    ChainControls(effects, selectedID, select = { selectedID = it }, change = ::change, modelsChanged = { change(effects) })
                     Text(stringResource(R.string.enhance_preview_note), color = Secondary, fontSize = 12.sp)
                     Row(
                         Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { matchingHelp = true }),
@@ -319,6 +322,13 @@ internal fun EnhanceInspector(
                     TextButton(onClick = remove) { Text(stringResource(R.string.common_remove), color = Color(0xFFFF453A)) }
                 }
             }
+        }
+        offering?.let { kind ->
+            RestorationDownload(
+                RestorationModels.of(kind)!!, stringResource(kindTitle(kind)),
+                installed = { offering = null; change(AudioChainEditing.add(effects, kind)) },
+                dismiss = { offering = null },
+            )
         }
         if (matchingHelp) {
             AlertDialog(
@@ -407,7 +417,7 @@ private fun detail(effect: AudioEffect): String? = when {
  * reordering hint above them, the selected stage's settings below; "Build your sound" when empty.
  */
 @Composable
-private fun ChainControls(effects: List<AudioEffect>, selectedID: String?, select: (String) -> Unit, change: (List<AudioEffect>) -> Unit) {
+private fun ChainControls(effects: List<AudioEffect>, selectedID: String?, select: (String) -> Unit, change: (List<AudioEffect>) -> Unit, modelsChanged: () -> Unit) {
     if (effects.isEmpty()) {
         Column(Modifier.fillMaxWidth().padding(vertical = 30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Outlined.Tune, contentDescription = null, tint = Secondary, modifier = Modifier.size(40.dp))
@@ -452,6 +462,7 @@ private fun ChainControls(effects: List<AudioEffect>, selectedID: String?, selec
         change = { next -> AudioChainEditing.replace(effects, next)?.let(change) },
         move = { offset -> AudioChainEditing.shift(effects, index, offset)?.let(change) },
         remove = { change(AudioChainEditing.remove(effects, index).first) },
+        modelsChanged = modelsChanged,
     )
 }
 
@@ -591,7 +602,7 @@ private fun Fader(effect: AudioEffect, selected: Boolean, select: () -> Unit, ch
  * does; moving it earlier or later, Reset and Remove.
  */
 @Composable
-private fun SelectedStageSettings(effect: AudioEffect, index: Int, count: Int, change: (AudioEffect) -> Unit, move: (Int) -> Unit, remove: () -> Unit) {
+private fun SelectedStageSettings(effect: AudioEffect, index: Int, count: Int, change: (AudioEffect) -> Unit, move: (Int) -> Unit, remove: () -> Unit, modelsChanged: () -> Unit) {
     val color = stripColor(effect.kind)
     val shape = RoundedCornerShape(18.dp)
     Column(
@@ -638,6 +649,7 @@ private fun SelectedStageSettings(effect: AudioEffect, index: Int, count: Int, c
                 )
                 Text(stringResource(R.string.enhance_eq_note), color = Secondary, fontSize = 12.sp)
             }
+            effect.kind == AudioEffectKind.StudioVoice || effect.kind == AudioEffectKind.StudioRestoration -> RestorationNotes(effect.kind, modelsChanged)
             effect.kind == AudioEffectKind.HighPass -> Text(stringResource(R.string.enhance_low_cut_note), color = Secondary, fontSize = 12.sp)
             effect.kind == AudioEffectKind.Gain -> Text(stringResource(R.string.enhance_gain_note), color = Secondary, fontSize = 12.sp)
         }
@@ -659,5 +671,54 @@ private fun SelectedStageSettings(effect: AudioEffect, index: Int, count: Int, c
                 Icon(Icons.Outlined.Delete, contentDescription = null, tint = Color(0xFFFF453A))
             }
         }
+    }
+}
+
+/**
+ * What a speech restoration stage does, as the original's card says it (YouRec/AudioChainControls.swift:413-425),
+ * VoiceFixer's attribution with its link, and the stage's model: Download when the phone lacks it, which the
+ * stage needs to change the sound, else Remove, to free the space.
+ */
+@Composable
+private fun RestorationNotes(kind: AudioEffectKind, modelsChanged: () -> Unit) {
+    val context = LocalContext.current
+    val model = RestorationModels.of(kind) ?: return
+    var installed by remember(kind) { mutableStateOf(RestorationModelStore.installed(model)) }
+    var offering by remember { mutableStateOf(false) }
+    var removing by remember { mutableStateOf(false) }
+    val title = stringResource(kindTitle(kind))
+    Text(stringResource(if (kind == AudioEffectKind.StudioVoice) R.string.enhance_studio_voice_note else R.string.enhance_studio_restoration_note), color = Secondary, fontSize = 12.sp)
+    if (kind == AudioEffectKind.StudioRestoration) {
+        TextButton(onClick = {
+            runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://zenodo.org/records/5600188"))) }
+        }) { Text(stringResource(R.string.enhance_voicefixer_credit), fontSize = 12.sp) }
+    }
+    if (!installed) {
+        Text(stringResource(R.string.enhance_model_missing, model.name), color = Warning, fontSize = 12.sp)
+        TextButton(onClick = { offering = true }) {
+            Text(stringResource(R.string.enhance_model_get, model.name, SubtitleModel.megabytes(model.bytes - RestorationModelStore.present(model))))
+        }
+    } else {
+        TextButton(onClick = { removing = true }) {
+            Text(stringResource(R.string.enhance_model_remove, model.name, SubtitleModel.megabytes(model.bytes)), color = Secondary, fontSize = 12.sp)
+        }
+    }
+    if (offering) {
+        RestorationDownload(model, title, installed = { offering = false; installed = true; modelsChanged() }, dismiss = { offering = false })
+    }
+    if (removing) {
+        AlertDialog(
+            onDismissRequest = { removing = false },
+            title = { Text(stringResource(R.string.subtitles_remove_model_title, model.name)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    removing = false
+                    RestorationModelStore.remove(model)
+                    installed = false
+                    modelsChanged()
+                }) { Text(stringResource(R.string.subtitles_remove_model_confirm), color = Color(0xFFFF453A)) }
+            },
+            dismissButton = { TextButton(onClick = { removing = false }) { Text(stringResource(R.string.common_cancel)) } },
+        )
     }
 }
