@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardTab
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
@@ -69,6 +71,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -96,6 +99,7 @@ import app.takes.core.TitleDirection
 import app.takes.core.TitleGradient
 import app.takes.core.TitleInk
 import app.takes.core.TitleLibrary
+import app.takes.core.TitleLookCollection
 import app.takes.core.TitleMotion
 import app.takes.core.TitleMove
 import app.takes.core.TitlePlate
@@ -125,14 +129,37 @@ private enum class TitleTab(val label: Int, val icon: ImageVector) {
 /** The built-in looks and gradients are named in the model in English; these are their names on screen. */
 private fun lookLabel(name: String): Int? = when (name) {
     "Clean" -> R.string.title_look_clean
-    "Film title" -> R.string.title_look_film
-    "Lower third" -> R.string.title_look_lower_third
-    "Headline" -> R.string.title_look_headline
-    "Field note" -> R.string.title_look_field_note
+    "Field report" -> R.string.title_look_field_report
     "Dateline" -> R.string.title_look_dateline
-    "Warm editorial" -> R.string.title_look_warm_editorial
-    "Sunset mono" -> R.string.title_look_sunset_mono
+    "Caption box" -> R.string.title_look_caption_box
+    "Pull quote" -> R.string.title_look_pull_quote
+    "Interview" -> R.string.title_look_interview
+    "Film title" -> R.string.title_look_film
+    "Opening credit" -> R.string.title_look_opening_credit
+    "Intertitle" -> R.string.title_look_intertitle
+    "Daylight" -> R.string.title_look_daylight
+    "Night drive" -> R.string.title_look_night_drive
+    "Matinée" -> R.string.title_look_matinee
+    "Headline" -> R.string.title_look_headline
+    "Magazine italic" -> R.string.title_look_magazine_italic
+    "Source note" -> R.string.title_look_source_note
+    "Masthead" -> R.string.title_look_masthead
+    "Clothbound" -> R.string.title_look_clothbound
+    "Field note" -> R.string.title_look_field_note
+    "Gaffer tape" -> R.string.title_look_gaffer_tape
+    "Highlighter" -> R.string.title_look_highlighter
+    "Afterglow" -> R.string.title_look_afterglow
+    "Wide type" -> R.string.title_look_wide_type
+    "Flyer" -> R.string.title_look_flyer
+    "Lilac gel" -> R.string.title_look_lilac_gel
     else -> null
+}
+
+private fun collectionLabel(collection: TitleLookCollection): Int = when (collection) {
+    TitleLookCollection.Editorial -> R.string.title_collection_editorial
+    TitleLookCollection.Cinema -> R.string.title_collection_cinema
+    TitleLookCollection.Print -> R.string.title_collection_print
+    TitleLookCollection.Display -> R.string.title_collection_display
 }
 
 private fun gradientLabel(name: String): Int? = when (name) {
@@ -288,10 +315,19 @@ fun TitleInspector(
         TitleTab.Font -> Fonts(words, design, memory, setDesign)
         TitleTab.Fill -> Fill(design, memory, sample, setDesign)
         TitleTab.Outline -> {
-            Toggle(stringResource(R.string.title_outline_toggle), design.outlined) { setDesign(design.copy(outlined = it)) }
+            // The text border, in three thicknesses or a width of its own (YouRec/TitleInspector.swift:84-87, 165-176).
+            Toggle(stringResource(R.string.title_border_toggle), design.outlined) { setDesign(design.copy(outlined = it)) }
             if (design.outlined) {
-                ColorControl(stringResource(R.string.title_outline_color), design.border, memory, sample) { setDesign(design.copy(border = it)) }
-                Amount(stringResource(R.string.title_width), design.borderWidth, 0.01..0.20, 0.005) { setDesign(design.copy(borderWidth = it)) }
+                val presets = listOf(stringResource(R.string.title_border_thin) to 0.025, stringResource(R.string.title_border_medium) to 0.045, stringResource(R.string.title_border_bold) to 0.09)
+                val custom = presets.none { it.second == design.borderWidth }
+                val thickness = stringResource(R.string.title_border_thickness)
+                Box(Modifier.semantics { contentDescription = thickness }) {
+                    Segments(presets + if (custom) listOf(stringResource(R.string.title_border_custom) to design.borderWidth) else emptyList(), design.borderWidth) {
+                        setDesign(design.copy(borderWidth = it))
+                    }
+                }
+                Amount(stringResource(R.string.title_border_width), design.borderWidth, 0.01..0.20, 0.005) { setDesign(design.copy(borderWidth = it)) }
+                ColorControl(stringResource(R.string.title_border_color), design.border, memory, sample) { setDesign(design.copy(border = it)) }
             }
         }
         TitleTab.Shadow -> {
@@ -308,7 +344,11 @@ fun TitleInspector(
                 design.plate,
             ) { setDesign(design.copy(plate = it)) }
             if (design.plate != TitlePlate.Off) {
-                ColorControl(stringResource(R.string.title_box_color), design.backing, memory, sample) { setDesign(design.copy(backing = it)) }
+                // The box's color and its opacity apart (YouRec/TitleInspector.swift:101-106).
+                ColorControl(stringResource(R.string.title_box_color), design.backing, memory, sample, editsOpacity = false) { setDesign(design.copy(backing = it)) }
+                Amount(stringResource(R.string.title_background_opacity), design.backing.alpha, 0.0..1.0) {
+                    setDesign(design.copy(backing = TitleInk(design.backing.rgb, (it * 255).roundToInt())))
+                }
                 Amount(stringResource(R.string.title_padding), design.padding, 0.0..0.8) { setDesign(design.copy(padding = it)) }
                 Amount(stringResource(R.string.title_radius), design.radius, 0.0..0.8) { setDesign(design.copy(radius = it)) }
             }
@@ -428,51 +468,88 @@ internal fun DurationPicker(range: ClosedFloatingPointRange<Double>, bounds: Clo
     }
 }
 
-/** A small picture of [words] in [design], as the title will be drawn. */
+/**
+ * A small picture of [words] in [design], as the title will be drawn: the
+ * words on one line, cut to 20 characters (YouRec/TitleInspector.swift:609-617).
+ */
 @Composable
 private fun Specimen(words: String, design: TitleDesign, modifier: Modifier = Modifier) {
     val assets = LocalContext.current.assets
-    // Letters 72 pixels tall on a made-up square picture, shown at half that size.
-    val bitmap = remember(words, design) { TitleRaster.styled(assets, words, design, 72.0 / 766, Size(766.0, 766.0)) }
-    Box(modifier.fillMaxWidth().height(32.dp), Alignment.CenterStart) {
-        if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.height(32.dp), alignment = Alignment.CenterStart, contentScale = ContentScale.Fit)
+    val line = words.split(' ', '\n', '\t').filter { it.isNotEmpty() }.joinToString(" ")
+    val excerpt = (if (line.length > 20) line.take(19) + "…" else line).ifEmpty { stringResource(R.string.title_specimen_default) }
+    // Letters 48 units tall in lines at most 560 wide, as the original's tiles, drawn at twice that for a sharp picture.
+    val bitmap = remember(excerpt, design) { StyledText(assets, excerpt, design, 48f, 560f).image(2f) }
+    Box(modifier.fillMaxWidth().height(54.dp).background(Color.Black).padding(horizontal = 9.dp, vertical = 3.dp), Alignment.Center) {
+        if (bitmap != null) Image(bitmap.asImageBitmap(), null, contentScale = ContentScale.Fit)
     }
 }
 
+/** A look in a gallery: its specimen over its name, lit and ticked when chosen (YouRec/TitleInspector.swift:553-572). */
+@Composable
+internal fun LookTile(name: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, specimen: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(9.dp)
+    Column(
+        modifier.clip(shape).background(Plain).border(1.5.dp, if (selected) Accent else Color.Transparent, shape).clickable(onClick = onClick)
+            .semantics { contentDescription = name; role = Role.Button; this.selected = selected },
+    ) {
+        specimen()
+        Row(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(horizontal = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (selected) Icon(Icons.Filled.CheckCircle, null, Modifier.size(14.dp), tint = Accent)
+        }
+    }
+}
+
+/**
+ * The Looks tab (YouRec/TitleInspector.swift:207-250): the four collections
+ * of built-in looks, six each, with the one the design matches ticked, then
+ * the saved styles and "Save as channel style".
+ */
 @Composable
 private fun Looks(appearance: TitleDesign?, design: TitleDesign, words: String, memory: TitleMemory, setDesign: (TitleDesign) -> Unit) {
-    val demo = words.trim().ifEmpty { stringResource(R.string.editor_title) }.replace('\n', ' ').take(48)
     val library = TitleLibrary.looks(memory.looks)
     var saving by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
+    // The look last chosen or saved, which stays ticked while the design is still the one it gave.
+    var chosen by remember { mutableStateOf<String?>(null) }
+    var browsed by remember { mutableStateOf<TitleLookCollection?>(null) }
     // Outline is a tool of its own: a look never changes it. A title that has no design yet shows a
     // look as it was made, without the dark outline such a title is drawn with.
     val applied = { look: TitleDesign -> (if (appearance == null) TitleDesign() else design).applyingLook(look) }
+    val builtIn = TitleDesign.looks.firstOrNull { appearance != null && applied(it.design) == appearance }
+    val matches = listOfNotNull(builtIn?.name) + library.filter { appearance != null && applied(it.design) == appearance }.map { it.id }
+    val selected = chosen?.takeIf { it in matches } ?: matches.firstOrNull()
+    val collection = browsed ?: builtIn?.collection ?: TitleLookCollection.Editorial
 
     @Composable
-    fun look(label: String, value: TitleDesign, modifier: Modifier) {
-        Column(
-            modifier.heightIn(min = 58.dp).clip(Rounded).background(if (appearance == applied(value)) Chosen else Plain).clickable { setDesign(applied(value)) }
-                .semantics { contentDescription = label; role = Role.Button }.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Specimen(demo, applied(value))
-            Text(label, color = Soft, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    fun look(id: String, label: String, value: TitleDesign, modifier: Modifier) {
+        val result = applied(value)
+        LookTile(label, id == selected, { setDesign(result); chosen = id }, modifier) { Specimen(words, result) }
+    }
+    val pick = stringResource(R.string.title_look_collection)
+    Box(Modifier.semantics { contentDescription = pick }) {
+        Segments(TitleLookCollection.entries.map { stringResource(collectionLabel(it)) to it }, collection) { browsed = it }
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // The tiles keep their width as text grows, as the original's scaled metric does.
+        val tile = TitleLookCollection.TILE_WIDTH * LocalDensity.current.fontScale
+        val columns = TitleLookCollection.columns(maxWidth.value.toDouble(), tile)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (row in TitleDesign.looks.filter { it.collection == collection }.chunked(columns)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (item in row) look(item.name, lookLabel(item.name)?.let { stringResource(it) } ?: item.name, item.design, Modifier.weight(1f))
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
         }
     }
     if (library.isNotEmpty()) {
         Text(stringResource(R.string.title_my_styles), color = Color.White, fontWeight = FontWeight.SemiBold)
         for (entry in library) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                look(entry.name, entry.design, Modifier.weight(1f))
+                look(entry.id, entry.name, entry.design, Modifier.weight(1f))
                 IconButton(onClick = { deleting = entry.id }) { Icon(Icons.Outlined.Delete, stringResource(R.string.title_delete_named, entry.name), tint = Color.White) }
             }
-        }
-    }
-    for (row in TitleDesign.looks.chunked(2)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((name, value) in row) look(lookLabel(name)?.let { stringResource(it) } ?: name, value, Modifier.weight(1f))
-            repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
     TextButton(onClick = { saving = true }, contentPadding = PaddingValues(horizontal = 4.dp)) {
@@ -491,7 +568,12 @@ private fun Looks(appearance: TitleDesign?, design: TitleDesign, words: String, 
                 }
             },
             confirmButton = {
-                TextButton(onClick = { memory.saveLooks(TitleLibrary.saving(memory.looks, name, design)); saving = false }, enabled = TitleLibrary.canSave(library, name)) {
+                TextButton(onClick = {
+                    val saved = TitleLibrary.saving(memory.looks, name, design)
+                    memory.saveLooks(saved)
+                    chosen = TitleLibrary.looks(saved).firstOrNull()?.id
+                    saving = false
+                }, enabled = TitleLibrary.canSave(library, name)) {
                     Text(stringResource(R.string.common_save))
                 }
             },
@@ -667,7 +749,7 @@ private fun Fill(design: TitleDesign, memory: TitleMemory, sample: suspend () ->
  * system color picker, which Android does not have.
  */
 @Composable
-private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, sample: suspend () -> Bitmap?, change: (TitleInk) -> Unit) {
+private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, sample: suspend () -> Bitmap?, editsOpacity: Boolean = true, change: (TitleInk) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val alpha = (ink.rgba and 0xff).toInt()
     val encoded = "%06X".format(ink.rgb)
@@ -675,7 +757,12 @@ private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, samp
     // Kept apart from the color: at no saturation or no brightness a color has forgotten its hue.
     var hsv by remember { mutableStateOf(FloatArray(3).also { android.graphics.Color.colorToHSV(ink.toColor(), it) }) }
     if ((android.graphics.Color.HSVToColor(hsv) and 0xffffff).toLong() != ink.rgb) hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(ink.toColor(), it) }
-    val select = { next: TitleInk -> change(next); memory.remember(next) }
+    // Without its own opacity, a color keeps the one it has, and is remembered opaque (YouRec/TitleInspector.swift:679-690).
+    val select = { next: TitleInk ->
+        val kept = if (editsOpacity) next else TitleInk(next.rgb, alpha)
+        change(kept)
+        memory.remember(if (editsOpacity) kept else TitleInk.opaque(kept.rgb))
+    }
     val scope = rememberCoroutineScope()
     var frame by remember { mutableStateOf<Bitmap?>(null) }
     var failed by remember { mutableStateOf(false) }
@@ -709,13 +796,14 @@ private fun ColorControl(title: String, ink: TitleInk, memory: TitleMemory, samp
                 Text(stringResource(R.string.title_set))
             }
         }
-        Amount(stringResource(R.string.title_opacity), ink.alpha, 0.0..1.0) { change(TitleInk(ink.rgb, (it * 255).roundToInt())) }
+        if (editsOpacity) Amount(stringResource(R.string.title_opacity), ink.alpha, 0.0..1.0) { change(TitleInk(ink.rgb, (it * 255).roundToInt())) }
         val palette = TextColor.entries.map(TitleInk::of)
-        val swatches = palette + TitleLibrary.recentColors(memory.colors).filter { it !in palette }
+        val swatches = (palette + TitleLibrary.recentColors(memory.colors).map { if (editsOpacity) it else TitleInk.opaque(it.rgb) }).distinct()
         for (row in swatches.chunked(7)) {
             Row {
                 for (color in row) {
-                    val label = stringResource(R.string.title_color_named, "%06X".format(color.rgb))
+                    val label = if (color.alpha < 1) stringResource(R.string.title_color_named_opacity, "%06X".format(color.rgb), "${(color.alpha * 100).roundToInt()}%")
+                    else stringResource(R.string.title_color_named, "%06X".format(color.rgb))
                     Box(Modifier.weight(1f).height(44.dp).clickable { select(color) }.semantics { contentDescription = label; role = Role.Button }, Alignment.Center) {
                         Box(Modifier.size(24.dp).background(Color(color.toColor()), CircleShape).border(1.dp, Color.Gray, CircleShape))
                     }
