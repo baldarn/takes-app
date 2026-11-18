@@ -729,8 +729,11 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
             val (clip, start) = shown ?: return@mapIndexed null
             if (size == null || (clip.crop == null && clip.mirror == null)) return@mapIndexed null
             val framing: (FrameSize) -> PictureFrame = { frame ->
-                // The framing in force at the frame, inside its active range, as the exports draw it.
-                PictureFraming.frame(clip, (playhead - start).coerceIn(0.0, clip.duration), size, frame)
+                // The framing in force at the frame, inside its active range, as the exports draw it: at the
+                // picture's own time, so the last frame shown at the end is framed as that frame and not at the
+                // clip's end, which an active range leaves out.
+                val shownAt = RenderPlan.pictureTime(playhead, pictureEnd) - start
+                PictureFraming.frame(clip, shownAt.coerceIn(0.0, RenderPlan.pictureTime(clip.duration, clip.duration)), size, frame)
             }
             return@mapIndexed framing
         }
