@@ -111,7 +111,8 @@ internal class Stabilizing(
 
     /** The edit with the level chosen on every clip it applies to, null when nothing changes. */
     fun applied(): EditState? {
-        val id = targets.firstNotNullOfOrNull { it.stabilization?.id } ?: newID()
+        // One saved before ids has its clip's, as the original names it (YouRec/ScopedEffect.swift:37-41 at 57e5d91).
+        val id = targets.firstNotNullOfOrNull { clip -> clip.stabilization?.let { it.id ?: clip.id } } ?: newID()
         val base = scope?.state ?: from
         var state = base
         var changed = false

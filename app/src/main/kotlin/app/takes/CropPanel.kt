@@ -348,6 +348,7 @@ internal fun CropPanel(
     headerModifier: Modifier = Modifier, playbackModifier: Modifier = Modifier,
     playhead: () -> Double = { 0.0 }, playing: Boolean = false,
     review: (Boolean) -> Unit = {}, togglePlay: () -> Unit = {}, seek: (Double) -> Unit = {},
+    shapeLocked: Boolean = false,
 ) {
     val draft = work.draft
     val crop = draft.crop
@@ -384,7 +385,8 @@ internal fun CropPanel(
                     Text(stringResource(R.string.crop_shape_whole), color = Soft, fontSize = 12.sp)
                 }
                 val shown = work.shapeChoice?.let { stringResource(it.label) } ?: stringResource(R.string.crop_shape_custom)
-                if (ready) {
+                // Not for a part of a crop edited from its badge: the shape is the whole movie's (YouRec/CropEditor.swift:485 at 57e5d91).
+                if (ready && !shapeLocked) {
                     Capsule(shown, stringResource(R.string.crop_shape) + ": " + shown, trailing = Icons.Filled.ExpandMore) { close ->
                         for (choice in OutputShape.entries) {
                             DropdownMenuItem({ Text(stringResource(choice.label)) }, { close(); reshape(choice) }, modifier = Modifier.semantics { selected = choice == work.shapeChoice })

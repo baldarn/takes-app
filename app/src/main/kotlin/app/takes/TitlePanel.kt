@@ -228,7 +228,7 @@ private class TitleMemory(context: Context) {
 @Composable
 fun TitlePanel(
     draft: TextOverlay, existing: TextOverlay?, change: (TextOverlay) -> Unit,
-    range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, setRange: (ClosedFloatingPointRange<Double>) -> Unit,
+    range: ClosedFloatingPointRange<Double>, bounds: ClosedFloatingPointRange<Double>, setRange: ((ClosedFloatingPointRange<Double>) -> Unit)?,
     replay: (exit: Boolean, title: TextOverlay) -> Unit, sample: suspend () -> Bitmap?,
     done: () -> Unit, remove: () -> Unit, cancel: () -> Unit, modifier: Modifier = Modifier, canvas: Pair<Int, Int>? = null,
 ) {
@@ -313,7 +313,8 @@ fun TitlePanel(
                     CardControls(group, sample, ::changeGroup)
                 }
             }
-            DurationPicker(range, bounds, setRange)
+            // Not for a part of a title edited from its badge, which keeps its range (YouRec/EditorTools.swift:1670 at 57e5d91).
+            if (setRange != null) DurationPicker(range, bounds, setRange)
             if (editsText) {
                 val style = if (group == null) draft.appearance else if (isLabel) group.labelStyle else group.headlineStyle
                 TitleInspector(

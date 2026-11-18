@@ -7,6 +7,11 @@
     <string name="effect_edit_this_audio_clip">Modifica su questa clip audio</string>
     <string name="effect_edit_selected_clips">Modifica sulle clip selezionate</string>
     <string name="effect_edit_marked_range">Modifica nell\'intervallo segnato</string>
+    <string name="effect_scope_this_clip">Questa clip · %1$s–%2$s s</string>
+    <string name="effect_scope_this_audio_clip">Questa clip audio · %1$s–%2$s s</string>
+    <string name="effect_scope_selected_clips">Clip selezionate · %1$s–%2$s s</string>
+    <string name="effect_scope_marked_range">Intervallo segnato · %1$s–%2$s s</string>
+    <string name="effect_scope_entire">Tutto l\'effetto · %1$s–%2$s s</string>
     <string name="effect_remove_this_clip">Rimuovi da questa clip</string>
     <string name="effect_remove_this_audio_clip">Rimuovi da questa clip audio</string>
     <string name="effect_remove_selected_clips">Rimuovi dalle clip selezionate</string>
