@@ -206,6 +206,9 @@ import app.takes.core.TransitionGeometry
 import app.takes.core.TransitionLayout
 import app.takes.core.TransitionScene
 import app.takes.core.TransitionTiming
+import app.takes.core.grade
+import app.takes.core.gradeTime
+import app.takes.core.resolvingEffects
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import kotlinx.coroutines.Dispatchers
@@ -640,13 +643,21 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val grade: (TimelineClip, Double) -> android.graphics.RenderEffect? = grade@{ clip, offset ->
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@grade null
             val log = logProfiles[clip.sourceID]
-            if (clip.color == null && log == null) return@grade null
-            val preview = made.getOrPut((clip.color ?: ColorSettings()) to log) { ColorLuts.Preview(clip.color ?: ColorSettings(), folder, log) }
+            // Graded over parts of it, the grade in force at the frame (YouRec/VideoToolCompositor.swift:130-134).
+            val graded = clip.grade(clip.gradeTime(offset.coerceIn(0.0, clip.duration)))
+            if (graded == null && log == null) return@grade null
+            val preview = made.getOrPut((graded ?: ColorSettings()) to log) { ColorLuts.Preview(graded ?: ColorSettings(), folder, log) }
             if (!preview.moves) preview.effect() else preview.effect(GradeMotion.fraction(clip, offset) ?: 0.0)
         }
         grade
     }
-    val deckColors = shownClips.map { shown -> shown?.let { (clip, _) -> logProfiles[clip.sourceID].let { log -> if (clip.color == null && log == null) null else (clip.color ?: ColorSettings()) to log } } }
+    val deckColors = shownClips.map { shown ->
+        shown?.let { (clip, start) ->
+            // Graded over parts of it, the grade in force at the playhead (YouRec/VideoToolCompositor.swift:130-134).
+            val graded = if (clip.colorRegions == null) clip.color else clip.grade(clip.gradeTime((playhead - start).coerceIn(0.0, clip.duration)))
+            logProfiles[clip.sourceID].let { log -> if (graded == null && log == null) null else (graded ?: ColorSettings()) to log }
+        }
+    }
     // The crop a clip shows at the playhead and the source second it is sampled at: its own, or while the Crop tool
     // is open what the tool would leave on it.
     val cropFor = { clip: TimelineClip, start: Double ->
@@ -1017,7 +1028,8 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         // While the Video effects tool is open, its draft (or nothing, comparing with the original).
                         val work = effecting
                         val sourceTime = clip.sourceTime(offset)
-                        val shown = if (work != null) work.shown(clip, sourceTime, playhead) else clip.videoEffects
+                        val shown = if (work != null) work.shown(clip, sourceTime, playhead)
+                            else if (clip.effectWindows == null) clip.videoEffects else clip.resolvingEffects(clip.gradeTime(offset)).videoEffects
                         val assets = SourceAssets(files[clip.sourceID], folder, clip, wait = false, context = context, media = project.sources.firstOrNull { it.id == clip.sourceID }) { palettesReady++ }
                         palettesReady.let { } // read, so that the picture is drawn again once a palette or a person mask is ready
                         restored = effectPreviews?.get(deck)?.nightFix(shown, sourceTime)

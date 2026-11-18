@@ -34,7 +34,7 @@ object GradeMotion {
      * How far from A to B the grade of [clip] is, [offset] timeline seconds into the clip: its motion sampled at the
      * source second shown there, as a moving crop is ([PictureFraming.motionTime]); null when [grade] does not move.
      */
-    fun fraction(clip: TimelineClip, offset: Double, grade: ColorSettings? = clip.color): Double? =
+    fun fraction(clip: TimelineClip, offset: Double, grade: ColorSettings? = clip.grade(clip.gradeTime(offset.coerceIn(0.0, clip.duration)))): Double? =
         grade?.motion?.fraction(PictureFraming.motionTime(clip, offset.coerceIn(0.0, clip.duration)))
 
     /** SDR video's light of a display-encoded value (BT.709), the light the original's dissolve mixes in. */

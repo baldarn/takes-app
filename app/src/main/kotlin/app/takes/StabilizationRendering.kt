@@ -17,6 +17,8 @@ import app.takes.core.matrixValues
 import app.takes.core.normalized
 import app.takes.core.stabilizationEnd
 import app.takes.core.stabilizationStart
+import app.takes.core.framingAt
+import app.takes.core.scopedFraming
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
@@ -76,7 +78,9 @@ class StabilizedFramingEffect(
 object StabilizationFrames {
     /** The correction of the frame at source second [source] of [clip] in upright pixels: from its plan, timed from the reference start. */
     fun correction(plan: StabilizationPlan, clip: TimelineClip, source: Double, rotation: Int): Affine =
-        plan.uprightTransform(source - clip.stabilizationStart, rotation)
+        // None outside the stabilisation's active range or windows (YouRec/VideoToolCompositor.swift:221-222).
+        if (clip.scopedFraming && clip.framingAt(source).stabilization == null) Affine.IDENTITY
+        else plan.uprightTransform(source - clip.stabilizationStart, rotation)
 
     /** The clips that are stabilised, with their plan where it is measured, for an export. Waits for every one. */
     suspend fun plans(

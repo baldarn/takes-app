@@ -78,8 +78,9 @@ object ImageOverlays {
      * (YouRec/VideoToolCompositor.swift:169-173, :402-410).
      */
     fun shownAt(clip: TimelineClip, offset: Double): List<ImageOverlay> {
-        val images = clip.images ?: return emptyList()
         val source = clip.sourceTime(offset)
+        // A picture with windows shows only inside them (YouRec/ScopedEffect.swift:95-108).
+        val images = (if (clip.effectWindows == null) clip.images else clip.resolvingEffects(clip.gradeTime(offset)).images) ?: return emptyList()
         val clock = clip.frozenFrame?.let { PictureFraming.motionTime(it, offset) } ?: source
         return images.filter { source >= it.start - EDGE && source < it.end - EDGE }.map { it.at(clock) }
     }

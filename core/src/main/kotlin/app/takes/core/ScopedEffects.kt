@@ -348,6 +348,26 @@ fun TimelineClip.recipe(offset: Double): TimelineClip {
     )
 }
 
+/** Whether the clip's crop, flip or stabilisation applies to part of it only, by an active range, a window or a variant. */
+val TimelineClip.scopedFraming: Boolean
+    get() = effectWindows != null || framingVariants != null ||
+        crop?.activeRange != null || mirror?.activeRange != null || stabilization?.activeRange != null
+
+/**
+ * The crop, flip and stabilisation in force at [time], a source second (or a
+ * held frame's motion clock): those of the recipe in force there, each only
+ * inside its active range (YouRec/VideoToolCompositor.swift:204-222).
+ */
+fun TimelineClip.framingAt(time: Double): TimelineClip {
+    if (!scopedFraming) return this
+    val resolved = resolvingEffects(time)
+    return resolved.copy(
+        crop = resolved.crop?.takeIf { it.activeRange?.let { range -> time in range } ?: true },
+        mirror = resolved.mirror?.takeIf { it.activeRange?.let { range -> time in range } ?: true },
+        stabilization = resolved.stabilization?.takeIf { it.activeRange?.let { range -> time in range } ?: true },
+    )
+}
+
 /** What a project may hold of a clip's scoped effects, from a recording of [sourceDuration] seconds (YouRec/Project.swift:504-548). */
 object ScopedEffects {
     fun valid(clip: TimelineClip, sourceDuration: Double): Boolean {

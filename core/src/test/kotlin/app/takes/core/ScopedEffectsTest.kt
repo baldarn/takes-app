@@ -3,6 +3,7 @@ package app.takes.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -223,5 +224,42 @@ class ScopedEffectsTest {
         val ids = setOf(pasted.crop!!.id, pasted.framingVariants!!.single().id, pasted.colorRegions!!.single().grade.id)
         assertTrue(ids.none { it in setOf("P", "L", "W") })
         assertEquals(setOf(pasted.crop!!.id, pasted.framingVariants!!.single().id), pasted.effectWindows!!.keys)
+    }
+
+    // MARK: What a frame draws
+
+    @Test fun aFrameIsFramedOnlyInsideTheActiveRangeAndTheWindows() {
+        val source = Size(1920.0, 1080.0)
+        val canvas = Size(1920.0, 1080.0)
+        val ranged = clip().copy(
+            crop = CropSettings(id = "P", zoom = 2.0, activeRange = SourceInterval(1.0, 3.0)),
+            mirror = MirrorSettings(id = "M", horizontal = true), effectWindows = mapOf("M" to listOf(SourceInterval(0.0, 1.0))),
+        )
+        val outside = PictureFraming.frame(ranged, 0.5, source, canvas)
+        assertNull(outside.crop)
+        assertEquals("M", outside.mirror?.id)
+        val inside = PictureFraming.frame(ranged, 2.0, source, canvas)
+        assertEquals(2.0, inside.crop!!.zoom, 0.0)
+        assertNull(inside.mirror)
+        // A tool that draws its own flip keeps it.
+        val drawn = MirrorSettings(id = "D", vertical = true)
+        assertEquals("D", PictureFraming.frame(ranged, 2.0, source, canvas, mirror = drawn).mirror?.id)
+    }
+
+    @Test fun titlesPicturesAndGradesShowOnlyWhereTheyApply() {
+        val title = TextOverlay(id = "T", text = "Hi", start = 0.0, end = 4.0)
+        val picture = ImageOverlay(id = "I", filename = "image-I.png", start = 0.0, end = 4.0)
+        val warm = ColorSettings(id = "W", look = ColorLook.Warm).let { it.copy(motion = EffectAnimation(it.pose, 1.0)) }
+        val windowed = clip().copy(
+            texts = listOf(title), images = listOf(picture), colorRegions = listOf(ColorRegion(2.0, 3.0, warm)),
+            effectWindows = mapOf("T" to listOf(SourceInterval(1.0, 2.0)), "I" to listOf(SourceInterval(3.0, 4.0))),
+        )
+        assertEquals(listOf(title), TimelineEditing.textsAt(windowed, 1.5))
+        assertEquals(emptyList<TextOverlay>(), TimelineEditing.textsAt(windowed, 2.5))
+        assertEquals(listOf("I"), ImageOverlays.shownAt(windowed, 3.5).map { it.id })
+        assertEquals(emptyList<ImageOverlay>(), ImageOverlays.shownAt(windowed, 1.5))
+        // The grade's motion is sampled where the grade is in force, and nowhere else.
+        assertNull(GradeMotion.fraction(windowed, 1.5))
+        assertNotNull(GradeMotion.fraction(windowed, 2.5))
     }
 }
