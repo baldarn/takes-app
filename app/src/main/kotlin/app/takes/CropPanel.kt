@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import app.takes.core.at
+import app.takes.core.framingAt
 import app.takes.core.matrixValues
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -188,8 +189,9 @@ internal data class Cropping(
 
     /** The flip to draw on [clip] where it shows [sourceTime] at [time]: on the tool's clips the one being worked on once changed. */
     fun mirrorShown(clip: TimelineClip, sourceTime: Double, time: Double): MirrorSettings? {
-        val piece = piece(clip, sourceTime, time) ?: return clip.mirror
-        return if (mirrorChanged && piece.clip.id in on.ids) mirror.takeIf { it.horizontal || it.vertical } else piece.clip.mirror
+        // Elsewhere the flip in force at the frame, inside its active range (YouRec/VideoToolCompositor.swift:216-218).
+        val piece = piece(clip, sourceTime, time) ?: return clip.framingAt(sourceTime).mirror
+        return if (mirrorChanged && piece.clip.id in on.ids) mirror.takeIf { it.horizontal || it.vertical } else piece.clip.framingAt(sourceTime).mirror
     }
 
     /** The flip of the clip the controls measure against at [time], for the touches on the picture. */
@@ -214,10 +216,11 @@ internal data class Cropping(
      * A range cuts clips, so the piece is found by the footage it shows.
      */
     fun shown(clip: TimelineClip, sourceTime: Double, time: Double): CropSettings? {
-        val piece = piece(clip, sourceTime, time) ?: return clip.crop
-        if (piece.clip.id !in on.ids) return piece.clip.crop
+        // What a clip has is the crop in force at the frame, inside its active range (YouRec/VideoToolCompositor.swift:204-215).
+        val piece = piece(clip, sourceTime, time) ?: return clip.framingAt(sourceTime).crop
+        if (piece.clip.id !in on.ids) return piece.clip.framingAt(sourceTime).crop
         // Until something is changed every clip shows what it has; one without a crop fills the frame, as applying leaves it.
-        if (!draft.framingChanged && !draft.animationChanged) return piece.clip.crop ?: CropSettings(id = draft.crop.id)
+        if (!draft.framingChanged && !draft.animationChanged) return if (piece.clip.crop == null) CropSettings(id = draft.crop.id) else piece.clip.framingAt(sourceTime).crop
         return draft.displayed(sourceTime, piece.clip.playbackSpans, piece.start - on.start, piece.clip.crop?.motion)
     }
 
