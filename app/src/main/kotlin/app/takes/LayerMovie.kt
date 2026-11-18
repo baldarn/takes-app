@@ -132,7 +132,8 @@ class LayerMovie(
                 )
             }.build()
         }
-        val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }
+        // Where each picture's footage lies in the frame: all of it when the piece of it playing is cropped, else fitted inside it.
+        val content = { index: Int, offset: Double -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].content, offset) }
         val drawn = buildList<Effect> {
             add(FrameTimeEffect { Math.round((opens + Math.round(it * rate / 1e6)) * 1e6 / rate) })
             add(LayersEffect(plan, picture, lanes, columns, perTransition, content, titled = true, hdr = hdr, folder = luts))

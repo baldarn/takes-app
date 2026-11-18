@@ -427,6 +427,22 @@ data class RenderPlan(
             return Rect((canvas.width - source.width * scale) / 2, (canvas.height - source.height * scale) / 2, source.width * scale, source.height * scale)
         }
 
+        /**
+         * Whether a split screen takes [clip], [offset] timeline seconds into it, as filling the frame: whether the
+         * piece of it that plays there is cropped. The original crops each side of a split to its layer's source
+         * mapped through the layer's transform (YouRec/TransitionRenderer.swift:293-297, used at
+         * YouRec/VideoToolCompositor.swift:305 and :347), a transform made once per playback piece from the piece's
+         * crop as saved (YouRec/MediaRenderer.swift:299-308): the pieces are cut at the edges of the clip's effect
+         * windows, each with the recipes in force there, its variants in their slots (YouRec/VideoTools.swift:431-447,
+         * YouRec/ScopedEffect.swift:94-132), while a crop's own active range and its motion are left to the frame's
+         * drawing (YouRec/VideoToolCompositor.swift:203-216) and do not change the bounds.
+         */
+        fun splitCropped(clip: TimelineClip, offset: Double): Boolean = clip.resolvingEffects(clip.gradeTime(offset)).crop != null
+
+        /** Where [clip]'s picture lies in a frame of [canvas] pixels in a split screen, [offset] timeline seconds into it ([splitCropped]). */
+        fun content(canvas: Size, source: Size?, clip: TimelineClip, offset: Double): Rect =
+            content(canvas, source, cropped = splitCropped(clip, offset))
+
         /** The entries of a sequence that plays [pieces] at their times and nothing between them, up to [total]. */
         private fun <T> spaced(pieces: List<T>, total: Double, start: (T) -> Double, end: (T) -> Double, entry: (T) -> List<Entry>): List<Entry> {
             val entries = mutableListOf<Entry>()

@@ -67,7 +67,7 @@ class LayerStage(
 ) {
     private val lanes = plan.lanes
     private val rows = (lanes + columns - 1) / columns
-    private val program: GlShaderProgram = LayersEffect(plan, Size(width, height), lanes, columns, { framesPerSecond }, { Rect(0.0, 0.0, width.toDouble(), height.toDouble()) }, titled, hdr = hdr, folder = folder)
+    private val program: GlShaderProgram = LayersEffect(plan, Size(width, height), lanes, columns, { framesPerSecond }, { _, _ -> Rect(0.0, 0.0, width.toDouble(), height.toDouble()) }, titled, hdr = hdr, folder = folder)
         .toGlShaderProgram(bench.context, /* useHdr = */ false)
     private var output: GlTextureInfo? = null
     private var failure: VideoFrameProcessingException? = null
@@ -359,7 +359,7 @@ class LayerPixelCases(private val bench: Bench) {
             app.takes.core.TransitionScene.Source.Clip(0, 0, 0.0), app.takes.core.TransitionScene.Source.Clip(1, 1, 0.0),
             app.takes.core.TransitionPicture.frame(settings, 0.5, canvas), 0.5, 0.5,
         )
-        val scene = SceneDrawing.of(moment, width.toFloat(), height.toFloat(), { (it as app.takes.core.TransitionScene.Source.Clip).deck.toFloat() }) { Rect(0.0, 0.0, canvas.width, canvas.height) }
+        val scene = SceneDrawing.of(moment, width.toFloat(), height.toFloat(), { (it as app.takes.core.TransitionScene.Source.Clip).deck.toFloat() }) { _, _ -> Rect(0.0, 0.0, canvas.width, canvas.height) }
         val drawing = LayerDrawing(scene, true, 0, FloatArray(LayerDrawing.MOST * LayerDrawing.STRIDE))
         val lanes = Bitmap.createBitmap(width, 2 * height, Bitmap.Config.ARGB_8888)
         Canvas(lanes).apply {

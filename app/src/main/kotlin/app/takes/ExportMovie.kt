@@ -229,8 +229,8 @@ class ExportMovie(
         }
         // Titles are drawn by the transition effect, with the picture of their clip; subtitles once, over the finished picture.
         val written = listOfNotNull(plan.subtitles?.let { SubtitleOverlay(plan.captions, it, canvas.first, canvas.second, context.assets, hdr) })
-        // Where each clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
-        val content = { index: Int -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.pictures[index].crop != null) }
+        // Where each clip's own picture lies in the frame: all of it when the piece of it playing is cropped, else fitted inside it.
+        val content = { index: Int, offset: Double -> RenderPlan.content(frame, size(plan.pictures[index].sourceID), plan.clips[index], offset) }
         val drawn = buildList<Effect> {
             // The clock's times are put on the movie's frame grid, at the movie's own time, before anything reads
             // them: Media3 counts them in a frame length it keeps with seven digits, and they fall behind the grid

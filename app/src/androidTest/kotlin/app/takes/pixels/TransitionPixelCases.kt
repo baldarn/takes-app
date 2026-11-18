@@ -12,9 +12,12 @@ import android.media.ImageReader
 import android.os.Build
 import app.takes.SceneDrawing
 import app.takes.TransitionPreviewShader
+import app.takes.core.CropSettings
 import app.takes.core.EditState
 import app.takes.core.Rect
+import app.takes.core.RenderPlan
 import app.takes.core.Size
+import app.takes.core.SourceInterval
 import app.takes.core.TimelineClip
 import app.takes.core.TimelineEditing
 import app.takes.core.TransitionAxis
@@ -61,8 +64,10 @@ class TransitionPixelCases(private val bench: Bench) {
 
     private fun clip(id: String, seconds: Double = SECONDS) = TimelineClip(id = id, sourceID = "S", start = 0.0, end = seconds)
 
-    private fun laid(settings: TransitionSettings, form: Form, seconds: Double = SECONDS): Laid? {
-        val state = EditState(if (form == Form.Between) listOf(clip("A", seconds), clip("B", seconds)) else listOf(clip("A", seconds)))
+    private fun laid(settings: TransitionSettings, form: Form, seconds: Double = SECONDS, windowed: Boolean = false): Laid? {
+        // Windowed: the first clip cropped over its first two seconds only, a part of it the transition does not reach.
+        val first = clip("A", seconds).let { if (windowed) it.copy(crop = CropSettings(id = "K", zoom = 2.0), effectWindows = mapOf("K" to listOf(SourceInterval(0.0, 2.0)))) else it }
+        val state = EditState(if (form == Form.Between) listOf(first, clip("B", seconds)) else listOf(first))
         val clips = TimelineEditing.setJoin(state, form.join, settings)?.clips ?: return null
         return TimelineEditing.join(clips, form.join)?.let { Laid(clips, it) }
     }
@@ -79,19 +84,27 @@ class TransitionPixelCases(private val bench: Bench) {
      * One frame of [settings] at [progress] in [form], drawn by the effect
      * and compared with the recipe. [outgoing] and [incoming] are the
      * pictures of the two clips; [content] is where the outgoing clip's
-     * picture lies in the frame when it does not fill it.
+     * picture lies in the frame when it does not fill it. With [windowed] the
+     * outgoing clip is cropped over a part of it the transition does not reach,
+     * and where it lies is asked of the core at each frame, as the export asks
+     * ([RenderPlan.content]): [content] must be what the core answers there.
      */
     private fun Checks.drawn(
         settings: TransitionSettings, form: Form, progress: Double, outgoing: Picture, incoming: Picture,
-        width: Int = WIDTH, height: Int = HEIGHT, content: Rect? = null,
+        width: Int = WIDTH, height: Int = HEIGHT, content: Rect? = null, windowed: Boolean = false,
     ): Picture? {
-        val laid = laid(settings, form)
+        val laid = laid(settings, form, windowed = windowed)
         check(laid != null) { "The core does not lay this transition out" }
         if (laid == null) return null
         val whole = Rect(0.0, 0.0, width.toDouble(), height.toDouble())
         // One export for all the moments of a transition: making the effect compiles the shader, which a software renderer is slow at.
-        val stage = stages.getOrPut(listOf(settings, form, outgoing, incoming, width, height, content)) {
-            Stage(bench, laid.clips, width, height, content = content?.let { lies -> { index: Int -> if (index == 0 && form != Form.Opening) lies else whole } }) { index, _ ->
+        val canvas = Size(width.toDouble(), height.toDouble())
+        val lies: ((Int, Double) -> Rect)? = when {
+            windowed -> { index, offset -> if (index == 0 && form != Form.Opening) RenderPlan.content(canvas, Size(width - 80.0, height.toDouble()), laid.clips[0], offset) else whole }
+            else -> content?.let { lies -> { index, _ -> if (index == 0 && form != Form.Opening) lies else whole } }
+        }
+        val stage = stages.getOrPut(listOf(settings, form, outgoing, incoming, width, height, content, windowed)) {
+            Stage(bench, laid.clips, width, height, content = lies) { index, _ ->
                 if (form == Form.Opening || index == 1) incoming else outgoing
             }
         }
@@ -190,8 +203,8 @@ class TransitionPixelCases(private val bench: Bench) {
     }
 
     /** Other settings of a style, between two clips at the three moments inside the transition. */
-    private fun variant(name: String, settings: TransitionSettings, outgoing: Picture, incoming: Picture, content: Rect? = null): List<Case> =
-        listOf(0.25, 0.5, 0.75).map { progress -> Case("$name p=$progress") { drawn(settings, Form.Between, progress, outgoing, incoming, content = content) } }
+    private fun variant(name: String, settings: TransitionSettings, outgoing: Picture, incoming: Picture, content: Rect? = null, windowed: Boolean = false): List<Case> =
+        listOf(0.25, 0.5, 0.75).map { progress -> Case("$name p=$progress") { drawn(settings, Form.Between, progress, outgoing, incoming, content = content, windowed = windowed) } }
 
     private fun variants(): List<Case> =
         variant("Wipe with a hard edge", TransitionSettings(id = "T", style = TransitionStyle.Wipe, duration = 1.0, hardEdge = true), quadsA, quadsB) +
@@ -201,6 +214,12 @@ class TransitionPixelCases(private val bench: Bench) {
             variant(
                 "Split of a clip with bars beside it", TransitionSettings(id = "T", style = TransitionStyle.Split, duration = 1.0, divider = 0.41),
                 Picture(WIDTH, HEIGHT) { x, y -> if (x < 40 || x >= 280) 0 else placesA.at(x, y) }, placesB, content = Rect(40.0, 0.0, 240.0, HEIGHT.toDouble()),
+            ) +
+            // Its crop windowed over a part the transition does not reach: the piece playing is not cropped, so the
+            // split takes it with its bars, as the original's layer transform of that piece (YouRec/TransitionRenderer.swift:293-297).
+            variant(
+                "Split of a clip cropped only before it", TransitionSettings(id = "T", style = TransitionStyle.Split, duration = 1.0, divider = 0.41),
+                Picture(WIDTH, HEIGHT) { x, y -> if (x < 40 || x >= 280) 0 else placesA.at(x, y) }, placesB, content = Rect(40.0, 0.0, 240.0, HEIGHT.toDouble()), windowed = true,
             ) +
             variant("Hitchcock, highlights first", TransitionSettings(id = "T", style = TransitionStyle.Hitchcock, duration = 1.0, highlightsFirst = true), ramps, quadsB) +
             variant("Whip downward reversed (top / bottom)", TransitionSettings(id = "T", style = TransitionStyle.Whip, duration = 1.0, axis = TransitionAxis.Vertical, reverse = true), blocksA, blocksB) +
@@ -386,7 +405,7 @@ class TransitionPixelCases(private val bench: Bench) {
         val moment = app.takes.core.TransitionScene.Moment(
             app.takes.core.TransitionScene.Source.Clip(0, 0, 0.0), app.takes.core.TransitionScene.Source.Clip(1, 1, 0.0), frame, 0.5, 0.5,
         )
-        val drawing = SceneDrawing.of(moment, width.toFloat(), height.toFloat(), { (it as app.takes.core.TransitionScene.Source.Clip).deck.toFloat() }) { Rect(0.0, 0.0, canvas.width, canvas.height) }
+        val drawing = SceneDrawing.of(moment, width.toFloat(), height.toFloat(), { (it as app.takes.core.TransitionScene.Source.Clip).deck.toFloat() }) { _, _ -> Rect(0.0, 0.0, canvas.width, canvas.height) }
         val radius = drawing.blurRadius.toDouble()
         note("radius %.1f px: %d samples, %.2f px apart, spread by %.2f px".format(
             radius, TransitionGeometry.panSamples(radius, maxOf(width, height).toDouble()),

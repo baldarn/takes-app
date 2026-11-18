@@ -79,9 +79,9 @@ object SplitViews {
     /**
      * The split screen of [moment], drawn on [canvas] from [lanes] views ([of]); null when its pair is not a
      * split screen, or when its two sides are not each on a lane of its own or the fill color. [content] is where
-     * the footage of a picture, by its index, lies in its view.
+     * the footage of a picture, by its index and the timeline seconds into it, lies in its view.
      */
-    fun layered(moment: LayerPlan.Moment, canvas: Size, lanes: Int, content: (Int) -> Rect): Layered? {
+    fun layered(moment: LayerPlan.Moment, canvas: Size, lanes: Int, content: (Int, Double) -> Rect): Layered? {
         val layer = moment.layers.indexOfLast { it is LayerPlan.Layer.Mixed }.takeIf { it >= 0 } ?: return null
         val pair = moment.layers[layer] as LayerPlan.Layer.Mixed
         val frame = pair.frame as? TransitionFrame.Split ?: return null
@@ -90,8 +90,8 @@ object SplitViews {
         if (listOfNotNull(first, second).any { it !in 0 until lanes } || (first != null && first == second)) return null
         val whole = Rect(0.0, 0.0, canvas.width, canvas.height)
         fun lies(source: TransitionScene.Source) = when (source) {
-            is TransitionScene.Source.Clip -> content(source.index)
-            is TransitionScene.Source.Held -> content(source.index)
+            is TransitionScene.Source.Clip -> content(source.index, source.offset)
+            is TransitionScene.Source.Held -> content(source.index, source.offset)
             is TransitionScene.Source.Fill -> whole
         }
         return Layered(layer, frame, of(frame, canvas, lies(pair.first), lies(pair.second)), first, second)

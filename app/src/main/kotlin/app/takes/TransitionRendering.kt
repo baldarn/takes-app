@@ -101,9 +101,10 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
         /**
          * The drawing of [moment] on a picture of [width] by [height] pixels.
          * [kind] says where the renderer has each side; [content] is where a
-         * clip's own picture lies inside the frame, without the bars around it.
+         * clip's own picture lies inside the frame, without the bars around it,
+         * by its index and the timeline seconds into it.
          */
-        fun of(moment: TransitionScene.Moment, width: Float, height: Float, kind: (TransitionScene.Source) -> Float, content: (Int) -> Rect): SceneDrawing {
+        fun of(moment: TransitionScene.Moment, width: Float, height: Float, kind: (TransitionScene.Source) -> Float, content: (Int, Double) -> Rect): SceneDrawing {
             val values = FloatArray(24)
             fun put(row: Int, vararg numbers: Double) = numbers.forEachIndexed { index, number -> values[row * 4 + index] = number.toFloat() }
             val fill = (listOf(moment.first, moment.second).filterIsInstance<TransitionScene.Source.Fill>().firstOrNull()?.color
@@ -129,8 +130,8 @@ class SceneDrawing(val mode: Int, val kindA: Float, val kindB: Float, val fill: 
                     val whole = Rect(0.0, 0.0, width.toDouble(), height.toDouble())
                     // Each clip without the bars around it; a side with no clip is the fill, everywhere.
                     fun lies(source: TransitionScene.Source) = when (source) {
-                        is TransitionScene.Source.Clip -> content(source.index)
-                        is TransitionScene.Source.Held -> content(source.index)
+                        is TransitionScene.Source.Clip -> content(source.index, source.offset)
+                        is TransitionScene.Source.Held -> content(source.index, source.offset)
                         is TransitionScene.Source.Fill -> whole
                     }
                     // The core counts y upward from the bottom; the renderers count it downward from the top.
@@ -693,7 +694,7 @@ class DecksCompositor(private val canvas: Size, private val decks: Int, private 
  * transition combined. The input is the frame [DecksCompositor] makes of the
  * [decks], one or two. [frames] is the frame rate of the movie
  * ([RenderPlan.frameRate]) and [content] where a clip's picture lies in the
- * frame.
+ * frame, by its index and the timeline seconds into it.
  *
  * With [titled], the titles are drawn here, by [TitlePainter] as the preview
  * draws them ([TitleTextures]): each clip's into the picture of its side before
@@ -706,14 +707,14 @@ class DecksCompositor(private val canvas: Size, private val decks: Int, private 
  */
 class TransitionEffect(
     private val plan: RenderPlan, private val canvas: Size, private val decks: Int,
-    private val frames: (TransitionLayout.Join) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
+    private val frames: (TransitionLayout.Join) -> Double, private val content: (Int, Double) -> Rect, private val titled: Boolean = false,
     /** Whether the decks are HLG in BT.2020, an HDR movie's ([HdrMovie]): the fill and the titles are carried into it. */
     private val hdr: Boolean = false,
     /** The project's folder, which holds the pictures laid over clips; none are drawn without it. */
     private val folder: java.io.File? = null,
 ) : GlEffect {
     /** The effect of [clips] by themselves, planned as an export plans them. */
-    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int) -> Rect, titled: Boolean = false, hdr: Boolean = false, folder: java.io.File? = null) :
+    constructor(clips: List<TimelineClip>, canvas: Size, decks: Int, frames: (TransitionLayout.Join) -> Double, content: (Int, Double) -> Rect, titled: Boolean = false, hdr: Boolean = false, folder: java.io.File? = null) :
         this(TrackRenderPlan.of(EditState(clips)), canvas, decks, frames, content, titled, hdr, folder)
 
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = Program(context.assets)

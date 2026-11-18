@@ -705,7 +705,6 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
         val outside = scopedOutside(clip, start + offset)
         (if (outside != null) outside.framingAt(shows).crop else if (framed != null) framed.shown(clip, shows, start + offset) else clip.crop) to shows
     }
-    val cropOf = { index: Int -> cropFor(plan.clips[index], plan.pictures[index].start) }
     // The framing each deck shows at this moment, for a frame of the size it is drawn in: a crop is sampled at the
     // source second its clip shows, so one that moves between two poses moves as the footage plays or is scrubbed.
     // With the Crop tool open, whether each deck shows a framing or a flip at all: derived, so that a scrub composes the
@@ -1111,8 +1110,20 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                     (if (shaded != null && graded != null) android.graphics.RenderEffect.createChainEffect(shaded, graded) else shaded ?: graded)?.asComposeRenderEffect()
                 }
                 val pastPictures by remember(asked) { derivedStateOf { playhead >= asked.duration + MovieLength.MARGIN } }
-                // Where a clip's own picture lies in the frame: all of it when cropped, else fitted inside it.
-                val content = { index: Int, frame: FrameSize -> RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = cropOf(index).first != null) }
+                // Where a clip's own picture lies in the frame, [offset] seconds into it: all of it when the piece of it playing
+                // there is cropped, as the exports take it, else fitted inside it; with the Crop tool open, or outside the part
+                // of an effect being edited, cropped as it shows.
+                val splitCropped = { clip: TimelineClip, start: Double, offset: Double ->
+                    val outside = scopedOutside(clip, start + offset)
+                    when {
+                        outside != null -> RenderPlan.splitCropped(outside, offset)
+                        cropping != null -> cropFor(clip, start).first != null
+                        else -> RenderPlan.splitCropped(clip, offset)
+                    }
+                }
+                val content = { index: Int, offset: Double, frame: FrameSize ->
+                    RenderPlan.content(frame, sizes[plan.pictures[index].sourceID], cropped = splitCropped(plan.clips[index], plan.pictures[index].start, offset))
+                }
                 val pictures: @Composable () -> Unit = {
                     when {
                         layers != null -> {
@@ -1120,9 +1131,9 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                             LayerPictures(
                                 editor.lanes, layers.lanes, effects(), deckFrames, laneTitles(), titlePainter,
                                 moment = { frame -> layers.moment(RenderPlan.pictureTime(playhead, layers.duration), frame, perTransition) },
-                                content = { index, frame ->
+                                content = { index, offset, frame ->
                                     val picture = layers.pictures[index]
-                                    RenderPlan.content(frame, sizes[picture.sourceID], cropped = cropFor(picture.content, picture.start).first != null)
+                                    RenderPlan.content(frame, sizes[picture.sourceID], cropped = splitCropped(picture.content, picture.start, offset))
                                 },
                             )
                         }
@@ -1179,7 +1190,7 @@ private fun Editor(project: Project, store: ProjectStore, exporter: Exporter, mo
                         if (clip !in clips.indices) return
                         val frame = FrameSize(width.toDouble(), height.toDouble())
                         val halves = TransitionGeometry.splitRects(settings, frame)
-                        val next = change(if (second) settings.second else settings.first, content(clip, frame).size, (if (second) halves.second else halves.first).size)
+                        val next = change(if (second) settings.second else settings.first, content(clip, (playhead - plan.pictures[clip].start).coerceIn(0.0, plan.pictures[clip].duration), frame).size, (if (second) halves.second else halves.first).size)
                         transitioning = now.changed(if (second) settings.copy(second = next) else settings.copy(first = next))
                     }
                     Modifier.pointerInput(Unit) {

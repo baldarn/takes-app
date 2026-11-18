@@ -75,9 +75,10 @@ class LayerDrawing(val scene: SceneDrawing, val mixed: Boolean, val count: Int, 
          * The drawing of [moment] on a canvas of [width] by [height] pixels,
          * the size it was asked for. [kind] says where the renderer has each
          * picture; [content] is where a picture's own footage lies in the
-         * frame, without the bars around it, for a split screen.
+         * frame, without the bars around it, for a split screen, by its index
+         * and the timeline seconds into it.
          */
-        fun of(moment: LayerPlan.Moment, width: Float, height: Float, kind: (TransitionScene.Source) -> Float, content: (Int) -> Rect): LayerDrawing {
+        fun of(moment: LayerPlan.Moment, width: Float, height: Float, kind: (TransitionScene.Source) -> Float, content: (Int, Double) -> Rect): LayerDrawing {
             val layers = moment.layers
             val back = layers.indexOfLast { it is LayerPlan.Layer.Mixed }
             val pair = layers.getOrNull(back) as? LayerPlan.Layer.Mixed
@@ -341,7 +342,7 @@ class LayerPreviewShader {
  * into its window. The input is the frame [DecksCompositor] makes of the
  * [lanes], laid in [columns]. [frames] is the frame rate of the movie, which a
  * flash cut counts in, and [content] where a picture's footage lies in the
- * frame.
+ * frame, by its index and the timeline seconds into it.
  *
  * As [TransitionEffect] does for its two decks, it keeps the frame a lane
  * showed before a still holds it, or before the lane's run of pictures ends,
@@ -360,7 +361,7 @@ class LayerPreviewShader {
  */
 class LayersEffect(
     private val plan: LayerPlan, private val canvas: Size, private val lanes: Int, private val columns: Int,
-    private val frames: (TimelineTransition) -> Double, private val content: (Int) -> Rect, private val titled: Boolean = false,
+    private val frames: (TimelineTransition) -> Double, private val content: (Int, Double) -> Rect, private val titled: Boolean = false,
     /** Whether the lanes are HLG in BT.2020, an HDR movie's ([HdrMovie]): the fill and the titles are carried into it. */
     private val hdr: Boolean = false,
     /** The project's folder, which holds the pictures laid over clips; none are drawn without it. */

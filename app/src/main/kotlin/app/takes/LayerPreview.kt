@@ -53,7 +53,7 @@ import app.takes.core.TransitionScene
  * lane, each showing its player's picture with that picture's color, video
  * effects and crop ([effects], [frames]) and its titles drawn on it
  * ([titles]), and what the moment makes of them ([moment], for a frame of the
- * size drawn; [content] is where a picture's footage lies in that frame).
+ * size drawn; [content] is where a picture's footage lies in that frame, by its index and the timeline seconds into it).
  *
  * On Android 13 and later the lanes lie one above the other in a layer as
  * many times as tall as the frame, and the layer shader draws the frame from
@@ -72,12 +72,12 @@ import app.takes.core.TransitionScene
 internal fun LayerPictures(
     lanes: List<Player>, count: Int, effects: List<RenderEffect?>, frames: List<((FrameSize) -> PictureFrame)?>,
     titles: List<List<TitleMotionRanges.Shown>>, painter: TitlePainter,
-    moment: (FrameSize) -> LayerPlan.Moment, content: (Int, FrameSize) -> Rect,
+    moment: (FrameSize) -> LayerPlan.Moment, content: (Int, Double, FrameSize) -> Rect,
 ) {
     // The pictures of a split screen are drawn without their titles, and those of both go once over the pair, as the
     // original draws them (YouRec/VideoToolCompositor.swift:282, :298-301): with the shader, or with the views below it.
     val split = moment(FrameSize(1920.0, 1080.0)).let { now ->
-        val drawn = shadedPreview || SplitViews.layered(now, FrameSize(1920.0, 1080.0), count) { Rect(0.0, 0.0, 1920.0, 1080.0) } != null
+        val drawn = shadedPreview || SplitViews.layered(now, FrameSize(1920.0, 1080.0), count) { _, _ -> Rect(0.0, 0.0, 1920.0, 1080.0) } != null
         if (drawn) splitTitles(now, titles) else null
     }
     val pairTitles = remember { PairTitles(painter) }
@@ -117,7 +117,7 @@ internal fun LayerPictures(
                         is TransitionScene.Source.Held -> source.deck.toFloat() // the lane has stopped on that frame
                         is TransitionScene.Source.Fill -> LayerDrawing.FILL
                     }
-                }) { content(it, frame) }
+                }) { index, offset -> content(index, offset, frame) }
                 val over = split?.titles?.takeIf { it.isNotEmpty() }?.let { pairTitles.shader(it, width.toInt(), height.toInt()) }
                 renderEffect = shader.effect(drawing, width, height, over).asComposeRenderEffect()
             },
@@ -129,7 +129,7 @@ internal fun LayerPictures(
             val frame = FrameSize(constraints.maxWidth.toDouble(), constraints.maxHeight.toDouble())
             val now = moment(frame)
             // A split screen: each lane of its pair scaled, moved and clipped into its half, as a sequence's decks are.
-            val pair = SplitViews.layered(now, frame, count) { content(it, frame) }
+            val pair = SplitViews.layered(now, frame, count) { index, offset -> content(index, offset, frame) }
             val places = places(now, count, pair)
             for (index in 0 until count) key(index) {
                 val place = places[index]

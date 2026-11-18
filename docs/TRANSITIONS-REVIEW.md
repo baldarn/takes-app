@@ -266,7 +266,7 @@ Every other label in `app/src/main/res/values/strings.xml:310-395` is the origin
 | Dissolve | smoothstep | `mix(first, second, eased)` in linear light | same |
 | Fade through color | linear | first → colour over the first half, colour → second over the second; the colour alone at the midpoint and for a hold; at the opening and close a dissolve with the colour | same |
 | Wipe | smoothstep | band of half-width `max(1, 3.5 % of the span)` or 0.5 px, starting and ending wholly off the canvas, second behind the edge; angle clockwise on screen | same; y is turned once, at `:79` |
-| Split screen | linear | each clip without its bars framed in its half over black, second half over first, a line of 0.25 grey `max(1, 0.2 %)` wide; 15 % blend in and out | same; content rectangles agree (`YouRec/TransitionRenderer.swift:293-297`, `app/Exporter.kt:289-295`, `app/EditorScreen.kt:724-731`) |
+| Split screen | linear | each clip without its bars framed in its half over black, second half over first, a line of 0.25 grey `max(1, 0.2 %)` wide; 15 % blend in and out | same; content rectangles agree, per playback piece (`YouRec/TransitionRenderer.swift:293-297`, `YouRec/MediaRenderer.swift:299-308`; `core/RenderPlan.kt` `splitCropped`) |
 | Hitchcock | smoothstep | key from the first picture's encoded brightness, Rec. 709 weights, feather 0.08, threshold from −0.08 to 1.08 | same in SDR |
 | Whip pan | smoothstep slide and mix, linear blur | slide 65 % of the axis, blur radius 12 % of the short side at the midpoint | geometry same; blur on a reduced picture, kernel assumed (F3) |
 | Flash cut | none | whole frames | same at 30 fps (F6) |

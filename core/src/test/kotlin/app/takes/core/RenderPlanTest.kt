@@ -162,6 +162,35 @@ class RenderPlanTest {
         assertEquals(Rect(0.0, 0.0, 1920.0, 1080.0), RenderPlan.content(canvas, null, cropped = false))
     }
 
+    // A split screen takes the crop of the playback piece showing, as the original's layer transform has it
+    // (YouRec/TransitionRenderer.swift:293-297, YouRec/MediaRenderer.swift:299-308): the effect windows decide which
+    // crop the piece has, as the render instructions gate them (Tests/VideoToolsTests.swift:1173-1175), while the
+    // crop's own active range and motion are left to the drawing (YouRec/VideoToolCompositor.swift:203-216).
+    @Test fun aSplitScreenTakesTheCropOfThePiecePlaying() {
+        val canvas = Size(1920.0, 1080.0)
+        val upright = Size(1080.0, 1920.0)
+        val bars = Rect(656.25, 0.0, 607.5, 1080.0)
+        val whole = Rect(0.0, 0.0, 1920.0, 1080.0)
+        // A crop with an active range fills the frame before, inside and after that range.
+        val ranged = c.copy(crop = CropSettings(id = "K", zoom = 2.0, activeRange = SourceInterval(2.0, 3.0)))
+        for (offset in listOf(0.5, 1.5, 3.5)) assertEquals(whole, RenderPlan.content(canvas, upright, ranged, offset))
+        // A crop windowed over source seconds 2 to 4 of a clip from second 1: cropped only inside the window, its end left out.
+        val windowed = c.copy(crop = CropSettings(id = "K", zoom = 2.0), effectWindows = mapOf("K" to listOf(SourceInterval(2.0, 4.0))))
+        assertEquals(listOf(false, true, true, false), listOf(0.5, 1.0, 2.9, 3.0).map { RenderPlan.splitCropped(windowed, it) })
+        assertEquals(bars, RenderPlan.content(canvas, upright, windowed, 0.5))
+        assertEquals(whole, RenderPlan.content(canvas, upright, windowed, 1.5))
+        // A variant in the crop's slot crops where its own window is, the clip's crop where its window is, neither between.
+        val variant = c.copy(
+            crop = CropSettings(id = "K", zoom = 1.5),
+            framingVariants = listOf(FramingVariant.Crop(CropSettings(id = "V", zoom = 2.5))),
+            effectWindows = mapOf("K" to listOf(SourceInterval(1.0, 2.0)), "V" to listOf(SourceInterval(3.0, 4.0))),
+        )
+        assertEquals(listOf(true, false, true), listOf(0.5, 1.5, 2.5).map { RenderPlan.splitCropped(variant, it) })
+        // No crop: the footage fitted, with its bars.
+        assertFalse(RenderPlan.splitCropped(c, 1.0))
+        assertEquals(bars, RenderPlan.content(canvas, upright, c, 1.0))
+    }
+
     // MARK: Sound
 
     @Test fun eachSoundTrackIsASequenceOfItsOwnThatEndsWithThePicture() {

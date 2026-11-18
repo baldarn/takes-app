@@ -116,7 +116,7 @@ internal class HeldPictures {
  * them. [effects] is each deck's color and [frames] its framing at this
  * moment for a frame of the size drawn, null for a clip that is not cropped;
  * [moment] gives the moment for a frame of the size drawn,
- * and [content] where a clip's own picture lies in that frame. [held] has the
+ * and [content] where a clip's own picture lies in that frame, by its index and the timeline seconds into it. [held] has the
  * frame a deck holds while its clip plays on, drawn in place of its picture.
  *
  * On Android 13 and later the decks lie one above the other in a layer twice
@@ -134,7 +134,7 @@ internal class HeldPictures {
 @Composable
 internal fun DeckPictures(
     decks: List<Player>, effects: List<RenderEffect?>, frames: List<((FrameSize) -> PictureFrame)?>,
-    moment: (FrameSize) -> TransitionScene.Moment, content: (Int, FrameSize) -> Rect, held: HeldPictures,
+    moment: (FrameSize) -> TransitionScene.Moment, content: (Int, Double, FrameSize) -> Rect, held: HeldPictures,
     titles: List<List<TitleMotionRanges.Shown>> = emptyList(), painter: TitlePainter? = null,
 ) {
     val deck: @Composable (Int, Modifier) -> Unit = { index, modifier ->
@@ -174,7 +174,7 @@ internal fun DeckPictures(
                         is TransitionScene.Source.Held -> source.deck.toFloat() // the deck has stopped on that frame
                         is TransitionScene.Source.Fill -> SceneDrawing.FILL
                     }
-                }) { content(it, frame) }
+                }) { index, offset -> content(index, offset, frame) }
                 renderEffect = shader.effect(drawing, width, height).asComposeRenderEffect()
             },
         ) {
@@ -193,8 +193,8 @@ internal fun DeckPictures(
         val drawing = split?.let {
             val whole = Rect(0.0, 0.0, canvas.width, canvas.height)
             fun lies(source: TransitionScene.Source) = when (source) {
-                is TransitionScene.Source.Clip -> content(source.index, canvas)
-                is TransitionScene.Source.Held -> content(source.index, canvas)
+                is TransitionScene.Source.Clip -> content(source.index, source.offset, canvas)
+                is TransitionScene.Source.Held -> content(source.index, source.offset, canvas)
                 is TransitionScene.Source.Fill -> whole
             }
             SplitViews.of(it, canvas, lies(now.first), lies(now.second))
