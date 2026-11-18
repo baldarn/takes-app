@@ -34,8 +34,8 @@ YOUR VIDEOS STAY YOURS
 • Your recordings and projects never leave your device unless you share them.
 • The app goes online only to download a model, when you ask: the one for subtitles (987 or 375 MB) or one for speech restoration (56 or 415 MB).
 • Deleted projects go to Recently Deleted, where you can restore them.
-• Duplicate a project, or save it as a ZIP and open it again later or on another phone.
-• Projects travel to and from YouRec on iPhone: Takes opens YouRec's project ZIPs, and Zip for iPhone saves one YouRec opens.
+• Duplicate a project.
+• Zip a project to keep it or move it: the same ZIP opens in Takes and in YouRec on iPhone, and Takes opens YouRec's project ZIPs.
 • In English and Italian.
 
 Takes is an unofficial, open source Android port of YouRec by Salvatore Sanfilippo (antirez).
