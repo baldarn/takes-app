@@ -234,7 +234,7 @@ class TrackEditStateTest {
     @Test
     fun aStepThatIsNoSequenceTakesSchema18() {
         assertEquals(18, TrackTimeline.LAYERED_SCHEMA)
-        assertEquals(25, Project.LATEST_READABLE_SCHEMA) // held frames and time effects came after, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23), then stabilisation (24), then cards of a label and a headline (25)
+        assertEquals(26, Project.LATEST_READABLE_SCHEMA) // held frames and time effects came after, then the mirror (20) and the movie's shape (21), then pauses kept on the clip (22), then pictures over a clip (23), then stabilisation (24), then cards of a label and a headline (25), then effects on part of a clip or across pieces (26)
         val base = project(original)
         val sequence = base.commit(TimelineEditing.move(base.edit, 0, 2)!!)
         assertTrue(sequence.edit.isSequence)

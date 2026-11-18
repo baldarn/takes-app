@@ -104,25 +104,64 @@ object ToolRegions {
         state.clips.forEachIndexed { index, clip ->
             val cursor = starts.getOrElse(index) { 0.0 }
             val whole = cursor to cursor + clip.duration
+            val first = result.size
             fun part(from: Double, to: Double): Pair<Double, Double>? {
                 if (!(from < clip.end && to > clip.start)) return null
                 val a = cursor + clip.offset(maxOf(clip.start, from))
                 val b = cursor + clip.offset(minOf(clip.end, to))
                 return if (b > a) a to b else null
             }
+            // The part of the clip a source window shows; the whole clip without one (YouRec/VideoTools.swift:854-858).
+            fun visible(active: SourceInterval?): Pair<Double, Double>? {
+                active ?: return whole
+                val a = cursor + clip.gradeOffset(active.start)
+                val b = cursor + clip.gradeOffset(active.end)
+                return if (b > a) a to b else null
+            }
             fun add(tool: EditorTool, id: String, span: Pair<Double, Double>, label: ToolRegionLabel) {
                 result += ToolRegion(tool, id, clip.id, span.first, span.second, label)
             }
-            clip.mirror?.let { add(EditorTool.Mirror, it.id, whole, ToolRegionLabel.Flip(it.horizontal, it.vertical)) }
+            clip.mirror?.let { mirror -> visible(mirror.activeRange)?.let { add(EditorTool.Mirror, mirror.id, it, ToolRegionLabel.Flip(mirror.horizontal, mirror.vertical)) } }
             for (image in clip.images.orEmpty()) part(image.start, image.end)?.let { add(EditorTool.Image, image.id, it, ToolRegionLabel.Tool) }
             for (effect in clip.videoEffects.orEmpty()) part(effect.start, effect.end)?.let { add(EditorTool.VideoEffects, effect.id, it, ToolRegionLabel.Effect(effect.kind)) }
-            clip.crop?.let { add(EditorTool.Crop, it.id, whole, ToolRegionLabel.Framing(it.zoom, it.rotation)) }
+            clip.crop?.let { crop -> visible(crop.activeRange)?.let { add(EditorTool.Crop, crop.id, it, ToolRegionLabel.Framing(crop.zoom, crop.rotation)) } }
             clip.speed?.let { add(EditorTool.Speed, it.id, whole, ToolRegionLabel.Rate(it.rate)) }
-            clip.color?.let { add(EditorTool.Color, it.id, whole, ToolRegionLabel.Grade(it)) }
+            // Each grade where it is, over part of the clip or all of it (YouRec/VideoTools.swift:872-875).
+            for (region in clip.visibleGrades) {
+                val a = cursor + clip.gradeOffset(region.start)
+                val b = cursor + clip.gradeOffset(region.end)
+                if (b > a) add(EditorTool.Color, region.grade.id, a to b, ToolRegionLabel.Grade(region.grade))
+            }
             // Under its effect id, else the clip's, as the original names an unnamed one (VideoTools.swift:590).
-            clip.stabilization?.takeIf { it.level != StabilizationLevel.Off }?.let { add(EditorTool.Stabilize, it.id ?: clip.id, whole, ToolRegionLabel.Tool) }
+            clip.stabilization?.takeIf { it.level != StabilizationLevel.Off }?.let { stabilization ->
+                visible(stabilization.activeRange)?.let { add(EditorTool.Stabilize, stabilization.id ?: clip.id, it, ToolRegionLabel.Tool) }
+            }
             clip.pauses?.let { add(EditorTool.Pauses, it.id, whole, ToolRegionLabel.Tool) }
             for (text in clip.texts.orEmpty()) part(text.start, text.end)?.let { add(EditorTool.Text, text.id, it, ToolRegionLabel.Text(text.text)) }
+            // The clip's other framings, each where it applies (YouRec/VideoTools.swift:883-889).
+            for (variant in clip.framingVariants.orEmpty()) {
+                val span = variant.activeRange?.let(::visible) ?: (if (variant.activeRange == null) whole else null) ?: continue
+                val label = when (variant) {
+                    is FramingVariant.Crop -> ToolRegionLabel.Framing(variant.value.zoom, variant.value.rotation)
+                    is FramingVariant.Mirror -> ToolRegionLabel.Flip(variant.value.horizontal, variant.value.vertical)
+                    is FramingVariant.Stabilization -> ToolRegionLabel.Tool
+                }
+                add(variant.tool, variant.id, span, label)
+            }
+            // A recipe with windows is a region in each of them (YouRec/VideoTools.swift:890-900).
+            clip.effectWindows?.let { windows ->
+                val recipes = result.subList(first, result.size).toList()
+                while (result.size > first) result.removeAt(result.lastIndex)
+                for (recipe in recipes) {
+                    val spans = windows[recipe.effectID]
+                    if (spans == null) { result += recipe; continue }
+                    for (window in spans) {
+                        val span = visible(window) ?: continue
+                        val part = EditInterval.of(span.first, span.second).intersection(EditInterval.of(recipe.start, recipe.end)) ?: continue
+                        result += recipe.copy(start = part.start.seconds, end = part.end.seconds)
+                    }
+                }
+            }
         }
         val badges = TrackAudioRegions.badges(timeline).groupBy { it.itemID }
         for (item in timeline.audio) {

@@ -47,6 +47,8 @@ data class StabilizationSettings(
     val level: StabilizationLevel,
     val version: Int = 1,
     val id: String? = null,
+    /** The source seconds in which it applies, when it applies to part of the clip only (YouRec/StabilizationPath.swift:30). */
+    val activeRange: SourceInterval? = null,
     val referenceStart: Double? = null,
     val referenceEnd: Double? = null,
 ) {

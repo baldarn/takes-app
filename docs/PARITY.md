@@ -355,6 +355,7 @@ Ported from the original at `57e5d91`, "Capture the current iPhone, iPad, and de
 | Feature | Original | Status | Where in Android | What is missing | Size | Emulator? |
 |---|---|---|---|---|---|---|
 | Range timing on one ruler | O/VideoTools.swift:280-347 (`EditorRangeTiming`, replacing `OverlayTiming`) | DONE | C/EditorRangeTiming.kt (`EditorRangeTimingTest`, the cases of Tests/TitleDesignTests.swift:402-453) | — | S | yes |
+| Effects on part of a clip: the model | O/Project.swift:51-63, 316-349, 504-548; O/VideoTools.swift:163-248 (`ColorRegion`, `replaceGrade`), 351-376 (`TitlePlaybackClock`), 849-901 (regions); O/ScopedEffect.swift:1-133; O/TrackTimeline.swift:117-118, 175-176, 1557-1580 | DONE | C/ScopedEffects.kt, the new fields in C/Project.kt, C/Crop.kt, C/StabilizationPath.kt, C/TrackTimeline.kt, regions in C/ToolRegions.kt, new ids on paste in C/TrackClipboard.kt and C/RangeEditing.kt (`ScopedEffectsTest`) | Takes saves them as its schema 26; the membership of a clip of the sequence form (`spanningEffects`) travels with the clip and is written on the timeline's item only | M | yes |
 
 ## Pure core work packages (new files in `core`, host tests, no edits to existing files)
 
