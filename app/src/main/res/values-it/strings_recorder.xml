@@ -187,7 +187,13 @@
     <!-- Guadagno di registrazione, nel pannello del microfono. -->
     <string name="recorder_gain">Guadagno di registrazione</string>
     <string name="recorder_gain_value">%1$s dB</string>
-    <string name="recorder_gain_reset">Riporta a 0</string>
+    <string name="recorder_gain_original">Livello originale</string>
+    <string name="recorder_gain_reduced">Livello ridotto</string>
+    <string name="recorder_gain_boosted">Livello aumentato</string>
+    <string name="recorder_gain_hint">Zero dB mantiene il livello originale del microfono. Trascina vicino allo zero per agganciarlo.</string>
+    <string name="recorder_mic_volume_header">Volume di registrazione</string>
+    <string name="recorder_mic_input_header">Ingresso</string>
+    <string name="recorder_mic_input_footer">Questa scelta vale fino a Stop. L\'ordine di priorità dei microfoni salvato è nelle impostazioni della fotocamera.</string>
     <string name="recorder_gain_note">Cambia il volume delle nuove registrazioni, anche durante una ripresa. Ricordato per ogni microfono. Il livello va a ogni nuova clip, dove l\'editor può cambiarlo di nuovo. Il rosso indica che il segnale può distorcere; abbassare il guadagno non ripara la distorsione già presente nel microfono.</string>
     <string name="recorder_receipt_failed">Non è stato possibile salvare le informazioni della registrazione. %1$s</string>
     <!-- Two cameras: RecorderView.swift:292-320, 515-523, 819-883, 1225-1232, 1386-1531; CaptureController.swift:995. -->
@@ -222,4 +228,7 @@
     <string name="recorder_dual_inset_round_hint">Trascina per spostare. Pizzica per ridimensionare il cerchio.</string>
     <string name="recorder_dual_inset_hint">Trascina per spostare. Pizzicando in orizzontale cambia la larghezza, in verticale l\'altezza, in diagonale le proporzioni restano.</string>
     <string name="recorder_follow_help_dual">Centra con delicatezza un volto in ogni immagine, con lo spazio che la sua disposizione lascia. Se il volto esce, l\'inquadratura resta ferma. Spostare a mano disattiva l\'inseguimento.</string>
+    <string name="recorder_settings_audio">Audio</string>
+    <string name="recorder_allow_audio_playback">Consenti la riproduzione audio</string>
+    <string name="recorder_allow_audio_playback_note">Lascia suonare la musica e le altre app audio mentre usi la fotocamera. Il video registra il microfono selezionato.</string>
 </resources>

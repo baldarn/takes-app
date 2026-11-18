@@ -10,6 +10,8 @@ import androidx.annotation.OptIn
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.UnstableApi
+import app.takes.core.ExportAudioLevel
+import app.takes.core.toTimeline
 import app.takes.core.AudioLevels
 import app.takes.core.DecodedFrames
 import app.takes.core.LiveAudioGain
@@ -261,10 +263,12 @@ class MixResult(val peak: Float, val complete: Boolean)
  * Writes the whole mix of [engine] to [target] as a 16-bit WAV, samples past
  * full scale stopped there, and tells [progress] how far it is, 0 to 1.
  * [checkpoint] runs between blocks and may throw to stop. The peak is
- * measured before the samples are stopped.
+ * measured before the samples are stopped, in the frames of [measured] only
+ * when it is given ([ExportAudioLevel.frameSpans]), else in all of them.
  */
 fun writeMix(
     engine: TrackMixEngine, target: File, failures: List<String>, checkpoint: () -> Unit = {}, progress: (Double) -> Unit = {}, fadeEnd: Boolean = false,
+    measured: List<LongRange>? = null,
 ): MixResult {
     val channels = engine.channels
     val block = 4096
@@ -286,9 +290,10 @@ fun writeMix(
                 if (left <= fading) for (c in 0 until channels) mix[frame * channels + c] *= ((left - 1).toFloat() / fading).coerceAtLeast(0f)
             }
             bytes.clear()
+            if (measured != null) peak = ExportAudioLevel.peak(mix, from, done, channels, measured, peak)
             for (index in 0 until done * channels) {
                 val value = mix[index]
-                peak = maxOf(peak, abs(value))
+                if (measured == null) peak = maxOf(peak, abs(value))
                 bytes.putShort((value * 32768f).roundToInt().coerceIn(-32768, 32767).toShort())
             }
             output.write(bytes.array(), 0, done * channels * 2)
@@ -328,11 +333,25 @@ class MovieSound(val plan: TrackMixPlan, private val files: Map<String, File>) {
     fun duration(picture: Double, withSound: Boolean = true): Double =
         plan.duration.seconds.takeIf { withSound && it > picture + app.takes.core.MovieLength.MARGIN } ?: picture
 
-    /** Writes the mix of the movie, [duration] seconds of it, to [target] ([writeMix]). */
-    fun write(duration: Double, target: File, checkpoint: () -> Unit, progress: (Double) -> Unit): MixResult {
+    /**
+     * Writes the mix of the movie, [duration] seconds of it, to [target] ([writeMix]), its peak measured in the
+     * stretches [measured] only (YouRec/AudioGain.swift:213-265).
+     */
+    fun write(duration: Double, target: File, measured: List<app.takes.core.EditInterval>, checkpoint: () -> Unit, progress: (Double) -> Unit): MixResult {
         val failures = ArrayList<String>()
         val whole = plan.copy(duration = app.takes.core.EditTime.of(duration))
         val cut = whole.duration < plan.duration
-        return audioEngine(whole, files, Denoiser.input(files), failures = failures).use { writeMix(it, target, failures, checkpoint, progress, fadeEnd = cut) }
+        return audioEngine(whole, files, Denoiser.input(files), failures = failures).use { engine ->
+            writeMix(engine, target, failures, checkpoint, progress, fadeEnd = cut, measured = ExportAudioLevel.frameSpans(measured, duration, engine.sampleRate))
+        }
     }
+
+    /**
+     * Where the export measures how loud the mix of [project] gets: where its edit can raise a level, the sound of
+     * the effects' background movies counted among the sounds that overlap (YouRec/AudioGain.swift:201-208).
+     */
+    fun checkRanges(project: app.takes.core.Project): List<app.takes.core.EditInterval> = ExportAudioLevel.checkRanges(
+        project.edit.toTimeline(), project.sources,
+        plan.pieces.filter { app.takes.core.EffectBackgroundSound.file(it.sourceID) != null }.map { it.interval },
+    )
 }

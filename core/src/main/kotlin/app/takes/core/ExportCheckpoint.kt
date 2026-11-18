@@ -184,7 +184,9 @@ class ExportCheckpoint(folder: File) {
     private val projectFolder = folder
     private val ticketFile get() = File(directory, "ticket.json")
     private val pauseReasonFile get() = File(directory, "pause-reason.txt")
-    private val peakFile get() = File(directory, "peak.json")
+    // The old peak.json measured the whole movie and cannot tell a peak in an edited range; the sound and picture
+    // sections saved beside it stay good (YouRec/ExportCheckpoint.swift:66-68).
+    private val peakFile get() = File(directory, "edited-audio-peak.json")
 
     /** The sound of the whole movie, encoded once so it stays continuous across picture sections. */
     val audioFile: File get() = File(directory, "sound.mp4")
@@ -244,7 +246,7 @@ class ExportCheckpoint(folder: File) {
         return retired
     }
 
-    /** The loudest sample of the finished mix, measured before encoding; null until it has been measured. */
+    /** The loudest sample of the finished mix where the edit can raise a level, measured before encoding; null until it has been measured. */
     val measuredPeak: Float?
         get() = try {
             documentJson.decodeFromString(Float.serializer(), peakFile.readText())

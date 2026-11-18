@@ -124,4 +124,28 @@ class CoverFramePoolTest {
         assertEquals(3.5 - 1.0 / 30, pool.time(104), 1e-12)
         assertEquals(0, CoverFramePool(CoverFramePool.picture(emptyList()), CoverFramePool.whole(emptyList())).count)
     }
+
+    // VideoToolsTests.swift:340-344: Update in the detail always finds another frame of the pool.
+    @Test fun theDetailsUpdateChoosesAnotherFrame() {
+        val short = CoverFramePool(footage, listOf(Interval(0.0, 0.2)))
+        val random = Random(7)
+        for (pick in 0 until short.count) repeat(20) {
+            val next = short.randomAlternative(pick, random)
+            assertTrue(next in 0 until short.count && next != pick)
+        }
+        // VideoToolsTests.swift:349-351: a one-frame range keeps its only frame.
+        val subframe = CoverFramePool(footage, listOf(Interval(0.040, 0.045)))
+        assertEquals(1, subframe.count)
+        assertEquals(0, subframe.randomAlternative(0))
+    }
+
+    // VideoToolsTests.swift:345-348: the frames follow the composition's clock and skip gaps.
+    @Test fun framesFollowTheCompositionsClock() {
+        val faster = CoverFramePool(footage, listOf(Interval(0.0, 0.1), Interval(20.0, 20.05)), frameDuration = 1.0 / 60)
+        assertEquals(9, faster.count)
+        assertEquals(1.0 / 60, faster.time(1), 1e-12)
+        assertEquals(20.0, faster.time(6), 0.0)
+        // A clock that says nothing usable is the thirtieth of a second.
+        assertEquals(CoverFramePool(footage, listOf(Interval(0.0, 1.0))).count, CoverFramePool(footage, listOf(Interval(0.0, 1.0)), Double.NaN).count)
+    }
 }

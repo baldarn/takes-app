@@ -2,7 +2,6 @@ package app.takes
 
 import app.takes.core.RecordingGain
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.foundation.background
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,7 +44,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -166,6 +168,12 @@ private fun MicrophonePanel(capture: CaptureController, close: () -> Unit) {
     }
     // A running segment keeps its microphone: the choice is for the next one.
     val free = capture.phase == Phase.Idle || capture.phase == Phase.Paused
+    if (capture.microphones.isNotEmpty()) {
+        Text(
+            stringResource(R.string.recorder_mic_input_header), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp).width(250.dp).semantics { heading() },
+        )
+    }
     capture.microphones.forEach { choice ->
         DropdownMenuItem(
             { Text(choice.label) }, { capture.chooseMicrophone(choice.key); close() }, enabled = free,
@@ -178,32 +186,73 @@ private fun MicrophonePanel(capture: CaptureController, close: () -> Unit) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).width(250.dp),
         )
     }
+    // The input's footer (RecorderView.swift:1475-1477).
+    if (capture.microphones.isNotEmpty()) {
+        Text(
+            stringResource(R.string.recorder_mic_input_footer), fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).width(250.dp),
+        )
+    }
 }
 
 /**
  * The recording gain, −40 to +12 dB in half decibels, remembered for each microphone (the original's
- * `RecordingGainControls`). The camera library's recorder takes no gain, so the file is recorded as it is and
- * the gain becomes the level of the take's clip; the meter shows the sound with the gain, as the take will be.
+ * `RecordingGainControls`, YouRec/RecorderView.swift:1552-1597): the value with Original, Reduced or Boosted level
+ * under it, and a slider that, while dragged, snaps to 0 dB within a decibel of it with a tick of the phone; the
+ * screen reader steps it by half a decibel, without the snap. The camera library's recorder takes no gain, so the
+ * file is recorded as it is and the gain becomes the level of the take's clip; the meter shows the sound with the
+ * gain, as the take will be.
  */
 @Composable
 private fun RecordingGainControls(capture: CaptureController, clipping: Boolean) {
     val view = LocalView.current
     val gain = capture.recordingGain
     val label = stringResource(R.string.recorder_gain)
+    val hint = stringResource(R.string.recorder_gain_hint)
     val value = stringResource(R.string.recorder_gain_value, String.format(java.util.Locale.getDefault(), "%+.1f", gain))
+    // Where the finger is while it drags, so the thumb follows it past the snap (RecorderView.swift:1556, 1581-1595).
+    var draft by remember { mutableStateOf<Float?>(null) }
+    fun choose(next: Double) {
+        if (next == capture.recordingGain) return
+        capture.chooseRecordingGain(next)
+        if (next == 0.0) view.tick()
+    }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).width(250.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            stringResource(R.string.recorder_mic_volume_header), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.semantics { heading() },
+        )
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                value, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f),
+                value, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace,
                 color = if (clipping) Color.Red else MaterialTheme.colorScheme.onSurface,
             )
-            TextButton(onClick = { capture.chooseRecordingGain(0.0) }, enabled = gain != 0.0) { Text(stringResource(R.string.recorder_gain_reset)) }
+            Text(
+                stringResource(
+                    when (RecordingGain.level(gain)) {
+                        RecordingGain.Companion.Level.Original -> R.string.recorder_gain_original
+                        RecordingGain.Companion.Level.Reduced -> R.string.recorder_gain_reduced
+                        RecordingGain.Companion.Level.Boosted -> R.string.recorder_gain_boosted
+                    },
+                ),
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         Slider(
-            gain.toFloat(),
-            { next -> val before = capture.recordingGain; capture.chooseRecordingGain(next.toDouble()); if (capture.recordingGain != before) view.tick() },
-            Modifier.semantics { contentDescription = label; stateDescription = value },
+            draft ?: gain.toFloat(),
+            { next -> draft = next; choose(RecordingGain.dragged(next.toDouble())) },
+            Modifier.semantics {
+                contentDescription = "$label. $hint"
+                stateDescription = value
+                // Half a decibel a step, with no snap (RecorderView.swift:1568-1571).
+                setProgress { target ->
+                    draft = null
+                    choose(RecordingGain.stepped(capture.recordingGain, up = target > capture.recordingGain))
+                    true
+                }
+            },
             valueRange = RecordingGain.MINIMUM_DB.toFloat()..RecordingGain.MAXIMUM_DB.toFloat(),
+            onValueChangeFinished = { draft = null },
             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = if (clipping) Color.Red else LevelGreen),
         )
         Text(stringResource(R.string.recorder_gain_note), fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)

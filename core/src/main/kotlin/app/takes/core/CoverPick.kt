@@ -30,7 +30,7 @@ object CoverPick {
      * What [timeline] offers: the marked [range] when there is one, else the [video] and [audio] items selected,
      * else the whole project (CoverPicker.swift:22-33), over the time that shows picture ([picture]).
      */
-    fun source(timeline: TrackTimeline, range: TimeRange?, video: Set<String> = emptySet(), audio: Set<String> = emptySet()): Source {
+    fun source(timeline: TrackTimeline, range: TimeRange?, video: Set<String> = emptySet(), audio: Set<String> = emptySet(), frameDuration: Double = 1.0 / 30): Source {
         val (scope, intervals) = when {
             range != null -> Scope.Range to listOf(CoverFramePool.Interval(range.start, range.end))
             video.isNotEmpty() || audio.isNotEmpty() -> Scope.Clips to
@@ -38,7 +38,8 @@ object CoverPick {
                     .map { CoverFramePool.Interval(it.start.seconds, it.end.seconds) }
             else -> Scope.Whole to listOf(CoverFramePool.Interval(0.0, timeline.duration.seconds))
         }
-        return Source(CoverFramePool(picture(timeline), intervals), scope, intervals.minOfOrNull { it.start } ?: 0.0, intervals.maxOfOrNull { it.end } ?: 0.0)
+        // The frames lie on the composition's own clock (CoverPicker.swift:56-57); the editor's draws 30 a second.
+        return Source(CoverFramePool(picture(timeline), intervals, frameDuration), scope, intervals.minOfOrNull { it.start } ?: 0.0, intervals.maxOfOrNull { it.end } ?: 0.0)
     }
 
     /**
@@ -76,13 +77,23 @@ object CoverPick {
     }
 
     /**
-     * A time as the editor writes it: minutes, seconds and hundredths, counted on the 30-frame grid
-     * (YouRec/EditorTimeline.swift:1052-1055).
+     * A cover's time: minutes, seconds and hundredths, the seconds rounded to the hundredth
+     * (YouRec/CoverPicker.swift:6-9, `coverTimestamp`).
      */
     fun label(seconds: Double): String {
-        val frames = Math.round(maxOf(0.0, if (seconds.isFinite()) seconds else 0.0) * 30).toInt()
-        return String.format(Locale.ROOT, "%d:%02d.%02d", frames / 1800, frames / 30 % 60, Math.round((frames % 30).toDouble() / 30 * 100).toInt())
+        val hundredths = Math.round(maxOf(0.0, if (seconds.isFinite()) seconds else 0.0) * 100)
+        return String.format(Locale.ROOT, "%d:%02d.%02d", hundredths / 6000, hundredths / 100 % 60, hundredths % 100)
     }
+
+    /**
+     * The picture a horizontal swipe on the cover's detail leads to: one frame for every 24 points of travel from
+     * where the drag began, later to the left, held inside the pool (CoverPicker.swift:198-213).
+     */
+    fun scrubbed(origin: Int, travel: Double, count: Int): Int =
+        (origin - (travel / SWIPE_POINTS).toInt()).coerceIn(0, maxOf(0, count - 1))
+
+    /** The travel of a swipe for one frame, in points (CoverPicker.swift:212). */
+    const val SWIPE_POINTS = 24.0
 
     /**
      * The JPEG's name: the project's [title] without the characters a file name cannot hold, in 40 characters at

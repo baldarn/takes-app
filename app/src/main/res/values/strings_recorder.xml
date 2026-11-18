@@ -187,7 +187,13 @@
     <!-- Recording gain, in the microphone panel. -->
     <string name="recorder_gain">Recording gain</string>
     <string name="recorder_gain_value">%1$s dB</string>
-    <string name="recorder_gain_reset">Reset to 0</string>
+    <string name="recorder_gain_original">Original level</string>
+    <string name="recorder_gain_reduced">Reduced level</string>
+    <string name="recorder_gain_boosted">Boosted level</string>
+    <string name="recorder_gain_hint">Zero dB keeps the original microphone level. Drag near zero to snap to it.</string>
+    <string name="recorder_mic_volume_header">Recording volume</string>
+    <string name="recorder_mic_input_header">Input</string>
+    <string name="recorder_mic_input_footer">This selection lasts until Stop. Your saved microphone priority is in Camera settings.</string>
     <string name="recorder_gain_note">Changes the volume of new recordings, including during a take. Remembered for each microphone. The level is given to each new clip, where the editor can change it again. Red means the signal may distort; lowering gain cannot repair distortion already present in the microphone.</string>
     <string name="recorder_receipt_failed">Could not save the recording information. %1$s</string>
     <!-- Two cameras: RecorderView.swift:292-320, 515-523, 819-883, 1225-1232, 1386-1531; CaptureController.swift:995. -->
@@ -222,4 +228,7 @@
     <string name="recorder_dual_inset_round_hint">Drag to move. Pinch to resize the circle.</string>
     <string name="recorder_dual_inset_hint">Drag to move. Horizontal pinches change width, vertical pinches change height, diagonal pinches resize proportionally.</string>
     <string name="recorder_follow_help_dual">Gently centers a face in each picture using the room available in its layout. If the face leaves, framing holds. Panning manually turns following off.</string>
+    <string name="recorder_settings_audio">Audio</string>
+    <string name="recorder_allow_audio_playback">Allow audio playback</string>
+    <string name="recorder_allow_audio_playback_note">Keep music and other audio apps playing while you use the camera. Your video records the selected microphone.</string>
 </resources>

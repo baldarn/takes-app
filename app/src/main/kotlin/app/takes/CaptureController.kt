@@ -14,6 +14,7 @@ import android.hardware.display.DisplayManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -1602,10 +1603,13 @@ class CaptureController(private val context: Context, private val store: Project
         // What was asked for before is not held any more.
         requestedMicrophone = null
         refreshMicrophones()
+        applyAudioPlayback()
     }
 
     /** Gives the route back, so no other app is left talking through the chosen device. */
     fun releaseMicrophone() {
+        playbackFocus?.let { audioManager.abandonAudioFocusRequest(it) }
+        playbackFocus = null
         routeCheck?.cancel()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         silence?.release()
@@ -1614,6 +1618,39 @@ class CaptureController(private val context: Context, private val store: Project
     }
 
     private var silence: AudioTrack? = null
+
+    // The audio focus the recorder holds while other apps are not allowed to play.
+    private var playbackFocus: AudioFocusRequest? = null
+
+    /**
+     * Allow audio playback, between takes (YouRec/RecorderView.swift:1340-1349, CaptureController.swift:1137-1143):
+     * with it, music and other apps go on playing while the recorder is open; without it, the default, they stop, as
+     * the original's recording audio session stops them.
+     */
+    fun chooseAllowAudioPlayback(on: Boolean) {
+        if (hasActiveTake || settings.allowAudioPlayback == on) return
+        settings.allowAudioPlayback = on
+        applyAudioPlayback()
+    }
+
+    /**
+     * Holds the audio focus while the recorder is in front unless audio playback is allowed, so other apps pause as
+     * when the original activates its recording session without mixing (CaptureController.swift:1128-1135); lets
+     * it go when playback is allowed.
+     */
+    private fun applyAudioPlayback() {
+        if (settings.allowAudioPlayback) {
+            playbackFocus?.let { audioManager.abandonAudioFocusRequest(it) }
+            playbackFocus = null
+            return
+        }
+        if (playbackFocus != null) return
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
+            .setOnAudioFocusChangeListener { }
+            .build()
+        if (audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) playbackFocus = request
+    }
 
     // The system drops the route of an app that stays silent for a few seconds, and a segment started
     // after that begins on the phone microphone with a click. Playing silence keeps the route up.

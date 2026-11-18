@@ -322,15 +322,17 @@ class ExportCheckpointTest {
         assertEquals(ExportProgress.of(Step.Opening), checkpoint.startingProgress(0.0))
     }
 
-    // ExportCheckpoint.swift:66-73.
+    // ExportCheckpoint.swift:66-77: one number, in edited-audio-peak.json; the old peak.json of the whole movie is not read.
     @Test fun theMeasuredPeakIsKeptAsOneNumber() {
         val checkpoint = ExportCheckpoint(folder)
         checkpoint.prepare(project())
         assertNull(checkpoint.measuredPeak)
+        File(checkpoint.directory, "peak.json").writeText("1.5")
+        assertNull("A peak of the whole movie says nothing of the edited ranges", checkpoint.measuredPeak)
         checkpoint.savePeak(1.25f)
-        assertEquals("1.25", File(checkpoint.directory, "peak.json").readText())
+        assertEquals("1.25", File(checkpoint.directory, "edited-audio-peak.json").readText())
         assertEquals(1.25f, checkpoint.measuredPeak)
-        File(checkpoint.directory, "peak.json").writeText("loud")
+        File(checkpoint.directory, "edited-audio-peak.json").writeText("loud")
         assertNull(checkpoint.measuredPeak)
     }
 

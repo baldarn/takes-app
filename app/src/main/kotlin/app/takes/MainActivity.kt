@@ -149,7 +149,10 @@ class MainActivity : ComponentActivity() {
                                     }
                                     else -> EditorScreen(app.store, app.exporter, screen) { tab = 0 }
                                 }
-                                Notice(app.store.error, Modifier.align(Alignment.Center)) { app.store.error = null }
+                                Notice(app.store.error, Modifier.align(Alignment.Center), retry = app.store.retry?.let { again -> { app.store.error = null; app.store.retry = null; again() } }) {
+                                    app.store.error = null
+                                    app.store.retry = null
+                                }
                             }
                             if (reviewing.isNotEmpty()) OriginalRecordings(reviewing, app.store) { reviewing = "" }
                         }
@@ -216,13 +219,17 @@ private fun Tabbed(landscape: Boolean, modifier: Modifier, content: @Composable 
 
 /** A problem the user has to see, with one action to dismiss it. */
 @Composable
-fun Notice(text: String?, modifier: Modifier = Modifier, dismiss: () -> Unit) {
+fun Notice(text: String?, modifier: Modifier = Modifier, retry: (() -> Unit)? = null, dismiss: () -> Unit) {
     if (text == null) return
     Column(
         modifier.padding(24.dp).background(Color(0xF0202328), RoundedCornerShape(16.dp)).padding(16.dp),
         horizontalAlignment = Alignment.End,
     ) {
         Text(text, color = Color.White, modifier = Modifier.fillMaxWidth())
-        TextButton(onClick = dismiss) { Text(stringResource(R.string.common_ok)) }
+        androidx.compose.foundation.layout.Row {
+            // The same items picked again, as the original's Retry selection (YouRec/AddVideoPanel.swift:40-44).
+            retry?.let { TextButton(onClick = it) { Text(stringResource(R.string.import_retry_selection)) } }
+            TextButton(onClick = dismiss) { Text(stringResource(R.string.common_ok)) }
+        }
     }
 }

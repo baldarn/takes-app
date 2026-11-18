@@ -98,7 +98,7 @@ class LayerMovie(
             val sourceFPS = rates[shown.sourceID]?.takeIf { it.isFinite() && it > 0 } ?: 30.0
             if (holdsFrames(clip)) add(TimeHoldEffect(clip, begins, rate.toDouble()))
             if (!clip.videoEffects.isNullOrEmpty()) {
-                color.asSdr()
+                color.beforeEffects(clip)
                 add(VideoEffectChain(clip, begins, rate.toDouble(), sourceFPS = sourceFPS))
             }
             if (printsSteps(clip)) {

@@ -178,7 +178,7 @@ class ExportMovie(
             if (holdsFrames(clip)) add(TimeHoldEffect(clip, shown.start - origin, rate.toDouble()))
             // The clip's video effects on the picture as it lies in the frame, bars included; titles come after.
             if (!clip.videoEffects.isNullOrEmpty()) {
-                color.asSdr()
+                color.beforeEffects(clip)
                 add(VideoEffectChain(clip, shown.start - origin, rate.toDouble(), SourceAssets(files[shown.sourceID], luts, clip, context = context, media = media[shown.sourceID]), sourceFPS))
             }
             // Step Printing blends the frames of each block as the chain drew them.

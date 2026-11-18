@@ -56,7 +56,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -72,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import app.takes.core.CoverFramePool
 import app.takes.core.CoverPick
 import app.takes.core.Project
 import kotlinx.coroutines.launch
@@ -173,7 +179,8 @@ fun CoverPicker(project: Project, store: ProjectStore, source: CoverPick.Source,
                 }
             }
         } else {
-            CoverDetail(project, store, frames, pool.time(chosen), thumbnails[chosen], aspect, back)
+            // A frame chosen anew starts a detail of its own (CoverPicker.swift:145-147, `.id(pick)`).
+            androidx.compose.runtime.key(chosen) { CoverDetail(project, store, frames, pool, chosen, thumbnails[chosen], aspect, back) }
         }
     }
 }
@@ -197,39 +204,103 @@ private fun Bar(title: String, back: () -> Unit) {
 }
 
 /**
- * The frame at [time], large: the grid's small one at first, then the frame at the movie's own size, and once it
- * is a JPEG, Share (CoverPicker.swift:164-217). Save to gallery stands beside it, for the share sheet's Save Image
- * of the original's system.
+ * The frame chosen, large: the grid's small one at first, then the frame at the movie's own size, and once it is a
+ * JPEG, Share (CoverPicker.swift:176-294). A horizontal swipe steps one frame of the pool for every 24 points, later
+ * to the left; Update shows another frame of the same range at random; the screen reader's actions step one frame.
+ * Save to gallery stands beside Share, for the share sheet's Save Image of the original's system.
  */
 @Composable
-private fun CoverDetail(project: Project, store: ProjectStore, frames: CoverFrames?, time: Double, thumbnail: Bitmap?, aspect: Double, back: () -> Unit) {
+private fun CoverDetail(
+    project: Project, store: ProjectStore, frames: CoverFrames?, pool: CoverFramePool, initialPick: Int, thumbnail: Bitmap?, aspect: Double, back: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pick by remember { mutableIntStateOf(initialPick) }
+    var dragStart by remember { mutableStateOf<Int?>(null) }
     var frame by remember { mutableStateOf<Bitmap?>(null) }
-    var jpeg by remember { mutableStateOf<File?>(null) }
+    var renderedPick by remember { mutableStateOf<Int?>(null) }
+    var jpeg by remember { mutableStateOf<Pair<Int, File>?>(null) }
     var failed by remember { mutableStateOf(false) }
-    var attempt by remember { mutableIntStateOf(0) }
-    LaunchedEffect(attempt, frames) {
+    val time = pool.time(pick)
+    // The frame shown can be shared once it is the one drawn and no swipe goes on (CoverPicker.swift:196).
+    val sharePick = if (renderedPick == pick && dragStart == null && !failed) pick else null
+    fun select(index: Int) {
+        val next = index.coerceIn(0, maxOf(0, pool.count - 1))
+        if (next == pick) return
+        pick = next
+        failed = false
+    }
+    // One frame drawn at a time: a swipe that goes on is shown as soon as a frame is drawn, and the next drawn is the
+    // latest asked for (CoverPicker.swift:265-282).
+    LaunchedEffect(renderedPick != pick && !failed, frames) {
         val drawing = frames ?: return@LaunchedEffect
-        if (jpeg != null) return@LaunchedEffect
-        val drawn = drawing.frame(time, thumbnail = false)
-        if (drawn == null) { failed = true; return@LaunchedEffect }
-        frame = drawn
-        jpeg = runCatching { CoverFrames.jpeg(drawn, CoverFrames.folder(store, project), CoverPick.fileName(project.title, time)) }.getOrNull()
-        if (jpeg == null) failed = true
+        while (renderedPick != pick && !failed) {
+            val target = pick
+            val drawn = drawing.frame(pool.time(target), thumbnail = false)
+            if (drawn != null) {
+                frame = drawn
+                renderedPick = target
+            } else if (pick == target) {
+                failed = true
+            }
+        }
+    }
+    LaunchedEffect(sharePick) {
+        val target = sharePick ?: return@LaunchedEffect
+        val drawn = frame ?: return@LaunchedEffect
+        if (jpeg?.first == target) return@LaunchedEffect
+        val file = runCatching { CoverFrames.jpeg(drawn, CoverFrames.folder(store, project), CoverPick.fileName(project.title, pool.time(target))) }.getOrNull()
+        if (file != null) jpeg = target to file else failed = true
     }
     val stamp = CoverPick.label(time)
     Column(Modifier.fillMaxSize().background(Color.Black).safeDrawingPadding().semantics { paneTitle = stamp }) {
-        Bar(stamp, back)
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = back) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cover_back), tint = Color.White) }
+            Text(stamp, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, style = Digits, modifier = Modifier.weight(1f).semantics { heading() })
+            val updateHint = stringResource(R.string.cover_detail_update_hint)
+            androidx.compose.material3.TextButton(
+                onClick = { select(pool.randomAlternative(pick)) }, enabled = pool.count >= 2,
+                modifier = Modifier.heightIn(min = 44.dp).semantics { onClick(label = updateHint) { select(pool.randomAlternative(pick)); true } },
+            ) {
+                Icon(Icons.Outlined.Refresh, null, Modifier.size(18.dp), tint = if (pool.count >= 2) Color.White else Secondary)
+                Text(stringResource(R.string.cover_update), color = if (pool.count >= 2) Color.White else Secondary, modifier = Modifier.padding(start = 6.dp))
+            }
+        }
         Box(Modifier.fillMaxSize(), Alignment.Center) {
-            Box(Modifier.aspectRatio(aspect.toFloat()).background(Stage)) {
-                (frame ?: thumbnail)?.let { picture ->
+            val swipeHint = stringResource(R.string.cover_detail_swipe_hint)
+            val later = stringResource(R.string.cover_detail_later)
+            val earlier = stringResource(R.string.cover_detail_earlier)
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            Box(
+                Modifier.aspectRatio(aspect.toFloat()).background(Stage)
+                    .pointerInput(pool) {
+                        var travel = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { travel = 0f; dragStart = pick },
+                            onDragEnd = { dragStart = null },
+                            onDragCancel = { dragStart = null },
+                        ) { change, amount ->
+                            change.consume()
+                            travel += amount
+                            val origin = dragStart ?: pick
+                            select(CoverPick.scrubbed(origin, with(density) { travel.toDp().value.toDouble() }, pool.count))
+                        }
+                    }
+                    .semantics {
+                        stateDescription = swipeHint
+                        customActions = listOf(
+                            CustomAccessibilityAction(later) { select(pick + 1); true },
+                            CustomAccessibilityAction(earlier) { select(pick - 1); true },
+                        )
+                    },
+            ) {
+                (frame ?: if (pick == initialPick) thumbnail else null)?.let { picture ->
                     val description = stringResource(R.string.cover_image)
                     val size = stringResource(R.string.cover_image_size, picture.width, picture.height)
                     Image(picture.asImageBitmap(), description, Modifier.fillMaxSize().semantics { stateDescription = size }, contentScale = ContentScale.Fit)
                 }
                 Row(Modifier.align(Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val file = jpeg
+                    val file = jpeg?.takeIf { it.first == sharePick }?.second
                     if (file != null && frame != null) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             val saved = stringResource(R.string.cover_saved)
@@ -250,7 +321,7 @@ private fun CoverDetail(project: Project, store: ProjectStore, frames: CoverFram
             if (failed) {
                 Column(Modifier.background(Color(0xF02C2C2E), RoundedCornerShape(12.dp)).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.cover_failed), color = Color.White)
-                    OutlinedButton(onClick = { failed = false; attempt += 1 }) { Text(stringResource(R.string.cover_try_again), color = Color.White) }
+                    OutlinedButton(onClick = { failed = false }) { Text(stringResource(R.string.cover_try_again), color = Color.White) }
                 }
             }
         }

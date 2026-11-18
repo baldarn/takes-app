@@ -27,7 +27,7 @@
     <string name="projects_recently_deleted">Eliminati di recente</string>
     <string name="projects_deleted_summary">%1$s · eliminato il %2$s</string>
     <string name="projects_over_30_days">Oltre 30 giorni</string>
-    <string name="projects_deleted_no_date">Data di eliminazione non disponibile · esclusa dalla pulizia complessiva</string>
+    <string name="projects_deleted_no_date">Data di eliminazione non disponibile</string>
     <string name="projects_expired_title">Eliminare i progetti più vecchi?</string>
     <plurals name="projects_expired_message">
         <item quantity="one">%1$d progetto è tra gli eliminati di recente da più di 30 giorni. Eliminarlo definitivamente, con le registrazioni originali, le modifiche e le esportazioni? Non si può annullare.</item>
@@ -126,7 +126,6 @@
     <string name="iphone_recording_run">La registrazione in un punto scelto finisce. Su iPhone la prossima ripresa va alla fine.</string>
     <string name="iphone_caption_regrouping">Su iPhone le parole dei sottotitoli si possono raggruppare di nuovo solo dopo una nuova trascrizione.</string>
     <string name="projects_delete_failed">Non è stato possibile eliminare il progetto: %1$s</string>
-    <string name="projects_open_zip">Apri uno ZIP di progetto</string>
     <string name="projects_unzipping">Apertura dello ZIP…</string>
     <string name="projects_unzipping_percent">Apertura dello ZIP… %1$d%%</string>
     <string name="projects_unzip_done">Il progetto dello ZIP è stato aggiunto ai tuoi progetti.</string>
@@ -959,7 +958,7 @@
     <string name="export_resume">Riprendi esportazione</string>
     <string name="export_discard">Elimina esportazione</string>
     <string name="export_audio_warning_title">L\'audio potrebbe distorcere</string>
-    <string name="export_audio_warning">I picchi superano il fondo scala di %1$s dB. Abbassa il Volume nell\'editor ed esporta di nuovo.</string>
+    <string name="export_audio_warning">L\'audio montato ha picchi %1$s dB sopra il fondo scala. Abbassa il volume delle clip interessate ed esporta di nuovo.</string>
     <string name="export_previous_stays">L\'esportazione precedente resta disponibile finché il nuovo filmato non è pronto.</string>
     <string name="export_previous_title">Esportazione precedente</string>
     <string name="export_previous_note">Questo filmato usa le modifiche e le impostazioni precedenti.</string>
@@ -1177,6 +1176,15 @@
     <string name="cover_preparing">Preparazione del JPEG a piena risoluzione</string>
     <string name="cover_failed">Impossibile caricare questo fotogramma</string>
     <string name="cover_try_again">Riprova</string>
+    <string name="frame_copy_copying">Copia del fotogramma…</string>
+    <string name="frame_copy_done">Fotogramma copiato</string>
+    <string name="frame_copy_failed">Impossibile copiare questo fotogramma</string>
+    <string name="frame_copy_action">Copia fotogramma</string>
+    <string name="frame_copy_label">Fotogramma</string>
+    <string name="cover_detail_swipe_hint">Scorri a sinistra per i fotogrammi successivi o a destra per quelli precedenti.</string>
+    <string name="cover_detail_update_hint">Mostra un altro fotogramma a caso dallo stesso intervallo.</string>
+    <string name="cover_detail_later">Fotogramma successivo</string>
+    <string name="cover_detail_earlier">Fotogramma precedente</string>
     <!-- Strumento Immagine: un'immagine sopra il video (YouRec/EditorTools.swift:1207-1254). -->
     <string name="image_tool">Immagine</string>
     <string name="image_add">Aggiungi immagine</string>
@@ -1194,4 +1202,26 @@
     <string name="image_opacity_label">Opacità dell\'immagine</string>
     <string name="image_across_label">Posizione orizzontale dell\'immagine</string>
     <string name="image_down_label">Posizione verticale dell\'immagine</string>
+    <string name="import_item_failed">Impossibile aggiungere l\'elemento %1$d di %2$d. %3$s</string>
+    <string name="import_item_unavailable">La galleria non ha fornito un file per questo elemento. Aprilo nella galleria per finire di scaricarlo, poi riprova. Puoi anche salvarlo in File e aggiungerlo da lì.</string>
+    <string name="import_item_unplayable">Potrebbe non essere un filmato o un\'immagine riproducibile.</string>
+    <string name="import_retry_selection">Riprova la selezione</string>
+    <string name="projects_import_create">Crea un nuovo progetto</string>
+    <string name="projects_import_photos">Da Foto</string>
+    <string name="projects_import_photos_detail">Seleziona foto e video nell\'ordine di riproduzione</string>
+    <string name="projects_import_video_files">Video da File</string>
+    <string name="projects_import_restore">Ripristina un progetto</string>
+    <string name="projects_import_zip">ZIP di progetto YouRec</string>
+    <string name="projects_import_zip_detail">Apri una copia con i suoi media e la cronologia delle modifiche</string>
+    <string name="projects_delete_all">Elimina tutto</string>
+    <string name="projects_delete_all_title">Svuotare Eliminati di recente?</string>
+    <string name="projects_delete_all_message">Elimina definitivamente i progetti in Eliminati di recente, con le registrazioni, le modifiche e le esportazioni. Non puoi annullare.</string>
+    <string name="projects_erase_all_failed">Impossibile eliminare tutti i progetti selezionati. %1$s</string>
+    <string name="add_media_files">Da File</string>
+    <string name="add_media_files_detail">Più file vengono aggiunti nell\'ordine dei nomi</string>
+    <plurals name="projects_delete_all_confirm">
+        <item quantity="one">Elimina %d progetto</item>
+        <item quantity="many">Elimina %d progetti</item>
+        <item quantity="other">Elimina %d progetti</item>
+    </plurals>
 </resources>

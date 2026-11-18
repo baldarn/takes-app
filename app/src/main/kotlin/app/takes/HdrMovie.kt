@@ -41,6 +41,41 @@ object HdrMovie {
         // SDR footage or an SDR color in an HLG picture, SDR white at HLG's; an HLG picture as SDR, held to SDR white.
         vec3 sdrToHlg(vec3 v) { return hlgEnc(BT709_TO_BT2020 * sdrLin(v)); }
         vec3 hlgToSdr(vec3 c) { return sdrEnc(clamp(BT2020_TO_BT709 * hlgLin(c), 0.0, 1.0)); }
+        // An HLG picture as SDR for a creative effect, its highlights tone-mapped rather than clipped (core's
+        // HdrToneMap.hlgToSdr, YouRec/VideoEffects/MetalVideoEffects.swift:206-221): display light from reference white
+        // by BT.2100's OOTF at 1000 nits, BT.2390's EETF from 1000/203 times reference white down to it, on the
+        // brightest channel with the same gain for all three, then BT.709's primaries and curve.
+        float pqOf(float nits) {
+            float y = pow(max(nits, 0.0) / 10000.0, 0.1593017578125);
+            return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), 78.84375);
+        }
+        float pqNits(float e) {
+            float p = pow(clamp(e, 0.0, 1.0), 1.0 / 78.84375);
+            return 10000.0 * pow(max(p - 0.8359375, 0.0) / (18.8515625 - 18.6875 * p), 1.0 / 0.1593017578125);
+        }
+        // PQ of the 1000-nit peak and of reference white's share of it (HdrToneMapTest checks them).
+        float eetf(float light) {
+            const float SOURCE_PEAK = 0.75182710;
+            const float MAX_LUM = 0.77237025;
+            const float KNEE = 1.5 * MAX_LUM - 0.5;
+            float e1 = pqOf(light * 203.0) / SOURCE_PEAK;
+            if (e1 < KNEE) return light;
+            if (e1 >= 1.0) return 1.0;
+            float t = (e1 - KNEE) / (1.0 - KNEE);
+            float t2 = t * t;
+            float t3 = t2 * t;
+            float e2 = (2.0 * t3 - 3.0 * t2 + 1.0) * KNEE + (t3 - 2.0 * t2 + t) * (1.0 - KNEE) + (-2.0 * t3 + 3.0 * t2) * MAX_LUM;
+            return pqNits(e2 * SOURCE_PEAK) / 203.0;
+        }
+        vec3 hlgToDisplaySdr(vec3 c) {
+            c = clamp(c, 0.0, 1.0);
+            vec3 scene = vec3(hlgLight(c.r), hlgLight(c.g), hlgLight(c.b));
+            float ys = dot(scene, vec3(0.2627, 0.6780, 0.0593));
+            vec3 light = ys > 0.0 ? scene * pow(ys, 0.2) * (1000.0 / 203.0) : vec3(0.0);
+            float brightest = max(light.r, max(light.g, light.b));
+            if (brightest > 0.0) light *= eetf(brightest) / brightest;
+            return sdrEnc(clamp(BT2020_TO_BT709 * light, 0.0, 1.0));
+        }
     """
 
     /**

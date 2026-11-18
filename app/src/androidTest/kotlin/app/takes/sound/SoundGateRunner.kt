@@ -163,7 +163,7 @@ class SoundGateRunner : Instrumentation() {
         val sound = MovieSound(TrackMix.plan(timeline), files)
         val length = duration ?: sound.duration(state.duration)
         val wav = File(folder, "mix.wav")
-        sound.write(length, wav, {}) {}
+        sound.write(length, wav, emptyList(), {}) {}
         return readWav(wav) to tapped(mixedSound(wav), File(folder, "engine.mp4"))
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.AlertDialog
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.takes.core.VideoInsertionSite
 
 /**
@@ -30,6 +32,7 @@ import app.takes.core.VideoInsertionSite
 internal fun AddVideoDialog(
     site: VideoInsertionSite?, at: String, unusedCount: Int,
     pasteHere: (() -> Unit)?, recordHere: () -> Unit, phone: () -> Unit, unused: () -> Unit, dismiss: () -> Unit,
+    files: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = dismiss,
@@ -59,6 +62,16 @@ internal fun AddVideoDialog(
                 TextButton(onClick = phone) {
                     Icon(Icons.Outlined.PhotoLibrary, null, Modifier.size(18.dp))
                     Text(stringResource(R.string.add_media_phone), Modifier.padding(start = 8.dp))
+                }
+                // From Files, several added in the order of their names (AddVideoPanel.swift:50-55, 107-116).
+                files?.let {
+                    TextButton(onClick = it) {
+                        Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp))
+                        Column(Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.add_media_files))
+                            Text(stringResource(R.string.add_media_files_detail), fontSize = 12.sp)
+                        }
+                    }
                 }
                 if (unusedCount > 0) TextButton(onClick = unused) {
                     Icon(Icons.Outlined.VideoLibrary, null, Modifier.size(18.dp))

@@ -59,6 +59,33 @@ class RecordingGain {
         const val MAXIMUM_DB = 12.0
         const val RAMP_SECONDS = 0.020
 
+        /** While the slider is dragged, a gain this close to 0 dB is 0 dB (YouRec/RecorderView.swift:1584-1586). */
+        const val SNAP_DB = 1.0
+
+        /** The accessibility step of the slider, as its grid (RecorderView.swift:1568-1571). */
+        const val STEP_DB = 0.5
+
+        /** What the caption under the gain says (RecorderView.swift:1563). */
+        enum class Level { Original, Reduced, Boosted }
+
+        fun level(db: Double): Level = when {
+            db == 0.0 -> Level.Original
+            db < 0 -> Level.Reduced
+            else -> Level.Boosted
+        }
+
+        /**
+         * The gain a drag of the slider to [proposed] gives: on the grid, and 0 dB within [SNAP_DB] of it
+         * (RecorderView.swift:1581-1589).
+         */
+        fun dragged(proposed: Double): Double {
+            val value = normalized(proposed)
+            return if (kotlin.math.abs(value) <= SNAP_DB) 0.0 else value
+        }
+
+        /** The gain one accessibility step up ([up]) or down from [db] gives, with no snap (RecorderView.swift:1568-1571). */
+        fun stepped(db: Double, up: Boolean): Double = normalized(db + if (up) STEP_DB else -STEP_DB)
+
         /** On the half-decibel grid within range; anything not finite is 0 dB. */
         fun normalized(db: Double): Double =
             if (db.isFinite()) min(MAXIMUM_DB, max(MINIMUM_DB, roundedAwayFromZero(db * 2) / 2)) else 0.0
