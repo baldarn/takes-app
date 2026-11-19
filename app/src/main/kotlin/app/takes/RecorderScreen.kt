@@ -615,7 +615,7 @@ private fun CameraStrip(
                 capture.cameras.forEach { choice ->
                     DropdownMenuItem(
                         // A camera without 4K records 1080p while 4K is chosen, and says so.
-                        { Text(if (capture.settings.ultraHD && !choice.offers.ultraHD) stringResource(R.string.recorder_camera_1080_only, choice.label) else choice.label) },
+                        { Text(if (capture.settings.ultraHD && !capture.formatFor(choice).ultraHD) stringResource(R.string.recorder_camera_1080_only, choice.label) else choice.label) },
                         { choosing = false; switchCamera(choice.id, false) },
                         leadingIcon = { Icon(if (choice.id == capture.cameraID) Icons.Filled.Check else Icons.Filled.PhotoCamera, null) },
                         modifier = Modifier.semantics { selected = choice.id == capture.cameraID },

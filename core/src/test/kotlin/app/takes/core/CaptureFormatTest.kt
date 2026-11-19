@@ -109,4 +109,47 @@ class CaptureFormatTest {
         assertEquals(1, CaptureFormat.attempts(CaptureFormat.of(Wish(), flagship)).size)
         assertEquals(2, CaptureFormat.attempts(CaptureFormat.of(Wish(hdr = true), flagship)).size)
     }
+
+    // 60 frames a second, the port's own (issue 161): a rear camera with 4K at 60, a front one with 1080p at 60 only.
+    private val rearSixty = flagship.copy(sixty = setOf(FrameSize.UHD, FrameSize.FHD))
+    private val frontSixty = flagship.copy(sixty = setOf(FrameSize.FHD))
+
+    @Test fun sixtyIsRecordedWhereTheCameraHasItAtTheSizeAsked() {
+        val uhd = CaptureFormat.of(Wish(ultraHD = true, sixty = true), rearSixty)
+        assertEquals(FrameSize.UHD, uhd.size)
+        assertEquals(60, uhd.framesPerSecond)
+        assertTrue(uhd.fixedRate)
+        assertEquals(99_532_800, uhd.bitRate)
+        val fhd = CaptureFormat.of(Wish(sixty = true), rearSixty)
+        assertEquals(FrameSize.FHD, fhd.size)
+        assertEquals(60, fhd.framesPerSecond)
+        assertEquals(24_883_200, fhd.bitRate)
+    }
+
+    @Test fun fourKAtSixtyKeepsSixtyAt1080pOnACameraWithoutIt() {
+        val format = CaptureFormat.of(Wish(ultraHD = true, sixty = true), frontSixty)
+        assertEquals(FrameSize.FHD, format.size)
+        assertFalse(format.ultraHD)
+        assertEquals(60, format.framesPerSecond)
+    }
+
+    @Test fun aCameraWithoutSixtyRecordsTheSizeAskedAtThirty() {
+        val format = CaptureFormat.of(Wish(ultraHD = true, sixty = true), flagship)
+        assertEquals(FrameSize.UHD, format.size)
+        assertEquals(30, format.framesPerSecond)
+        assertEquals(CaptureFormat.of(Wish(ultraHD = true), flagship), format)
+        assertEquals(30, CaptureFormat.of(Wish(ultraHD = true), rearSixty).framesPerSecond)
+    }
+
+    @Test fun aRefusedSixtyIsTriedAgainAtThirtyAtTheSizeAsked() {
+        val wish = Wish(ultraHD = true, hdr = true, stabilization = true, sixty = true)
+        val format = CaptureFormat.of(wish, frontSixty)
+        val tries = CaptureFormat.attempts(format, CaptureFormat.of(wish.copy(sixty = false), frontSixty))
+        assertEquals(listOf(60, 60, 60, 60, 30, 30, 30, 30), tries.map { it.framesPerSecond })
+        assertEquals(FrameSize.UHD, tries[4].size)
+        assertEquals(49_766_400, tries[4].bitRate)
+        // At 30 already, the tries are as before.
+        val thirty = CaptureFormat.of(Wish(ultraHD = true), flagship)
+        assertEquals(CaptureFormat.attempts(thirty), CaptureFormat.attempts(thirty, thirty))
+    }
 }

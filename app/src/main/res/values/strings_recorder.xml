@@ -112,6 +112,9 @@
     <string name="recorder_settings_quality">Recording quality</string>
     <string name="recorder_quality_1080">1080p · 30 fps</string>
     <string name="recorder_quality_4k">4K · 30 fps</string>
+    <string name="recorder_quality_1080_60">1080p · 60 fps</string>
+    <string name="recorder_quality_4k_60">4K · 60 fps</string>
+    <string name="recorder_quality_note_records">The camera in use records %1$s. Quality stays fixed until Stop.</string>
     <string name="recorder_quality_note">4K uses more storage and power. Quality stays fixed until Stop.</string>
     <string name="recorder_quality_note_camera">The camera in use has no 4K and records 1080p. Quality stays fixed until Stop.</string>
     <!-- Front light: a ring of light at the edge of the recorder, its tile and its controls. -->

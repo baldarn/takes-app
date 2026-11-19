@@ -53,6 +53,9 @@ class RecorderSettings(private val prefs: SharedPreferences) {
     /** Record in 4K where the camera has it (the original's `captureQuality`); 1080p until chosen. */
     var ultraHD: Boolean by flag("captureUltraHD", false)
 
+    /** Record at 60 frames a second where the camera has it, the port's own (issue 161); 30 until chosen. */
+    var sixty: Boolean by flag("captureSixty", false)
+
     /** Record HDR, as HLG 10 bit, where the camera has it (the original's `captureHDR`). Off until chosen: the export is SDR. */
     var hdr: Boolean by flag("captureHDR", false)
 

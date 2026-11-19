@@ -10,6 +10,10 @@ package app.takes.core
  * (YouRec/CaptureSegmentWriter.swift:225), 30 frames per second
  * (CaptureController.swift:1672-1675), the defaults of the two mirror
  * switches (CaptureController.swift:131-140).
+ *
+ * 60 frames a second is the port's own, asked for in issue 161: the original
+ * records at 30 only. Where the camera in use has no 60 at the size asked for,
+ * the take keeps 60 at 1080p when the camera has that, else records at 30.
  */
 data class CaptureFormat(
     /** The frame size the take is written in, among [Camera.sizes]; null when the camera lists none. */
@@ -19,8 +23,10 @@ data class CaptureFormat(
     /** Recorded as HLG, 10 bit. */
     val hdr: Boolean,
     val stabilization: Stabilization,
-    /** The frame rate is set to exactly 30; where the camera has no such rate it chooses its own. */
+    /** The frame rate is set to exactly [framesPerSecond]; where the camera has no such rate it chooses its own. */
     val fixedRate: Boolean,
+    /** 30, or 60 where it is asked for and the camera records it at [size]. */
+    val framesPerSecond: Int = FRAMES_PER_SECOND,
     /** Bits per second asked of the encoder; null leaves it to the encoder. */
     val bitRate: Int?,
 ) {
@@ -39,6 +45,8 @@ data class CaptureFormat(
         val recordingStabilization: Boolean = false,
         /** It lists a frame rate of exactly 30. */
         val thirty: Boolean = false,
+        /** The sizes it records at exactly 60 frames a second, in SDR. */
+        val sixty: Set<FrameSize> = emptySet(),
     ) {
         val ultraHD: Boolean get() = FrameSize.UHD in sizes
         val hdr: Boolean get() = hdrSizes.isNotEmpty()
@@ -48,17 +56,19 @@ data class CaptureFormat(
     data class Pixels(val width: Int, val height: Int)
 
     /** What the person chose. */
-    data class Wish(val ultraHD: Boolean = false, val hdr: Boolean = false, val stabilization: Boolean = false)
+    data class Wish(val ultraHD: Boolean = false, val hdr: Boolean = false, val stabilization: Boolean = false, val sixty: Boolean = false)
 
     companion object {
         /** Bits per second for each pixel of the frame, at 30 frames per second (CaptureSegmentWriter.swift:225). */
         const val BITS_PER_PIXEL = 6
 
         const val FRAMES_PER_SECOND = 30
+        const val HIGH_FRAMES_PER_SECOND = 60
 
-        /** 12.4 Mbit/s at 1080p, 49.8 at 4K. */
-        fun bitRate(width: Int, height: Int): Int? =
-            (width.toLong() * height * BITS_PER_PIXEL).takeIf { width > 0 && height > 0 && it <= Int.MAX_VALUE }?.toInt()
+        /** 12.4 Mbit/s at 1080p, 49.8 at 4K; twice that at 60 frames a second, as many bits for each frame. */
+        fun bitRate(width: Int, height: Int, framesPerSecond: Int = FRAMES_PER_SECOND): Int? =
+            (width.toLong() * height * BITS_PER_PIXEL * framesPerSecond / FRAMES_PER_SECOND)
+                .takeIf { width > 0 && height > 0 && it <= Int.MAX_VALUE }?.toInt()
 
         /**
          * The size a take is written in: 4K where it is asked for and the
@@ -72,7 +82,15 @@ data class CaptureFormat(
 
         /** The format [camera] records with when the person asks for [wish]. */
         fun of(wish: Wish, camera: Camera): CaptureFormat {
-            val size = size(wish.ultraHD, camera.sizes.keys)
+            val asked = size(wish.ultraHD, camera.sizes.keys)
+            // 60 at the size asked for, else 60 at 1080p, else 30 at the size asked for.
+            val sixtyAt = when {
+                !wish.sixty -> null
+                asked != null && asked in camera.sixty -> asked
+                FrameSize.FHD in camera.sixty && FrameSize.FHD in camera.sizes -> FrameSize.FHD
+                else -> null
+            }
+            val size = sixtyAt ?: asked
             // HDR only in a size the camera also records as HDR: the quality comes first, as in the original.
             val hdr = wish.hdr && size != null && size in camera.hdrSizes
             val pixels = camera.sizes[size]
@@ -86,8 +104,9 @@ data class CaptureFormat(
                     camera.recordingStabilization -> Stabilization.RecordingOnly
                     else -> Stabilization.Off
                 },
-                fixedRate = camera.thirty,
-                bitRate = pixels?.let { bitRate(it.width, it.height) },
+                fixedRate = sixtyAt != null || camera.thirty,
+                framesPerSecond = if (sixtyAt != null) HIGH_FRAMES_PER_SECOND else FRAMES_PER_SECOND,
+                bitRate = pixels?.let { bitRate(it.width, it.height, if (sixtyAt != null) HIGH_FRAMES_PER_SECOND else FRAMES_PER_SECOND) },
             )
         }
 
@@ -95,13 +114,17 @@ data class CaptureFormat(
          * What to try when the camera refuses a format it said it had, most
          * wanted first: the format, then without HDR, then without
          * stabilisation, then with neither. Formats that are the same are
-         * tried once.
+         * tried once. A format at 60 frames a second is followed by the
+         * same tries of [atThirty], what the wish gives without 60.
          */
-        fun attempts(format: CaptureFormat): List<CaptureFormat> = listOf(
-            format,
-            format.copy(hdr = false),
-            format.copy(stabilization = Stabilization.Off),
-            format.copy(hdr = false, stabilization = Stabilization.Off),
-        ).distinct()
+        fun attempts(format: CaptureFormat, atThirty: CaptureFormat? = null): List<CaptureFormat> {
+            fun each(f: CaptureFormat) = listOf(
+                f,
+                f.copy(hdr = false),
+                f.copy(stabilization = Stabilization.Off),
+                f.copy(hdr = false, stabilization = Stabilization.Off),
+            )
+            return (each(format) + (atThirty?.let(::each) ?: emptyList())).distinct()
+        }
     }
 }

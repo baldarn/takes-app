@@ -468,15 +468,36 @@ class CaptureController(private val context: Context, private val store: Project
             previewStabilization = runCatching { Preview.getPreviewCapabilities(info).isStabilizationSupported }.getOrDefault(false),
             recordingStabilization = runCatching { video?.isStabilizationSupported }.getOrNull() == true,
             thirty = runCatching { info.supportedFrameRateRanges.contains(THIRTY) }.getOrDefault(false),
+            sixty = sixtySizes(info, sdr),
         )
     }
 
-    private val current: CameraChoice? get() = cameras.firstOrNull { it.id == cameraID }
+    /**
+     * The sizes [info] records at exactly 60 frames a second: the camera lists 60 as a rate and streams the size's
+     * pixels a frame every 1/60 s or faster. Binding checks the rest, and a refused 60 falls back to 30.
+     */
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun sixtySizes(info: CameraInfo, sizes: Map<CaptureFormat.FrameSize, CaptureFormat.Pixels>): Set<CaptureFormat.FrameSize> = runCatching {
+        if (!info.supportedFrameRateRanges.contains(SIXTY)) return@runCatching emptySet()
+        val map = Camera2CameraInfo.from(info).getCameraCharacteristic(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return@runCatching emptySet()
+        sizes.filterValues { pixels ->
+            runCatching { map.getOutputMinFrameDuration(android.graphics.SurfaceTexture::class.java, android.util.Size(pixels.width, pixels.height)) }
+                .getOrDefault(0L) in 1L..SIXTIETH_NANOS
+        }.keys
+    }.getOrDefault(emptySet())
+
+    val current: CameraChoice? get() = cameras.firstOrNull { it.id == cameraID }
 
     /** What the camera in use offers; nothing while no camera is bound. */
     val offers: CaptureFormat.Camera get() = current?.offers ?: CaptureFormat.Camera()
     /** A control of the picture format is shown only where a camera of this phone has what it sets. */
     val offersUltraHD: Boolean get() = cameras.any { it.offers.ultraHD }
+    val offersSixty: Boolean get() = cameras.any { it.offers.sixty.isNotEmpty() }
+    val offersUltraHDSixty: Boolean get() = cameras.any { CaptureFormat.FrameSize.UHD in it.offers.sixty }
+
+    /** The format [choice] records a take with as the settings stand, one camera alone. */
+    fun formatFor(choice: CameraChoice): CaptureFormat =
+        CaptureFormat.of(CaptureFormat.Wish(settings.ultraHD, false, false, settings.sixty), choice.offers)
     val offersHDR: Boolean get() = cameras.any { it.offers.hdr }
     val offersStabilization: Boolean get() = cameras.any { it.offers.stabilization }
     val hasFrontCamera: Boolean get() = cameras.any { it.front }
@@ -486,7 +507,14 @@ class CaptureController(private val context: Context, private val store: Project
     /** The quality and the mirroring of the saved picture stay fixed from the first Record to Stop, as in the original. */
     val canChangeTake: Boolean get() = ready && phase == Phase.Idle
 
-    fun chooseUltraHD(on: Boolean) { if (canChangeTake && settings.ultraHD != on) { settings.ultraHD = on; rebind() } }
+    fun chooseUltraHD(on: Boolean) = chooseQuality(on, settings.sixty)
+    /** 1080p or 4K, at 30 or 60 frames a second; fixed from the first Record to Stop. */
+    fun chooseQuality(ultraHD: Boolean, sixty: Boolean) {
+        if (!canChangeTake || (settings.ultraHD == ultraHD && settings.sixty == sixty)) return
+        settings.ultraHD = ultraHD
+        settings.sixty = sixty
+        rebind()
+    }
     fun chooseHDR(on: Boolean) { if (canChangeFormat && settings.hdr != on) { settings.hdr = on; rebind() } }
     fun chooseStabilization(on: Boolean) { if (canChangeFormat && settings.stabilization != on) { settings.stabilization = on; rebind() } }
     fun chooseMirrorPreview(on: Boolean) { if (canChangeFormat && settings.mirrorPreview != on) { settings.mirrorPreview = on; rebind() } }
@@ -519,7 +547,7 @@ class CaptureController(private val context: Context, private val store: Project
             // Saved as the scene is, so that writing stays readable, unless the person asked for mirrored selfies.
             .setMirrorMode(if (mirrors && settings.mirrorRecording) MirrorMode.MIRROR_MODE_ON_FRONT_ONLY else MirrorMode.MIRROR_MODE_OFF)
             .apply {
-                if (format.fixedRate) setTargetFrameRate(THIRTY)
+                if (format.fixedRate) setTargetFrameRate(Range(format.framesPerSecond, format.framesPerSecond))
                 if (format.hdr) setDynamicRange(DynamicRange.HLG_10_BIT)
                 if (format.stabilization == CaptureFormat.Stabilization.RecordingOnly) setVideoStabilizationEnabled(true)
             }
@@ -581,11 +609,13 @@ class CaptureController(private val context: Context, private val store: Project
         val effects = if (writing) cases.effects else assistTargets(choice)
         // The pass over the frames draws 8 bits a colour: a take it changes is recorded in SDR.
         val hdr = settings.hdr && effects and CameraEffect.VIDEO_CAPTURE == 0
-        val wanted = CaptureFormat.of(CaptureFormat.Wish(settings.ultraHD, hdr, settings.stabilization), choice.offers)
+        val wish = CaptureFormat.Wish(settings.ultraHD, hdr, settings.stabilization, settings.sixty)
+        val wanted = CaptureFormat.of(wish, choice.offers)
+        val atThirty = CaptureFormat.of(wish.copy(sixty = false), choice.offers)
         var bound: Camera? = null
         // Without the assists as a last resort: the camera that refuses them still records.
-        val tries = if (writing) listOf(format to effects) else CaptureFormat.attempts(wanted).map { it to effects } +
-            if (effects != 0) CaptureFormat.attempts(wanted).take(1).map { it to 0 } else emptyList()
+        val tries = if (writing) listOf(format to effects) else CaptureFormat.attempts(wanted, atThirty).map { it to effects } +
+            if (effects != 0) CaptureFormat.attempts(wanted, atThirty).take(1).map { it to 0 } else emptyList()
         for ((attempt, assists) in tries) {
             if (!writing) {
                 cases = build(attempt, cases.video.targetRotation, assists)
@@ -2270,6 +2300,9 @@ class CaptureController(private val context: Context, private val store: Project
         const val ORIGINAL_AUDIO_BITRATE = 192_000
         /** Thirty frames per second, exactly, as the original sets it. */
         val THIRTY = Range(CaptureFormat.FRAMES_PER_SECOND, CaptureFormat.FRAMES_PER_SECOND)
+        val SIXTY = Range(CaptureFormat.HIGH_FRAMES_PER_SECOND, CaptureFormat.HIGH_FRAMES_PER_SECOND)
+        /** 1/60 s with a little room for a camera that rounds it up. */
+        const val SIXTIETH_NANOS = 16_700_000L
         val FRAME_SIZES = mapOf(
             CaptureFormat.FrameSize.UHD to Quality.UHD, CaptureFormat.FrameSize.FHD to Quality.FHD,
             CaptureFormat.FrameSize.HD to Quality.HD, CaptureFormat.FrameSize.SD to Quality.SD,

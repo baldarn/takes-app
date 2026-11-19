@@ -446,12 +446,31 @@ private fun MoreSettings(capture: CaptureController, project: Project?) {
                 }
             }
         }
-        if (capture.offersUltraHD) {
+        if (capture.offersUltraHD || capture.offersSixty) {
             SettingsSection(stringResource(R.string.recorder_settings_quality)) {
-                ChoiceRow(stringResource(R.string.recorder_quality_1080), !settings.ultraHD, capture.canChangeTake && !capture.dualActive) { capture.chooseUltraHD(false) }
-                ChoiceRow(stringResource(R.string.recorder_quality_4k), settings.ultraHD, capture.canChangeTake && !capture.dualActive) { capture.chooseUltraHD(true) }
+                val can = capture.canChangeTake && !capture.dualActive
+                // 60 frames a second where a camera of the phone has it, the port's own (issue 161).
+                ChoiceRow(stringResource(R.string.recorder_quality_1080), !settings.ultraHD && !settings.sixty, can) { capture.chooseQuality(false, false) }
+                if (capture.offersSixty) ChoiceRow(stringResource(R.string.recorder_quality_1080_60), !settings.ultraHD && settings.sixty, can) { capture.chooseQuality(false, true) }
+                if (capture.offersUltraHD) ChoiceRow(stringResource(R.string.recorder_quality_4k), settings.ultraHD && !settings.sixty, can) { capture.chooseQuality(true, false) }
+                if (capture.offersUltraHDSixty) ChoiceRow(stringResource(R.string.recorder_quality_4k_60), settings.ultraHD && settings.sixty, can) { capture.chooseQuality(true, true) }
+                // What the camera in use records where it lacks what was chosen.
+                val records = capture.current?.let(capture::formatFor)
+                val wantedSixty = settings.sixty && records != null && records.framesPerSecond != CaptureFormat.HIGH_FRAMES_PER_SECOND
+                val stepped = records != null && settings.ultraHD && !records.ultraHD
                 SettingsRow {
-                    SettingsNote(stringResource(if (settings.ultraHD && !capture.offers.ultraHD) R.string.recorder_quality_note_camera else R.string.recorder_quality_note))
+                    SettingsNote(when {
+                        records != null && (wantedSixty || (stepped && settings.sixty)) -> stringResource(
+                            R.string.recorder_quality_note_records,
+                            stringResource(when {
+                                records.ultraHD -> R.string.recorder_quality_4k
+                                records.framesPerSecond == CaptureFormat.HIGH_FRAMES_PER_SECOND -> R.string.recorder_quality_1080_60
+                                else -> R.string.recorder_quality_1080
+                            }),
+                        )
+                        stepped -> stringResource(R.string.recorder_quality_note_camera)
+                        else -> stringResource(R.string.recorder_quality_note)
+                    })
                 }
             }
         }
