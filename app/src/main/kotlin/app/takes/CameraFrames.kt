@@ -26,6 +26,7 @@ import androidx.core.os.HandlerCompat
 import app.takes.core.Affine
 import app.takes.core.CrashLook
 import app.takes.core.DualCameraControls
+import app.takes.core.StreamTransform
 import app.takes.core.DualCameraLayout
 import app.takes.core.DualCameraMasks
 import app.takes.core.FaceDetection
@@ -801,6 +802,9 @@ class CameraFrames(context: Context) {
         private val stamps = LongArray(2)
         private var host = 0
         private val hostMatrix = FloatArray(16)
+        private val guestMatrix = FloatArray(16)
+        // The host camera's orientation without its crop, which each feed's frame has been drawn through as it came.
+        private var hostOrientation = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
         private val outputMatrix = FloatArray(16)
 
         private inner class Output(val output: SurfaceOutput, val surface: EGLSurface, val video: Boolean)
@@ -879,9 +883,10 @@ class CameraFrames(context: Context) {
                     if (surfaceTexture !== inputs[feed]) return@attach
                     EGL14.eglMakeCurrent(preview.display, preview.idle, preview.idle, preview.eglContext)
                     surfaceTexture.updateTexImage()
+                    surfaceTexture.getTransformMatrix(guestMatrix)
                     stamps[feed] = surfaceTexture.timestamp
                     guestFrames++
-                    keep(feed)
+                    keep(feed, guestMatrix)
                 }
             }
         }
@@ -955,15 +960,18 @@ class CameraFrames(context: Context) {
         private val keptStamps = Array(2) { LongArray(2) }
         private val keptNext = IntArray(2)
 
-        /** Copies the frame [feed]'s texture holds now. */
-        private fun keep(feed: Int) {
+        /**
+         * Copies the frame [feed]'s texture holds now, through this frame's crop in its texture transform [matrix]: a
+         * camera that steadies its picture by moving the crop moves it at each frame, and each camera has its own.
+         */
+        private fun keep(feed: Int, matrix: FloatArray) {
             val slot = keptNext[feed]
             keptNext[feed] = 1 - slot
             val target = kept[feed][slot]
             target.size(sizes[feed].width, sizes[feed].height)
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, target.frameBuffer)
             GLES20.glViewport(0, 0, target.width, target.height)
-            feed(textures[feed], Affine.IDENTITY)
+            feed(textures[feed], StreamTransform.crop(matrix))
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             keptStamps[feed][slot] = stamps[feed]
         }
@@ -985,7 +993,8 @@ class CameraFrames(context: Context) {
             val previous = 1 - keptNext[host]
             val ready = keptStamps[host][previous] != 0L
             val hostSlot = previous
-            keep(host)
+            keep(host, hostMatrix)
+            hostOrientation = StreamTransform.orientation(hostMatrix)
             if (ready) composeFrame(hostSlot)
         }
 
@@ -1061,7 +1070,7 @@ class CameraFrames(context: Context) {
             for (output in outputs.toList()) {
                 if (!EGL14.eglMakeCurrent(display, output.surface, output.surface, preview.eglContext)) continue
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-                output.output.updateTransformMatrix(outputMatrix, hostMatrix)
+                output.output.updateTransformMatrix(outputMatrix, hostOrientation)
                 GLES20.glViewport(0, 0, output.output.size.width, output.output.size.height)
                 val texture = when {
                     output.video -> recorded.texture
