@@ -24,8 +24,8 @@ android {
         applicationId = "app.takes"
         minSdk = 26
         targetSdk = 36
-        versionCode = 22
-        versionName = "0.18"
+        versionCode = 23
+        versionName = "0.19"
         // The pixel tests' runner; the sound gate's is declared beside it in the test manifest.
         testInstrumentationRunner = "app.takes.pixels.TransitionPixelRunner"
     }
