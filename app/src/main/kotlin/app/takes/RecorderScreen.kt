@@ -248,10 +248,18 @@ fun RecorderScreen(capture: CaptureController, store: ProjectStore, openEditor: 
         onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
     }
     // The volume keys press Crash Zoom while it is on, as the original's capture event interaction (CaptureController.swift:3214-3220).
+    // Otherwise either volume key, as a selfie stick's remote sends it, presses the big button: it starts a take, stops
+    // the segment being written and resumes a paused one; the original leaves the keys to the volume there.
     DisposableEffect(activity) {
         val main = activity as? MainActivity
-        main?.cameraKeys = { capture.crashAvailable && capture.ready }
-        main?.cameraKeyPressed = { if (capture.triggerCrashZoom()) view.tick() }
+        main?.cameraKeys = { capture.ready && (capture.crashAvailable || capture.phase != Phase.Saving) }
+        main?.cameraKeyPressed = {
+            when {
+                capture.crashAvailable -> if (capture.triggerCrashZoom()) view.tick()
+                capture.phase == Phase.Recording -> capture.finishTake()
+                capture.phase != Phase.Saving -> capture.record()
+            }
+        }
         onDispose { main?.cameraKeys = null; main?.cameraKeyPressed = null }
     }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE

@@ -67,7 +67,8 @@ fun timeLabel(seconds: Double): String {
 class MainActivity : ComponentActivity() {
     /**
      * While it returns true, the volume keys and a camera key press the recorder's Crash Zoom when they are let go,
-     * as the original's capture event interaction (CaptureController.swift:3214-3220); the volume is not changed then.
+     * as the original's capture event interaction (CaptureController.swift:3214-3220), or else its big button, for a
+     * selfie stick's remote; the volume is not changed then.
      */
     var cameraKeys: (() -> Boolean)? = null
     var cameraKeyPressed: (() -> Unit)? = null
