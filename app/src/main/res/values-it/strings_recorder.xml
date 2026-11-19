@@ -90,6 +90,7 @@
     <string name="recorder_stabilize_active">Camera stabilizzata</string>
     <string name="recorder_stabilize_inactive">Stabilizzazione non attiva</string>
     <string name="recorder_stabilize_unavailable">Stabilizzazione non disponibile per questa camera</string>
+    <string name="recorder_stabilize_unavailable_format">Stabilizzazione non disponibile per questo formato della camera</string>
     <string name="recorder_stabilize_both">Entrambe le camere stabilizzate</string>
     <string name="recorder_stabilize_one">Solo %1$s · l\'altra camera non la supporta</string>
     <string name="recorder_stabilize_pair_unavailable">Stabilizzazione non disponibile per questa coppia di camere</string>

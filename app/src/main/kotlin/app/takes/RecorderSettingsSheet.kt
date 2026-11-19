@@ -181,6 +181,8 @@ private fun QuickSettings(capture: CaptureController, frontLight: Boolean, setFr
                 dual && steadied!!.size == 1 -> stringResource(R.string.recorder_stabilize_one, steadied.first())
                 dual -> stringResource(R.string.recorder_stabilize_pair_unavailable)
                 !capture.offers.stabilization -> stringResource(R.string.recorder_stabilize_unavailable)
+                // Asked for and left out by the format, as 4K on a camera that steadies only smaller pictures.
+                capture.settings.stabilization && !on -> stringResource(R.string.recorder_stabilize_unavailable_format)
                 on -> stringResource(R.string.recorder_stabilize_active)
                 else -> stringResource(R.string.recorder_stabilize_inactive)
             }

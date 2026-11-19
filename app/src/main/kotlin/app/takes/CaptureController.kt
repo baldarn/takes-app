@@ -522,6 +522,10 @@ class CaptureController(private val context: Context, private val store: Project
 
     private fun rebind() { (target ?: current)?.let(::bind) }
 
+    /** The recording is bound at 4K, or its size is not known yet. */
+    private fun recordsUltraHD(): Boolean =
+        cases.video.resolutionInfo?.resolution?.let { minOf(it.width, it.height) >= ULTRA_HD_SHORT_SIDE } ?: true
+
     /**
      * The preview and the recording for [format]. Each part of the format was asked of the camera before
      * (see [offers]), so nothing here is requested from a camera that does not have it.
@@ -613,6 +617,8 @@ class CaptureController(private val context: Context, private val store: Project
         val wanted = CaptureFormat.of(wish, choice.offers)
         val atThirty = CaptureFormat.of(wish.copy(sixty = false), choice.offers)
         var bound: Camera? = null
+        // Stabilisation was left out because the camera steadies no 4K picture: the quality comes first, as in the original.
+        var steadiedNoUltraHD = false
         // Without the assists as a last resort: the camera that refuses them still records.
         val tries = if (writing) listOf(format to effects) else CaptureFormat.attempts(wanted, atThirty).map { it to effects } +
             if (effects != 0) CaptureFormat.attempts(wanted, atThirty).take(1).map { it to 0 } else emptyList()
@@ -630,6 +636,14 @@ class CaptureController(private val context: Context, private val store: Project
             } catch (_: Exception) {
                 provider.unbindAll()
                 null
+            }
+            // A camera that steadies no 4K picture is bound by the library at a smaller size, the bit rate still 4K's.
+            // The original keeps the quality and leaves stabilisation off (CaptureController.swift:80-83, 886-894).
+            if (bound != null && !writing && attempt.ultraHD && attempt.stabilization != CaptureFormat.Stabilization.Off && !recordsUltraHD()) {
+                provider.unbindAll()
+                bound = null
+                steadiedNoUltraHD = true
+                continue
             }
             if (bound != null) break
         }
@@ -649,7 +663,9 @@ class CaptureController(private val context: Context, private val store: Project
             return
         }
         // The camera said it could and then refused: the take is recorded without, and the person is told.
-        if (!writing && format != wanted) message = context.getString(R.string.recorder_format_reduced)
+        if (!writing && format != wanted && !(steadiedNoUltraHD && format == wanted.copy(stabilization = CaptureFormat.Stabilization.Off))) {
+            message = context.getString(R.string.recorder_format_reduced)
+        }
         camera = bound
         // A camera set up afresh has no subject chosen yet, as in the original (CaptureController.swift:1760).
         subjectPoint = null
@@ -2303,6 +2319,7 @@ class CaptureController(private val context: Context, private val store: Project
         val SIXTY = Range(CaptureFormat.HIGH_FRAMES_PER_SECOND, CaptureFormat.HIGH_FRAMES_PER_SECOND)
         /** 1/60 s with a little room for a camera that rounds it up. */
         const val SIXTIETH_NANOS = 16_700_000L
+        const val ULTRA_HD_SHORT_SIDE = 2160
         val FRAME_SIZES = mapOf(
             CaptureFormat.FrameSize.UHD to Quality.UHD, CaptureFormat.FrameSize.FHD to Quality.FHD,
             CaptureFormat.FrameSize.HD to Quality.HD, CaptureFormat.FrameSize.SD to Quality.SD,
