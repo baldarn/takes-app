@@ -123,7 +123,21 @@ jobs:
 
       # Built before the emulator starts, so that the emulator only installs and runs them.
       - name: Build the debug build and its test build
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/pixel-build.log"
+          set +e
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest 2>&1 | tee "$log"
+          build_status=${PIPESTATUS[0]}
+          set -e
+          if [[ $build_status -eq 0 ]]; then
+            exit 0
+          fi
+          if ! grep -Eq 'Could not (find|GET|HEAD|resolve)' "$log"; then
+            exit 1
+          fi
+          echo "Dependency resolution failed; refreshing dependencies and retrying once."
+          ./gradlew --refresh-dependencies :app:assembleDebug :app:assembleDebugAndroidTest
 
       # The emulator needs hardware acceleration, which ubuntu runners give through /dev/kvm.
       - name: Enable KVM
